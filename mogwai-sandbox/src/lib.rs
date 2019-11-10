@@ -33,7 +33,7 @@ pub fn main() -> Result<(), JsValue> {
   //        references to dynamic markup for later updates
   //let mut dyn_color:Dynamic<String> =
   //  Dynamic::new("red".into());
-  let app:Gizmo = {
+  let mut app:Gizmo = {
     let mut h1:Gizmo =
       h1()
       .id("header")
@@ -47,7 +47,7 @@ pub fn main() -> Result<(), JsValue> {
       .build();
 
     let click:Event<()> =
-      button.on_click();
+      button.on("click");
 
     let dyn_color:Dynamic<String> =
       click
@@ -97,7 +97,7 @@ pub fn main() -> Result<(), JsValue> {
     .append_child(&app)
     .unwrap();
 
-  app.run();
+  app.maintain();
 
   Ok(())
 }

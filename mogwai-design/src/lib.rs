@@ -1,12 +1,16 @@
 extern crate web_sys;
 
+use std::collections::HashMap;
 use std::any::Any;
 use std::sync::Arc;
 use std::time::Duration;
+use std::cell::RefCell;
 use std::thread;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::closure::Closure;
-use web_sys::{Document, Element, HtmlElement, Node, Text, window};
+use web_sys::{EventTarget, HtmlElement};
 use specs::prelude::*;
 
 
@@ -18,7 +22,7 @@ use specs::prelude::*;
 
 #[derive(Clone)]
 pub struct Event<T> {
-  value: T
+  value: Arc<RefCell<Option<T>>>
 }
 
 
@@ -97,7 +101,38 @@ pub enum Continuous<T> {
 
 pub struct Gizmo {
   html_element: HtmlElement,
-  world: World
+  world: World,
+  callbacks: HashMap<String, Closure<Fn()>>
+}
+
+
+impl Gizmo {
+  pub fn on(&mut self, ev_name: &str) -> Event<()> {
+    let target:EventTarget =
+      EventTarget::from(self.html_element.clone());
+    let cell:Arc<RefCell<Option<()>>> =
+      Arc::new(
+        RefCell::new(None)
+      );
+    let remote =
+      cell.clone();
+    let cb =
+      Closure::wrap(Box::new(move || {
+        //println!("Callback {:?}", ev_name.to_string().clone());
+        let mut opt =
+          remote
+          .as_ref()
+          .borrow_mut();
+        *opt = Some(());
+      }) as Box<Fn()>);
+    target
+      .add_event_listener_with_callback(ev_name, cb.as_ref().unchecked_ref())
+      .unwrap();
+    Event {
+      value: cell
+    }
+  }
+
 }
 
 
@@ -149,7 +184,6 @@ impl GizmoBuilder {
     gizmo.options.push(option);
     gizmo
   }
-
   //pub fn attribute(self, name: &str, value: Continuous<String>) -> GizmoBuilder {
   //  let mut html = self;
   //  html
@@ -206,7 +240,7 @@ impl GizmoBuilder {
   //  html
   //}
 
-  pub fn build(self, document: &Document) -> Result<Gizmo, JsValue> {
+  pub fn build(self) -> Result<Gizmo, JsValue> {
     panic!("GizmoBuilder::build")
     //let el:Element =
     //  document
@@ -263,6 +297,10 @@ impl GizmoBuilder {
     //      Ok(())
     //  })?;
     //Ok(el)
+  }
+
+  pub fn maintain(&mut self) {
+
   }
 }
 
