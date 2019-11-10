@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Hello wasm-pack!</title>
+    </head>
+    <body>
+        <script src="pkg/mogwai_sandbox.js"></script>
+        <script type=module>
+         window
+             .wasm_bindgen('pkg/mogwai_sandbox_bg.wasm')
+             .then( m => m.main() )
+             .catch(console.error);
+        </script>
+    </body>
+</html>
