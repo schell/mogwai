@@ -119,6 +119,15 @@ pub struct GizmoBuilder {
 }
 
 
+pub fn h1() -> GizmoBuilder {
+  GizmoBuilder::new("h1")
+}
+
+pub fn button() -> GizmoBuilder {
+  GizmoBuilder::new("button")
+}
+
+
 impl GizmoBuilder {
   fn new(tag: &str) -> GizmoBuilder {
     GizmoBuilder {

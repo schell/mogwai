@@ -35,14 +35,14 @@ pub fn main() -> Result<(), JsValue> {
   //  Dynamic::new("red".into());
   let app:Gizmo = {
     let mut h1:Gizmo =
-      GizmoBuilder::h1()
+      h1()
       .id("header")
       .class("my-header")
       .text("Hello from mogwai!")
       .build();
 
     let mut button:Gizmo =
-      GizmoBuilder::button()
+      button()
       .text("Click me")
       .build();
 
