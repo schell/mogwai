@@ -142,7 +142,7 @@ impl<A:Clone> Output<A> {
       self
       .last_event_k();
 
-    last_k.is_some() && self.next_k < last_k.unwrap()
+    last_k.is_some() && self.next_k <= last_k.unwrap()
   }
 
   pub fn drain(&mut self) -> Vec<A> {
@@ -194,18 +194,29 @@ mod input_output_tests {
 
   #[test]
   fn tx_rx_relationship() {
-    let (mut tx, mut rx) = terminals();
+    let (mut tx, mut rx) = terminals::<i32>();
     let mut rx2 = rx.clone();
 
-    tx.push(());
+    tx.push(0);
+    assert!(tx.has_items());
+    assert_eq!(rx.last_event_k(), Some(0));
     assert!(rx.has_items());
     assert!(rx2.has_items());
 
-    rx.pop()
-      .expect("Could not receive on rx");
+    tx.push(1);
+    tx.push(2);
 
-    rx2.pop()
-      .expect("rx2 is already drained");
+    assert_eq!(rx.pop(), Some(0));
+    assert_eq!(rx2.pop(), Some(0));
+    assert_eq!(rx2.pop(), Some(1));
+    assert_eq!(rx2.pop(), Some(2));
+
+    assert!(rx.has_items());
+
+    assert_eq!(rx.pop(), Some(1));
+    assert_eq!(rx.pop(), Some(2));
+    assert_eq!(rx.pop(), None);
+    assert_eq!(rx.has_items(), false);
   }
 }
 
