@@ -1,20 +1,21 @@
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Element, HtmlElement, Node, Text, window};
+use crossbeam::Receiver;
 
-use super::{Dynamic, Gizmo};
+use super::Gizmo;
 
 
 #[derive(Clone)]
-pub enum GizmoDynamicOption {
-  Attribute(String, Dynamic<String>),
-  Style(String, Dynamic<String>),
-  Text(Text, Dynamic<String>),
-  Gizmo(Dynamic<Gizmo>)
+pub enum GizmoRxOption {
+  Attribute(String, String, Receiver<String>),
+  Style(String, String, Receiver<String>),
+  Text(Text, String, Receiver<String>),
+  Gizmo(Gizmo, Receiver<Gizmo>)
 }
 
 
 pub enum Continuous<T> {
-  Dynamic(Dynamic<T>),
+  Rx(T, Receiver<T>),
   Static(T)
 }
 
@@ -78,20 +79,20 @@ impl GizmoBuilder {
   }
 
 
-  pub fn attribute_dyn(self, name: &str, value: Dynamic<String>) -> GizmoBuilder {
-    self.option(GizmoOption::Attribute(name.to_string(), Continuous::Dynamic(value)))
+  pub fn attribute_rx(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
+    self.option(GizmoOption::Attribute(name.to_string(), Continuous::Rx(init.into(), value)))
   }
 
-  pub fn style_dyn(self, name: &str, value: Dynamic<String>) -> GizmoBuilder {
-    self.option(GizmoOption::Style(name.into(), Continuous::Dynamic(value)))
+  pub fn style_rx(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
+    self.option(GizmoOption::Style(name.into(), Continuous::Rx(init.into(), value)))
   }
 
-  pub fn text_dyn(self, s: Dynamic<String>) -> GizmoBuilder {
-    self.option(GizmoOption::Text(Continuous::Dynamic(s)))
+  pub fn text_rx(self, init: &str, s: Receiver<String>) -> GizmoBuilder {
+    self.option(GizmoOption::Text(Continuous::Rx(init.into(), s)))
   }
 
-  pub fn with_dyn(self, g: Dynamic<Gizmo>) -> GizmoBuilder {
-    self.option(GizmoOption::Gizmo(Continuous::Dynamic(g)))
+  pub fn with_rx(self, init:Gizmo, g: Receiver<Gizmo>) -> GizmoBuilder {
+    self.option(GizmoOption::Gizmo(Continuous::Rx(init, g)))
   }
 
   pub fn build(self) -> Result<Gizmo, JsValue> {
@@ -123,9 +124,9 @@ impl GizmoBuilder {
               trace!("setting static attribute value on gizmo");
               el.set_attribute(&name, &value)
             }
-            Attribute(name, Dynamic(dynamic)) => {
+            Attribute(name, Rx(init, dynamic)) => {
               trace!("setting dynamic attribute value on gizmo");
-              gizmo.attribute(&name, dynamic);
+              gizmo.attribute(&name, &init, dynamic);
               Ok(())
             }
             Style(name, Static(value)) => {
@@ -134,9 +135,9 @@ impl GizmoBuilder {
                 .style()
                 .set_property(&name, &value)
             }
-            Style(name, Dynamic(dynamic)) => {
+            Style(name, Rx(init, dynamic)) => {
               trace!("setting dynamic style value on gizmo");
-              gizmo.attribute(&name, dynamic);
+              gizmo.attribute(&name, &init, dynamic);
               Ok(())
             }
             Text(Static(value)) => {
@@ -150,9 +151,9 @@ impl GizmoBuilder {
                 .append_child(text.as_ref())?;
               Ok(())
             }
-            Text(Dynamic(dynamic)) => {
+            Text(Rx(init, dynamic)) => {
               trace!("setting dynamic text node on gizmo");
-              gizmo.text(dynamic);
+              gizmo.text(&init, dynamic);
               Ok(())
             }
             Gizmo(Static(sub_gizmo)) => {
@@ -164,9 +165,9 @@ impl GizmoBuilder {
               gizmo.sub_gizmos.push(sub_gizmo);
               Ok(())
             }
-            Gizmo(Dynamic(dynamic)) => {
+            Gizmo(Rx(init, dynamic)) => {
               trace!("setting dynamic sub-gizmo on gizmo");
-              gizmo.with(dynamic);
+              gizmo.with(init, dynamic);
               Ok(())
             }
           }
