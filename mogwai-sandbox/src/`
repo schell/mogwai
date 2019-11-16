@@ -4,12 +4,59 @@ extern crate console_log;
 extern crate web_sys;
 extern crate mogwai_design;
 
-use wasm_bindgen::prelude::*;
 use log::Level;
-use mogwai_design::*;
-use web_sys::{Element, Document, HtmlElement, Node, Text, window};
+use std::cell::RefCell;
+use std::rc::Rc;
+use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::*;
+use web_sys::{Element, Event, Document, HtmlElement, Node, Text, window};
 //use std::thread::sleep;
 //use std::time::Duration;
+
+use mogwai_design::prelude::*;
+
+
+/// Creates a button that changes its text every time it is clicked.
+/// The button will also transmit clicks into the given transmitter.
+pub fn new_button_gizmo(tx_click: Transmitter<Event>) -> Result<Gizmo, JsValue> {
+  // Branch from the given input for a new wire which feeds into a new
+  // receiver.
+  let (mut click_to_text, rx_text) =
+    Wire::<Event, bool, String>::branch(tx_click, false);
+
+  // Create the button that gets its text from our receiver.
+  //
+  // The button text will start out as "Click me" and then change to whatever
+  // comes in on the receiver.
+  let mut button =
+    button()
+    .named("button")
+    .rx_text("Click me", rx_text)
+    .build()?;
+
+  // Have the button transmit on tx_click
+  button.tx_on("click", tx_click);
+
+  // Now that the routing is done, we can define how the signal changes from
+  // transmitter to receiver over each occurance.
+
+  click_to_text
+    .on_input(|is_red, _| {
+      trace!("click_to_text::on_input");
+      trace!("  last is_red:{}", is_red);
+      let out =
+        if is_red {
+          "Turn me blue".into()
+        } else {
+          "Turn me red".into()
+        };
+      trace!("  out:{:?}", out);
+      (!is_red, Some(out))
+    });
+
+  button.bundle(btn_click_to_btn_text);
+  button
+}
 
 
 #[wasm_bindgen]
@@ -18,110 +65,59 @@ pub fn main() -> Result<(), JsValue> {
     .unwrap();
   trace!("Hello from mogwai");
 
-  let window =
-    window()
-    .expect("Could not access the window");
-
-  let document =
-    window
-    .document()
-    .expect("Could not access the document");
-
-  // Goals:
-  // 1. [x] be able to easily declare static markup
-  let h1:Element =
-    Html::h1()
-    .id("header")
-    .class("my-header")
-    .style("color", "blue")
-    .text("Hello from mogwai!")
-    .build(&document)
-    .expect("Could not create h1");
-
-  let h1_copy =
-    h1.clone();
-
-  let h1_element_js:JsValue =
-    h1_copy.into();
-  let h1_element:HtmlElement =
-    HtmlElement::from(h1_element_js);
-
-  h1_element
-    .style()
-    .set_property("color", "green")
-    .unwrap();
-
-  // 2. [ ] be able to easily declare dynamic markup, and in turn provide mutable
-  //        references to dynamic markup for later updates
-  //let mut dyn_color:Dynamic<String> =
-  //  Dynamic::new("red".into());
   let app:Gizmo = {
-    let mut h1:Gizmo =
-      GizmoBuilder::h1()
-      .id("header")
-      .class("my-header")
+    // Create a transmitter to send messages with.
+    let tx_btn_click:Transmitter<()> = Transmitter::new();
+
+    let (tx_btn_click, mut btn_click_to_h1_color, rx_h1_color) =
+      Wire::<Event, bool, String>::hookups(false);
+
+    // Create a gizmo for our heading
+    let h1:Gizmo =
+      h1()
+      .named("h1")
+      .attribute("id", "header")
+      .attribute("class", "my-header")
+      // Pass the receiving end into the gizmo along with an initial value
+      .style_rx("color", "green", rx_h1_color)
       .text("Hello from mogwai!")
-      .build();
+      .build()?;
 
-    let mut button:Gizmo =
-      GizmoBuilder::button()
-      .text("Click me")
-      .build();
+    // Now that the routing is done, let's define the logic
 
-    let click:&Event<()> =
-      button.on_click();
-
-    let dyn_color:Dynamic<String> =
-      click
-      .fold_into(
-        "red".to_string(),
-        |last_color, ()| {
-          if &last_color == "red" {
-            "blue"
+    // The h1's color will change every click back and forth between blue and red
+    // after the initial green.
+    btn_click_to_h1_color
+      .on_input(|is_red, _| {
+        println!("btn_click_to_h1_color");
+        let out =
+          if is_red {
+            "blue".into()
           } else {
-            "red"
-          }
-        }
-      );
-
-    let dyn_btn_text:Dynamic<String> =
-      dyn_color
-      .clone()
-      .map(|color:String| -> String {
-        let nxt:String =
-        if &color == "red" {
-          "blue" 
-        } else {
-          "red"
-        }.to_string();
-        format!("Turn back to {:?}", color)
+            "red".into()
+          };
+        (!is_red, Some(out))
       });
 
-    h1.style("color", dyn_color);
+    // Bundle all the wires together into a fusebox.
+    let fusebox =
+      FuseBox::new()
+      .with(btn_click_to_btn_text)
+      .with(btn_click_to_h1_color);
 
-    GizmoBuilder::main()
+    // Put it all in a div gizmo
+    let mut div =
+      div()
+      .named("root_div")
       .with(h1)
       .with(button)
-      .build()
+      .build()?;
 
-  // 3. [ ] declaring static markup, dynamic markup and controlling updates to
-  //        dynamic markup in a localized, stateful way is the act of writing a
-  //        widget
-  // 4. [ ] widgets are composable
-  // 5. [ ] when widgets fall out of scope, their respective static and dynamic
-  //        markup does too
+    div.fuse_box = fusebox;
+    div
+  };
 
-  document
-    .body()
-    .unwrap()
-    .append_child(&h1)
-    .unwrap();
+  trace!("Done building...");
 
-  document
-    .body()
-    .unwrap()
-    .append_child(&h1_element)
-    .unwrap();
-
-  Ok(())
+  app.run()
 }

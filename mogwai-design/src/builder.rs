@@ -1,8 +1,10 @@
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Element, HtmlElement, Node, Text, window};
-use crossbeam::Receiver;
+use std::collections::HashMap;
 
-use super::Gizmo;
+use super::gizmo::Gizmo;
+use super::txrx::{Transmitter, Receiver};
+use super::wire::{Bundle, FuseBox, Wire};
 
 
 #[derive(Clone)]
@@ -10,27 +12,33 @@ pub enum GizmoRxOption {
   Attribute(String, String, Receiver<String>),
   Style(String, String, Receiver<String>),
   Text(Text, String, Receiver<String>),
-  Gizmo(Gizmo, Receiver<Gizmo>)
+  Gizmo(Gizmo, Receiver<GizmoBuilder>)
 }
 
 
-pub enum Continuous<T> {
+#[derive(Clone)]
+pub enum Continuous<T:shrev::Event + Clone> {
   Rx(T, Receiver<T>),
   Static(T)
 }
 
 
+#[derive(Clone)]
 pub enum GizmoOption {
   Attribute(String, Continuous<String>),
   Style(String, Continuous<String>),
   Text(Continuous<String>),
-  Gizmo(Continuous<Gizmo>)
+  Gizmo(Continuous<GizmoBuilder>)
 }
 
 
+#[derive(Clone)]
 pub struct GizmoBuilder {
   tag: String,
-  options: Vec<GizmoOption>
+  name: String,
+  options: Vec<GizmoOption>,
+  fuse_box: FuseBox,
+  tx_events: HashMap<String, Transmitter<()>>
 }
 
 pub fn div() -> GizmoBuilder {
@@ -50,9 +58,18 @@ pub fn button() -> GizmoBuilder {
 impl GizmoBuilder {
   fn new(tag: &str) -> GizmoBuilder {
     GizmoBuilder {
+      name: "unamed_gizmo".into(),
       tag: tag.into(),
-      options: vec![]
+      options: vec![],
+      fuse_box: FuseBox::new(),
+      tx_events: HashMap::new()
     }
+  }
+
+  pub fn named(self, s: &str) -> GizmoBuilder {
+    let mut gizmo = self;
+    gizmo.name = s.into();
+    gizmo
   }
 
   pub fn option(self, option: GizmoOption) -> GizmoBuilder {
@@ -74,28 +91,40 @@ impl GizmoBuilder {
     self.option(GizmoOption::Text(Continuous::Static(s.to_string())))
   }
 
-  pub fn with(self, g: Gizmo) -> GizmoBuilder {
+  pub fn with(self, g: GizmoBuilder) -> GizmoBuilder {
     self.option(GizmoOption::Gizmo(Continuous::Static(g)))
   }
 
-
-  pub fn attribute_rx(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
+  pub fn rx_attribute(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
     self.option(GizmoOption::Attribute(name.to_string(), Continuous::Rx(init.into(), value)))
   }
 
-  pub fn style_rx(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
+  pub fn rx_style(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
     self.option(GizmoOption::Style(name.into(), Continuous::Rx(init.into(), value)))
   }
 
-  pub fn text_rx(self, init: &str, s: Receiver<String>) -> GizmoBuilder {
+  pub fn rx_text(self, init: &str, s: Receiver<String>) -> GizmoBuilder {
     self.option(GizmoOption::Text(Continuous::Rx(init.into(), s)))
   }
 
-  pub fn with_rx(self, init:Gizmo, g: Receiver<Gizmo>) -> GizmoBuilder {
+  pub fn rx_gizmo(self, init:GizmoBuilder, g: Receiver<GizmoBuilder>) -> GizmoBuilder {
     self.option(GizmoOption::Gizmo(Continuous::Rx(init, g)))
   }
 
-  pub fn build(self) -> Result<Gizmo, JsValue> {
+  pub fn wire<A:shrev::Event + Clone, T:shrev::Event, B:shrev::Event + Clone, F>(&mut self, tx: &Transmitter<A>, rx: &Receiver<B>, state:T, f:F)
+  where
+    F: Fn(T, A) -> (T, Option<B>) + shrev::Event
+  {
+    let mut wire = Wire::<A, T, B>::between(tx, state, rx);
+    wire.on_input(f);
+    self.fuse_box.bundle(Bundle::from(wire));
+  }
+
+  pub fn tx_on(&mut self, event: &str, tx: Transmitter<()>) {
+    self.tx_events.insert(event.into(), tx);
+  }
+
+  pub fn build(&self) -> Result<Gizmo, JsValue> {
     trace!("building gizmo");
     let document =
       window().unwrap()
@@ -110,9 +139,17 @@ impl GizmoBuilder {
       .expect("Could not get gizmo element");
     let mut gizmo =
       Gizmo::new(html_el.clone());
+    gizmo.name = self.name.clone();
+    gizmo.fuse_box = self.fuse_box.clone();
+    self
+      .tx_events
+      .iter()
+      .for_each(|(name, tx)| {
+        gizmo.tx_on(&name, tx.clone());
+      });
     self
       .options
-      .into_iter()
+      .iter()
       .fold(
         Ok(()),
         |res, option| {
@@ -126,7 +163,7 @@ impl GizmoBuilder {
             }
             Attribute(name, Rx(init, dynamic)) => {
               trace!("setting dynamic attribute value on gizmo");
-              gizmo.attribute(&name, &init, dynamic);
+              gizmo.attribute(&name, &init, dynamic.clone());
               Ok(())
             }
             Style(name, Static(value)) => {
@@ -136,8 +173,8 @@ impl GizmoBuilder {
                 .set_property(&name, &value)
             }
             Style(name, Rx(init, dynamic)) => {
-              trace!("setting dynamic style value on gizmo");
-              gizmo.attribute(&name, &init, dynamic);
+              trace!("setting dynamic style {} on gizmo", init);
+              gizmo.style(&name, &init, dynamic.clone());
               Ok(())
             }
             Text(Static(value)) => {
@@ -153,10 +190,13 @@ impl GizmoBuilder {
             }
             Text(Rx(init, dynamic)) => {
               trace!("setting dynamic text node on gizmo");
-              gizmo.text(&init, dynamic);
+              gizmo.text(&init, dynamic.clone());
               Ok(())
             }
-            Gizmo(Static(sub_gizmo)) => {
+            Gizmo(Static(sub_gizmo_builder)) => {
+              let sub_gizmo =
+                sub_gizmo_builder
+                .build()?;
               trace!("setting static sub-gizmo on gizmo");
               html_el
                 .dyn_ref::<Node>()
@@ -165,9 +205,12 @@ impl GizmoBuilder {
               gizmo.sub_gizmos.push(sub_gizmo);
               Ok(())
             }
-            Gizmo(Rx(init, dynamic)) => {
+            Gizmo(Rx(init_builder, dynamic)) => {
+              let init =
+                init_builder
+                .build()?;
               trace!("setting dynamic sub-gizmo on gizmo");
-              gizmo.with(init, dynamic);
+              gizmo.with(init, dynamic.clone());
               Ok(())
             }
           }
