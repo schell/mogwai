@@ -36,7 +36,7 @@ pub fn new_button_gizmo(mut tx_click: InstantTransmitter<()>) -> GizmoBuilder {
   wire(
     &mut tx_click,
     &mut rx_text,
-    false, // our initial folding state
+    true, // our initial folding state
     |is_red, _| {
       trace!("button::tx_click->rx_text");
       trace!("  last is_red:{}", is_red);

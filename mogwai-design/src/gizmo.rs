@@ -1,7 +1,8 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
+use wasm_bindgen::prelude::*;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen::closure::Closure;
 use web_sys::{Event, EventTarget, HtmlElement, Node, Text};
@@ -19,10 +20,8 @@ pub struct Gizmo {
   pub name: String,
   html_element: HtmlElement,
   callbacks: HashMap<String, Arc<Closure<FnMut(Event)>>>,
-  options: Vec<GizmoRxOption>,
   pub sub_gizmos: Vec<Gizmo>,
   pub fuse_box: FuseBox,
-  is_dirty: Arc<Mutex<bool>>
 }
 
 
@@ -32,35 +31,26 @@ impl Gizmo {
       name: "unknown".into(),
       html_element,
       callbacks: HashMap::new(),
-      options: vec![],
-      sub_gizmos: vec![],
       fuse_box: FuseBox::new(),
-      is_dirty: Arc::new(Mutex::new(false))
+      sub_gizmos: vec![],
     }
   }
 
   /// Sends an event into the given transmitter when the given dom event happens.
-  pub fn tx_on(&mut self, ev_name: &str, tx: InstantTransmitter<()>) {
+  pub fn tx_on(&mut self, ev_name: &str, mut tx: InstantTransmitter<()>) {
     let target:&EventTarget =
       self
       .html_element
       .dyn_ref()
       .expect("Could not get element EventTarget");
 
-    let mut tx = tx;
     let name = self.name.clone();
-    let is_dirty = self.is_dirty.clone();
     let cb =
       Closure::wrap(Box::new(move |_ev:Event| {
         trace!("{} - an event happened!", name);
         // TODO: Do something with the js event
         // push the value into the sender
         tx.send(&());
-        let mut dirt =
-          is_dirty
-          .try_lock()
-          .expect("Could not try_lock in js callback");
-        *dirt = true;
       }) as Box<FnMut((Event))>);
     target
       .add_event_listener_with_callback(ev_name, cb.as_ref().unchecked_ref())
@@ -72,10 +62,6 @@ impl Gizmo {
 
   pub fn bundle(&mut self, b:Bundle) {
     self.fuse_box.bundle(b);
-  }
-
-  pub fn option(&mut self, option: GizmoRxOption) {
-    self.options.push(option);
   }
 
   pub fn attribute(&mut self, name: &str, init: &str, mut rx: InstantReceiver<String>) {
@@ -169,134 +155,29 @@ impl Gizmo {
     &self.html_element
   }
 
-  fn needs_update(&self) -> bool {
-    *self
-      .is_dirty
-      .try_lock()
-      .expect("Could not try_lock Gizmo::needs_update")
-  }
+  pub fn maintain(&mut self) {}
 
-  fn mark_clean(&self) {
-    *self
-      .is_dirty
-      .try_lock()
-      .expect("Could not try_lock Gizmo::mark_clean")
-      = false;
-  }
+  //pub fn run(self) -> Result<Mogwai, JsValue> {
+  //  trace!("Running gizmo {}...", self.name);
+  //  trace!("  with {} bundles in its fusebox", self.fuse_box.len());
 
-  fn update(&mut self) {
-    //trace!("{} - running fuse_box...", self.name);
-    //self.fuse_box.run();
+  //  let mut gizmo = self;
 
-    //trace!("{} - updating gizmo with rx...", self.name);
-    //let el:&Element =
-    //  self
-    //  .html_element
-    //  .as_ref();
-    //let html_el:&HtmlElement =
-    //  &self.html_element;
-    //self
-    //  .options
-    //  .iter_mut()
-    //  .for_each(|option: &mut GizmoRxOption| {
-    //    use GizmoRxOption::*;
-    //    match option {
-    //      Attribute(name, ref mut val, ref mut rx) => {
-    //        rx
-    //          .read()
-    //          .last()
-    //          .into_iter()
-    //          .for_each(|s:&String| {
-    //            trace!("  attribute {:?}", s);
-    //            el.set_attribute(&name, &s)
-    //              .expect(&format!("Could not update dynamic attribute {:?} to {:?}", name, s));
-    //            *val = s.clone();
-    //          });
-    //      }
-    //      Style(name, ref mut val, rx) => {
-    //        rx
-    //          .read()
-    //          .last()
-    //          .into_iter()
-    //          .for_each(|s| {
-    //            trace!("  style {:?}", s);
-    //            html_el
-    //              .style()
-    //              .set_property(&name, &s)
-    //              .expect(&format!("Could not update dynamic style {:?} to {:?}", name, s));
-    //            *val = s.clone();
-    //          });
-    //      }
-    //      Text(text, ref mut val, rx) => {
-    //        rx
-    //          .read()
-    //          .last()
-    //          .into_iter()
-    //          .for_each(|s| {
-    //            trace!("  text {:?}", s);
-    //            text.set_data(&s);
-    //            *val = s.clone();
-    //          });
-    //      }
-    //      Gizmo(ref mut prev_gizmo, rx) => {
-    //        rx
-    //          .read()
-    //          .last()
-    //          .into_iter()
-    //          .for_each(|gizmo_builder:&GizmoBuilder| {
-    //            trace!("  gizmo");
-    //            let gizmo =
-    //              gizmo_builder
-    //              .build()
-    //              .expect("Could not build dynamic gizmo");
-    //            let prev_node:&Node =
-    //              prev_gizmo
-    //              .html_element
-    //              .dyn_ref()
-    //              .expect("Could not cast old dynamic gizmo's html_element into node");
+  //  body()
+  //    .append_child(gizmo.html_element_ref())?;
 
-    //            let new_node:&Node =
-    //              &gizmo
-    //              .html_element
-    //              .dyn_ref()
-    //              .expect("Could not cast dynamic gizmo's html_element into node");
-    //            el.dyn_ref::<Node>()
-    //              .expect("Could not cast gizmo element into node")
-    //              .replace_child(new_node, prev_node)
-    //              .expect("Could not replace old gizmo with new gizmo");
-
-    //            *prev_gizmo = gizmo.clone();
-    //          })
-    //      }
-    //    }
-    //  });
-  }
-
-  fn run_gizmos(&mut self, is_dirty: bool) {
-    self
-      .sub_gizmos
-      .iter_mut()
-      .for_each(|gizmo| {
-        if is_dirty {
-          *gizmo
-            .is_dirty
-            .try_lock()
-            .expect("Could not try_lock Gizmo::run_gizmos")
-            = true;
-        }
-        gizmo.maintain()
-      });
-  }
-
-  pub fn maintain(&mut self) {
-    let is_dirty =
-      self.needs_update();
-    if is_dirty {
-      self.mark_clean();
-      self.update();
-    }
-    self.run_gizmos(is_dirty);
-  }
+  //  Ok(
+  //    Mogwai(
+  //      Closure::once(move || {
+  //        body()
+  //          .remove_child(gizmo.html_element_ref())
+  //          .expect("Could not remove gizmo");
+  //        gizmo.callbacks = HashMap::new();
+  //        gizmo.sub_gizmos = vec![];
+  //      })
+  //    )
+  //  )
+  //}
 
   pub fn run(self) -> Result<(), JsValue> {
     trace!("Running gizmo {}...", self.name);
@@ -322,6 +203,10 @@ impl Gizmo {
     Ok(())
   }
 }
+
+
+#[wasm_bindgen]
+pub struct Mogwai(Closure<FnMut()>);
 
 
 fn window() -> web_sys::Window {
