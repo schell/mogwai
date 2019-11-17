@@ -1,35 +1,44 @@
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Element, HtmlElement, Node, Text, window};
+use std::collections::HashMap;
 
-use super::{Dynamic, Gizmo};
+use super::gizmo::Gizmo;
+use super::txrx::{InstantTransmitter, InstantReceiver};
+use super::wire::FuseBox;
 
 
 #[derive(Clone)]
-pub enum GizmoDynamicOption {
-  Attribute(String, Dynamic<String>),
-  Style(String, Dynamic<String>),
-  Text(Text, Dynamic<String>),
-  Gizmo(Dynamic<Gizmo>)
+pub enum GizmoRxOption {
+  Attribute(String, String, InstantReceiver<String>),
+  Style(String, String, InstantReceiver<String>),
+  Text(Text, String, InstantReceiver<String>),
+  Gizmo(Gizmo, InstantReceiver<GizmoBuilder>)
 }
 
 
+#[derive(Clone)]
 pub enum Continuous<T> {
-  Dynamic(Dynamic<T>),
+  Rx(T, InstantReceiver<T>),
   Static(T)
 }
 
 
+#[derive(Clone)]
 pub enum GizmoOption {
   Attribute(String, Continuous<String>),
   Style(String, Continuous<String>),
   Text(Continuous<String>),
-  Gizmo(Continuous<Gizmo>)
+  Gizmo(Continuous<GizmoBuilder>)
 }
 
 
+#[derive(Clone)]
 pub struct GizmoBuilder {
   tag: String,
-  options: Vec<GizmoOption>
+  name: String,
+  options: Vec<GizmoOption>,
+  fuse_box: FuseBox,
+  tx_events: HashMap<String, InstantTransmitter<()>>
 }
 
 pub fn div() -> GizmoBuilder {
@@ -49,9 +58,18 @@ pub fn button() -> GizmoBuilder {
 impl GizmoBuilder {
   fn new(tag: &str) -> GizmoBuilder {
     GizmoBuilder {
+      name: "unamed_gizmo".into(),
       tag: tag.into(),
-      options: vec![]
+      options: vec![],
+      fuse_box: FuseBox::new(),
+      tx_events: HashMap::new()
     }
+  }
+
+  pub fn named(self, s: &str) -> GizmoBuilder {
+    let mut gizmo = self;
+    gizmo.name = s.into();
+    gizmo
   }
 
   pub fn option(self, option: GizmoOption) -> GizmoBuilder {
@@ -73,28 +91,31 @@ impl GizmoBuilder {
     self.option(GizmoOption::Text(Continuous::Static(s.to_string())))
   }
 
-  pub fn with(self, g: Gizmo) -> GizmoBuilder {
+  pub fn with(self, g: GizmoBuilder) -> GizmoBuilder {
     self.option(GizmoOption::Gizmo(Continuous::Static(g)))
   }
 
-
-  pub fn attribute_dyn(self, name: &str, value: Dynamic<String>) -> GizmoBuilder {
-    self.option(GizmoOption::Attribute(name.to_string(), Continuous::Dynamic(value)))
+  pub fn rx_attribute(self, name: &str, init:&str, value: InstantReceiver<String>) -> GizmoBuilder {
+    self.option(GizmoOption::Attribute(name.to_string(), Continuous::Rx(init.into(), value)))
   }
 
-  pub fn style_dyn(self, name: &str, value: Dynamic<String>) -> GizmoBuilder {
-    self.option(GizmoOption::Style(name.into(), Continuous::Dynamic(value)))
+  pub fn rx_style(self, name: &str, init:&str, value: InstantReceiver<String>) -> GizmoBuilder {
+    self.option(GizmoOption::Style(name.into(), Continuous::Rx(init.into(), value)))
   }
 
-  pub fn text_dyn(self, s: Dynamic<String>) -> GizmoBuilder {
-    self.option(GizmoOption::Text(Continuous::Dynamic(s)))
+  pub fn rx_text(self, init: &str, s: InstantReceiver<String>) -> GizmoBuilder {
+    self.option(GizmoOption::Text(Continuous::Rx(init.into(), s)))
   }
 
-  pub fn with_dyn(self, g: Dynamic<Gizmo>) -> GizmoBuilder {
-    self.option(GizmoOption::Gizmo(Continuous::Dynamic(g)))
+  pub fn rx_gizmo(self, init:GizmoBuilder, g: InstantReceiver<GizmoBuilder>) -> GizmoBuilder {
+    self.option(GizmoOption::Gizmo(Continuous::Rx(init, g)))
   }
 
-  pub fn build(self) -> Result<Gizmo, JsValue> {
+  pub fn tx_on(&mut self, event: &str, tx: InstantTransmitter<()>) {
+    self.tx_events.insert(event.into(), tx);
+  }
+
+  pub fn build(&self) -> Result<Gizmo, JsValue> {
     trace!("building gizmo");
     let document =
       window().unwrap()
@@ -109,9 +130,17 @@ impl GizmoBuilder {
       .expect("Could not get gizmo element");
     let mut gizmo =
       Gizmo::new(html_el.clone());
+    gizmo.name = self.name.clone();
+    gizmo.fuse_box = self.fuse_box.clone();
+    self
+      .tx_events
+      .iter()
+      .for_each(|(name, tx)| {
+        gizmo.tx_on(&name, tx.clone());
+      });
     self
       .options
-      .into_iter()
+      .iter()
       .fold(
         Ok(()),
         |res, option| {
@@ -123,9 +152,9 @@ impl GizmoBuilder {
               trace!("setting static attribute value on gizmo");
               el.set_attribute(&name, &value)
             }
-            Attribute(name, Dynamic(dynamic)) => {
+            Attribute(name, Rx(init, dynamic)) => {
               trace!("setting dynamic attribute value on gizmo");
-              gizmo.attribute(&name, dynamic);
+              gizmo.attribute(&name, &init, dynamic.clone());
               Ok(())
             }
             Style(name, Static(value)) => {
@@ -134,9 +163,9 @@ impl GizmoBuilder {
                 .style()
                 .set_property(&name, &value)
             }
-            Style(name, Dynamic(dynamic)) => {
-              trace!("setting dynamic style value on gizmo");
-              gizmo.attribute(&name, dynamic);
+            Style(name, Rx(init, dynamic)) => {
+              trace!("setting dynamic style {} on gizmo", init);
+              gizmo.style(&name, &init, dynamic.clone());
               Ok(())
             }
             Text(Static(value)) => {
@@ -150,12 +179,15 @@ impl GizmoBuilder {
                 .append_child(text.as_ref())?;
               Ok(())
             }
-            Text(Dynamic(dynamic)) => {
+            Text(Rx(init, dynamic)) => {
               trace!("setting dynamic text node on gizmo");
-              gizmo.text(dynamic);
+              gizmo.text(&init, dynamic.clone());
               Ok(())
             }
-            Gizmo(Static(sub_gizmo)) => {
+            Gizmo(Static(sub_gizmo_builder)) => {
+              let sub_gizmo =
+                sub_gizmo_builder
+                .build()?;
               trace!("setting static sub-gizmo on gizmo");
               html_el
                 .dyn_ref::<Node>()
@@ -164,9 +196,12 @@ impl GizmoBuilder {
               gizmo.sub_gizmos.push(sub_gizmo);
               Ok(())
             }
-            Gizmo(Dynamic(dynamic)) => {
+            Gizmo(Rx(init_builder, dynamic)) => {
+              let init =
+                init_builder
+                .build()?;
               trace!("setting dynamic sub-gizmo on gizmo");
-              gizmo.with(dynamic);
+              gizmo.with(init, dynamic.clone());
               Ok(())
             }
           }
