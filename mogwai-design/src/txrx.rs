@@ -151,7 +151,7 @@ mod input_output_tests {
 #[derive(Clone)]
 pub struct InstantTransmitter<A> {
   next_k: Arc<Mutex<usize>>,
-  branches: Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A) + Send + Sync>>>>,
+  branches: Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>,
 }
 
 
@@ -201,7 +201,7 @@ impl<A> InstantTransmitter<A> {
 pub struct InstantReceiver<A> {
   k: usize,
   next_k: Arc<Mutex<usize>>,
-  branches: Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A) + Send + Sync>>>>,
+  branches: Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>,
 }
 
 
@@ -216,7 +216,7 @@ impl<A> InstantReceiver<A> {
 
   pub fn set_responder<F>(&mut self, f:F)
   where
-    F: FnMut(&A) + Send + Sync +'static
+    F: FnMut(&A) + 'static
   {
     let k = self.k;
     let mut branches =

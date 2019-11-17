@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen::closure::Closure;
-use web_sys::{Element, Event, EventTarget, HtmlElement, Node, Text};
+use web_sys::{Event, EventTarget, HtmlElement, Node, Text};
 
 use super::prelude::*;
 
@@ -40,7 +40,7 @@ impl Gizmo {
   }
 
   /// Sends an event into the given transmitter when the given dom event happens.
-  pub fn tx_on(&mut self, ev_name: &str, tx: Transmitter<()>) {
+  pub fn tx_on(&mut self, ev_name: &str, tx: InstantTransmitter<()>) {
     let target:&EventTarget =
       self
       .html_element
@@ -55,7 +55,7 @@ impl Gizmo {
         trace!("{} - an event happened!", name);
         // TODO: Do something with the js event
         // push the value into the sender
-        tx.push(());
+        tx.send(&());
         let mut dirt =
           is_dirty
           .try_lock()
@@ -78,47 +78,91 @@ impl Gizmo {
     self.options.push(option);
   }
 
-  pub fn attribute(&mut self, name: &str, init: &str, rx: Receiver<String>) {
+  pub fn attribute(&mut self, name: &str, init: &str, mut rx: InstantReceiver<String>) {
     self
       .html_element
       .set_attribute(name, init)
       .expect("Could not set attribute");
-    self.option(GizmoRxOption::Attribute(name.to_string(), init.into(), rx))
+    let el = self.html_element.clone();
+    let name = name.to_string();
+    rx.set_responder(move |s| {
+      el.set_attribute(&name, s)
+        .expect("Could not set attribute");
+    });
   }
 
-  pub fn text(&mut self, init: &str, ds: Receiver<String>) {
+  pub fn text(&mut self, init: &str, mut rx: InstantReceiver<String>) {
     let text:Text =
       Text::new_with_data(init)
       .unwrap();
     self
       .html_element
-      .clone()
-      .dyn_into::<Node>()
+      .dyn_ref::<Node>()
       .expect("Could not convert gizmo element into a node")
       .append_child(text.as_ref())
       .expect("Could not add text node to gizmo element");
-    self.option(GizmoRxOption::Text(text, init.into(), ds))
+    rx.set_responder(move |s| {
+      text.set_data(s);
+    });
   }
 
-  pub fn style(&mut self, s: &str, init: &str, rx: Receiver<String>) {
-    self
+  pub fn style(&mut self, s: &str, init: &str, mut rx: InstantReceiver<String>) {
+    let style =
+      self
       .html_element
       .dyn_ref::<HtmlElement>()
       .expect("Could not cast Element into HtmlElement")
-      .style()
-      .set_property(s, init)
+      .style();
+
+    let name =
+      s.to_string();
+
+    style
+      .set_property(&name, init)
       .expect("Could not set initial style property");
-    self.option(GizmoRxOption::Style(s.to_string(), init.into(), rx))
+
+    rx.set_responder(move |s| {
+      style
+        .set_property(&name, s)
+        .expect("Could not set style");
+    });
   }
 
-  pub fn with(&mut self, init: Gizmo, rx: Receiver<GizmoBuilder>) {
-    self
+  pub fn with(&mut self, init: Gizmo, mut rx: InstantReceiver<GizmoBuilder>) {
+    let mut prev_gizmo = init;
+    let node =
+      self
       .html_element
-      .dyn_ref::<Node>()
-      .expect("Could not turn gizmo html_element into Node")
-      .append_child(init.html_element_ref())
+      .clone()
+      .dyn_into::<Node>()
+      .expect("Could not turn gizmo html_element into Node");
+    node
+      .append_child(prev_gizmo.html_element_ref())
       .expect("Could not add initial child gizmo");
-    self.option(GizmoRxOption::Gizmo(init, rx))
+    rx.set_responder(move |gizmo_builder: &GizmoBuilder| {
+      let gizmo =
+        gizmo_builder
+        .build()
+        .expect("Could not build dynamic gizmo");
+
+      let prev_node:&Node =
+        prev_gizmo
+        .html_element
+        .dyn_ref()
+        .expect("Could not cast old dynamic gizmo's html_element into node");
+
+      let new_node:&Node =
+        &gizmo
+        .html_element
+        .dyn_ref()
+        .expect("Could not cast dynamic gizmo's html_element into node");
+
+      node
+        .replace_child(new_node, prev_node)
+        .expect("Could not replace old gizmo with new gizmo");
+
+      prev_gizmo = gizmo;
+    });
   }
 
   pub fn html_element_ref(&self) -> &HtmlElement {
@@ -141,91 +185,91 @@ impl Gizmo {
   }
 
   fn update(&mut self) {
-    trace!("{} - running fuse_box...", self.name);
-    self.fuse_box.run();
+    //trace!("{} - running fuse_box...", self.name);
+    //self.fuse_box.run();
 
-    trace!("{} - updating gizmo with rx...", self.name);
-    let el:&Element =
-      self
-      .html_element
-      .as_ref();
-    let html_el:&HtmlElement =
-      &self.html_element;
-    self
-      .options
-      .iter_mut()
-      .for_each(|option: &mut GizmoRxOption| {
-        use GizmoRxOption::*;
-        match option {
-          Attribute(name, ref mut val, ref mut rx) => {
-            rx
-              .read()
-              .last()
-              .into_iter()
-              .for_each(|s:&String| {
-                trace!("  attribute {:?}", s);
-                el.set_attribute(&name, &s)
-                  .expect(&format!("Could not update dynamic attribute {:?} to {:?}", name, s));
-                *val = s.clone();
-              });
-          }
-          Style(name, ref mut val, rx) => {
-            rx
-              .read()
-              .last()
-              .into_iter()
-              .for_each(|s| {
-                trace!("  style {:?}", s);
-                html_el
-                  .style()
-                  .set_property(&name, &s)
-                  .expect(&format!("Could not update dynamic style {:?} to {:?}", name, s));
-                *val = s.clone();
-              });
-          }
-          Text(text, ref mut val, rx) => {
-            rx
-              .read()
-              .last()
-              .into_iter()
-              .for_each(|s| {
-                trace!("  text {:?}", s);
-                text.set_data(&s);
-                *val = s.clone();
-              });
-          }
-          Gizmo(ref mut prev_gizmo, rx) => {
-            rx
-              .read()
-              .last()
-              .into_iter()
-              .for_each(|gizmo_builder:&GizmoBuilder| {
-                trace!("  gizmo");
-                let gizmo =
-                  gizmo_builder
-                  .build()
-                  .expect("Could not build dynamic gizmo");
-                let prev_node:&Node =
-                  prev_gizmo
-                  .html_element
-                  .dyn_ref()
-                  .expect("Could not cast old dynamic gizmo's html_element into node");
+    //trace!("{} - updating gizmo with rx...", self.name);
+    //let el:&Element =
+    //  self
+    //  .html_element
+    //  .as_ref();
+    //let html_el:&HtmlElement =
+    //  &self.html_element;
+    //self
+    //  .options
+    //  .iter_mut()
+    //  .for_each(|option: &mut GizmoRxOption| {
+    //    use GizmoRxOption::*;
+    //    match option {
+    //      Attribute(name, ref mut val, ref mut rx) => {
+    //        rx
+    //          .read()
+    //          .last()
+    //          .into_iter()
+    //          .for_each(|s:&String| {
+    //            trace!("  attribute {:?}", s);
+    //            el.set_attribute(&name, &s)
+    //              .expect(&format!("Could not update dynamic attribute {:?} to {:?}", name, s));
+    //            *val = s.clone();
+    //          });
+    //      }
+    //      Style(name, ref mut val, rx) => {
+    //        rx
+    //          .read()
+    //          .last()
+    //          .into_iter()
+    //          .for_each(|s| {
+    //            trace!("  style {:?}", s);
+    //            html_el
+    //              .style()
+    //              .set_property(&name, &s)
+    //              .expect(&format!("Could not update dynamic style {:?} to {:?}", name, s));
+    //            *val = s.clone();
+    //          });
+    //      }
+    //      Text(text, ref mut val, rx) => {
+    //        rx
+    //          .read()
+    //          .last()
+    //          .into_iter()
+    //          .for_each(|s| {
+    //            trace!("  text {:?}", s);
+    //            text.set_data(&s);
+    //            *val = s.clone();
+    //          });
+    //      }
+    //      Gizmo(ref mut prev_gizmo, rx) => {
+    //        rx
+    //          .read()
+    //          .last()
+    //          .into_iter()
+    //          .for_each(|gizmo_builder:&GizmoBuilder| {
+    //            trace!("  gizmo");
+    //            let gizmo =
+    //              gizmo_builder
+    //              .build()
+    //              .expect("Could not build dynamic gizmo");
+    //            let prev_node:&Node =
+    //              prev_gizmo
+    //              .html_element
+    //              .dyn_ref()
+    //              .expect("Could not cast old dynamic gizmo's html_element into node");
 
-                let new_node:&Node =
-                  &gizmo
-                  .html_element
-                  .dyn_ref()
-                  .expect("Could not cast dynamic gizmo's html_element into node");
-                el.dyn_ref::<Node>()
-                  .expect("Could not cast gizmo element into node")
-                  .replace_child(new_node, prev_node)
-                  .expect("Could not replace old gizmo with new gizmo");
+    //            let new_node:&Node =
+    //              &gizmo
+    //              .html_element
+    //              .dyn_ref()
+    //              .expect("Could not cast dynamic gizmo's html_element into node");
+    //            el.dyn_ref::<Node>()
+    //              .expect("Could not cast gizmo element into node")
+    //              .replace_child(new_node, prev_node)
+    //              .expect("Could not replace old gizmo with new gizmo");
 
-                *prev_gizmo = gizmo.clone();
-              })
-          }
-        }
-      });
+    //            *prev_gizmo = gizmo.clone();
+    //          })
+    //      }
+    //    }
+    //  });
   }
 
   fn run_gizmos(&mut self, is_dirty: bool) {

@@ -3,22 +3,22 @@ use web_sys::{Element, HtmlElement, Node, Text, window};
 use std::collections::HashMap;
 
 use super::gizmo::Gizmo;
-use super::txrx::{Transmitter, Receiver};
-use super::wire::{Bundle, FuseBox, Wire};
+use super::txrx::{InstantTransmitter, InstantReceiver};
+use super::wire::FuseBox;
 
 
 #[derive(Clone)]
 pub enum GizmoRxOption {
-  Attribute(String, String, Receiver<String>),
-  Style(String, String, Receiver<String>),
-  Text(Text, String, Receiver<String>),
-  Gizmo(Gizmo, Receiver<GizmoBuilder>)
+  Attribute(String, String, InstantReceiver<String>),
+  Style(String, String, InstantReceiver<String>),
+  Text(Text, String, InstantReceiver<String>),
+  Gizmo(Gizmo, InstantReceiver<GizmoBuilder>)
 }
 
 
 #[derive(Clone)]
-pub enum Continuous<T:shrev::Event + Clone> {
-  Rx(T, Receiver<T>),
+pub enum Continuous<T> {
+  Rx(T, InstantReceiver<T>),
   Static(T)
 }
 
@@ -38,7 +38,7 @@ pub struct GizmoBuilder {
   name: String,
   options: Vec<GizmoOption>,
   fuse_box: FuseBox,
-  tx_events: HashMap<String, Transmitter<()>>
+  tx_events: HashMap<String, InstantTransmitter<()>>
 }
 
 pub fn div() -> GizmoBuilder {
@@ -95,32 +95,23 @@ impl GizmoBuilder {
     self.option(GizmoOption::Gizmo(Continuous::Static(g)))
   }
 
-  pub fn rx_attribute(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
+  pub fn rx_attribute(self, name: &str, init:&str, value: InstantReceiver<String>) -> GizmoBuilder {
     self.option(GizmoOption::Attribute(name.to_string(), Continuous::Rx(init.into(), value)))
   }
 
-  pub fn rx_style(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
+  pub fn rx_style(self, name: &str, init:&str, value: InstantReceiver<String>) -> GizmoBuilder {
     self.option(GizmoOption::Style(name.into(), Continuous::Rx(init.into(), value)))
   }
 
-  pub fn rx_text(self, init: &str, s: Receiver<String>) -> GizmoBuilder {
+  pub fn rx_text(self, init: &str, s: InstantReceiver<String>) -> GizmoBuilder {
     self.option(GizmoOption::Text(Continuous::Rx(init.into(), s)))
   }
 
-  pub fn rx_gizmo(self, init:GizmoBuilder, g: Receiver<GizmoBuilder>) -> GizmoBuilder {
+  pub fn rx_gizmo(self, init:GizmoBuilder, g: InstantReceiver<GizmoBuilder>) -> GizmoBuilder {
     self.option(GizmoOption::Gizmo(Continuous::Rx(init, g)))
   }
 
-  pub fn wire<A:shrev::Event + Clone, T:shrev::Event, B:shrev::Event + Clone, F>(&mut self, tx: &Transmitter<A>, rx: &Receiver<B>, state:T, f:F)
-  where
-    F: Fn(T, A) -> (T, Option<B>) + shrev::Event
-  {
-    let mut wire = Wire::<A, T, B>::between(tx, state, rx);
-    wire.on_input(f);
-    self.fuse_box.bundle(Bundle::from(wire));
-  }
-
-  pub fn tx_on(&mut self, event: &str, tx: Transmitter<()>) {
+  pub fn tx_on(&mut self, event: &str, tx: InstantTransmitter<()>) {
     self.tx_events.insert(event.into(), tx);
   }
 
