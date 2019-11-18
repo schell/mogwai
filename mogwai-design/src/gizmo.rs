@@ -34,7 +34,7 @@ impl Gizmo {
   }
 
   /// Sends an event into the given transmitter when the given dom event happens.
-  pub fn tx_on(&mut self, ev_name: &str, mut tx: Transmitter<()>) {
+  pub fn tx_on(&mut self, ev_name: &str, mut tx: Transmitter<Event>) {
     let target:&EventTarget =
       self
       .html_element
@@ -43,11 +43,11 @@ impl Gizmo {
 
     let name = self.name.clone();
     let cb =
-      Closure::wrap(Box::new(move |_ev:Event| {
+      Closure::wrap(Box::new(move |ev:Event| {
         trace!("{} - an event happened!", name);
         // TODO: Do something with the js event
         // push the value into the sender
-        tx.send(&());
+        tx.send(&ev);
       }) as Box<FnMut((Event))>);
     target
       .add_event_listener_with_callback(ev_name, cb.as_ref().unchecked_ref())

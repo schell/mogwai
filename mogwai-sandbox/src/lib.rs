@@ -13,7 +13,7 @@ use std::panic;
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
-pub fn new_button_gizmo(mut tx_click: Transmitter<()>) -> GizmoBuilder {
+pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> GizmoBuilder {
   // Create a receiver for our button to get its text from.
   let mut rx_text = Receiver::<String>::new();
 
@@ -57,7 +57,7 @@ pub fn new_button_gizmo(mut tx_click: Transmitter<()>) -> GizmoBuilder {
 
 
 /// Creates a h1 heading that changes its color.
-pub fn new_h1_gizmo(mut tx_click:Transmitter<()>) -> GizmoBuilder {
+pub fn new_h1_gizmo(mut tx_click:Transmitter<Event>) -> GizmoBuilder {
   // Create a receiver for our heading to get its color from.
   let mut rx_color = Receiver::<String>::new();
 
@@ -100,7 +100,7 @@ pub fn main() -> Result<(), JsValue> {
   trace!("Hello from mogwai");
 
   // Create a transmitter to send button clicks into.
-  let tx_click = Transmitter::<()>::new();
+  let tx_click = Transmitter::new();
   let h1 = new_h1_gizmo(tx_click.clone());
   let btn = new_button_gizmo(tx_click);
 

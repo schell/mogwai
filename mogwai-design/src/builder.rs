@@ -1,5 +1,5 @@
 use wasm_bindgen::{JsCast, JsValue};
-use web_sys::{Element, HtmlElement, Node, Text, window};
+use web_sys::{Element, Event, HtmlElement, Node, Text, window};
 use std::collections::HashMap;
 
 use super::gizmo::Gizmo;
@@ -36,7 +36,7 @@ pub struct GizmoBuilder {
   tag: String,
   name: String,
   options: Vec<GizmoOption>,
-  tx_events: HashMap<String, Transmitter<()>>
+  tx_events: HashMap<String, Transmitter<Event>>
 }
 
 pub fn div() -> GizmoBuilder {
@@ -108,7 +108,7 @@ impl GizmoBuilder {
     self.option(GizmoOption::Gizmo(Continuous::Rx(init, g)))
   }
 
-  pub fn tx_on(&mut self, event: &str, tx: Transmitter<()>) {
+  pub fn tx_on(&mut self, event: &str, tx: Transmitter<Event>) {
     self.tx_events.insert(event.into(), tx);
   }
 
