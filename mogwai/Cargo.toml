@@ -5,7 +5,7 @@ authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
 license = "MIT"
 description = "The magical, obvious, graphical, web application interface."
-readme = "README.md"
+readme = "../README.md"
 keywords = ["ui", "dom", "app", "frp"]
 categories = ["gui", "wasm", "web-programming"]
 
