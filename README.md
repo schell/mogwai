@@ -1,5 +1,5 @@
 # mogwai
-`mogwai` is the magical, obedient, graphical web application interface! `mogwai`
+`mogwai` is the magical, obvious, graphical web application interface! `mogwai`
 is written in Rust but it runs in your browser.
 
 # goals

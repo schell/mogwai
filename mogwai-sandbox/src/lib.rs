@@ -2,12 +2,11 @@
 extern crate log;
 extern crate console_log;
 extern crate console_error_panic_hook;
-extern crate web_sys;
-extern crate mogwai_design;
+extern crate mogwai;
 
 use log::Level;
 use wasm_bindgen::prelude::*;
-use mogwai_design::prelude::*;
+use mogwai::prelude::*;
 use std::panic;
 
 

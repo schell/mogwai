@@ -1,6 +1,6 @@
 [workspace]
 
 members = [
-  "mogwai-design",
+  "mogwai",
   "mogwai-sandbox",
 ]

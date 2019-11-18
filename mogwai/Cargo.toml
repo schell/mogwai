@@ -1,15 +1,16 @@
 [package]
-name = "mogwai-design"
-version = "0.1.0"
+name = "mogwai"
+version = "0.0.0"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT"
+description = "The magical, obvious, graphical, web application interface."
+readme = "README.md"
+keywords = ["ui", "dom", "app", "frp"]
+categories = ["gui", "wasm", "web-programming"]
 
 [dependencies]
-shrev = "1.1.1"
 console_log = "0.1.2"
-crossbeam = "0.7.3"
 log = "0.4"
 wasm-bindgen = "0.2"
 

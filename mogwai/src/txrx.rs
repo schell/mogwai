@@ -2,6 +2,32 @@ use std::sync::{Arc, Mutex};
 use std::any::Any;
 use std::collections::HashMap;
 
+
+type RecvResponders<A> = Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>;
+
+
+fn recv_from<A>(
+  next_k: Arc<Mutex<usize>>,
+  branches: RecvResponders<A>
+) -> Receiver<A> {
+  let k = {
+    let mut next_k =
+      next_k
+      .try_lock()
+      .expect("Could not try_lock Transmitter::new_recv");
+    let k = *next_k;
+    *next_k += 1;
+    k
+  };
+
+  Receiver {
+    k,
+    next_k: next_k.clone(),
+    branches: branches.clone()
+  }
+}
+
+
 #[derive(Clone)]
 pub struct Transmitter<A> {
   next_k: Arc<Mutex<usize>>,
@@ -18,22 +44,7 @@ impl<A> Transmitter<A> {
   }
 
   pub fn spawn_recv(&mut self) -> Receiver<A> {
-    let k = {
-      let mut next_k =
-        self
-        .next_k
-        .try_lock()
-        .expect("Could not try_lock Transmitter::new_recv");
-      let k = *next_k;
-      *next_k += 1;
-      k
-    };
-
-    Receiver {
-      k,
-      next_k: self.next_k.clone(),
-      branches: self.branches.clone()
-    }
+    recv_from(self.next_k.clone(), self.branches.clone())
   }
 
   pub fn send(&mut self, a:&A) {
@@ -68,6 +79,14 @@ impl<A> Receiver<A> {
     }
   }
 
+  /// Set the response this receiver has to messages. Upon receiving a message
+  /// the response will run immediately.
+  ///
+  /// NOTE: Clones of receivers share one response function. This means if you
+  /// `set_responder` on a clone of `recv`, `recv`'s responder will be updated
+  /// as well. *Under the hood they are the same responder*.
+  /// If you want a new receiver that receives messages from the same transmitter
+  /// but has its own responder, use Receiver::branch, not clone.
   pub fn set_responder<F>(&mut self, f:F)
   where
     F: FnMut(&A) + 'static
@@ -87,10 +106,17 @@ impl<A> Receiver<A> {
       branches: self.branches.clone()
     }
   }
+
+  /// Branch a reciver off of the original.
+  /// Each branch will receive from the same transmitter.
+  /// The new branch has no initial response to messages.
+  pub fn branch(&self) -> Receiver<A> {
+    recv_from(self.next_k.clone(), self.branches.clone())
+  }
 }
 
 
-pub fn instant_terminals<A>() -> (Transmitter<A>, Receiver<A>) {
+pub fn terminals<A>() -> (Transmitter<A>, Receiver<A>) {
   let mut trns = Transmitter::new();
   let recv = trns.spawn_recv();
   (trns, recv)
@@ -126,8 +152,8 @@ mod instant_txrx {
   #[test]
   fn txrx() {
     let count = Arc::new(Mutex::new(0));
-    let (mut tx_unit, mut rx_unit) = instant_terminals::<()>();
-    let (mut tx_i32, mut rx_i32) = instant_terminals::<i32>();
+    let (mut tx_unit, mut rx_unit) = terminals::<()>();
+    let (mut tx_i32, mut rx_i32) = terminals::<i32>();
     {
       let my_count = count.clone();
       rx_i32.set_responder(move |n:&i32| {
