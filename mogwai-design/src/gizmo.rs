@@ -157,28 +157,6 @@ impl Gizmo {
 
   pub fn maintain(&mut self) {}
 
-  //pub fn run(self) -> Result<Mogwai, JsValue> {
-  //  trace!("Running gizmo {}...", self.name);
-  //  trace!("  with {} bundles in its fusebox", self.fuse_box.len());
-
-  //  let mut gizmo = self;
-
-  //  body()
-  //    .append_child(gizmo.html_element_ref())?;
-
-  //  Ok(
-  //    Mogwai(
-  //      Closure::once(move || {
-  //        body()
-  //          .remove_child(gizmo.html_element_ref())
-  //          .expect("Could not remove gizmo");
-  //        gizmo.callbacks = HashMap::new();
-  //        gizmo.sub_gizmos = vec![];
-  //      })
-  //    )
-  //  )
-  //}
-
   pub fn run(self) -> Result<(), JsValue> {
     trace!("Running gizmo {}...", self.name);
     trace!("  with {} bundles in its fusebox", self.fuse_box.len());
@@ -195,18 +173,21 @@ impl Gizmo {
 
     *g.borrow_mut() =
       Some(Closure::wrap(Box::new(move || {
+        // TODO: Use the "main loop" interval to sync stats
+        // ...about the gizmo graph and wirings of gizmos.
         gizmo.borrow_mut().maintain();
-        request_animation_frame(f.borrow().as_ref().unwrap());
+        set_checkup_interval(f.borrow().as_ref().unwrap());
       }) as Box<dyn Fn()>));
 
-    request_animation_frame(g.borrow().as_ref().unwrap());
+    set_checkup_interval(g.borrow().as_ref().unwrap());
+
     Ok(())
   }
 }
 
 
-#[wasm_bindgen]
-pub struct Mogwai(Closure<FnMut()>);
+//#[wasm_bindgen]
+//pub struct Mogwai(Closure<FnMut()>);
 
 
 fn window() -> web_sys::Window {
@@ -230,4 +211,10 @@ fn request_animation_frame(f: &Closure<dyn Fn()>) {
   window()
     .request_animation_frame(f.as_ref().unchecked_ref())
     .expect("should register `requestAnimationFrame` OK");
+}
+
+fn set_checkup_interval(f: &Closure<dyn Fn()>) -> i32 {
+  window()
+    .set_timeout_with_callback_and_timeout_and_arguments_0(f.as_ref().unchecked_ref(), 1000)
+    .expect("should register `setInterval` OK")
 }

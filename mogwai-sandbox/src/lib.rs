@@ -24,6 +24,7 @@ pub fn new_button_gizmo(mut tx_click: InstantTransmitter<()>) -> GizmoBuilder {
   let mut button =
     button()
     .named("button")
+    .style("cursor", "pointer")
     .rx_text("Click me", rx_text.clone());
 
   // Have the button transmit on tx_click
