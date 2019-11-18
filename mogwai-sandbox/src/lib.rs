@@ -13,9 +13,9 @@ use std::panic;
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
-pub fn new_button_gizmo(mut tx_click: InstantTransmitter<()>) -> GizmoBuilder {
+pub fn new_button_gizmo(mut tx_click: Transmitter<()>) -> GizmoBuilder {
   // Create a receiver for our button to get its text from.
-  let mut rx_text = InstantReceiver::<String>::new();
+  let mut rx_text = Receiver::<String>::new();
 
   // Create the button that gets its text from our receiver.
   //
@@ -57,9 +57,9 @@ pub fn new_button_gizmo(mut tx_click: InstantTransmitter<()>) -> GizmoBuilder {
 
 
 /// Creates a h1 heading that changes its color.
-pub fn new_h1_gizmo(mut tx_click:InstantTransmitter<()>) -> GizmoBuilder {
+pub fn new_h1_gizmo(mut tx_click:Transmitter<()>) -> GizmoBuilder {
   // Create a receiver for our heading to get its color from.
-  let mut rx_color = InstantReceiver::<String>::new();
+  let mut rx_color = Receiver::<String>::new();
 
   // Create the builder for our heading, giving it the receiver.
   let h1:GizmoBuilder =
@@ -100,7 +100,7 @@ pub fn main() -> Result<(), JsValue> {
   trace!("Hello from mogwai");
 
   // Create a transmitter to send button clicks into.
-  let tx_click = InstantTransmitter::<()>::new();
+  let tx_click = Transmitter::<()>::new();
   let h1 = new_h1_gizmo(tx_click.clone());
   let btn = new_button_gizmo(tx_click);
 

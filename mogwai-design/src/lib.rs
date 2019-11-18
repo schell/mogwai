@@ -6,7 +6,6 @@ extern crate crossbeam;
 extern crate shrev;
 
 pub mod builder;
-pub mod wire;
 pub mod txrx;
 pub mod gizmo;
 pub mod prelude;

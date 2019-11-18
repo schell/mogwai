@@ -1,181 +1,35 @@
 use std::sync::{Arc, Mutex};
 use std::any::Any;
-use shrev::{ReaderId, EventChannel};
 use std::collections::HashMap;
 
-pub use shrev::EventIterator;
-
-
-/// An input is a terminal to push input into.
-pub struct Transmitter<A> {
-  events: Arc<Mutex<EventChannel<A>>>
-}
-
-
-impl<A:shrev::Event> Transmitter<A> {
-  pub fn new<B:Any + Send + Sync>() -> Transmitter<B> {
-   Transmitter {
-      events: Arc::new(Mutex::new(EventChannel::new()))
-    }
-  }
-
-  pub fn push(&mut self, a:A) {
-    self
-      .events
-      .try_lock()
-      .expect("Could not try_lock on Transmitter::push::self.events")
-      .single_write(a);
-  }
-
-  pub fn new_recv(&self) -> Receiver<A> {
-    let events = self.events.clone();
-    let reader =
-      events
-      .try_lock()
-      .unwrap()
-      .register_reader();
-    Receiver {
-      reader: Some(reader),
-      events
-    }
-  }
-}
-
-
-impl<T> Clone for Transmitter<T> {
-  fn clone(&self) -> Transmitter<T> {
-    Transmitter {
-      events: self.events.clone()
-    }
-  }
-}
-
-
-/// An output is a terminal to get ouput from.
-pub struct Receiver<B:Any> {
-  reader: Option<ReaderId<B>>,
-  events: Arc<Mutex<EventChannel<B>>>
-}
-
-
-impl<A:shrev::Event + Clone> Receiver<A> {
-  pub fn new() -> Receiver<A> {
-    let mut events = EventChannel::new();
-    let reader = events.register_reader();
-    Receiver {
-      reader: Some(reader),
-      events: Arc::new(Mutex::new(events))
-    }
-  }
-
-  pub fn read(&mut self) -> Vec<A> {
-    let mut guard =
-      self
-      .events
-      .try_lock()
-      .expect("Could not try_lock Receiver::pop");
-
-    let mut reader =
-      self
-      .reader
-      .take()
-      .unwrap_or(guard.register_reader());
-
-    let iter:EventIterator<A> =
-      guard
-      .read(&mut reader);
-
-    self.reader = Some(reader);
-
-    let mut items:Vec<A> = vec![];
-    for item in iter {
-      items.push(item.clone());
-    }
-    items
-  }
-  pub fn new_trns(&self) -> Transmitter<A> {
-    Transmitter {
-      events: self.events.clone()
-    }
-  }
-
-}
-
-
-impl<T:shrev::Event> Clone for Receiver<T> {
-  fn clone(&self) -> Receiver<T> {
-    Receiver {
-      reader: None,
-      events: self.events.clone()
-    }
-  }
-}
-
-
-pub fn terminals<A:shrev::Event>() -> (Transmitter<A>, Receiver<A>) {
-  let input = Transmitter::<A>::new();
-  let output = input.new_recv();
-  (input, output)
-}
-
-
-#[cfg(test)]
-mod input_output_tests {
-  use super::*;
-
-  #[test]
-  fn tx_rx_relationship() {
-    let (mut tx, mut rx) = terminals::<i32>();
-    let mut rx2 = rx.clone();
-
-    tx.push(0);
-    tx.push(1);
-    tx.push(2);
-
-    let rx_items = rx.read();
-    let rx2_items = rx2.read();
-
-    assert_eq!(rx_items.len(), 3);
-    assert_eq!(rx2_items.len(), 3);
-
-    assert_eq!(rx_items[0], 0);
-
-    assert_eq!(rx2_items[0], 0);
-    assert_eq!(rx2_items[1], 1);
-    assert_eq!(rx2_items[2], 2);
-
-    assert_eq!(rx.read().len(), 0);
-  }
-}
-
 #[derive(Clone)]
-pub struct InstantTransmitter<A> {
+pub struct Transmitter<A> {
   next_k: Arc<Mutex<usize>>,
   branches: Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>,
 }
 
 
-impl<A> InstantTransmitter<A> {
-  pub fn new() -> InstantTransmitter<A> {
-    InstantTransmitter {
+impl<A> Transmitter<A> {
+  pub fn new() -> Transmitter<A> {
+    Transmitter {
       next_k: Arc::new(Mutex::new(0)),
       branches: Arc::new(Mutex::new(HashMap::new()))
     }
   }
 
-  pub fn spawn_recv(&mut self) -> InstantReceiver<A> {
+  pub fn spawn_recv(&mut self) -> Receiver<A> {
     let k = {
       let mut next_k =
         self
         .next_k
         .try_lock()
-        .expect("Could not try_lock InstantTransmitter::new_recv");
+        .expect("Could not try_lock Transmitter::new_recv");
       let k = *next_k;
       *next_k += 1;
       k
     };
 
-    InstantReceiver {
+    Receiver {
       k,
       next_k: self.next_k.clone(),
       branches: self.branches.clone()
@@ -187,7 +41,7 @@ impl<A> InstantTransmitter<A> {
       self
       .branches
       .try_lock()
-      .expect("Could not get InstantTransmitter lookup");
+      .expect("Could not get Transmitter lookup");
     branches
       .iter_mut()
       .for_each(|(_, f)| {
@@ -198,16 +52,16 @@ impl<A> InstantTransmitter<A> {
 
 
 #[derive(Clone)]
-pub struct InstantReceiver<A> {
+pub struct Receiver<A> {
   k: usize,
   next_k: Arc<Mutex<usize>>,
   branches: Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>,
 }
 
 
-impl<A> InstantReceiver<A> {
-  pub fn new() -> InstantReceiver<A> {
-    InstantReceiver {
+impl<A> Receiver<A> {
+  pub fn new() -> Receiver<A> {
+    Receiver {
       k: 0,
       next_k: Arc::new(Mutex::new(1)),
       branches: Arc::new(Mutex::new(HashMap::new()))
@@ -223,12 +77,12 @@ impl<A> InstantReceiver<A> {
       self
       .branches
       .try_lock()
-      .expect("Could not try_lock InstantReceiver::set_responder");
+      .expect("Could not try_lock Receiver::set_responder");
     branches.insert(k, Box::new(f));
   }
 
-  pub fn new_trns(&self) -> InstantTransmitter<A> {
-    InstantTransmitter {
+  pub fn new_trns(&self) -> Transmitter<A> {
+    Transmitter {
       next_k: self.next_k.clone(),
       branches: self.branches.clone()
     }
@@ -236,14 +90,14 @@ impl<A> InstantReceiver<A> {
 }
 
 
-pub fn instant_terminals<A>() -> (InstantTransmitter<A>, InstantReceiver<A>) {
-  let mut trns = InstantTransmitter::new();
+pub fn instant_terminals<A>() -> (Transmitter<A>, Receiver<A>) {
+  let mut trns = Transmitter::new();
   let recv = trns.spawn_recv();
   (trns, recv)
 }
 
 
-pub fn wire<A, T, B, X:, F>(tx: &mut InstantTransmitter<A>, rx: &InstantReceiver<B>, init:X, f:F)
+pub fn wire<A, T, B, X:, F>(tx: &mut Transmitter<A>, rx: &Receiver<B>, init:X, f:F)
 where
   B: Any,
   T: Any + Send + Sync,
@@ -305,8 +159,8 @@ mod instant_txrx {
 
   #[test]
   fn wire_txrx() {
-    let mut tx_unit = InstantTransmitter::<()>::new();
-    let mut rx_str = InstantReceiver::<String>::new();
+    let mut tx_unit = Transmitter::<()>::new();
+    let mut rx_str = Receiver::<String>::new();
     wire(&mut tx_unit, &mut rx_str, 0, |n:&i32, &()| -> (i32, Option<String>) {
       let next = n + 1;
       let should_tx = next >= 3;

@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-use wasm_bindgen::prelude::*;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen::closure::Closure;
 use web_sys::{Event, EventTarget, HtmlElement, Node, Text};
@@ -21,7 +20,6 @@ pub struct Gizmo {
   html_element: HtmlElement,
   callbacks: HashMap<String, Arc<Closure<FnMut(Event)>>>,
   pub sub_gizmos: Vec<Gizmo>,
-  pub fuse_box: FuseBox,
 }
 
 
@@ -31,13 +29,12 @@ impl Gizmo {
       name: "unknown".into(),
       html_element,
       callbacks: HashMap::new(),
-      fuse_box: FuseBox::new(),
       sub_gizmos: vec![],
     }
   }
 
   /// Sends an event into the given transmitter when the given dom event happens.
-  pub fn tx_on(&mut self, ev_name: &str, mut tx: InstantTransmitter<()>) {
+  pub fn tx_on(&mut self, ev_name: &str, mut tx: Transmitter<()>) {
     let target:&EventTarget =
       self
       .html_element
@@ -60,11 +57,7 @@ impl Gizmo {
       .insert(ev_name.to_string(), Arc::new(cb));
   }
 
-  pub fn bundle(&mut self, b:Bundle) {
-    self.fuse_box.bundle(b);
-  }
-
-  pub fn attribute(&mut self, name: &str, init: &str, mut rx: InstantReceiver<String>) {
+  pub fn attribute(&mut self, name: &str, init: &str, mut rx: Receiver<String>) {
     self
       .html_element
       .set_attribute(name, init)
@@ -77,7 +70,7 @@ impl Gizmo {
     });
   }
 
-  pub fn text(&mut self, init: &str, mut rx: InstantReceiver<String>) {
+  pub fn text(&mut self, init: &str, mut rx: Receiver<String>) {
     let text:Text =
       Text::new_with_data(init)
       .unwrap();
@@ -92,7 +85,7 @@ impl Gizmo {
     });
   }
 
-  pub fn style(&mut self, s: &str, init: &str, mut rx: InstantReceiver<String>) {
+  pub fn style(&mut self, s: &str, init: &str, mut rx: Receiver<String>) {
     let style =
       self
       .html_element
@@ -114,7 +107,7 @@ impl Gizmo {
     });
   }
 
-  pub fn with(&mut self, init: Gizmo, mut rx: InstantReceiver<GizmoBuilder>) {
+  pub fn with(&mut self, init: Gizmo, mut rx: Receiver<GizmoBuilder>) {
     let mut prev_gizmo = init;
     let node =
       self
@@ -159,7 +152,6 @@ impl Gizmo {
 
   pub fn run(self) -> Result<(), JsValue> {
     trace!("Running gizmo {}...", self.name);
-    trace!("  with {} bundles in its fusebox", self.fuse_box.len());
 
     body()
       .append_child(self.html_element_ref())
@@ -186,10 +178,6 @@ impl Gizmo {
 }
 
 
-//#[wasm_bindgen]
-//pub struct Mogwai(Closure<FnMut()>);
-
-
 fn window() -> web_sys::Window {
   web_sys::window()
     .expect("no global `window` exists")
@@ -205,12 +193,6 @@ fn body() -> web_sys::HtmlElement {
   document()
     .body()
     .expect("document does not have a body")
-}
-
-fn request_animation_frame(f: &Closure<dyn Fn()>) {
-  window()
-    .request_animation_frame(f.as_ref().unchecked_ref())
-    .expect("should register `requestAnimationFrame` OK");
 }
 
 fn set_checkup_interval(f: &Closure<dyn Fn()>) -> i32 {
