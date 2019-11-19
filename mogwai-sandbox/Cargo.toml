@@ -17,3 +17,12 @@ futures = "0.3"
 wasm-bindgen-futures = "0.4"
 log = "0.4"
 mogwai = { path = "../mogwai" }
+
+[dependencies.web-sys]
+version = "0.3.31"
+features = [
+  "Request",
+  "RequestInit",
+  "RequestMode",
+  "Response",
+]

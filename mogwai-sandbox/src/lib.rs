@@ -6,18 +6,16 @@ extern crate mogwai;
 
 use log::Level;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::{JsFuture, spawn_local};
-use futures::executor::block_on;
+use web_sys::{Request, RequestMode, RequestInit, Response};
 use mogwai::prelude::*;
 use std::panic;
-use std::sync::{Arc, Mutex};
 
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
 pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> GizmoBuilder {
   // Create a receiver for our button to get its text from.
-  let mut rx_text = Receiver::<String>::new();
+  let rx_text = Receiver::<String>::new();
 
   // Create the button that gets its text from our receiver.
   //
@@ -36,9 +34,8 @@ pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> GizmoBuilder {
   // transmitter to receiver over each occurance.
   // We do this by wiring the two together, along with some internal state in the
   // form of a fold function.
-  wire(
-    &mut tx_click,
-    &mut rx_text,
+  tx_click.wire_fold(
+    &rx_text,
     true, // our initial folding state
     |is_red, _| {
       trace!("button::tx_click->rx_text");
@@ -61,7 +58,7 @@ pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> GizmoBuilder {
 /// Creates a h1 heading that changes its color.
 pub fn new_h1_gizmo(mut tx_click:Transmitter<Event>) -> GizmoBuilder {
   // Create a receiver for our heading to get its color from.
-  let mut rx_color = Receiver::<String>::new();
+  let rx_color = Receiver::<String>::new();
 
   // Create the builder for our heading, giving it the receiver.
   let h1:GizmoBuilder =
@@ -75,9 +72,8 @@ pub fn new_h1_gizmo(mut tx_click:Transmitter<Event>) -> GizmoBuilder {
   // Now that the routing is done, let's define the logic
   // The h1's color will change every click back and forth between blue and red
   // after the initial green.
-  wire(
-    &mut tx_click,
-    &mut rx_color,
+  tx_click.wire_fold(
+    &rx_color,
     false, // the intial value for is_red
     |is_red, _| {
       trace!("h1::tx_click->rx_color");
@@ -94,77 +90,82 @@ pub fn new_h1_gizmo(mut tx_click:Transmitter<Event>) -> GizmoBuilder {
 }
 
 
+async fn request_to_text(req:Request) -> Result<String, String> {
+  let resp:Response =
+    JsFuture::from(
+      window()
+        .fetch_with_request(&req)
+    )
+    .await
+    .map_err(|_| "request failed".to_string())?
+    .dyn_into()
+    .map_err(|_| "response is malformed")?;
+  let text:String =
+    JsFuture::from(
+      resp
+        .text()
+        .map_err(|_| "could not get response text")?
+    )
+    .await
+    .map_err(|_| "getting text failed")?
+    .as_string()
+    .ok_or("couldn't get text as string".to_string())?;
+  Ok(text)
+}
+
+
+async fn click_to_text() -> Option<String> {
+  let mut opts =
+    RequestInit::new();
+  opts.method("GET");
+  opts.mode(RequestMode::Cors);
+
+  let req =
+    Request::new_with_str_and_init(
+      "https://worldtimeapi.org/api/timezone/Europe/London.txt",
+      &opts
+    )
+    .unwrap();
+
+  let result =
+    match request_to_text(req).await {
+      Ok(s) => { s }
+      Err(s) => { s }
+    };
+  Some(result)
+}
+
+
 /// Creates a button that when clicked, requests duckduckgo.com and sends
 /// it down a receiver.
 pub fn time_req_button_and_pre() -> GizmoBuilder {
   let (req_tx, mut req_rx) = terminals::<Event>();
   let (resp_tx, resp_rx) = terminals::<String>();
 
-  async fn request_to_text(req:Request) -> Result<String, String> {
-    let resp:Response =
-      JsFuture::from(
-        window()
-          .fetch_with_request(&req)
-      )
-      .await
-      .map_err(|_| "request failed".to_string())?
-      .dyn_into()
-      .map_err(|_| "response is malformed")?;
-    let text:String =
-      JsFuture::from(
-        resp
-          .text()
-          .map_err(|_| "could not get response text")?
-      )
-      .await
-      .map_err(|_| "getting text failed")?
-      .as_string()
-      .ok_or("couldn't get text as string".to_string())?;
-
-    Ok(text)
-  }
-
-  let may_future =
-    Arc::new(Mutex::new(false));
   req_rx
-    .set_responder(move |_| {
-      let mut is_in_flight =
-        may_future
-        .try_lock()
-        .unwrap();
-
-      if !*is_in_flight {
-        *is_in_flight = true;
-        let mut opts =
-          RequestInit::new();
-        opts.method("GET");
-        opts.mode(RequestMode::Cors);
-
-        let req =
-          Request::new_with_str_and_init(
-            "https://worldtimeapi.org/api/timezone/Europe/London.txt",
-            &opts
-          )
-          .unwrap();
-
-        let future_resp_tx = resp_tx.clone();
-        let future_may_future = may_future.clone();
-        let future =
-          async move {
-            request_to_text(req)
-              .await
-              .iter()
-              .for_each(|text| future_resp_tx.send(&text));
-            *future_may_future
-              .try_lock()
-              .unwrap() = false;
-          };
-
-        spawn_local(future);
-      } else {
-        warn!("Attempted to start a new request");
+    .forward_fold_async(
+      resp_tx,
+      false,
+      |is_in_flight, _| {
+        // When we receive a click event from the button and we're not already
+        // sending a request, we'll set one up and send it.
+        if !is_in_flight {
+          // Return a future to be excuted which possibly produces a value to
+          // send downstream to resp_tx
+          // Change the inner state by returning a new state in the tuple
+          (true, wrap_future(async {click_to_text().await}))
+        } else {
+          trace!("Another request is already in flight! Ignoring this click");
+          // Don't change the inner state and don't send anything downstream to
+          // resp_tx
+          (*is_in_flight, None)
+        }
+      },
+      |_, _| {
+        // the cleanup function reports that the request is no longer in flight
+        false
       }
-    });
+    );
 
   let btn =
     button()

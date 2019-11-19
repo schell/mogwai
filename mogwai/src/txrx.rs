@@ -1,11 +1,23 @@
 use std::sync::{Arc, Mutex};
 use std::future::Future;
-use std::pin::Pin;
 use std::any::Any;
+use std::pin::Pin;
 use std::collections::HashMap;
 use wasm_bindgen_futures::spawn_local;
+pub use wasm_bindgen_futures::JsFuture;
 
 type RecvResponders<A> = Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>;
+
+
+pub type RecvFuture<A> = Pin<Box<dyn Future<Output = Option<A>>>>;
+
+
+pub fn wrap_future<A, F>(future:F) -> Option<RecvFuture<A>>
+where
+  F: Future<Output = Option<A>> + 'static
+{
+  Some(Box::pin(future))
+}
 
 
 fn recv_from<A>(
@@ -69,6 +81,34 @@ impl<A> Transmitter<A> {
       .for_each(|(_, f)| {
         f(a);
       });
+  }
+
+  /// Wires the transmitter to the given receiver using a stateful fold function.
+  pub fn wire_fold<T, B, X, F>(&mut self, rb: &Receiver<B>, init:X, f:F)
+  where
+    B: Any,
+    T: Any + Send + Sync,
+    X: Into<T>,
+    F: Fn(&T, &A) -> (T, Option<B>) + Send + Sync + 'static
+  {
+    let tb = rb.new_trns();
+    let mut ra = self.spawn_recv();
+    ra.forward_fold(tb, init, f);
+  }
+
+  /// Wires the transmitter to the given receiver asynchronously using a stateful
+  /// fold function.
+  pub fn wire_fold_async<T, B, X, F, H>(ta: &mut Transmitter<A>, rb: &Receiver<B>, init:X, f:F, h:H)
+  where
+    B: Any,
+    T: Any + Send + Sync,
+    X: Into<T>,
+    F: Fn(&T, &A) -> (T, Option<RecvFuture<B>>) + 'static,
+    H: Fn(&T, &B) -> T + 'static
+  {
+    let tb = rb.new_trns();
+    let mut ra = ta.spawn_recv();
+    ra.forward_fold_async(tb, init, f, h);
   }
 }
 
@@ -178,32 +218,56 @@ impl<A> Receiver<A> {
     rb
   }
 
-  //pub fn forward_fold_async<T, B, X, F>(&mut self, tb: Transmitter<B>, init:X, f:F)
-  //where
-  //  B: Any,
-  //  T: Any + Send + Sync,
-  //  X: Into<T>,
-  //  F: Fn(&T, &A) -> (T, Option<Pin<dyn Box<dyn Future<Output = Option<B>>> + 'static>>) + 'static
-  //{
-  //  let mut state = init.into();
-  //  self.set_responder(move |a:&A| {
-  //    let (new_state, may_async) = f(&state, a);
-  //    state = new_state;
-  //    may_async
-  //      .into_iter()
-  //      .for_each(|block:Box<dyn Future<Output = Option<B>>>| {
-  //        let future =
-  //          async {
-  //            let opt:Option<B> =
-  //              block.await;
-  //            opt
-  //              .into_iter()
-  //              .for_each(|b:B| tb.send(&b));
-  //          };
-  //        spawn_local(future);
-  //      });
-  //  });
-  //}
+  pub fn forward_fold_async<T, B, X, F, H>(&mut self, tb: Transmitter<B>, init:X, f:F, h:H)
+  where
+    B: Any,
+    T: Any + Send + Sync,
+    X: Into<T>,
+    F: Fn(&T, &A) -> (T, Option<RecvFuture<B>>) + 'static,
+    H: Fn(&T, &B) -> T + 'static
+  {
+    let state = Arc::new(Mutex::new(init.into()));
+    let cleanup = Arc::new(Box::new(h));
+    self.set_responder(move |a:&A| {
+      let may_async = {
+        let mut block_state =
+          state
+          .try_lock()
+          .expect("Could not try_lock in Receiver::forward_fold_async for block_state");
+        // Update the shared state.
+        let (new_state, may_async) = f(&block_state, a);
+        *block_state = new_state;
+
+        may_async
+      };
+      may_async
+        .into_iter()
+        .for_each(|block:RecvFuture<B>| {
+          let tb_clone = tb.clone();
+          let state_clone = state.clone();
+          let cleanup_clone = cleanup.clone();
+          let future =
+            async move {
+              let opt:Option<B> =
+                block.await;
+              trace!("sending async responder message");
+              opt
+                .into_iter()
+                .for_each(|b:B| {
+                  let mut inner_state =
+                    state_clone
+                    .try_lock()
+                    .expect("Could not try_lock Receiver::forward_fold_async for inner_state");
+                  *inner_state =
+                    cleanup_clone(&inner_state, &b);
+                  tb_clone.send(&b);
+                });
+            };
+          spawn_local(future);
+          trace!("spawned async responder");
+        });
+    });
+  }
 }
 
 
@@ -211,20 +275,6 @@ pub fn terminals<A>() -> (Transmitter<A>, Receiver<A>) {
   let mut trns = Transmitter::new();
   let recv = trns.spawn_recv();
   (trns, recv)
-}
-
-
-/// Wires the given transmitter to a receiver using a stateful fold function.
-pub fn wire<A, T, B, X:, F>(ta: &mut Transmitter<A>, rb: &Receiver<B>, init:X, f:F)
-where
-  B: Any,
-  T: Any + Send + Sync,
-  X: Into<T>,
-  F: Fn(&T, &A) -> (T, Option<B>) + Send + Sync + 'static
-{
-  let tb = rb.new_trns();
-  let mut ra = ta.spawn_recv();
-  ra.forward_fold(tb.clone(), init, f);
 }
 
 

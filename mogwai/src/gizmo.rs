@@ -14,7 +14,7 @@ pub use wasm_bindgen::{JsCast, JsValue};
 pub struct Gizmo {
   pub name: String,
   html_element: HtmlElement,
-  callbacks: HashMap<String, Arc<Closure<FnMut(JsValue)>>>,
+  callbacks: HashMap<String, Arc<Closure<dyn FnMut(JsValue)>>>,
   pub sub_gizmos: Vec<Gizmo>,
 }
 
@@ -48,7 +48,7 @@ impl Gizmo {
           .dyn_into()
           .expect("Callback was not an event!");
         tx.send(&ev);
-      }) as Box<FnMut((JsValue))>);
+      }) as Box<dyn FnMut((JsValue))>);
     target
       .add_event_listener_with_callback(ev_name, cb.as_ref().unchecked_ref())
       .unwrap();
