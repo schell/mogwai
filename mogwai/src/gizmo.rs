@@ -183,19 +183,23 @@ impl Gizmo {
   pub fn run(self) -> Result<(), JsValue> {
     trace!("Running gizmo {}...", self.name);
 
-    body()
-      .append_child(self.html_element_ref())
-      .unwrap();
+    if cfg!(target_arch = "wasm32") {
+      body()
+        .append_child(self.html_element_ref())
+        .map_err(|_| "could not append gizmo to document body".to_string())?;
 
-    let gizmo = RefCell::new(self);
+      let gizmo = RefCell::new(self);
 
-    timeout(1000, move || {
-      // TODO: Use the "main loop" interval to sync stats
-      // ...about the gizmo graph and wirings of gizmos.
-      gizmo.borrow_mut().maintain();
-      true
-    });
+      timeout(1000, move || {
+        // TODO: Use the "main loop" interval to sync stats
+        // ...about the gizmo graph and wirings of gizmos.
+        gizmo.borrow_mut().maintain();
+        true
+      });
 
-    Ok(())
+      Ok(())
+    } else {
+      Err("running gizmos is only supported on wasm".into())
+    }
   }
 }

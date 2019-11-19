@@ -216,7 +216,7 @@ impl GizmoBuilder {
               Ok(())
             }
           }
-      })?;
+        })?;
     Ok(gizmo)
   }
 }

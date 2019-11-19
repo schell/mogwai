@@ -285,8 +285,8 @@ mod instant_txrx {
   #[test]
   fn txrx() {
     let count = Arc::new(Mutex::new(0));
-    let (mut tx_unit, mut rx_unit) = terminals::<()>();
-    let (mut tx_i32, mut rx_i32) = terminals::<i32>();
+    let (tx_unit, mut rx_unit) = terminals::<()>();
+    let (tx_i32, mut rx_i32) = terminals::<i32>();
     {
       let my_count = count.clone();
       rx_i32.set_responder(move |n:&i32| {
@@ -320,7 +320,7 @@ mod instant_txrx {
   fn wire_txrx() {
     let mut tx_unit = Transmitter::<()>::new();
     let mut rx_str = Receiver::<String>::new();
-    wire(&mut tx_unit, &mut rx_str, 0, |n:&i32, &()| -> (i32, Option<String>) {
+    tx_unit.wire_fold(&rx_str, 0, |n:&i32, &()| -> (i32, Option<String>) {
       let next = n + 1;
       let should_tx = next >= 3;
       let may_msg =

@@ -16,45 +16,47 @@ widgets and reasoning about your program should be easy.
 
 # example
 ```rust
-  let app:GizmoBuilder = {
-    let mut tx_click = Transmitter::<()>::new();
-    let mut rx_text = Receiver::<String>::new();
+extern crate mogwai;
 
-    let mut button:GizmoBuilder =
-      button()
-      .text("Click me")
-      .style("cursor", "pointer")
-      .rx_text("Click me", rx_text.clone());
+use mogwai::prelude::*;
 
-    button.tx_on("click", tx_click.clone());
+pub fn main() {
+  let mut tx_click = Transmitter::new();
+  let rx_text = Receiver::<String>::new();
 
-    wire(
-      &mut tx_click,
-      &mut rx_text,
-      true, // our initial folding state
-      |is_red, &()| {
-        let out =
-          if *is_red {
-            "Turn me blue".into()
-          } else {
-            "Turn me red".into()
-          };
-        (!is_red, Some(out))
-      }
-    );
+  let button =
+    button()
+    .text("Click me")
+    .style("cursor", "pointer")
+    .rx_text("Click me", rx_text.clone())
+    .tx_on("click", tx_click.clone());
 
-    let mut rx_color = Receiver::<String>::new();
+  tx_click.wire_fold(
+    &rx_text,
+    true, // our initial folding state
+    |is_red, _| {
+      let out =
+        if *is_red {
+          "Turn me blue".into()
+        } else {
+          "Turn me red".into()
+        };
+      (!is_red, Some(out))
+    }
+  );
 
-    let mut h1:GizmoBuilder =
-      h1()
-      .id("header")
-      .class("my-header")
-      .rx_style("color", "green", rx_color.clone())
-      .text("Hello from mogwai!");
 
-     wire(
-      &mut tx_click,
-      &mut rx_color,
+  let rx_color = Receiver::<String>::new();
+
+  let h1 =
+    h1()
+    .attribute("id", "header")
+    .attribute("class", "my-header")
+    .rx_style("color", "green", rx_color.clone())
+    .text("Hello from mogwai!");
+
+    tx_click.wire_fold(
+      &rx_color,
       false, // the intial value for is_red
       |is_red, _| {
         let out =
@@ -64,13 +66,18 @@ widgets and reasoning about your program should be easy.
             "red".into()
           };
         (!is_red, Some(out))
-      });
+    });
 
-    div()
-      .with(h1)
-      .with(button)
-      .build()?
-  };
 
-  app.run();
+  // Here we're not unwrapping because this readme is tested without compiling
+  // to wasm. In an actual wasm application your main would look a little
+  // different. See mogwai-sandbox/src/lib.rs
+  div()
+    .with(h1)
+    .with(button)
+    .build()
+    .unwrap()
+    .run()
+    .unwrap();
+}
 ```
