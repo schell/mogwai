@@ -1,7 +1,9 @@
 use std::sync::{Arc, Mutex};
+use std::future::Future;
+use std::pin::Pin;
 use std::any::Any;
 use std::collections::HashMap;
-
+use wasm_bindgen_futures::spawn_local;
 
 type RecvResponders<A> = Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>;
 
@@ -126,7 +128,7 @@ impl<A> Receiver<A> {
   /// Forwards messages on the given receiver to the given transmitter using a
   /// stateful fold function.
   /// NOTE: Overwrites this receiver's responder.
-  pub fn forward_fold<T, B, X:, F>(&mut self, tx: Transmitter<B>, init:X, f:F)
+  pub fn forward_fold<T, B, X, F>(&mut self, tx: Transmitter<B>, init:X, f:F)
   where
     B: Any,
     T: Any + Send + Sync,
@@ -175,6 +177,33 @@ impl<A> Receiver<A> {
     ra.forward_map(tb, f);
     rb
   }
+
+  //pub fn forward_fold_async<T, B, X, F>(&mut self, tb: Transmitter<B>, init:X, f:F)
+  //where
+  //  B: Any,
+  //  T: Any + Send + Sync,
+  //  X: Into<T>,
+  //  F: Fn(&T, &A) -> (T, Option<Pin<dyn Box<dyn Future<Output = Option<B>>> + 'static>>) + 'static
+  //{
+  //  let mut state = init.into();
+  //  self.set_responder(move |a:&A| {
+  //    let (new_state, may_async) = f(&state, a);
+  //    state = new_state;
+  //    may_async
+  //      .into_iter()
+  //      .for_each(|block:Box<dyn Future<Output = Option<B>>>| {
+  //        let future =
+  //          async {
+  //            let opt:Option<B> =
+  //              block.await;
+  //            opt
+  //              .into_iter()
+  //              .for_each(|b:B| tb.send(&b));
+  //          };
+  //        spawn_local(future);
+  //      });
+  //  });
+  //}
 }
 
 

@@ -6,6 +6,8 @@ extern crate mogwai;
 
 use log::Level;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::{JsFuture, spawn_local};
+use futures::executor::block_on;
 use mogwai::prelude::*;
 use std::panic;
 use std::sync::{Arc, Mutex};
@@ -98,51 +100,41 @@ pub fn time_req_button_and_pre() -> GizmoBuilder {
   let (req_tx, mut req_rx) = terminals::<Event>();
   let (resp_tx, resp_rx) = terminals::<String>();
 
-  let may_promise =
-    Arc::new(Mutex::new(None));
+  async fn request_to_text(req:Request) -> Result<String, String> {
+    let resp:Response =
+      JsFuture::from(
+        window()
+          .fetch_with_request(&req)
+      )
+      .await
+      .map_err(|_| "request failed".to_string())?
+      .dyn_into()
+      .map_err(|_| "response is malformed")?;
+    let text:String =
+      JsFuture::from(
+        resp
+          .text()
+          .map_err(|_| "could not get response text")?
+      )
+      .await
+      .map_err(|_| "getting text failed")?
+      .as_string()
+      .ok_or("couldn't get text as string".to_string())?;
+
+    Ok(text)
+  }
+
+  let may_future =
+    Arc::new(Mutex::new(false));
   req_rx
     .set_responder(move |_| {
-      let is_in_flight =
-        may_promise
+      let mut is_in_flight =
+        may_future
         .try_lock()
-        .unwrap()
-        .is_some();
-      if !is_in_flight {
+        .unwrap();
 
-        let send_resp_tx = resp_tx.clone();
-        let inner_may_promise =
-          may_promise.clone();
-        let send_closure =
-          Arc::new(
-            Closure::wrap(Box::new(move |text_value:JsValue| {
-              text_value
-                .as_string()
-                .into_iter()
-                .for_each(|text| {
-                  send_resp_tx.send(&text);
-
-                  *inner_may_promise
-                    .try_lock()
-                    .unwrap()
-                    = None;
-                })
-            }) as Box<FnMut(JsValue)>)
-          );
-
-        let inner_send_closure =
-          send_closure.clone();
-        let resp_closure =
-          Arc::new(
-            Closure::wrap(Box::new(move |resp_value:JsValue| {
-              resp_value
-                .dyn_into::<Response>()
-                .unwrap()
-                .text()
-                .unwrap()
-                .then(&inner_send_closure);
-            }) as Box<FnMut(JsValue)>)
-          );
-
+      if !*is_in_flight {
+        *is_in_flight = true;
         let mut opts =
           RequestInit::new();
         opts.method("GET");
@@ -155,15 +147,20 @@ pub fn time_req_button_and_pre() -> GizmoBuilder {
           )
           .unwrap();
 
-        let promise =
-          window()
-          .fetch_with_request(&req)
-          .then(&resp_closure);
+        let future_resp_tx = resp_tx.clone();
+        let future_may_future = may_future.clone();
+        let future =
+          async move {
+            request_to_text(req)
+              .await
+              .iter()
+              .for_each(|text| future_resp_tx.send(&text));
+            *future_may_future
+              .try_lock()
+              .unwrap() = false;
+          };
 
-        *may_promise
-          .try_lock()
-          .unwrap()
-          = Some((promise, send_closure, resp_closure));
+        spawn_local(future);
       } else {
         warn!("Attempted to start a new request");
       }
@@ -173,12 +170,12 @@ pub fn time_req_button_and_pre() -> GizmoBuilder {
     button()
     .named("request_button")
     .style("cursor", "pointer")
-    .text("Find the time in london")
+    .text("Get the time (london)")
     .tx_on("click", req_tx);
   let pre =
     GizmoBuilder::new("pre")
     .named("request_pre")
-    .rx_text("Awaiting request...", resp_rx);
+    .rx_text("(waiting)", resp_rx);
   div()
     .with(btn)
     .with(pre)

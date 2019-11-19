@@ -9,11 +9,6 @@ pub use super::utils::*;
 pub use web_sys::EventTarget;
 pub use wasm_bindgen::{JsCast, JsValue};
 
-/// Things we can take advantage of:
-/// * javascript is single threaded (wasm may not be in the future)
-/// * wasm updates are typically like set_property(&self, name, value) -> Result<(), JsValue>
-///   (they don't mutate)
-/// * clones of elements actually reference the same DOM element
 
 #[derive(Clone)]
 pub struct Gizmo {
@@ -82,6 +77,26 @@ impl Gizmo {
     rx.set_responder(move |s| {
       el.set_attribute(&name, s)
         .expect("Could not set attribute");
+    });
+  }
+
+  pub fn boolean_attribute(&mut self, name: &str, init: bool, mut rx: Receiver<bool>) {
+    if init {
+      self
+        .html_element
+        .set_attribute(name, "")
+        .expect("Could not set attribute");
+    }
+    let el = self.html_element.clone();
+    let name = name.to_string();
+    rx.set_responder(move |b| {
+      if *b {
+        el.set_attribute(&name, "")
+          .expect("Could not set boolean attribute");
+      } else {
+        el.remove_attribute(&name)
+          .expect("Could not remove boolean attribute")
+      }
     });
   }
 

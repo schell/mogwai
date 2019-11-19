@@ -1,18 +1,9 @@
 use wasm_bindgen::{JsCast, JsValue};
-use web_sys::{Element, Event, HtmlElement, Node, Text, window};
+use web_sys::{Element, Event, HtmlElement, Node, window};
 use std::collections::HashMap;
 
 use super::gizmo::Gizmo;
 use super::txrx::{Transmitter, Receiver};
-
-
-#[derive(Clone)]
-pub enum GizmoRxOption {
-  Attribute(String, String, Receiver<String>),
-  Style(String, String, Receiver<String>),
-  Text(Text, String, Receiver<String>),
-  Gizmo(Gizmo, Receiver<GizmoBuilder>)
-}
 
 
 #[derive(Clone)]
@@ -25,6 +16,7 @@ pub enum Continuous<T> {
 #[derive(Clone)]
 pub enum GizmoOption {
   Attribute(String, Continuous<String>),
+  Boolean(String, Continuous<bool>),
   Style(String, Continuous<String>),
   Text(Continuous<String>),
   Gizmo(Continuous<GizmoBuilder>)
@@ -81,6 +73,10 @@ impl GizmoBuilder {
     self.option(GizmoOption::Attribute(name.to_string(), Continuous::Static(value.to_string())))
   }
 
+  pub fn boolean_attribute(self, name: &str) -> GizmoBuilder {
+    self.option(GizmoOption::Boolean(name.to_string(), Continuous::Static(true)))
+  }
+
   pub fn style(self, name: &str, value: &str) -> GizmoBuilder {
     self.option(GizmoOption::Style(name.into(), Continuous::Static(value.into())))
   }
@@ -95,6 +91,10 @@ impl GizmoBuilder {
 
   pub fn rx_attribute(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
     self.option(GizmoOption::Attribute(name.to_string(), Continuous::Rx(init.into(), value)))
+  }
+
+  pub fn rx_boolean_attribute(self, name: &str, init:bool, rx: Receiver<bool>) -> GizmoBuilder {
+    self.option(GizmoOption::Boolean(name.to_string(), Continuous::Rx(init, rx)))
   }
 
   pub fn rx_style(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
@@ -153,7 +153,19 @@ impl GizmoBuilder {
             }
             Attribute(name, Rx(init, dynamic)) => {
               trace!("setting dynamic attribute value on gizmo");
-              gizmo.attribute(&name, &init, dynamic.clone());
+              gizmo.attribute(&name, &init, dynamic.branch());
+              Ok(())
+            }
+            Boolean(name, Static(should)) => {
+              if *should {
+                trace!("setting static boolean attribute {:?} on gizmo", name);
+                el.set_attribute(&name, "")?;
+              }
+              Ok(())
+            }
+            Boolean(name, Rx(init, rx)) => {
+              trace!("setting dynamic boolean attribute {:?} on gizmo", name);
+              gizmo.boolean_attribute(&name, *init, rx.branch());
               Ok(())
             }
             Style(name, Static(value)) => {
@@ -164,7 +176,7 @@ impl GizmoBuilder {
             }
             Style(name, Rx(init, dynamic)) => {
               trace!("setting dynamic style {} on gizmo", init);
-              gizmo.style(&name, &init, dynamic.clone());
+              gizmo.style(&name, &init, dynamic.branch());
               Ok(())
             }
             Text(Static(value)) => {
@@ -180,7 +192,7 @@ impl GizmoBuilder {
             }
             Text(Rx(init, dynamic)) => {
               trace!("setting dynamic text node on gizmo");
-              gizmo.text(&init, dynamic.clone());
+              gizmo.text(&init, dynamic.branch());
               Ok(())
             }
             Gizmo(Static(sub_gizmo_builder)) => {
@@ -200,7 +212,7 @@ impl GizmoBuilder {
                 init_builder
                 .build()?;
               trace!("setting dynamic sub-gizmo on gizmo");
-              gizmo.with(init, dynamic.clone());
+              gizmo.with(init, dynamic.branch());
               Ok(())
             }
           }
