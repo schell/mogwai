@@ -28,7 +28,7 @@ pub fn set_checkup_interval(millis: i32, f: &Closure<dyn Fn()>) -> i32 {
     .expect("should register `setInterval` OK")
 }
 
-pub fn timeout<F>(millis: i32, logic: F)
+pub fn timeout<F>(millis: i32, logic: F) -> i32
 where
   F: Fn() -> bool + 'static
 {
@@ -45,5 +45,6 @@ where
       }
     }) as Box<dyn Fn()>));
 
-  set_checkup_interval(millis, g.borrow().as_ref().unwrap());
+  let invalidate = set_checkup_interval(millis, g.borrow().as_ref().unwrap());
+  invalidate
 }

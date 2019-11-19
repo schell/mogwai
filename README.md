@@ -45,7 +45,6 @@ pub fn main() {
     }
   );
 
-
   let rx_color = Receiver::<String>::new();
 
   let h1 =

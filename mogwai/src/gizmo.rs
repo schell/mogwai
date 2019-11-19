@@ -41,8 +41,6 @@ impl Gizmo {
     let cb =
       Closure::wrap(Box::new(move |val:JsValue| {
         trace!("{} - an event happened!", name);
-        // TODO: Do something with the js event
-        // push the value into the sender
         let ev =
           val
           .dyn_into()

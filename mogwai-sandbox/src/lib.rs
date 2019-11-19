@@ -183,6 +183,37 @@ pub fn time_req_button_and_pre() -> GizmoBuilder {
 }
 
 
+/// Creates a gizmo that ticks a count upward every second.
+pub fn counter() -> GizmoBuilder {
+  // Create a transmitter to send ticks every second
+  let mut tx = Transmitter::<()>::new();
+
+  // Create a receiver for a string to accept our counter's text
+  let rx = Receiver::<String>::new();
+
+  let timeout_tx = tx.clone();
+  timeout(1000, move || {
+    // Once a second send a unit down the pipe
+    timeout_tx.send(&());
+    // Always reschedule this timeout
+    true
+  });
+
+  // Wire the tx to the rx using a fold function
+  tx.wire_fold(
+    &rx,
+    0,
+    |n, &()| {
+      let next = n + 1;
+      (next, Some(format!("Count: {}", next)))
+    }
+  );
+
+  GizmoBuilder::new("h3")
+    .rx_text("Awaiting first count", rx)
+}
+
+
 #[wasm_bindgen]
 pub fn main() -> Result<(), JsValue> {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -195,6 +226,7 @@ pub fn main() -> Result<(), JsValue> {
   let h1 = new_h1_gizmo(tx_click.clone());
   let btn = new_button_gizmo(tx_click);
   let req = time_req_button_and_pre();
+  let counter = counter();
 
   // Put it all in a parent gizmo and run it right now
   div()
@@ -204,6 +236,7 @@ pub fn main() -> Result<(), JsValue> {
     .with(GizmoBuilder::new("br"))
     .with(GizmoBuilder::new("br"))
     .with(req)
+    .with(counter)
     .build()?
     .run()
 }
