@@ -28,10 +28,19 @@ fn recv_from<A>(
 }
 
 
-#[derive(Clone)]
 pub struct Transmitter<A> {
   next_k: Arc<Mutex<usize>>,
   branches: Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>,
+}
+
+
+impl<A> Clone for Transmitter<A> {
+  fn clone(&self) -> Self {
+    Transmitter {
+      next_k: self.next_k.clone(),
+      branches: self.branches.clone()
+    }
+  }
 }
 
 
@@ -47,7 +56,7 @@ impl<A> Transmitter<A> {
     recv_from(self.next_k.clone(), self.branches.clone())
   }
 
-  pub fn send(&mut self, a:&A) {
+  pub fn send(&self, a:&A) {
     let mut branches =
       self
       .branches
@@ -107,11 +116,64 @@ impl<A> Receiver<A> {
     }
   }
 
-  /// Branch a reciver off of the original.
+  /// Branch a receiver off of the original.
   /// Each branch will receive from the same transmitter.
   /// The new branch has no initial response to messages.
   pub fn branch(&self) -> Receiver<A> {
     recv_from(self.next_k.clone(), self.branches.clone())
+  }
+
+  /// Forwards messages on the given receiver to the given transmitter using a
+  /// stateful fold function.
+  /// NOTE: Overwrites this receiver's responder.
+  pub fn forward_fold<T, B, X:, F>(&mut self, tx: Transmitter<B>, init:X, f:F)
+  where
+    B: Any,
+    T: Any + Send + Sync,
+    X: Into<T>,
+    F: Fn(&T, &A) -> (T, Option<B>) + Send + Sync + 'static
+  {
+    let mut state = init.into();
+    self.set_responder(move |a:&A| {
+      let (new_state, may_msg) = f(&state, a);
+      state = new_state;
+      may_msg
+        .iter()
+        .for_each(|b:&B| {
+          tx.send(b);
+        });
+    })
+  }
+
+  /// Forwards messages on the given receiver to the given transmitter using a
+  /// stateless map function.
+  pub fn forward_map<B, F>(&mut self, tx: Transmitter<B>, f:F)
+  where
+    B: Any,
+    F: Fn(&A) -> Option<B> + Send + Sync + 'static
+  {
+    self
+      .forward_fold(
+        tx,
+        (),
+        move |&(), a| {
+          ((), f(a))
+        }
+      )
+  }
+
+  /// Branch a receiver off of the original and map any messages using a map
+  /// function.
+  /// Each branch will receive from the same transmitter.
+  /// The new branch has no initial response to messages.
+  pub fn branch_map<B:Any, F>(&self, f:F) -> Receiver<B>
+  where
+    F: Fn(&A) -> Option<B> + Send + Sync + 'static
+  {
+    let (tb, rb) = terminals::<B>();
+    let mut ra = self.branch();
+    ra.forward_map(tb, f);
+    rb
   }
 }
 
@@ -123,25 +185,17 @@ pub fn terminals<A>() -> (Transmitter<A>, Receiver<A>) {
 }
 
 
-pub fn wire<A, T, B, X:, F>(tx: &mut Transmitter<A>, rx: &Receiver<B>, init:X, f:F)
+/// Wires the given transmitter to a receiver using a stateful fold function.
+pub fn wire<A, T, B, X:, F>(ta: &mut Transmitter<A>, rb: &Receiver<B>, init:X, f:F)
 where
   B: Any,
   T: Any + Send + Sync,
   X: Into<T>,
   F: Fn(&T, &A) -> (T, Option<B>) + Send + Sync + 'static
 {
-  let mut state = init.into();
-  let mut tb = rx.new_trns();
-  let mut ra = tx.spawn_recv();
-  ra.set_responder(move |a:&A| {
-    let (new_state, may_msg) = f(&state, a);
-    state = new_state;
-    may_msg
-      .iter()
-      .for_each(|b:&B| {
-        tb.send(b);
-      });
-  })
+  let tb = rb.new_trns();
+  let mut ra = ta.spawn_recv();
+  ra.forward_fold(tb.clone(), init, f);
 }
 
 
@@ -220,5 +274,29 @@ mod instant_txrx {
       .unwrap_or(false);
 
     assert!(ever_called);
+  }
+
+  #[test]
+  fn branch_map() {
+    let (tx, rx) = terminals::<()>();
+    let mut ry:Receiver<i32> =
+      rx.branch_map(|_| Some(0));
+
+    let done =
+      Arc::new(Mutex::new(false));
+
+    let cdone = done.clone();
+    ry.set_responder(move |n| {
+      if *n == 0 {
+        *cdone
+          .try_lock()
+          .unwrap()
+          = true;
+      }
+    });
+
+    tx.send(&());
+
+    assert!(*done.try_lock().unwrap());
   }
 }

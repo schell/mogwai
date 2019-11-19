@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::Arc;
-use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen::closure::Closure;
-use web_sys::{Event, EventTarget, HtmlElement, Node, Text};
+use web_sys::{HtmlElement, Node, Text};
 
 use super::prelude::*;
+pub use super::utils::*;
+pub use web_sys::EventTarget;
+pub use wasm_bindgen::{JsCast, JsValue};
 
 /// Things we can take advantage of:
 /// * javascript is single threaded (wasm may not be in the future)
@@ -18,7 +19,7 @@ use super::prelude::*;
 pub struct Gizmo {
   pub name: String,
   html_element: HtmlElement,
-  callbacks: HashMap<String, Arc<Closure<FnMut(Event)>>>,
+  callbacks: HashMap<String, Arc<Closure<FnMut(JsValue)>>>,
   pub sub_gizmos: Vec<Gizmo>,
 }
 
@@ -34,7 +35,7 @@ impl Gizmo {
   }
 
   /// Sends an event into the given transmitter when the given dom event happens.
-  pub fn tx_on(&mut self, ev_name: &str, mut tx: Transmitter<Event>) {
+  pub fn tx_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
     let target:&EventTarget =
       self
       .html_element
@@ -43,18 +44,32 @@ impl Gizmo {
 
     let name = self.name.clone();
     let cb =
-      Closure::wrap(Box::new(move |ev:Event| {
+      Closure::wrap(Box::new(move |val:JsValue| {
         trace!("{} - an event happened!", name);
         // TODO: Do something with the js event
         // push the value into the sender
+        let ev =
+          val
+          .dyn_into()
+          .expect("Callback was not an event!");
         tx.send(&ev);
-      }) as Box<FnMut((Event))>);
+      }) as Box<FnMut((JsValue))>);
     target
       .add_event_listener_with_callback(ev_name, cb.as_ref().unchecked_ref())
       .unwrap();
     self
       .callbacks
       .insert(ev_name.to_string(), Arc::new(cb));
+  }
+
+  /// Sends a message into the given transmitter repeatedly at the given interval.
+  /// Stops sending as soon as a message is received on the given receiver.
+  /// The interval is defined in milliseconds.
+  pub fn tx_interval(&mut self, _millis: u32, _tx: Transmitter<()>, _rx: Receiver<()>) {
+    //let mut rx = rx.branch();
+    //let f = Closure::wrap(Box::new(|| {
+
+    //}));
   }
 
   pub fn attribute(&mut self, name: &str, init: &str, mut rx: Receiver<String>) {
@@ -159,44 +174,13 @@ impl Gizmo {
 
     let gizmo = RefCell::new(self);
 
-    // https://rustwasm.github.io/wasm-bindgen/examples/request-animation-frame.html#srclibrs
-    let f = Rc::new(RefCell::new(None));
-    let g = f.clone();
-
-    *g.borrow_mut() =
-      Some(Closure::wrap(Box::new(move || {
-        // TODO: Use the "main loop" interval to sync stats
-        // ...about the gizmo graph and wirings of gizmos.
-        gizmo.borrow_mut().maintain();
-        set_checkup_interval(f.borrow().as_ref().unwrap());
-      }) as Box<dyn Fn()>));
-
-    set_checkup_interval(g.borrow().as_ref().unwrap());
+    timeout(1000, move || {
+      // TODO: Use the "main loop" interval to sync stats
+      // ...about the gizmo graph and wirings of gizmos.
+      gizmo.borrow_mut().maintain();
+      true
+    });
 
     Ok(())
   }
-}
-
-
-fn window() -> web_sys::Window {
-  web_sys::window()
-    .expect("no global `window` exists")
-}
-
-fn document() -> web_sys::Document {
-  window()
-    .document()
-    .expect("no global `document` exists")
-}
-
-fn body() -> web_sys::HtmlElement {
-  document()
-    .body()
-    .expect("document does not have a body")
-}
-
-fn set_checkup_interval(f: &Closure<dyn Fn()>) -> i32 {
-  window()
-    .set_timeout_with_callback_and_timeout_and_arguments_0(f.as_ref().unchecked_ref(), 1000)
-    .expect("should register `setInterval` OK")
 }

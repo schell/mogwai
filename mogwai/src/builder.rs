@@ -36,8 +36,9 @@ pub struct GizmoBuilder {
   tag: String,
   name: String,
   options: Vec<GizmoOption>,
-  tx_events: HashMap<String, Transmitter<Event>>
+  tx_events: HashMap<String, Transmitter<Event>>,
 }
+
 
 pub fn div() -> GizmoBuilder {
   GizmoBuilder::new("div")
@@ -54,7 +55,7 @@ pub fn button() -> GizmoBuilder {
 
 
 impl GizmoBuilder {
-  fn new(tag: &str) -> GizmoBuilder {
+  pub fn new(tag: &str) -> GizmoBuilder {
     GizmoBuilder {
       name: "unamed_gizmo".into(),
       tag: tag.into(),
@@ -108,8 +109,10 @@ impl GizmoBuilder {
     self.option(GizmoOption::Gizmo(Continuous::Rx(init, g)))
   }
 
-  pub fn tx_on(&mut self, event: &str, tx: Transmitter<Event>) {
-    self.tx_events.insert(event.into(), tx);
+  pub fn tx_on(self, event: &str, tx: Transmitter<Event>) -> GizmoBuilder {
+    let mut b = self;
+    b.tx_events.insert(event.into(), tx);
+    b
   }
 
   pub fn build(&self) -> Result<Gizmo, JsValue> {

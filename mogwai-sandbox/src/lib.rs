@@ -8,6 +8,7 @@ use log::Level;
 use wasm_bindgen::prelude::*;
 use mogwai::prelude::*;
 use std::panic;
+use std::sync::{Arc, Mutex};
 
 
 /// Defines a button that changes its text every time it is clicked.
@@ -20,14 +21,14 @@ pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> GizmoBuilder {
   //
   // The button text will start out as "Click me" and then change to whatever
   // comes in on the receiver.
-  let mut button =
+  let button =
     button()
     .named("button")
     .style("cursor", "pointer")
-    .rx_text("Click me", rx_text.clone());
-
-  // Have the button transmit on tx_click
-  button.tx_on("click", tx_click.clone());
+    // The button receives its text
+    .rx_text("Click me", rx_text.clone())
+    // The button transmits its clicks
+    .tx_on("click", tx_click.clone());
 
   // Now that the routing is done, we can define how the signal changes from
   // transmitter to receiver over each occurance.
@@ -91,6 +92,99 @@ pub fn new_h1_gizmo(mut tx_click:Transmitter<Event>) -> GizmoBuilder {
 }
 
 
+/// Creates a button that when clicked, requests duckduckgo.com and sends
+/// it down a receiver.
+pub fn time_req_button_and_pre() -> GizmoBuilder {
+  let (req_tx, mut req_rx) = terminals::<Event>();
+  let (resp_tx, resp_rx) = terminals::<String>();
+
+  let may_promise =
+    Arc::new(Mutex::new(None));
+  req_rx
+    .set_responder(move |_| {
+      let is_in_flight =
+        may_promise
+        .try_lock()
+        .unwrap()
+        .is_some();
+      if !is_in_flight {
+
+        let send_resp_tx = resp_tx.clone();
+        let inner_may_promise =
+          may_promise.clone();
+        let send_closure =
+          Arc::new(
+            Closure::wrap(Box::new(move |text_value:JsValue| {
+              text_value
+                .as_string()
+                .into_iter()
+                .for_each(|text| {
+                  send_resp_tx.send(&text);
+
+                  *inner_may_promise
+                    .try_lock()
+                    .unwrap()
+                    = None;
+                })
+            }) as Box<FnMut(JsValue)>)
+          );
+
+        let inner_send_closure =
+          send_closure.clone();
+        let resp_closure =
+          Arc::new(
+            Closure::wrap(Box::new(move |resp_value:JsValue| {
+              resp_value
+                .dyn_into::<Response>()
+                .unwrap()
+                .text()
+                .unwrap()
+                .then(&inner_send_closure);
+            }) as Box<FnMut(JsValue)>)
+          );
+
+        let mut opts =
+          RequestInit::new();
+        opts.method("GET");
+        opts.mode(RequestMode::Cors);
+
+        let req =
+          Request::new_with_str_and_init(
+            "https://worldtimeapi.org/api/timezone/Europe/London.txt",
+            &opts
+          )
+          .unwrap();
+
+        let promise =
+          window()
+          .fetch_with_request(&req)
+          .then(&resp_closure);
+
+        *may_promise
+          .try_lock()
+          .unwrap()
+          = Some((promise, send_closure, resp_closure));
+      } else {
+        warn!("Attempted to start a new request");
+      }
+    });
+
+  let btn =
+    button()
+    .named("request_button")
+    .style("cursor", "pointer")
+    .text("Find the time in london")
+    .tx_on("click", req_tx);
+  let pre =
+    GizmoBuilder::new("pre")
+    .named("request_pre")
+    .rx_text("Awaiting request...", resp_rx);
+  div()
+    .with(btn)
+    .with(pre)
+}
+
+
 #[wasm_bindgen]
 pub fn main() -> Result<(), JsValue> {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -102,12 +196,16 @@ pub fn main() -> Result<(), JsValue> {
   let tx_click = Transmitter::new();
   let h1 = new_h1_gizmo(tx_click.clone());
   let btn = new_button_gizmo(tx_click);
+  let req = time_req_button_and_pre();
 
   // Put it all in a parent gizmo and run it right now
   div()
     .named("root_div")
     .with(h1)
     .with(btn)
+    .with(GizmoBuilder::new("br"))
+    .with(GizmoBuilder::new("br"))
+    .with(req)
     .build()?
     .run()
 }
