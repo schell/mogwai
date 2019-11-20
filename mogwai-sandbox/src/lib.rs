@@ -136,7 +136,7 @@ async fn click_to_text() -> Option<String> {
 }
 
 
-/// Creates a button that when clicked, requests duckduckgo.com and sends
+/// Creates a button that when clicked requests the time in london and sends
 /// it down a receiver.
 pub fn time_req_button_and_pre() -> GizmoBuilder {
   let (req_tx, mut req_rx) = terminals::<Event>();

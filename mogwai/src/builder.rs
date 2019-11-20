@@ -32,6 +32,10 @@ pub struct GizmoBuilder {
 }
 
 
+// TODO: Write a macro to generate GizmoBuilder constructors.
+// That way we can have one for every tag. #easy-first-issue
+
+
 pub fn div() -> GizmoBuilder {
   GizmoBuilder::new("div")
 }
@@ -105,7 +109,7 @@ impl GizmoBuilder {
     self.option(GizmoOption::Text(Continuous::Rx(init.into(), s)))
   }
 
-  pub fn rx_gizmo(self, init:GizmoBuilder, g: Receiver<GizmoBuilder>) -> GizmoBuilder {
+  pub fn rx_with(self, init:GizmoBuilder, g: Receiver<GizmoBuilder>) -> GizmoBuilder {
     self.option(GizmoOption::Gizmo(Continuous::Rx(init, g)))
   }
 

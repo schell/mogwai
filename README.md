@@ -23,7 +23,6 @@ pub fn main() {
 
   let button =
     button()
-    .text("Click me")
     .style("cursor", "pointer")
     .rx_text("Click me", rx_text.clone())
     .tx_on("click", tx_click.clone());
@@ -83,16 +82,19 @@ kind of FRP.
 patterns. It uses channels and a declarative html builder to define components
 and compose them together. Once the interface is defined and built, the channels
 are effectively erased and it's functions all the way down. There's no vdom,
-shadow dom, polling or patching. Just functions!
+shadow dom, polling or patching - just functions! So if you prefer a functional
+style of programming with lots of maps and folds then maybe `mogwai` is right for
+you :).
 
 Another benefit of `mogwai` is that it is Rust-first. There is no requirement
-that you have `npm` or `node` and getting your project up and running without any
-javascript tools is easy enough.
+that you have `npm` or `node`. Getting your project up and running without
+writing any javascript is easy enough.
 
 ## ok - where do i start?
 `mogwai` is meant to be used with [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/).
 
 (more detailed instructions incoming)
+
 ## more examples please
 For more examples, check out
 [the sandbox](https://github.com/schell/mogwai/blob/master/mogwai-sandbox/src/lib.rs).
