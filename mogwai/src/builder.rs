@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use super::gizmo::Gizmo;
 use super::txrx::{Transmitter, Receiver};
 
+#[macro_use]
+pub mod tags;
 
 #[derive(Clone)]
 pub enum Continuous<T> {
@@ -19,7 +21,7 @@ pub enum GizmoOption {
   Boolean(String, Continuous<bool>),
   Style(String, Continuous<String>),
   Text(Continuous<String>),
-  Gizmo(Continuous<GizmoBuilder>)
+  Gizmos(Continuous<Vec<GizmoBuilder>>)
 }
 
 
@@ -32,21 +34,16 @@ pub struct GizmoBuilder {
 }
 
 
-// TODO: Write a macro to generate GizmoBuilder constructors.
-// That way we can have one for every tag. #easy-first-issue
+#[cfg(test)]
+mod tags_test {
+  use super::GizmoBuilder;
+  use super::tags::*;
 
-
-pub fn div() -> GizmoBuilder {
-  GizmoBuilder::new("div")
-}
-
-pub fn h1() -> GizmoBuilder {
-  GizmoBuilder::new("h1")
-}
-
-
-pub fn button() -> GizmoBuilder {
-  GizmoBuilder::new("button")
+  #[test]
+  fn pre_test() {
+    let pre_builder:GizmoBuilder = pre();
+    assert_eq!(pre_builder.tag, "pre".to_string());
+  }
 }
 
 
@@ -90,7 +87,15 @@ impl GizmoBuilder {
   }
 
   pub fn with(self, g: GizmoBuilder) -> GizmoBuilder {
-    self.option(GizmoOption::Gizmo(Continuous::Static(g)))
+    self.option(GizmoOption::Gizmos(Continuous::Static(vec![g])))
+  }
+
+  pub fn with_many(self, gs: Vec<GizmoBuilder>) -> GizmoBuilder {
+    gs.into_iter()
+      .fold(
+        self,
+        |builder, sub_gizmo_builder| builder.with(sub_gizmo_builder)
+      )
   }
 
   pub fn rx_attribute(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
@@ -109,8 +114,15 @@ impl GizmoBuilder {
     self.option(GizmoOption::Text(Continuous::Rx(init.into(), s)))
   }
 
-  pub fn rx_with(self, init:GizmoBuilder, g: Receiver<GizmoBuilder>) -> GizmoBuilder {
-    self.option(GizmoOption::Gizmo(Continuous::Rx(init, g)))
+  pub fn rx_with(self, init:GizmoBuilder, rx: Receiver<GizmoBuilder>) -> GizmoBuilder {
+    self.option(
+      GizmoOption::Gizmos(
+        Continuous::Rx(
+          vec![init],
+          rx.branch_map(|b| Some(vec![b.clone()]))
+        )
+      )
+    )
   }
 
   pub fn tx_on(self, event: &str, tx: Transmitter<Event>) -> GizmoBuilder {
@@ -199,24 +211,53 @@ impl GizmoBuilder {
               gizmo.text(&init, dynamic.branch());
               Ok(())
             }
-            Gizmo(Static(static_gizmo_builder)) => {
-              let static_gizmo =
-                static_gizmo_builder
-                .build()?;
-              trace!("setting static sub-gizmo on gizmo");
-              html_el
+            Gizmos(Static(static_gizmo_builders)) => {
+              trace!("setting static sub-gizmos on gizmo");
+              let static_gizmos:Vec<_> =
+                static_gizmo_builders
+                .into_iter()
+                .fold(
+                  Ok(vec![]),
+                  |res:Result<_, JsValue>, builder| {
+                    let mut gizmos = res?;
+                    let gizmo = builder.build()?;
+                    gizmos.push(gizmo);
+                    Ok(gizmos)
+                  }
+                )?;
+
+              let node =
+                html_el
                 .dyn_ref::<Node>()
-                .expect("Could not turn gizmo html_element into Node")
-                .append_child(static_gizmo.html_element_ref())?;
-              gizmo.static_gizmos.push(static_gizmo);
-              Ok(())
+                .expect("Could not turn gizmo html_element into Node");
+
+              static_gizmos
+                .into_iter()
+                .fold(
+                  Ok(()),
+                  |res, static_gizmo| {
+                    res?;
+                    node
+                      .append_child(static_gizmo.html_element_ref())?;
+                    gizmo.static_gizmos.push(static_gizmo);
+                    Ok(())
+                })
             }
-            Gizmo(Rx(init_builder, dynamic)) => {
-              let init =
-                init_builder
-                .build()?;
+            Gizmos(Rx(init_builders, rx)) => {
+              let init_gizmos =
+                init_builders
+                .into_iter()
+                .fold(
+                  Ok(vec![]),
+                  |res:Result<_, JsValue>, builder| {
+                    let mut gizmos = res?;
+                    let gizmo = builder.build()?;
+                    gizmos.push(gizmo);
+                    Ok(gizmos)
+                  }
+                )?;
               trace!("setting dynamic sub-gizmo on gizmo");
-              gizmo.gizmos(vec![init], dynamic.branch_map(|b| Some(vec![b.clone()])));
+              gizmo.gizmos(init_gizmos, rx.branch());
               Ok(())
             }
           }

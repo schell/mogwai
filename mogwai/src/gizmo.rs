@@ -10,15 +10,18 @@ pub use web_sys::EventTarget;
 pub use wasm_bindgen::{JsCast, JsValue};
 
 
+/// A gizmo is a compiled network of html tags, callback closures and message
+/// responders (in the form of receivers).
 #[derive(Clone)]
 pub struct Gizmo {
   pub name: String,
   html_element: HtmlElement,
   callbacks: HashMap<String, Arc<Closure<dyn FnMut(JsValue)>>>,
+  string_rxs: Vec<Receiver<String>>,
+  bool_rxs: Vec<Receiver<bool>>,
+  gizmo_rxs: Vec<Receiver<Vec<GizmoBuilder>>>,
   pub static_gizmos: Vec<Gizmo>,
 }
-
-// TODO:
 
 impl Gizmo {
   pub fn new(html_element: HtmlElement) -> Gizmo {
@@ -26,6 +29,9 @@ impl Gizmo {
       name: "unknown".into(),
       html_element,
       callbacks: HashMap::new(),
+      string_rxs: vec![],
+      gizmo_rxs: vec![],
+      bool_rxs: vec![],
       static_gizmos: vec![],
     }
   }
@@ -57,12 +63,17 @@ impl Gizmo {
   }
 
   pub fn attribute(&mut self, name: &str, init: &str, mut rx: Receiver<String>) {
+    // Save a clone so we can drop_responder if this gizmo goes out of scope
+    self.string_rxs.push(rx.clone());
+
     self
       .html_element
       .set_attribute(name, init)
       .expect("Could not set attribute");
+
     let el = self.html_element.clone();
     let name = name.to_string();
+
     rx.set_responder(move |s| {
       el.set_attribute(&name, s)
         .expect("Could not set attribute");
@@ -70,14 +81,19 @@ impl Gizmo {
   }
 
   pub fn boolean_attribute(&mut self, name: &str, init: bool, mut rx: Receiver<bool>) {
+    // Save a clone so we can drop_responder if this gizmo goes out of scope
+    self.bool_rxs.push(rx.clone());
+
     if init {
       self
         .html_element
         .set_attribute(name, "")
         .expect("Could not set attribute");
     }
+
     let el = self.html_element.clone();
     let name = name.to_string();
+
     rx.set_responder(move |b| {
       if *b {
         el.set_attribute(&name, "")
@@ -90,6 +106,9 @@ impl Gizmo {
   }
 
   pub fn text(&mut self, init: &str, mut rx: Receiver<String>) {
+    // Save a clone so we can drop_responder if this gizmo goes out of scope
+    self.string_rxs.push(rx.clone());
+
     let text:Text =
       Text::new_with_data(init)
       .unwrap();
@@ -105,6 +124,9 @@ impl Gizmo {
   }
 
   pub fn style(&mut self, s: &str, init: &str, mut rx: Receiver<String>) {
+    // Save a clone so we can drop_responder if this gizmo goes out of scope
+    self.string_rxs.push(rx.clone());
+
     let style =
       self
       .html_element
@@ -127,6 +149,9 @@ impl Gizmo {
   }
 
   pub fn gizmos(&mut self, init: Vec<Gizmo>, mut rx: Receiver<Vec<GizmoBuilder>>) {
+    // Save a clone so we can drop_responder if this gizmo goes out of scope
+    self.gizmo_rxs.push(rx.clone());
+
     let mut prev_gizmos = init;
     let node =
       self
@@ -141,16 +166,7 @@ impl Gizmo {
           .append_child(gizmo.html_element_ref())
           .expect("Could not add initial child gizmo");
       });
-    let mut rx_cleanup = rx.clone();
     rx.set_responder(move |gizmo_builders: &Vec<GizmoBuilder>| {
-      if !node.is_connected() {
-        // Yeah I know, if we don't receive a message then there's
-        // some data dangling here...
-        prev_gizmos = vec![];
-        rx_cleanup.drop_responder();
-        return;
-      }
-
       // Build the new gizmos
       let gizmos:Vec<Gizmo> =
         gizmo_builders
@@ -237,5 +253,26 @@ impl Gizmo {
     } else {
       Err("running gizmos is only supported on wasm".into())
     }
+  }
+}
+
+/// Gizmo's Drop implementation insures that responders no longer attempt to
+/// update the gizmo.
+impl Drop for Gizmo {
+  fn drop(&mut self) {
+    self
+      .string_rxs
+      .iter_mut()
+      .for_each(|rx| rx.drop_responder());
+
+    self
+      .bool_rxs
+      .iter_mut()
+      .for_each(|rx| rx.drop_responder());
+
+    self
+      .gizmo_rxs
+      .iter_mut()
+      .for_each(|rx| rx.drop_responder());
   }
 }

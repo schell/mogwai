@@ -22,15 +22,15 @@ pub fn body() -> web_sys::HtmlElement {
     .expect("document does not have a body")
 }
 
-pub fn set_checkup_interval(millis: i32, f: &Closure<dyn Fn()>) -> i32 {
+pub fn set_checkup_interval(millis: i32, f: &Closure<dyn FnMut()>) -> i32 {
   window()
     .set_timeout_with_callback_and_timeout_and_arguments_0(f.as_ref().unchecked_ref(), millis)
     .expect("should register `setInterval` OK")
 }
 
-pub fn timeout<F>(millis: i32, logic: F) -> i32
+pub fn timeout<F>(millis: i32, mut logic: F) -> i32
 where
-  F: Fn() -> bool + 'static
+  F: FnMut() -> bool + 'static
 {
   // https://rustwasm.github.io/wasm-bindgen/examples/request-animation-frame.html#srclibrs
   let f = Rc::new(RefCell::new(None));
@@ -38,12 +38,11 @@ where
 
   *g.borrow_mut()
     = Some(Closure::wrap(Box::new(move || {
-      let should_continue =
-        logic();
+      let should_continue = logic();
       if should_continue {
         set_checkup_interval(millis, f.borrow().as_ref().unwrap());
       }
-    }) as Box<dyn Fn()>));
+    }) as Box<dyn FnMut()>));
 
   let invalidate = set_checkup_interval(millis, g.borrow().as_ref().unwrap());
   invalidate
