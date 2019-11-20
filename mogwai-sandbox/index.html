@@ -1,14 +1,15 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <title>Mogwai</title>
+    <link rel="stylesheet" href="pkg/todo.css">
     </head>
     <body>
-        <script src="pkg/mogwai_sandbox.js"></script>
+        <script src="pkg/mogwai_todo.js"></script>
         <script type=module>
          window
-             .wasm_bindgen('pkg/mogwai_sandbox_bg.wasm')
+             .wasm_bindgen('pkg/mogwai_todo_bg.wasm')
              .then( m => m.main() )
              .catch(console.error);
         </script>

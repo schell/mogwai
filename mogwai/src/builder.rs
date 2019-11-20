@@ -17,7 +17,7 @@ pub enum Continuous<T> {
 
 #[derive(Clone)]
 pub enum GizmoOption {
-  Attribute(String, Continuous<String>),
+  Attribute(String, Continuous<Option<String>>),
   Boolean(String, Continuous<bool>),
   Style(String, Continuous<String>),
   Text(Continuous<String>),
@@ -69,27 +69,41 @@ impl GizmoBuilder {
     gizmo
   }
 
-
+  /// Add an unchanging attribute.
   pub fn attribute(self, name: &str, value: &str) -> GizmoBuilder {
-    self.option(GizmoOption::Attribute(name.to_string(), Continuous::Static(value.to_string())))
+    self.option(GizmoOption::Attribute(name.to_string(), Continuous::Static(Some(value.to_string()))))
   }
 
   pub fn boolean_attribute(self, name: &str) -> GizmoBuilder {
     self.option(GizmoOption::Boolean(name.to_string(), Continuous::Static(true)))
   }
 
+  /// Add an unchanging style.
   pub fn style(self, name: &str, value: &str) -> GizmoBuilder {
     self.option(GizmoOption::Style(name.into(), Continuous::Static(value.into())))
   }
 
+  /// Add the unchanging class.
+  /// This represents all the classes for this gizmo. If you'd like to specify
+  /// more than one class call this as:
+  /// ```rust
+  /// builder.class("class1 class2 class3 etc");
+  /// ```
+  pub fn class(self, value: &str) -> GizmoBuilder {
+    self.attribute("class", value)
+  }
+
+  /// Add an unchunging text node.
   pub fn text(self, s: &str) -> GizmoBuilder {
     self.option(GizmoOption::Text(Continuous::Static(s.to_string())))
   }
 
+  /// Add an unchanging gizmo.
   pub fn with(self, g: GizmoBuilder) -> GizmoBuilder {
     self.option(GizmoOption::Gizmos(Continuous::Static(vec![g])))
   }
 
+  /// Add many unchinging gizmos all at once.
   pub fn with_many(self, gs: Vec<GizmoBuilder>) -> GizmoBuilder {
     gs.into_iter()
       .fold(
@@ -98,14 +112,21 @@ impl GizmoBuilder {
       )
   }
 
-  pub fn rx_attribute(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
-    self.option(GizmoOption::Attribute(name.to_string(), Continuous::Rx(init.into(), value)))
+  /// Add an attribute that changes its value every time it receives a message on
+  /// the given receiver. If the receiver receives `None` it will respond by
+  /// removing the attribute until it receives `Some(...)`.
+  pub fn rx_attribute(self, name: &str, init:Option<&str>, value: Receiver<Option<String>>) -> GizmoBuilder {
+    let init =
+      init
+      .map(|i| i.into());
+    self.option(GizmoOption::Attribute(name.to_string(), Continuous::Rx(init, value)))
   }
 
   pub fn rx_boolean_attribute(self, name: &str, init:bool, rx: Receiver<bool>) -> GizmoBuilder {
     self.option(GizmoOption::Boolean(name.to_string(), Continuous::Rx(init, rx)))
   }
 
+  /// Add a changing style attribute.
   pub fn rx_style(self, name: &str, init:&str, value: Receiver<String>) -> GizmoBuilder {
     self.option(GizmoOption::Style(name.into(), Continuous::Rx(init.into(), value)))
   }
@@ -165,11 +186,14 @@ impl GizmoBuilder {
           match option {
             Attribute(name, Static(value)) => {
               trace!("setting static attribute value on gizmo");
-              el.set_attribute(&name, &value)
+              if let Some(value) = value {
+                el.set_attribute(&name, &value)?;
+              }
+              Ok(())
             }
             Attribute(name, Rx(init, dynamic)) => {
               trace!("setting dynamic attribute value on gizmo");
-              gizmo.attribute(&name, &init, dynamic.branch());
+              gizmo.attribute(&name, init.clone(), dynamic.branch());
               Ok(())
             }
             Boolean(name, Static(should)) => {

@@ -17,6 +17,7 @@ pub struct Gizmo {
   pub name: String,
   html_element: HtmlElement,
   callbacks: HashMap<String, Arc<Closure<dyn FnMut(JsValue)>>>,
+  opt_string_rxs: Vec<Receiver<Option<String>>>,
   string_rxs: Vec<Receiver<String>>,
   bool_rxs: Vec<Receiver<bool>>,
   gizmo_rxs: Vec<Receiver<Vec<GizmoBuilder>>>,
@@ -29,6 +30,7 @@ impl Gizmo {
       name: "unknown".into(),
       html_element,
       callbacks: HashMap::new(),
+      opt_string_rxs: vec![],
       string_rxs: vec![],
       gizmo_rxs: vec![],
       bool_rxs: vec![],
@@ -62,21 +64,28 @@ impl Gizmo {
       .insert(ev_name.to_string(), Arc::new(cb));
   }
 
-  pub fn attribute(&mut self, name: &str, init: &str, mut rx: Receiver<String>) {
+  pub fn attribute(&mut self, name: &str, init: Option<String>, mut rx: Receiver<Option<String>>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
-    self.string_rxs.push(rx.clone());
+    self.opt_string_rxs.push(rx.clone());
 
-    self
-      .html_element
-      .set_attribute(name, init)
-      .expect("Could not set attribute");
+    if let Some(init) = init {
+      self
+        .html_element
+        .set_attribute(name, &init)
+        .expect("Could not set attribute");
+    }
 
     let el = self.html_element.clone();
     let name = name.to_string();
 
     rx.set_responder(move |s| {
-      el.set_attribute(&name, s)
-        .expect("Could not set attribute");
+      if let Some(s) = s {
+        el.set_attribute(&name, s)
+          .expect("Could not set attribute");
+      } else {
+        el.remove_attribute(&name)
+          .expect("Could not remove attribute");
+      }
     });
   }
 
@@ -232,11 +241,11 @@ impl Gizmo {
 
   pub fn maintain(&mut self) {}
 
-  pub fn run(self) -> Result<(), JsValue> {
+  pub fn run_in_container(self, container:HtmlElement) -> Result<(), JsValue> {
     trace!("Running gizmo {}...", self.name);
 
     if cfg!(target_arch = "wasm32") {
-      body()
+      container
         .append_child(self.html_element_ref())
         .map_err(|_| "could not append gizmo to document body".to_string())?;
 
@@ -253,6 +262,18 @@ impl Gizmo {
     } else {
       Err("running gizmos is only supported on wasm".into())
     }
+
+  }
+
+  pub fn run(self) -> Result<(), JsValue> {
+    trace!("Running gizmo {}...", self.name);
+
+    if cfg!(target_arch = "wasm32") {
+      self
+        .run_in_container(body())
+    } else {
+      Err("running gizmos is only supported on wasm".into())
+    }
   }
 }
 
@@ -260,6 +281,11 @@ impl Gizmo {
 /// update the gizmo.
 impl Drop for Gizmo {
   fn drop(&mut self) {
+    self
+      .opt_string_rxs
+      .iter_mut()
+      .for_each(|rx| rx.drop_responder());
+
     self
       .string_rxs
       .iter_mut()
