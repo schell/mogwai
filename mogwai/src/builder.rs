@@ -199,16 +199,16 @@ impl GizmoBuilder {
               gizmo.text(&init, dynamic.branch());
               Ok(())
             }
-            Gizmo(Static(sub_gizmo_builder)) => {
-              let sub_gizmo =
-                sub_gizmo_builder
+            Gizmo(Static(static_gizmo_builder)) => {
+              let static_gizmo =
+                static_gizmo_builder
                 .build()?;
               trace!("setting static sub-gizmo on gizmo");
               html_el
                 .dyn_ref::<Node>()
                 .expect("Could not turn gizmo html_element into Node")
-                .append_child(sub_gizmo.html_element_ref())?;
-              gizmo.sub_gizmos.push(sub_gizmo);
+                .append_child(static_gizmo.html_element_ref())?;
+              gizmo.static_gizmos.push(static_gizmo);
               Ok(())
             }
             Gizmo(Rx(init_builder, dynamic)) => {
@@ -216,7 +216,7 @@ impl GizmoBuilder {
                 init_builder
                 .build()?;
               trace!("setting dynamic sub-gizmo on gizmo");
-              gizmo.with(init, dynamic.branch());
+              gizmo.gizmos(vec![init], dynamic.branch_map(|b| Some(vec![b.clone()])));
               Ok(())
             }
           }

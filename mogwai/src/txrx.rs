@@ -151,6 +151,17 @@ impl<A> Receiver<A> {
     branches.insert(k, Box::new(f));
   }
 
+  /// Removes the responder from the receiver.
+  /// This drops anything owned by the responder.
+  pub fn drop_responder(&mut self) {
+    let mut branches =
+      self
+      .branches
+      .try_lock()
+      .expect("Could not try_lock Receiver::drop_responder");
+    let _ = branches.remove(&self.k);
+  }
+
   pub fn new_trns(&self) -> Transmitter<A> {
     Transmitter {
       next_k: self.next_k.clone(),
@@ -275,6 +286,20 @@ pub fn terminals<A>() -> (Transmitter<A>, Receiver<A>) {
   let mut trns = Transmitter::new();
   let recv = trns.spawn_recv();
   (trns, recv)
+}
+
+
+#[cfg(test)]
+mod range {
+  #[test]
+  fn range() {
+    let mut n = 0;
+    for i in 0..3 {
+      n = i;
+    }
+
+    assert_eq!(n, 2);
+  }
 }
 
 

@@ -15,9 +15,10 @@ pub struct Gizmo {
   pub name: String,
   html_element: HtmlElement,
   callbacks: HashMap<String, Arc<Closure<dyn FnMut(JsValue)>>>,
-  pub sub_gizmos: Vec<Gizmo>,
+  pub static_gizmos: Vec<Gizmo>,
 }
 
+// TODO:
 
 impl Gizmo {
   pub fn new(html_element: HtmlElement) -> Gizmo {
@@ -25,7 +26,7 @@ impl Gizmo {
       name: "unknown".into(),
       html_element,
       callbacks: HashMap::new(),
-      sub_gizmos: vec![],
+      static_gizmos: vec![],
     }
   }
 
@@ -53,16 +54,6 @@ impl Gizmo {
     self
       .callbacks
       .insert(ev_name.to_string(), Arc::new(cb));
-  }
-
-  /// Sends a message into the given transmitter repeatedly at the given interval.
-  /// Stops sending as soon as a message is received on the given receiver.
-  /// The interval is defined in milliseconds.
-  pub fn tx_interval(&mut self, _millis: u32, _tx: Transmitter<()>, _rx: Receiver<()>) {
-    //let mut rx = rx.branch();
-    //let f = Closure::wrap(Box::new(|| {
-
-    //}));
   }
 
   pub fn attribute(&mut self, name: &str, init: &str, mut rx: Receiver<String>) {
@@ -135,40 +126,87 @@ impl Gizmo {
     });
   }
 
-  pub fn with(&mut self, init: Gizmo, mut rx: Receiver<GizmoBuilder>) {
-    let mut prev_gizmo = init;
+  pub fn gizmos(&mut self, init: Vec<Gizmo>, mut rx: Receiver<Vec<GizmoBuilder>>) {
+    let mut prev_gizmos = init;
     let node =
       self
       .html_element
       .clone()
       .dyn_into::<Node>()
       .expect("Could not turn gizmo html_element into Node");
-    node
-      .append_child(prev_gizmo.html_element_ref())
-      .expect("Could not add initial child gizmo");
-    rx.set_responder(move |gizmo_builder: &GizmoBuilder| {
-      let gizmo =
-        gizmo_builder
-        .build()
-        .expect("Could not build dynamic gizmo");
+    prev_gizmos
+      .iter()
+      .for_each(|gizmo:&Gizmo| {
+        node
+          .append_child(gizmo.html_element_ref())
+          .expect("Could not add initial child gizmo");
+      });
+    let mut rx_cleanup = rx.clone();
+    rx.set_responder(move |gizmo_builders: &Vec<GizmoBuilder>| {
+      if !node.is_connected() {
+        // Yeah I know, if we don't receive a message then there's
+        // some data dangling here...
+        prev_gizmos = vec![];
+        rx_cleanup.drop_responder();
+        return;
+      }
 
-      let prev_node:&Node =
-        prev_gizmo
-        .html_element
-        .dyn_ref()
-        .expect("Could not cast old dynamic gizmo's html_element into node");
+      // Build the new gizmos
+      let gizmos:Vec<Gizmo> =
+        gizmo_builders
+        .into_iter()
+        .map(|b| b.build().expect("Could not build dynamic gizmos"))
+        .collect();
 
-      let new_node:&Node =
-        &gizmo
-        .html_element
-        .dyn_ref()
-        .expect("Could not cast dynamic gizmo's html_element into node");
+      let max_gizmos_len =
+        usize::max(gizmos.len(), prev_gizmos.len());
 
-      node
-        .replace_child(new_node, prev_node)
-        .expect("Could not replace old gizmo with new gizmo");
+      for i in 0..max_gizmos_len {
+        let previous =
+          prev_gizmos.get(i);
+        let new =
+          gizmos.get(i);
 
-      prev_gizmo = gizmo;
+        if let Some(prev) = previous {
+          if let Some(new) = new {
+            // Replace them
+
+            node
+              .replace_child(
+                new
+                  .html_element
+                  .dyn_ref()
+                  .unwrap(),
+                prev
+                  .html_element
+                  .dyn_ref()
+                  .unwrap()
+              )
+              .unwrap();
+          } else {
+            node
+              .remove_child(
+                prev
+                  .html_element
+                  .dyn_ref()
+                  .unwrap()
+              )
+              .unwrap();
+          }
+        } else {
+          let new_node =
+            new
+            .unwrap()
+            .html_element
+            .dyn_ref()
+            .unwrap();
+          node
+            .append_child(new_node)
+            .unwrap();
+        }
+      }
+
+      prev_gizmos = gizmos;
     });
   }
 
