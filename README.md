@@ -1,20 +1,17 @@
 # mogwai
-`mogwai` is the magical, obvious, graphical web application interface! `mogwai`
-is written in Rust but it runs in your browser.
+`mogwai` is a minimalist, obvious, graphical web application interface written in
+Rust that runs in your browser.
 
-# goals
+## goals
 
-1. [x] be able to easily declare static markup
-2. [x] be able to easily declare dynamic markup
-3. [x] declaring static markup, dynamic markup and controlling updates to
-       dynamic markup in a localized, stateful way is the act of writing a
-       widget, which in `mogwai` is called a gizmo
-4. [x] gizmos are composable
+1. [x] easily declare static and dynamic markup, encapsulate state
+2. [x] compile declarations into gizmos (mogwai's widgets)
+3. [x] compose gizmos
 
 If mogwai achieves these goals, maintaining application state, composing
 widgets and reasoning about your program should be easy.
 
-# example
+## example
 ```rust
 extern crate mogwai;
 
@@ -67,10 +64,6 @@ pub fn main() {
         (!is_red, Some(out))
     });
 
-
-  // Here we're not unwrapping because this readme is tested without compiling
-  // to wasm. In an actual wasm application your main would look a little
-  // different. See mogwai-sandbox/src/lib.rs
   div()
     .with(h1)
     .with(button)
@@ -79,4 +72,32 @@ pub fn main() {
     .run()
     .unwrap();
 }
+```
+
+## why
+Rust is beginning to have a good number of frontend libraries. Most however,
+focus on writing trait implementations for component types or encorporate some
+kind of FRP.
+
+`mogwai` lives in a happy orthogonal space that encourages functional progamming
+patterns. It uses channels and a declarative html builder to define components
+and compose them together. Once the interface is defined and built, the channels
+are effectively erased and it's functions all the way down. There's no vdom,
+shadow dom, polling or patching. Just functions!
+
+Another benefit of `mogwai` is that it is Rust-first. There is no requirement
+that you have `npm` or `node` and getting your project up and running without any
+javascript tools is easy enough.
+
+## ok - where do i start?
+`mogwai` is meant to be used with [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/).
+
+(more detailed instructions incoming)
+## more examples please
+For more examples, check out
+[the sandbox](https://github.com/schell/mogwai/blob/master/mogwai-sandbox/src/lib.rs).
+
+To build the sandbox use:
+```bash
+cd mogwai-sandbox; wasm-pack build --target no-modules
 ```
