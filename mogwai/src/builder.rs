@@ -18,7 +18,6 @@ pub enum Continuous<T> {
 #[derive(Clone)]
 pub enum GizmoOption {
   Attribute(String, Continuous<Option<String>>),
-  Boolean(String, Continuous<bool>),
   Style(String, Continuous<String>),
   Text(Continuous<String>),
   Gizmos(Continuous<Vec<GizmoBuilder>>)
@@ -75,7 +74,7 @@ impl GizmoBuilder {
   }
 
   pub fn boolean_attribute(self, name: &str) -> GizmoBuilder {
-    self.option(GizmoOption::Boolean(name.to_string(), Continuous::Static(true)))
+    self.option(GizmoOption::Attribute(name.to_string(), Continuous::Static(Some("".into()))))
   }
 
   /// Add an unchanging style.
@@ -123,7 +122,16 @@ impl GizmoBuilder {
   }
 
   pub fn rx_boolean_attribute(self, name: &str, init:bool, rx: Receiver<bool>) -> GizmoBuilder {
-    self.option(GizmoOption::Boolean(name.to_string(), Continuous::Rx(init, rx)))
+    let to_opt = |b:&bool| -> Option<String> {
+      if *b {
+        Some("".into())
+      } else {
+        None
+      }
+    };
+    let init = to_opt(&init);
+    let rx = rx.branch_map(move |b| Some(to_opt(b)));
+    self.option(GizmoOption::Attribute(name.to_string(), Continuous::Rx(init, rx)))
   }
 
   /// Add a changing style attribute.
@@ -194,18 +202,6 @@ impl GizmoBuilder {
             Attribute(name, Rx(init, dynamic)) => {
               trace!("setting dynamic attribute value on gizmo");
               gizmo.attribute(&name, init.clone(), dynamic.branch());
-              Ok(())
-            }
-            Boolean(name, Static(should)) => {
-              if *should {
-                trace!("setting static boolean attribute {:?} on gizmo", name);
-                el.set_attribute(&name, "")?;
-              }
-              Ok(())
-            }
-            Boolean(name, Rx(init, rx)) => {
-              trace!("setting dynamic boolean attribute {:?} on gizmo", name);
-              gizmo.boolean_attribute(&name, *init, rx.branch());
               Ok(())
             }
             Style(name, Static(value)) => {
