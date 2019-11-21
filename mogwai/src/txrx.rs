@@ -112,7 +112,7 @@ impl<A> Transmitter<A> {
   }
 
   /// Wires the transmitter to the given receiver using a stateless map function.
-  pub fn wire_map<B, X, F>(&mut self, rb: &Receiver<B>, f:F)
+  pub fn wire_map<B, F>(&mut self, rb: &Receiver<B>, f:F)
   where
     B: Any,
     F: Fn(&A) -> Option<B> + Send + Sync + 'static
