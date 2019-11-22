@@ -141,8 +141,8 @@ async fn click_to_text() -> Option<String> {
 /// Creates a button that when clicked requests the time in london and sends
 /// it down a receiver.
 pub fn time_req_button_and_pre() -> GizmoBuilder {
-  let (req_tx, req_rx) = terminals::<Event>();
-  let (resp_tx, resp_rx) = terminals::<String>();
+  let (req_tx, req_rx) = txrx::<Event>();
+  let (resp_tx, resp_rx) = txrx::<String>();
 
   req_rx
     .forward_filter_fold_async(

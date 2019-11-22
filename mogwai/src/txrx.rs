@@ -249,7 +249,7 @@ impl<A> Receiver<A> {
     F: Fn(&mut T, &A) -> Option<B> + 'static
   {
     let ra = self.branch();
-    let (tb, rb) = terminals();
+    let (tb, rb) = txrx();
     ra.forward_filter_fold(&tb, init, f);
     rb
   }
@@ -268,7 +268,7 @@ impl<A> Receiver<A> {
     F: Fn(&mut T, &A) -> B + 'static
   {
     let ra = self.branch();
-    let (tb, rb) = terminals();
+    let (tb, rb) = txrx();
     ra.forward_fold(&tb, init, f);
     rb
   }
@@ -288,7 +288,7 @@ impl<A> Receiver<A> {
     F: Fn(&A) -> Option<B> + 'static
   {
     let ra = self.branch();
-    let (tb, rb) = terminals();
+    let (tb, rb) = txrx();
     ra.forward_filter_map(&tb, f);
     rb
   }
@@ -305,7 +305,7 @@ impl<A> Receiver<A> {
     F: Fn(&A) -> B + 'static
   {
     let ra = self.branch();
-    let (tb, rb) = terminals();
+    let (tb, rb) = txrx();
     ra.forward_map(&tb, f);
     rb
   }
@@ -435,7 +435,7 @@ impl<A> Receiver<A> {
   /// Merge all the receivers into one. Any time a message is received on any
   /// receiver, it will be sent to the returned receiver.
   pub fn merge<B:Any>(rxs: Vec<Receiver<B>>) -> Receiver<B> {
-    let (tx, rx) = terminals();
+    let (tx, rx) = txrx();
     rxs
       .into_iter()
       .for_each(|rx_inc| {
@@ -462,7 +462,7 @@ pub fn trns<A>() -> Transmitter<A> {
 }
 
 
-pub fn terminals<A>() -> (Transmitter<A>, Receiver<A>) {
+pub fn txrx<A>() -> (Transmitter<A>, Receiver<A>) {
   let mut trns = Transmitter::new();
   let recv = trns.spawn_recv();
   (trns, recv)
@@ -476,8 +476,8 @@ where
   T:Any,
   F:Fn(&mut T, &A) -> Option<B> + 'static,
 {
-  let (ta, ra) = terminals();
-  let (tb, rb) = terminals();
+  let (ta, ra) = txrx();
+  let (tb, rb) = txrx();
   ra.forward_filter_fold(&tb, t, f);
   (ta, rb)
 }
@@ -490,8 +490,8 @@ where
   T:Any,
   F:Fn(&mut T, &A) -> B + 'static,
 {
-  let (ta, ra) = terminals();
-  let (tb, rb) = terminals();
+  let (ta, ra) = txrx();
+  let (tb, rb) = txrx();
   ra.forward_fold(&tb, t, f);
   (ta, rb)
 }
@@ -503,8 +503,8 @@ where
   B:Any,
   F:Fn(&A) -> Option<B> + 'static,
 {
-  let (ta, ra) = terminals();
-  let (tb, rb) = terminals();
+  let (ta, ra) = txrx();
+  let (tb, rb) = txrx();
   ra.forward_filter_map(&tb, f);
   (ta, rb)
 }
@@ -515,8 +515,8 @@ where
   B:Any,
   F:Fn(&A) -> B + 'static,
 {
-  let (ta, ra) = terminals();
-  let (tb, rb) = terminals();
+  let (ta, ra) = txrx();
+  let (tb, rb) = txrx();
   ra.forward_map(&tb, f);
   (ta, rb)
 }
@@ -543,8 +543,8 @@ mod instant_txrx {
   #[test]
   fn txrx() {
     let count = Arc::new(Mutex::new(0));
-    let (tx_unit, rx_unit) = terminals::<()>();
-    let (tx_i32, rx_i32) = terminals::<i32>();
+    let (tx_unit, rx_unit) = txrx::<()>();
+    let (tx_i32, rx_i32) = txrx::<i32>();
     {
       let my_count = count.clone();
       rx_i32.respond(move |n:&i32| {
@@ -612,7 +612,7 @@ mod instant_txrx {
 
   #[test]
   fn branch_map() {
-    let (tx, rx) = terminals::<()>();
+    let (tx, rx) = txrx::<()>();
     let ry:Receiver<i32> =
       rx.branch_map(|_| 0);
 
