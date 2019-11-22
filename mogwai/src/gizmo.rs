@@ -6,7 +6,7 @@ use web_sys::{HtmlElement, Node, Text};
 
 use super::prelude::*;
 pub use super::utils::*;
-pub use web_sys::EventTarget;
+pub use web_sys::{EventTarget, HtmlInputElement};
 pub use wasm_bindgen::{JsCast, JsValue};
 
 
@@ -15,7 +15,7 @@ pub use wasm_bindgen::{JsCast, JsValue};
 #[derive(Clone)]
 pub struct Gizmo {
   pub name: String,
-  html_element: HtmlElement,
+  pub html_element: HtmlElement,
   callbacks: HashMap<String, Arc<Closure<dyn FnMut(JsValue)>>>,
   opt_string_rxs: Vec<Receiver<Option<String>>>,
   string_rxs: Vec<Receiver<String>>,
@@ -157,6 +157,28 @@ impl Gizmo {
     });
   }
 
+  pub fn value(&mut self, init: &str, mut rx: Receiver<String>) {
+    // Save a clone so we can drop_responder if this gizmo goes out of scope
+    self.string_rxs.push(rx.clone());
+
+    let opt_input =
+      self
+      .html_element
+      .clone()
+      .dyn_into::<HtmlInputElement>()
+      .ok();
+
+    if let Some(input) = opt_input {
+      input.set_value(init);
+
+      rx.set_responder(move |val:&String| {
+        input.set_value(val);
+      });
+    } else {
+      warn!("Tried to set dynamic value on a gizmo that is not an input");
+    }
+  }
+
   pub fn gizmos(&mut self, init: Vec<Gizmo>, mut rx: Receiver<Vec<GizmoBuilder>>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.gizmo_rxs.push(rx.clone());
@@ -180,7 +202,7 @@ impl Gizmo {
       let gizmos:Vec<Gizmo> =
         gizmo_builders
         .into_iter()
-        .map(|b| b.build().expect("Could not build dynamic gizmos"))
+        .map(|b| b.clone().build().expect("Could not build dynamic gizmos"))
         .collect();
 
       let max_gizmos_len =
@@ -278,9 +300,24 @@ impl Gizmo {
 }
 
 /// Gizmo's Drop implementation insures that responders no longer attempt to
-/// update the gizmo.
+/// update the gizmo. It also removes its html_element from the DOM.
 impl Drop for Gizmo {
   fn drop(&mut self) {
+    let node =
+      self
+      .html_element
+      .dyn_ref::<Node>()
+      .unwrap();
+
+    node
+      .parent_node()
+      .iter()
+      .for_each(|parent| {
+        parent
+          .remove_child(&node)
+          .unwrap();
+      });
+
     self
       .opt_string_rxs
       .iter_mut()

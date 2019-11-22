@@ -27,6 +27,7 @@ features = [
   "Event",
   "EventTarget",
   "HtmlElement",
+  "HtmlInputElement",
   "Request",
   "RequestInit",
   "RequestMode",

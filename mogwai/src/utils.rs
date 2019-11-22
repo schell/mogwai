@@ -1,8 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::closure::Closure;
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, JsValue};
 use web_sys;
+
+use super::gizmo::Gizmo;
 
 
 pub fn window() -> web_sys::Window {
@@ -46,4 +48,20 @@ where
 
   let invalidate = set_checkup_interval(millis, g.borrow().as_ref().unwrap());
   invalidate
+}
+
+/// Insert a child element into a parant element.
+pub fn nest_gizmos(parent: &Gizmo, child: &Gizmo) -> Result<(), JsValue> {
+  let child =
+    child
+    .html_element
+    .dyn_ref::<web_sys::Node>()
+    .ok_or(JsValue::NULL)?;
+  let _ =
+    parent
+    .html_element
+    .dyn_ref::<web_sys::Node>()
+    .ok_or(JsValue::NULL)?
+    .append_child(child)?;
+  Ok(())
 }

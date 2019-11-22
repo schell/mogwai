@@ -3,5 +3,5 @@ pub use super::builder::*;
 pub use super::builder::tags::*;
 pub use super::gizmo::*;
 pub use super::*;
-pub use web_sys::Event;
+pub use web_sys::{Event, HtmlElement};
 pub use super::utils::*;

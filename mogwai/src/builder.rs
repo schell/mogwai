@@ -1,5 +1,5 @@
 use wasm_bindgen::{JsCast, JsValue};
-use web_sys::{Element, Event, HtmlElement, Node, window};
+use web_sys::{Element, Event, HtmlElement, HtmlInputElement, Node, window};
 use std::collections::HashMap;
 
 use super::gizmo::Gizmo;
@@ -20,7 +20,9 @@ pub enum GizmoOption {
   Attribute(String, Continuous<Option<String>>),
   Style(String, Continuous<String>),
   Text(Continuous<String>),
-  Gizmos(Continuous<Vec<GizmoBuilder>>)
+  Value(Continuous<String>),
+  Gizmos(Continuous<Vec<GizmoBuilder>>),
+  Prebuilt(HtmlElement)
 }
 
 
@@ -86,6 +88,10 @@ impl GizmoBuilder {
   /// This represents all the classes for this gizmo. If you'd like to specify
   /// more than one class call this as:
   /// ```rust
+  /// extern crate mogwai;
+  /// use mogwai::prelude::*;
+  ///
+  /// let builder = GizmoBuilder::new("div");
   /// builder.class("class1 class2 class3 etc");
   /// ```
   pub fn class(self, value: &str) -> GizmoBuilder {
@@ -95,6 +101,12 @@ impl GizmoBuilder {
   /// Add an unchunging text node.
   pub fn text(self, s: &str) -> GizmoBuilder {
     self.option(GizmoOption::Text(Continuous::Static(s.to_string())))
+  }
+
+  /// Add an unchunging value.
+  /// NOTE: This is only for input elements.
+  pub fn value(self, s: &str) -> GizmoBuilder {
+    self.option(GizmoOption::Value(Continuous::Static(s.to_string())))
   }
 
   /// Add an unchanging gizmo.
@@ -109,6 +121,13 @@ impl GizmoBuilder {
         self,
         |builder, sub_gizmo_builder| builder.with(sub_gizmo_builder)
       )
+  }
+
+  /// Add a pre-built web-sys HtmlElement.
+  /// This allows building and maintaining a gizmo "out-of-band" and passing its
+  /// html_element to a GizmoBuilder.
+  pub fn with_pre_built(self, el: HtmlElement) -> GizmoBuilder {
+    self.option(GizmoOption::Prebuilt(el))
   }
 
   /// Add an attribute that changes its value every time it receives a message on
@@ -139,19 +158,29 @@ impl GizmoBuilder {
     self.option(GizmoOption::Style(name.into(), Continuous::Rx(init.into(), value)))
   }
 
+  /// Add a changing class attribute.
+  pub fn rx_class(self, init:&str, rx: Receiver<String>) -> GizmoBuilder {
+    self.rx_attribute("class", init.into(), rx.branch_map(|b| Some(Some(b.into()))))
+  }
+
   pub fn rx_text(self, init: &str, s: Receiver<String>) -> GizmoBuilder {
     self.option(GizmoOption::Text(Continuous::Rx(init.into(), s)))
   }
 
+  pub fn rx_value(self, init: &str, rx: Receiver<String>) -> GizmoBuilder {
+    self.option(GizmoOption::Value(Continuous::Rx(init.into(), rx)))
+  }
+
   pub fn rx_with(self, init:GizmoBuilder, rx: Receiver<GizmoBuilder>) -> GizmoBuilder {
-    self.option(
-      GizmoOption::Gizmos(
-        Continuous::Rx(
-          vec![init],
-          rx.branch_map(|b| Some(vec![b.clone()]))
-        )
-      )
-    )
+    self.rx_with_many(vec![init], rx.branch_map(|b| Some(vec![b.clone()])))
+  }
+
+  pub fn rx_with_many(
+    self,
+    init:Vec<GizmoBuilder>,
+    rx: Receiver<Vec<GizmoBuilder>>
+  ) -> GizmoBuilder {
+    self.option(GizmoOption::Gizmos(Continuous::Rx(init, rx)))
   }
 
   pub fn tx_on(self, event: &str, tx: Transmitter<Event>) -> GizmoBuilder {
@@ -160,7 +189,7 @@ impl GizmoBuilder {
     b
   }
 
-  pub fn build(&self) -> Result<Gizmo, JsValue> {
+  pub fn build(self) -> Result<Gizmo, JsValue> {
     trace!("building gizmo");
     let document =
       window().unwrap()
@@ -184,7 +213,7 @@ impl GizmoBuilder {
       });
     self
       .options
-      .iter()
+      .into_iter()
       .fold(
         Ok(()),
         |res, option| {
@@ -229,6 +258,23 @@ impl GizmoBuilder {
             Text(Rx(init, dynamic)) => {
               trace!("setting dynamic text node on gizmo");
               gizmo.text(&init, dynamic.branch());
+              Ok(())
+            }
+            Value(Static(value)) => {
+              trace!("setting static value of gizmo");
+              html_el
+                .dyn_ref::<HtmlInputElement>()
+                .expect("Attempted to set the value of non-input gizmo element.")
+                .set_value(&value);
+              Ok(())
+            }
+            Value(Rx(init, rx)) => {
+              trace!("setting dynamic text node on gizmo");
+              html_el
+                .dyn_ref::<HtmlInputElement>()
+                .expect("Attempted to set the value of non-input gizmo element.")
+                .set_value(&init);
+              gizmo.value(&init, rx.branch());
               Ok(())
             }
             Gizmos(Static(static_gizmo_builders)) => {
@@ -278,6 +324,17 @@ impl GizmoBuilder {
                 )?;
               trace!("setting dynamic sub-gizmo on gizmo");
               gizmo.gizmos(init_gizmos, rx.branch());
+              Ok(())
+            }
+            Prebuilt(el) => {
+              gizmo
+                .html_element
+                .dyn_ref::<Node>()
+                .ok_or(JsValue::NULL)?
+                .append_child(
+                  el.dyn_ref()
+                    .ok_or(JsValue::NULL)?
+                )?;
               Ok(())
             }
           }
