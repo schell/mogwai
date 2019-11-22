@@ -149,7 +149,7 @@ impl GizmoBuilder {
       }
     };
     let init = to_opt(&init);
-    let rx = rx.branch_map(move |b| Some(to_opt(b)));
+    let rx = rx.branch_map(move |b| to_opt(b));
     self.option(GizmoOption::Attribute(name.to_string(), Continuous::Rx(init, rx)))
   }
 
@@ -160,7 +160,7 @@ impl GizmoBuilder {
 
   /// Add a changing class attribute.
   pub fn rx_class(self, init:&str, rx: Receiver<String>) -> GizmoBuilder {
-    self.rx_attribute("class", init.into(), rx.branch_map(|b| Some(Some(b.into()))))
+    self.rx_attribute("class", init.into(), rx.branch_map(|b| Some(b.into())))
   }
 
   pub fn rx_text(self, init: &str, s: Receiver<String>) -> GizmoBuilder {
@@ -172,7 +172,7 @@ impl GizmoBuilder {
   }
 
   pub fn rx_with(self, init:GizmoBuilder, rx: Receiver<GizmoBuilder>) -> GizmoBuilder {
-    self.rx_with_many(vec![init], rx.branch_map(|b| Some(vec![b.clone()])))
+    self.rx_with_many(vec![init], rx.branch_map(|b| vec![b.clone()]))
   }
 
   pub fn rx_with_many(

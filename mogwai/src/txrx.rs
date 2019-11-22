@@ -83,8 +83,12 @@ impl<A> Transmitter<A> {
       });
   }
 
-  /// Wires the transmitter to the given receiver using a stateful fold function.
-  pub fn wire_fold_mut<T, B, X, F>(&mut self, rb: &Receiver<B>, init:X, f:F)
+  /// Wires the transmitter to send to the given receiver using a stateful fold
+  /// function.
+  ///
+  /// The fold function returns an `Option<B>`. In the case that the value of
+  /// `Option<B>` is `None`, no message will be sent to the receiver.
+  pub fn wire_filter_fold<T, B, X, F>(&mut self, rb: &Receiver<B>, init:X, f:F)
   where
     B: Any,
     T: Any,
@@ -92,67 +96,78 @@ impl<A> Transmitter<A> {
     F: Fn(&mut T, &A) -> Option<B> + 'static
   {
     let tb = rb.new_trns();
-    let mut ra = self.spawn_recv();
-    ra.forward_fold_mut(tb, init, f);
+    let ra = self.spawn_recv();
+    ra.forward_filter_fold(tb, init, f);
   }
 
-  /// Wires the transmitter to the given receiver using a stateful fold function.
-  ///
-  /// The fold function returns in a tuple a new state `T` and an optional
-  /// message to send to the transmitter.
-  /// In the case that the value of `Option<B>` is `None`, no message will be
-  /// send to the transmitter.
+  /// Wires the transmitter to send to the given receiver using a stateful fold
+  /// function.
   pub fn wire_fold<T, B, X, F>(&mut self, rb: &Receiver<B>, init:X, f:F)
   where
     B: Any,
     T: Any,
     X: Into<T>,
-    F: Fn(&T, &A) -> (T, Option<B>) + 'static
+    F: Fn(&mut T, &A) -> B + 'static
   {
     let tb = rb.new_trns();
-    let mut ra = self.spawn_recv();
+    let ra = self.spawn_recv();
     ra.forward_fold(tb, init, f);
   }
 
-  /// Wires the transmitter to the given receiver asynchronously using a stateful
-  /// fold function.
-  pub fn wire_fold_async<T, B, X, F, H>(ta: &mut Transmitter<A>, rb: &Receiver<B>, init:X, f:F, h:H)
+  /// Wires the transmitter to the given receiver using a stateless map function.
+  /// If the map function returns `None` for any messages those messages will
+  /// *not* be sent to the given transmitter.
+  pub fn wire_filter_map<B, F>(&mut self, rb: &Receiver<B>, f:F)
   where
     B: Any,
-    T: Any,
-    X: Into<T>,
-    F: Fn(&T, &A) -> (T, Option<RecvFuture<B>>) + 'static,
-    H: Fn(&T, &B) -> T + 'static
+    F: Fn(&A) -> Option<B> + 'static
   {
     let tb = rb.new_trns();
-    let mut ra = ta.spawn_recv();
-    ra.forward_fold_async(tb, init, f, h);
+    let ra = self.spawn_recv();
+    ra.forward_filter_map(tb, f);
   }
 
   /// Wires the transmitter to the given receiver using a stateless map function.
   pub fn wire_map<B, F>(&mut self, rb: &Receiver<B>, f:F)
   where
     B: Any,
-    F: Fn(&A) -> Option<B> + 'static
+    F: Fn(&A) -> B + 'static
   {
     let tb = rb.new_trns();
-    let mut ra = self.spawn_recv();
+    let ra = self.spawn_recv();
     ra.forward_map(tb, f);
   }
 
-  /// Branch a new transmitter off of the original and map any messages sent into
-  /// the original using a map function.
-  pub fn branch_map<B:Any, F>(&mut self, f:F) -> Transmitter<B>
+  /// Wires the transmitter to the given receiver using a stateful fold function
+  /// that returns an optional future. The future, if available, results in an
+  /// `Option<B>`. In the case that the value of the future's result is `None`,
+  /// no message will be sent to the given receiver.
+  ///
+  /// Lastly, a clean up function is ran at the completion of the future with its
+  /// result.
+  ///
+  /// To aid in returning a viable future in your fold function, use
+  /// `wrap_future`.
+  ///
+  /// After the async block returns
+  pub fn wire_filter_fold_async<T, B, X, F, H>(
+    &mut self,
+    rb: &Receiver<B>,
+    init:X,
+    f:F,
+    h:H
+  )
   where
-    F: Fn(&A) -> Option<B> + 'static
+    B: Any,
+    T: Any,
+    X: Into<T>,
+    F: Fn(&mut T, &A) -> Option<RecvFuture<B>> + 'static,
+    H: Fn(&mut T, &Option<B>) + 'static
   {
+    let tb = rb.new_trns();
     let mut ra = self.spawn_recv();
-    let tb = Transmitter::new();
-    ra.forward_map(tb.clone(), f);
-    tb
+    ra.forward_filter_fold_async(tb, init, f, h);
   }
-
-
 }
 
 
@@ -219,35 +234,88 @@ impl<A> Receiver<A> {
     recv_from(self.next_k.clone(), self.branches.clone())
   }
 
-  /// Forwards messages on the given receiver to the given transmitter using a
-  /// stateful fold function.
+  /// Branch a new receiver off of an original and wire any messages sent to the
+  /// original by using a stateful fold function.
   ///
-  /// The fold function returns in a tuple a new state `T` and an optional
-  /// message to send to the transmitter.
-  /// In the case that the value of `Option<B>` is `None`, no message will be
-  /// send to the transmitter.
-  /// NOTE: Overwrites this receiver's responder.
-  pub fn forward_fold<T, B, X, F>(&mut self, tx: Transmitter<B>, init:X, f:F)
+  /// The fold function returns an `Option<B>`. In the case that the value of
+  /// `Option<B>` is `None`, no message will be sent to the new receiver.
+  ///
+  /// Each branch will receive from the same transmitter.
+  pub fn branch_filter_fold<B, X, T, F>(&self, init:X, f:F) -> Receiver<B>
   where
     B: Any,
-    T: Any,
     X: Into<T>,
-    F: Fn(&T, &A) -> (T, Option<B>) + 'static
+    T: Any,
+    F: Fn(&mut T, &A) -> Option<B> + 'static
   {
-    self.forward_fold_mut(tx, init, move |state: &mut T, a| {
-      let (new_state, may_msg) = f(&state, a);
-      *state = new_state;
-      may_msg
-    })
+    let ra = self.branch();
+    let (tb, rb) = terminals();
+    ra.forward_filter_fold(tb, init, f);
+    rb
+  }
+
+  /// Branch a new receiver off of an original and wire any messages sent to the
+  /// original by using a stateful fold function.
+  ///
+  /// All output of the fold function is sent to the new receiver.
+  ///
+  /// Each branch will receive from the same transmitter.
+  pub fn branch_fold<B, X, T, F>(&self, init:X, f:F) -> Receiver<B>
+  where
+    B: Any,
+    X: Into<T>,
+    T: Any,
+    F: Fn(&mut T, &A) -> B + 'static
+  {
+    let ra = self.branch();
+    let (tb, rb) = terminals();
+    ra.forward_fold(tb, init, f);
+    rb
+  }
+
+  /// Branch a new receiver off of an original and wire any messages sent to the
+  /// original by using a stateless map function.
+  ///
+  /// The map function returns an `Option<B>`, representing an optional message
+  /// to send to the new receiver.
+  /// In the case that the result value of the map function is `None`, no message
+  /// will be sent to the new receiver.
+  ///
+  /// Each branch will receive from the same transmitter.
+  pub fn branch_filter_map<B, F>(&self, f:F) -> Receiver<B>
+  where
+    B: Any,
+    F: Fn(&A) -> Option<B> + 'static
+  {
+    let ra = self.branch();
+    let (tb, rb) = terminals();
+    ra.forward_filter_map(tb, f);
+    rb
+  }
+
+  /// Branch a new receiver off of an original and wire any messages sent to the
+  /// original by using a stateless map function.
+  ///
+  /// All output of the map function is sent to the new receiver.
+  ///
+  /// Each branch will receive from the same transmitter.
+  pub fn branch_map<B, F>(&self, f:F) -> Receiver<B>
+  where
+    B: Any,
+    F: Fn(&A) -> B + 'static
+  {
+    let ra = self.branch();
+    let (tb, rb) = terminals();
+    ra.forward_map(tb, f);
+    rb
   }
 
   /// Forwards messages on the given receiver to the given transmitter using a
-  /// stateful fold function, where the state is mutable.
+  /// stateful fold function.
   ///
   /// The fold function returns an `Option<B>`. In the case that the value of
-  /// `Option<B>` is `None`, no message will be send to the transmitter.
-  /// NOTE: Overwrites this receiver's responder.
-  pub fn forward_fold_mut<T, B, X, F>(&mut self, tx: Transmitter<B>, init:X, f:F)
+  /// `Option<B>` is `None`, no message will be sent to the transmitter.
+  pub fn forward_filter_fold<B, X, T, F>(mut self, tx: Transmitter<B>, init:X, f:F)
   where
     B: Any,
     T: Any,
@@ -266,43 +334,67 @@ impl<A> Receiver<A> {
   }
 
   /// Forwards messages on the given receiver to the given transmitter using a
-  /// stateless map function.
-  pub fn forward_map<B, F>(&mut self, tx: Transmitter<B>, f:F)
-  where
-    B: Any,
-    F: Fn(&A) -> Option<B> + 'static
-  {
-    self
-      .forward_fold(
-        tx,
-        (),
-        move |&(), a| {
-          ((), f(a))
-        }
-      )
-  }
-
-  /// Branch a receiver off of the original and map any messages from the original
-  /// using a map function.
-  /// Each branch will receive from the same transmitter.
-  /// The new branch has no initial response to messages.
-  pub fn branch_map<B:Any, F>(&self, f:F) -> Receiver<B>
-  where
-    F: Fn(&A) -> Option<B> + 'static
-  {
-    let (tb, rb) = terminals::<B>();
-    let mut ra = self.branch();
-    ra.forward_map(tb, f);
-    rb
-  }
-
-  pub fn forward_fold_async<T, B, X, F, H>(&mut self, tb: Transmitter<B>, init:X, f:F, h:H)
+  /// stateful fold function. All output of the fold
+  /// function is sent to the given transmitter.
+  pub fn forward_fold<B, X, T, F>(self, tx: Transmitter<B>, init:X, f:F)
   where
     B: Any,
     T: Any,
     X: Into<T>,
-    F: Fn(&T, &A) -> (T, Option<RecvFuture<B>>) + 'static,
-    H: Fn(&T, &B) -> T + 'static
+    F: Fn(&mut T, &A) -> B + 'static
+  {
+    self.forward_filter_fold(tx, init, move |t:&mut T, a:&A| {
+      Some(f(t, a))
+    })
+  }
+
+  /// Forwards messages on the given receiver to the given transmitter using a
+  /// stateless map function. If the map function returns `None` for any messages
+  /// those messages will *not* be sent to the given transmitter.
+  pub fn forward_filter_map<B, F>(self, tx: Transmitter<B>, f:F)
+  where
+    B: Any,
+    F: Fn(&A) -> Option<B> + 'static
+  {
+    self.forward_filter_fold(tx, (), move |&mut (), a| f(a))
+  }
+
+  /// Forwards messages on the given receiver to the given transmitter using a
+  /// stateless map function. All output of the map function is sent to the given
+  /// transmitter.
+  pub fn forward_map<B, F>(self, tx: Transmitter<B>, f:F)
+  where
+    B: Any,
+    F: Fn(&A) -> B + 'static
+  {
+    self.forward_filter_map(tx, move |a| Some(f(a)))
+  }
+
+  /// Forwards messages on the given receiver to the given transmitter using a
+  /// stateful fold function that returns an optional future. The future, if
+  /// returned, is executed. The future results in an `Option<B>`. In the case
+  /// that the value of the future's result is `None`, no message will be sent to
+  /// the transmitter.
+  ///
+  /// Lastly, a clean up function is ran at the completion of the future with its
+  /// result.
+  ///
+  /// To aid in returning a viable future in your fold function, use
+  /// `wrap_future`.
+  // TODO: Examples of fold functions.
+  pub fn forward_filter_fold_async<T, B, X, F, H>(
+    &mut self,
+    tb: Transmitter<B>,
+    init:X,
+    f:F,
+    h:H
+  )
+  where
+    B: Any,
+    T: Any,
+    X: Into<T>,
+    F: Fn(&mut T, &A) -> Option<RecvFuture<B>> + 'static,
+    H: Fn(&mut T, &Option<B>) + 'static
   {
     let state = Arc::new(Mutex::new(init.into()));
     let cleanup = Arc::new(Box::new(h));
@@ -311,12 +403,8 @@ impl<A> Receiver<A> {
         let mut block_state =
           state
           .try_lock()
-          .expect("Could not try_lock in Receiver::forward_fold_async for block_state");
-        // Update the shared state.
-        let (new_state, may_async) = f(&block_state, a);
-        *block_state = new_state;
-
-        may_async
+          .expect("Could not try_lock in Receiver::forward_filter_fold_async for block_state");
+        f(&mut block_state, a)
       };
       may_async
         .into_iter()
@@ -328,18 +416,14 @@ impl<A> Receiver<A> {
             async move {
               let opt:Option<B> =
                 block.await;
-              trace!("sending async responder message");
               opt
-                .into_iter()
-                .for_each(|b:B| {
-                  let mut inner_state =
-                    state_clone
-                    .try_lock()
-                    .expect("Could not try_lock Receiver::forward_fold_async for inner_state");
-                  *inner_state =
-                    cleanup_clone(&inner_state, &b);
-                  tb_clone.send(&b);
-                });
+                .iter()
+                .for_each(|b| tb_clone.send(&b));
+              let mut inner_state =
+                state_clone
+                .try_lock()
+                .expect("Could not try_lock Receiver::forward_filter_fold_async for inner_state");
+              cleanup_clone(&mut inner_state, &opt);
             };
           spawn_local(future);
           trace!("spawned async responder");
@@ -367,10 +451,73 @@ impl<A> Receiver<A> {
 
 // TODO: Remove Clone impls from tx and rx
 
+pub fn recv<A>() -> Receiver<A> {
+  Receiver::new()
+}
+
+
+pub fn trns<A>() -> Transmitter<A> {
+  Transmitter::new()
+}
+
+
 pub fn terminals<A>() -> (Transmitter<A>, Receiver<A>) {
   let mut trns = Transmitter::new();
   let recv = trns.spawn_recv();
   (trns, recv)
+}
+
+
+pub fn txrx_filter_fold<A, B, T, F>(t:T, f:F) -> (Transmitter<A>, Receiver<B>)
+where
+  A:Any,
+  B:Any,
+  T:Any,
+  F:Fn(&mut T, &A) -> Option<B> + 'static,
+{
+  let (ta, ra) = terminals();
+  let (tb, rb) = terminals();
+  ra.forward_filter_fold(tb, t, f);
+  (ta, rb)
+}
+
+
+pub fn txrx_fold<A, B, T, F>(t:T, f:F) -> (Transmitter<A>, Receiver<B>)
+where
+  A:Any,
+  B:Any,
+  T:Any,
+  F:Fn(&mut T, &A) -> B + 'static,
+{
+  let (ta, ra) = terminals();
+  let (tb, rb) = terminals();
+  ra.forward_fold(tb, t, f);
+  (ta, rb)
+}
+
+
+pub fn txrx_filter_map<A, B, F>(f:F) -> (Transmitter<A>, Receiver<B>)
+where
+  A:Any,
+  B:Any,
+  F:Fn(&A) -> Option<B> + 'static,
+{
+  let (ta, ra) = terminals();
+  let (tb, rb) = terminals();
+  ra.forward_filter_map(tb, f);
+  (ta, rb)
+}
+
+pub fn txrx_map<A, B, F>(f:F) -> (Transmitter<A>, Receiver<B>)
+where
+  A:Any,
+  B:Any,
+  F:Fn(&A) -> B + 'static,
+{
+  let (ta, ra) = terminals();
+  let (tb, rb) = terminals();
+  ra.forward_map(tb, f);
+  (ta, rb)
 }
 
 

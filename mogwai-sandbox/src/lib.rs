@@ -143,27 +143,29 @@ pub fn time_req_button_and_pre() -> GizmoBuilder {
   let (resp_tx, resp_rx) = terminals::<String>();
 
   req_rx
-    .forward_fold_async(
+    .forward_filter_fold_async(
       resp_tx,
       false,
-      |is_in_flight, _| {
+      |is_in_flight:&mut bool, _| {
         // When we receive a click event from the button and we're not already
         // sending a request, we'll set one up and send it.
-        if !is_in_flight {
+        if !*is_in_flight {
+          // Change the state to tell later invocations that a request is in
+          // flight
+          *is_in_flight = true;
           // Return a future to be excuted which possibly produces a value to
           // send downstream to resp_tx
-          // Change the inner state by returning a new state in the tuple
-          (true, wrap_future(async {click_to_text().await}))
+          wrap_future(async {click_to_text().await})
         } else {
           trace!("Another request is already in flight! Ignoring this click");
-          // Don't change the inner state and don't send anything downstream to
+          // Don't change the state and don't send anything downstream to
           // resp_tx
-          (*is_in_flight, None)
+          None
         }
       },
-      |_, _| {
+      |is_in_flight, _| {
         // the cleanup function reports that the request is no longer in flight
-        false
+        *is_in_flight = false;
       }
     );
 
