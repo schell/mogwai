@@ -64,7 +64,7 @@ impl Gizmo {
       .insert(ev_name.to_string(), Arc::new(cb));
   }
 
-  pub fn attribute(&mut self, name: &str, init: Option<String>, mut rx: Receiver<Option<String>>) {
+  pub fn attribute(&mut self, name: &str, init: Option<String>, rx: Receiver<Option<String>>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.opt_string_rxs.push(rx.clone());
 
@@ -78,7 +78,7 @@ impl Gizmo {
     let el = self.html_element.clone();
     let name = name.to_string();
 
-    rx.set_responder(move |s| {
+    rx.respond(move |s| {
       if let Some(s) = s {
         el.set_attribute(&name, s)
           .expect("Could not set attribute");
@@ -89,7 +89,7 @@ impl Gizmo {
     });
   }
 
-  pub fn boolean_attribute(&mut self, name: &str, init: bool, mut rx: Receiver<bool>) {
+  pub fn boolean_attribute(&mut self, name: &str, init: bool, rx: Receiver<bool>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.bool_rxs.push(rx.clone());
 
@@ -103,7 +103,7 @@ impl Gizmo {
     let el = self.html_element.clone();
     let name = name.to_string();
 
-    rx.set_responder(move |b| {
+    rx.respond(move |b| {
       if *b {
         el.set_attribute(&name, "")
           .expect("Could not set boolean attribute");
@@ -114,7 +114,7 @@ impl Gizmo {
     });
   }
 
-  pub fn text(&mut self, init: &str, mut rx: Receiver<String>) {
+  pub fn text(&mut self, init: &str, rx: Receiver<String>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.string_rxs.push(rx.clone());
 
@@ -127,12 +127,12 @@ impl Gizmo {
       .expect("Could not convert gizmo element into a node")
       .append_child(text.as_ref())
       .expect("Could not add text node to gizmo element");
-    rx.set_responder(move |s| {
+    rx.respond(move |s| {
       text.set_data(s);
     });
   }
 
-  pub fn style(&mut self, s: &str, init: &str, mut rx: Receiver<String>) {
+  pub fn style(&mut self, s: &str, init: &str, rx: Receiver<String>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.string_rxs.push(rx.clone());
 
@@ -150,14 +150,14 @@ impl Gizmo {
       .set_property(&name, init)
       .expect("Could not set initial style property");
 
-    rx.set_responder(move |s| {
+    rx.respond(move |s| {
       style
         .set_property(&name, s)
         .expect("Could not set style");
     });
   }
 
-  pub fn value(&mut self, init: &str, mut rx: Receiver<String>) {
+  pub fn value(&mut self, init: &str, rx: Receiver<String>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.string_rxs.push(rx.clone());
 
@@ -171,7 +171,7 @@ impl Gizmo {
     if let Some(input) = opt_input {
       input.set_value(init);
 
-      rx.set_responder(move |val:&String| {
+      rx.respond(move |val:&String| {
         input.set_value(val);
       });
     } else {
@@ -179,7 +179,7 @@ impl Gizmo {
     }
   }
 
-  pub fn gizmos(&mut self, init: Vec<Gizmo>, mut rx: Receiver<Vec<GizmoBuilder>>) {
+  pub fn gizmos(&mut self, init: Vec<Gizmo>, rx: Receiver<Vec<GizmoBuilder>>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.gizmo_rxs.push(rx.clone());
 
@@ -197,7 +197,7 @@ impl Gizmo {
           .append_child(gizmo.html_element_ref())
           .expect("Could not add initial child gizmo");
       });
-    rx.set_responder(move |gizmo_builders: &Vec<GizmoBuilder>| {
+    rx.respond(move |gizmo_builders: &Vec<GizmoBuilder>| {
       // Build the new gizmos
       let gizmos:Vec<Gizmo> =
         gizmo_builders

@@ -97,7 +97,7 @@ impl<A> Transmitter<A> {
   {
     let tb = rb.new_trns();
     let ra = self.spawn_recv();
-    ra.forward_filter_fold(tb, init, f);
+    ra.forward_filter_fold(&tb, init, f);
   }
 
   /// Wires the transmitter to send to the given receiver using a stateful fold
@@ -111,7 +111,7 @@ impl<A> Transmitter<A> {
   {
     let tb = rb.new_trns();
     let ra = self.spawn_recv();
-    ra.forward_fold(tb, init, f);
+    ra.forward_fold(&tb, init, f);
   }
 
   /// Wires the transmitter to the given receiver using a stateless map function.
@@ -124,7 +124,7 @@ impl<A> Transmitter<A> {
   {
     let tb = rb.new_trns();
     let ra = self.spawn_recv();
-    ra.forward_filter_map(tb, f);
+    ra.forward_filter_map(&tb, f);
   }
 
   /// Wires the transmitter to the given receiver using a stateless map function.
@@ -135,7 +135,7 @@ impl<A> Transmitter<A> {
   {
     let tb = rb.new_trns();
     let ra = self.spawn_recv();
-    ra.forward_map(tb, f);
+    ra.forward_map(&tb, f);
   }
 
   /// Wires the transmitter to the given receiver using a stateful fold function
@@ -165,7 +165,7 @@ impl<A> Transmitter<A> {
     H: Fn(&mut T, &Option<B>) + 'static
   {
     let tb = rb.new_trns();
-    let mut ra = self.spawn_recv();
+    let ra = self.spawn_recv();
     ra.forward_filter_fold_async(tb, init, f, h);
   }
 }
@@ -192,11 +192,11 @@ impl<A> Receiver<A> {
   /// the response will run immediately.
   ///
   /// NOTE: Clones of receivers share one response function. This means if you
-  /// `set_responder` on a clone of `recv`, `recv`'s responder will be updated
+  /// `respond` on a clone of `recv`, `recv`'s responder will be updated
   /// as well. *Under the hood they are the same responder*.
   /// If you want a new receiver that receives messages from the same transmitter
   /// but has its own responder, use Receiver::branch, not clone.
-  pub fn set_responder<F>(&mut self, f:F)
+  pub fn respond<F>(self, f:F)
   where
     F: FnMut(&A) + 'static
   {
@@ -205,7 +205,7 @@ impl<A> Receiver<A> {
       self
       .branches
       .try_lock()
-      .expect("Could not try_lock Receiver::set_responder");
+      .expect("Could not try_lock Receiver::respond");
     branches.insert(k, Box::new(f));
   }
 
@@ -250,7 +250,7 @@ impl<A> Receiver<A> {
   {
     let ra = self.branch();
     let (tb, rb) = terminals();
-    ra.forward_filter_fold(tb, init, f);
+    ra.forward_filter_fold(&tb, init, f);
     rb
   }
 
@@ -269,7 +269,7 @@ impl<A> Receiver<A> {
   {
     let ra = self.branch();
     let (tb, rb) = terminals();
-    ra.forward_fold(tb, init, f);
+    ra.forward_fold(&tb, init, f);
     rb
   }
 
@@ -289,7 +289,7 @@ impl<A> Receiver<A> {
   {
     let ra = self.branch();
     let (tb, rb) = terminals();
-    ra.forward_filter_map(tb, f);
+    ra.forward_filter_map(&tb, f);
     rb
   }
 
@@ -306,7 +306,7 @@ impl<A> Receiver<A> {
   {
     let ra = self.branch();
     let (tb, rb) = terminals();
-    ra.forward_map(tb, f);
+    ra.forward_map(&tb, f);
     rb
   }
 
@@ -315,7 +315,7 @@ impl<A> Receiver<A> {
   ///
   /// The fold function returns an `Option<B>`. In the case that the value of
   /// `Option<B>` is `None`, no message will be sent to the transmitter.
-  pub fn forward_filter_fold<B, X, T, F>(mut self, tx: Transmitter<B>, init:X, f:F)
+  pub fn forward_filter_fold<B, X, T, F>(self, tx: &Transmitter<B>, init:X, f:F)
   where
     B: Any,
     T: Any,
@@ -323,7 +323,8 @@ impl<A> Receiver<A> {
     F: Fn(&mut T, &A) -> Option<B> + 'static
   {
     let mut state = init.into();
-    self.set_responder(move |a:&A| {
+    let tx = tx.clone();
+    self.respond(move |a:&A| {
       let may_msg = f(&mut state, a);
       may_msg
         .iter()
@@ -336,7 +337,7 @@ impl<A> Receiver<A> {
   /// Forwards messages on the given receiver to the given transmitter using a
   /// stateful fold function. All output of the fold
   /// function is sent to the given transmitter.
-  pub fn forward_fold<B, X, T, F>(self, tx: Transmitter<B>, init:X, f:F)
+  pub fn forward_fold<B, X, T, F>(self, tx: &Transmitter<B>, init:X, f:F)
   where
     B: Any,
     T: Any,
@@ -351,7 +352,7 @@ impl<A> Receiver<A> {
   /// Forwards messages on the given receiver to the given transmitter using a
   /// stateless map function. If the map function returns `None` for any messages
   /// those messages will *not* be sent to the given transmitter.
-  pub fn forward_filter_map<B, F>(self, tx: Transmitter<B>, f:F)
+  pub fn forward_filter_map<B, F>(self, tx: &Transmitter<B>, f:F)
   where
     B: Any,
     F: Fn(&A) -> Option<B> + 'static
@@ -362,7 +363,7 @@ impl<A> Receiver<A> {
   /// Forwards messages on the given receiver to the given transmitter using a
   /// stateless map function. All output of the map function is sent to the given
   /// transmitter.
-  pub fn forward_map<B, F>(self, tx: Transmitter<B>, f:F)
+  pub fn forward_map<B, F>(self, tx: &Transmitter<B>, f:F)
   where
     B: Any,
     F: Fn(&A) -> B + 'static
@@ -383,7 +384,7 @@ impl<A> Receiver<A> {
   /// `wrap_future`.
   // TODO: Examples of fold functions.
   pub fn forward_filter_fold_async<T, B, X, F, H>(
-    &mut self,
+    self,
     tb: Transmitter<B>,
     init:X,
     f:F,
@@ -398,7 +399,7 @@ impl<A> Receiver<A> {
   {
     let state = Arc::new(Mutex::new(init.into()));
     let cleanup = Arc::new(Box::new(h));
-    self.set_responder(move |a:&A| {
+    self.respond(move |a:&A| {
       let may_async = {
         let mut block_state =
           state
@@ -441,7 +442,7 @@ impl<A> Receiver<A> {
         let tx = tx.clone();
         rx_inc
           .branch()
-          .set_responder(move |a| {
+          .respond(move |a| {
             tx.send(a);
           });
       });
@@ -477,7 +478,7 @@ where
 {
   let (ta, ra) = terminals();
   let (tb, rb) = terminals();
-  ra.forward_filter_fold(tb, t, f);
+  ra.forward_filter_fold(&tb, t, f);
   (ta, rb)
 }
 
@@ -491,7 +492,7 @@ where
 {
   let (ta, ra) = terminals();
   let (tb, rb) = terminals();
-  ra.forward_fold(tb, t, f);
+  ra.forward_fold(&tb, t, f);
   (ta, rb)
 }
 
@@ -504,7 +505,7 @@ where
 {
   let (ta, ra) = terminals();
   let (tb, rb) = terminals();
-  ra.forward_filter_map(tb, f);
+  ra.forward_filter_map(&tb, f);
   (ta, rb)
 }
 
@@ -516,7 +517,7 @@ where
 {
   let (ta, ra) = terminals();
   let (tb, rb) = terminals();
-  ra.forward_map(tb, f);
+  ra.forward_map(&tb, f);
   (ta, rb)
 }
 
@@ -542,11 +543,11 @@ mod instant_txrx {
   #[test]
   fn txrx() {
     let count = Arc::new(Mutex::new(0));
-    let (tx_unit, mut rx_unit) = terminals::<()>();
-    let (tx_i32, mut rx_i32) = terminals::<i32>();
+    let (tx_unit, rx_unit) = terminals::<()>();
+    let (tx_i32, rx_i32) = terminals::<i32>();
     {
       let my_count = count.clone();
-      rx_i32.set_responder(move |n:&i32| {
+      rx_i32.respond(move |n:&i32| {
         println!("Got message: {:?}", n);
         my_count
           .try_lock()
@@ -555,7 +556,7 @@ mod instant_txrx {
       });
 
       let mut n = 0;
-      rx_unit.set_responder(move |()| {
+      rx_unit.respond(move |()| {
         n += 1;
         tx_i32.send(&n);
       })
@@ -576,22 +577,19 @@ mod instant_txrx {
   #[test]
   fn wire_txrx() {
     let mut tx_unit = Transmitter::<()>::new();
-    let mut rx_str = Receiver::<String>::new();
-    tx_unit.wire_fold(&rx_str, 0, |n:&i32, &()| -> (i32, Option<String>) {
-      let next = n + 1;
-      let should_tx = next >= 3;
-      let may_msg =
-        if should_tx {
-          Some(format!("Passed 3 incoming messages ({})", next))
-        } else {
-          None
-        };
-      (next, may_msg)
+    let rx_str = Receiver::<String>::new();
+    tx_unit.wire_filter_fold(&rx_str, 0, |n:&mut i32, &()| -> Option<String> {
+      *n += 1;
+      if *n > 2 {
+        Some(format!("Passed 3 incoming messages ({})", *n))
+      } else {
+        None
+      }
     });
 
     let got_called = Arc::new(Mutex::new(false));
     let remote_got_called = got_called.clone();
-    rx_str.set_responder(move |s: &String| {
+    rx_str.respond(move |s: &String| {
       println!("got: {:?}", s);
       remote_got_called
         .try_lock()
@@ -615,14 +613,14 @@ mod instant_txrx {
   #[test]
   fn branch_map() {
     let (tx, rx) = terminals::<()>();
-    let mut ry:Receiver<i32> =
-      rx.branch_map(|_| Some(0));
+    let ry:Receiver<i32> =
+      rx.branch_map(|_| 0);
 
     let done =
       Arc::new(Mutex::new(false));
 
     let cdone = done.clone();
-    ry.set_responder(move |n| {
+    ry.respond(move |n| {
       if *n == 0 {
         *cdone
           .try_lock()

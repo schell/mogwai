@@ -22,11 +22,11 @@ pub fn timer_terminals(interval: u32) -> (Transmitter<XmlHttpRequest>, Receiver<
   let may_promise:Arc<Mutex<Option<Promise>>> =
     Arc::new(Mutex::new(None));
 
-  req_rx.set_responder(move |req| {
+  req_rx.respond(move |req| {
     let is_free =
       may_promise
       .try_lock()
-      .expect("Could not try_lock request_terminals::set_responder")
+      .expect("Could not try_lock request_terminals::respond")
       .is_none();
 
     if is_free {
@@ -46,7 +46,7 @@ pub fn timer_terminals(interval: u32) -> (Transmitter<XmlHttpRequest>, Receiver<
           resp_tx.send(&resp);
           *may_promise
             .try_lock()
-            .expect("Could not try_lock request_terminals::set_responder in future completion")
+            .expect("Could not try_lock request_terminals::respond in future completion")
             = None;
           Ok(resp_value)
         });
@@ -55,7 +55,7 @@ pub fn timer_terminals(interval: u32) -> (Transmitter<XmlHttpRequest>, Receiver<
         future_to_promise(future);
       *may_promise
         .try_lock()
-        .expect("Could not try_lock request_terminals::set_responder set future")
+        .expect("Could not try_lock request_terminals::respond set future")
         = Some(promise);
     } else {
       warn!("mogwai::request::request_terminals throttling requests - received a request while another was in flight");

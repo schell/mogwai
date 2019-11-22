@@ -47,7 +47,8 @@ pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> GizmoBuilder {
           "Turn me red".into()
         };
       trace!("  out:{:?}", out);
-      (!is_red, Some(out))
+      *is_red = !*is_red;
+      out
     }
   );
 
@@ -83,7 +84,8 @@ pub fn new_h1_gizmo(mut tx_click:Transmitter<Event>) -> GizmoBuilder {
         } else {
           "red".into()
         };
-      (!is_red, Some(out))
+      *is_red = !*is_red;
+      out
     });
 
   h1
@@ -139,7 +141,7 @@ async fn click_to_text() -> Option<String> {
 /// Creates a button that when clicked requests the time in london and sends
 /// it down a receiver.
 pub fn time_req_button_and_pre() -> GizmoBuilder {
-  let (req_tx, mut req_rx) = terminals::<Event>();
+  let (req_tx, req_rx) = terminals::<Event>();
   let (resp_tx, resp_rx) = terminals::<String>();
 
   req_rx
@@ -205,9 +207,9 @@ pub fn counter() -> GizmoBuilder {
   tx.wire_fold(
     &rx,
     0,
-    |n, &()| {
-      let next = n + 1;
-      (next, Some(format!("Count: {}", next)))
+    |n:&mut i32, &()| {
+      *n += 1;
+      format!("Count: {}", *n)
     }
   );
 
