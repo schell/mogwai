@@ -26,7 +26,7 @@ pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> GizmoBuilder {
     .named("button")
     .style("cursor", "pointer")
     // The button receives its text
-    .rx_text("Click me", rx_text.clone())
+    .rx_text("Click me", rx_text.branch())
     // The button transmits its clicks
     .tx_on("click", tx_click.clone());
 
@@ -38,15 +38,14 @@ pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> GizmoBuilder {
     &rx_text,
     true, // our initial folding state
     |is_red, _| {
-      trace!("button::tx_click->rx_text");
-      trace!("  last is_red:{}", is_red);
+
       let out =
         if *is_red {
           "Turn me blue".into()
         } else {
           "Turn me red".into()
         };
-      trace!("  out:{:?}", out);
+
       *is_red = !*is_red;
       out
     }
@@ -67,7 +66,7 @@ pub fn new_h1_gizmo(mut tx_click:Transmitter<Event>) -> GizmoBuilder {
     .named("h1")
     .attribute("id", "header")
     .attribute("class", "my-header")
-    .rx_style("color", "green", rx_color.clone())
+    .rx_style("color", "green", rx_color.branch())
     .text("Hello from mogwai!");
 
   // Now that the routing is done, let's define the logic
@@ -77,7 +76,7 @@ pub fn new_h1_gizmo(mut tx_click:Transmitter<Event>) -> GizmoBuilder {
     &rx_color,
     false, // the intial value for is_red
     |is_red, _| {
-      trace!("h1::tx_click->rx_color");
+
       let out =
         if *is_red {
           "blue".into()
@@ -159,7 +158,7 @@ pub fn time_req_button_and_pre() -> GizmoBuilder {
           // send downstream to resp_tx
           wrap_future(async {click_to_text().await})
         } else {
-          trace!("Another request is already in flight! Ignoring this click");
+
           // Don't change the state and don't send anything downstream to
           // resp_tx
           None
@@ -223,7 +222,7 @@ pub fn main() -> Result<(), JsValue> {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   console_log::init_with_level(Level::Trace)
     .unwrap();
-  trace!("Hello from mogwai");
+
 
   // Create a transmitter to send button clicks into.
   let tx_click = Transmitter::new();

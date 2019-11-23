@@ -5,6 +5,7 @@ use wasm_bindgen::closure::Closure;
 use web_sys::{HtmlElement, Node, Text};
 
 use super::prelude::*;
+use super::txrx::hand_clone;
 pub use super::utils::*;
 pub use web_sys::{EventTarget, HtmlInputElement};
 pub use wasm_bindgen::{JsCast, JsValue};
@@ -12,7 +13,6 @@ pub use wasm_bindgen::{JsCast, JsValue};
 
 /// A gizmo is a compiled network of html tags, callback closures and message
 /// responders (in the form of receivers).
-#[derive(Clone)]
 pub struct Gizmo {
   pub name: String,
   pub html_element: HtmlElement,
@@ -22,6 +22,22 @@ pub struct Gizmo {
   bool_rxs: Vec<Receiver<bool>>,
   gizmo_rxs: Vec<Receiver<Vec<GizmoBuilder>>>,
   pub static_gizmos: Vec<Gizmo>,
+}
+
+
+impl Clone for Gizmo {
+  fn clone(&self) -> Self {
+    Gizmo {
+      name: self.name.clone(),
+      html_element: self.html_element.clone(),
+      callbacks: self.callbacks.clone(),
+      opt_string_rxs: self.opt_string_rxs.iter().map(|rx| hand_clone(rx)).collect(),
+      string_rxs: self.string_rxs.iter().map(|rx| hand_clone(rx)).collect(),
+      bool_rxs: self.bool_rxs.iter().map(|rx| hand_clone(rx)).collect(),
+      gizmo_rxs: self.gizmo_rxs.iter().map(|rx| hand_clone(rx)).collect(),
+      static_gizmos: self.static_gizmos.clone()
+    }
+  }
 }
 
 impl Gizmo {
@@ -49,7 +65,7 @@ impl Gizmo {
     let name = self.name.clone();
     let cb =
       Closure::wrap(Box::new(move |val:JsValue| {
-        trace!("{} - an event happened!", name);
+
         let ev =
           val
           .dyn_into()
@@ -66,7 +82,7 @@ impl Gizmo {
 
   pub fn attribute(&mut self, name: &str, init: Option<String>, rx: Receiver<Option<String>>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
-    self.opt_string_rxs.push(rx.clone());
+    self.opt_string_rxs.push(hand_clone(&rx));
 
     if let Some(init) = init {
       self
@@ -91,7 +107,7 @@ impl Gizmo {
 
   pub fn boolean_attribute(&mut self, name: &str, init: bool, rx: Receiver<bool>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
-    self.bool_rxs.push(rx.clone());
+    self.bool_rxs.push(hand_clone(&rx));
 
     if init {
       self
@@ -116,7 +132,7 @@ impl Gizmo {
 
   pub fn text(&mut self, init: &str, rx: Receiver<String>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
-    self.string_rxs.push(rx.clone());
+    self.string_rxs.push(hand_clone(&rx));
 
     let text:Text =
       Text::new_with_data(init)
@@ -134,7 +150,7 @@ impl Gizmo {
 
   pub fn style(&mut self, s: &str, init: &str, rx: Receiver<String>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
-    self.string_rxs.push(rx.clone());
+    self.string_rxs.push(hand_clone(&rx));
 
     let style =
       self
@@ -159,7 +175,7 @@ impl Gizmo {
 
   pub fn value(&mut self, init: &str, rx: Receiver<String>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
-    self.string_rxs.push(rx.clone());
+    self.string_rxs.push(hand_clone(&rx));
 
     let opt_input =
       self
@@ -181,7 +197,7 @@ impl Gizmo {
 
   pub fn gizmos(&mut self, init: Vec<Gizmo>, rx: Receiver<Vec<GizmoBuilder>>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
-    self.gizmo_rxs.push(rx.clone());
+    self.gizmo_rxs.push(hand_clone(&rx));
 
     let mut prev_gizmos = init;
     let node =
@@ -264,7 +280,7 @@ impl Gizmo {
   pub fn maintain(&mut self) {}
 
   pub fn run_in_container(self, container:HtmlElement) -> Result<(), JsValue> {
-    trace!("Running gizmo {}...", self.name);
+
 
     if cfg!(target_arch = "wasm32") {
       container
@@ -288,7 +304,7 @@ impl Gizmo {
   }
 
   pub fn run(self) -> Result<(), JsValue> {
-    trace!("Running gizmo {}...", self.name);
+
 
     if cfg!(target_arch = "wasm32") {
       self

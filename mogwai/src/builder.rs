@@ -3,15 +3,28 @@ use web_sys::{Element, Event, HtmlElement, HtmlInputElement, Node, window};
 use std::collections::HashMap;
 
 use super::gizmo::Gizmo;
-use super::txrx::{Transmitter, Receiver};
+use super::txrx::{Transmitter, Receiver, hand_clone, txrx};
 
 #[macro_use]
 pub mod tags;
 
-#[derive(Clone)]
 pub enum Continuous<T> {
   Rx(T, Receiver<T>),
   Static(T)
+}
+
+
+impl<T:Clone> Clone for Continuous<T> {
+  fn clone(&self) -> Self {
+    match self {
+      Continuous::Rx(t, rx) => {
+        Continuous::Rx(t.clone(), hand_clone(rx))
+      }
+      Continuous::Static(t) => {
+        Continuous::Static(t.clone())
+      }
+    }
+  }
 }
 
 
@@ -25,34 +38,35 @@ pub enum GizmoOption {
   Prebuilt(HtmlElement)
 }
 
+#[derive(Clone)]
+enum ElementOrTag {
+  Element(HtmlElement),
+  Tag(String)
+}
 
 #[derive(Clone)]
 pub struct GizmoBuilder {
-  tag: String,
+  tag: ElementOrTag,
   name: String,
   options: Vec<GizmoOption>,
   tx_events: HashMap<String, Transmitter<Event>>,
 }
 
 
-#[cfg(test)]
-mod tags_test {
-  use super::GizmoBuilder;
-  use super::tags::*;
-
-  #[test]
-  fn pre_test() {
-    let pre_builder:GizmoBuilder = pre();
-    assert_eq!(pre_builder.tag, "pre".to_string());
-  }
-}
-
-
 impl GizmoBuilder {
+  pub fn from_html_element(el:HtmlElement) -> GizmoBuilder {
+    GizmoBuilder {
+      name: "unamed_gizmo".into(),
+      tag: ElementOrTag::Element(el),
+      options: vec![],
+      tx_events: HashMap::new()
+    }
+  }
+
   pub fn new(tag: &str) -> GizmoBuilder {
     GizmoBuilder {
       name: "unamed_gizmo".into(),
-      tag: tag.into(),
+      tag: ElementOrTag::Tag(tag.into()),
       options: vec![],
       tx_events: HashMap::new()
     }
@@ -189,15 +203,93 @@ impl GizmoBuilder {
     b
   }
 
+  pub fn tx_on_filter_fold<B, X, T, F>(
+    self,
+    event: &str,
+    tx: Transmitter<B>,
+    init:X,
+    f:F
+  ) -> GizmoBuilder
+  where
+    B: 'static,
+    T: 'static,
+    X: Into<T>,
+    F: Fn(&mut T, &Event) -> Option<B> + 'static
+  {
+    let (tev, rev) = txrx();
+    let mut t = init.into();
+    rev.respond(move |ev| {
+      f(&mut t, ev)
+        .into_iter()
+        .for_each(|b| {
+          tx.send(&b);
+        });
+    });
+    self.tx_on(event, tev)
+  }
+
+  pub fn tx_on_fold<B, X, T, F>(
+    self,
+    event: &str,
+    tx: Transmitter<B>,
+    init:X,
+    f:F
+  ) -> GizmoBuilder
+  where
+    B: 'static,
+    T: 'static,
+    X: Into<T>,
+    F: Fn(&mut T, &Event) -> B + 'static
+  {
+    self.tx_on_filter_fold(event, tx, init, move |t, ev| {
+      Some(f(t, ev))
+    })
+  }
+
+  pub fn tx_on_filter_map<B, F>(
+    self,
+    event: &str,
+    tx: Transmitter<B>,
+    f:F
+  ) -> GizmoBuilder
+  where
+    B: 'static,
+    F: Fn(&Event) -> Option<B> + 'static
+  {
+    self.tx_on_filter_fold(event, tx, (), move |&mut (), ev| {
+      f(ev)
+    })
+  }
+
+  pub fn tx_on_map<B, F>(
+    self,
+    event: &str,
+    tx: Transmitter<B>,
+    f:F
+  ) -> GizmoBuilder
+  where
+    B: 'static,
+    F: Fn(&Event) -> B + 'static
+  {
+    self.tx_on_filter_map(event, tx, move |ev| {
+      Some(f(ev))
+    })
+  }
+
   pub fn build(self) -> Result<Gizmo, JsValue> {
-    trace!("building gizmo");
+
     let document =
       window().unwrap()
       .document().unwrap();
     let html_el:HtmlElement =
-      document
-      .create_element(&self.tag)?
-      .dyn_into()?;
+      match self.tag {
+        ElementOrTag::Element(el) => { el }
+        ElementOrTag::Tag(tag) => {
+          document
+            .create_element(&tag)?
+            .dyn_into()?
+        }
+      };
     let el:&Element =
       html_el
       .dyn_ref()
@@ -222,30 +314,30 @@ impl GizmoBuilder {
           use GizmoOption::*;
           match option {
             Attribute(name, Static(value)) => {
-              trace!("setting static attribute value on gizmo");
+
               if let Some(value) = value {
                 el.set_attribute(&name, &value)?;
               }
               Ok(())
             }
             Attribute(name, Rx(init, dynamic)) => {
-              trace!("setting dynamic attribute value on gizmo");
+
               gizmo.attribute(&name, init.clone(), dynamic.branch());
               Ok(())
             }
             Style(name, Static(value)) => {
-              trace!("setting static style value on gizmo");
+
               html_el
                 .style()
                 .set_property(&name, &value)
             }
             Style(name, Rx(init, dynamic)) => {
-              trace!("setting dynamic style {} on gizmo", init);
+
               gizmo.style(&name, &init, dynamic.branch());
               Ok(())
             }
             Text(Static(value)) => {
-              trace!("setting static text node on gizmo");
+
               let text:web_sys::Text =
                 web_sys::Text::new_with_data(&value)
                 .unwrap();
@@ -256,12 +348,12 @@ impl GizmoBuilder {
               Ok(())
             }
             Text(Rx(init, dynamic)) => {
-              trace!("setting dynamic text node on gizmo");
+
               gizmo.text(&init, dynamic.branch());
               Ok(())
             }
             Value(Static(value)) => {
-              trace!("setting static value of gizmo");
+
               html_el
                 .dyn_ref::<HtmlInputElement>()
                 .expect("Attempted to set the value of non-input gizmo element.")
@@ -269,7 +361,7 @@ impl GizmoBuilder {
               Ok(())
             }
             Value(Rx(init, rx)) => {
-              trace!("setting dynamic text node on gizmo");
+
               html_el
                 .dyn_ref::<HtmlInputElement>()
                 .expect("Attempted to set the value of non-input gizmo element.")
@@ -278,7 +370,7 @@ impl GizmoBuilder {
               Ok(())
             }
             Gizmos(Static(static_gizmo_builders)) => {
-              trace!("setting static sub-gizmos on gizmo");
+
               let static_gizmos:Vec<_> =
                 static_gizmo_builders
                 .into_iter()
@@ -322,7 +414,7 @@ impl GizmoBuilder {
                     Ok(gizmos)
                   }
                 )?;
-              trace!("setting dynamic sub-gizmo on gizmo");
+
               gizmo.gizmos(init_gizmos, rx.branch());
               Ok(())
             }

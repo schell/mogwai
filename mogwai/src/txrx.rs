@@ -4,7 +4,6 @@ use std::any::Any;
 use std::pin::Pin;
 use std::collections::HashMap;
 use wasm_bindgen_futures::spawn_local;
-pub use wasm_bindgen_futures::JsFuture;
 
 type RecvResponders<A> = Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>;
 
@@ -171,11 +170,24 @@ impl<A> Transmitter<A> {
 }
 
 
-#[derive(Clone)]
 pub struct Receiver<A> {
   k: usize,
   next_k: Arc<Mutex<usize>>,
   branches: Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>,
+}
+
+
+/// Clone a receiver.
+/// Be careful with this function. Because of magic, calling `responder` on a
+/// clone of a receiver sets the responder for both of those receivers.
+/// For most cases if you need a new receiver that receives from the same
+/// transmitter you can use `branch`.
+pub fn hand_clone<A>(rx: &Receiver<A>) -> Receiver<A> {
+  Receiver {
+    k: rx.k,
+    next_k: rx.next_k.clone(),
+    branches: rx.branches.clone()
+  }
 }
 
 
@@ -427,7 +439,7 @@ impl<A> Receiver<A> {
               cleanup_clone(&mut inner_state, &opt);
             };
           spawn_local(future);
-          trace!("spawned async responder");
+
         });
     });
   }
@@ -541,7 +553,7 @@ mod instant_txrx {
   use super::*;
 
   #[test]
-  fn txrx() {
+  fn txrx_test() {
     let count = Arc::new(Mutex::new(0));
     let (tx_unit, rx_unit) = txrx::<()>();
     let (tx_i32, rx_i32) = txrx::<i32>();
