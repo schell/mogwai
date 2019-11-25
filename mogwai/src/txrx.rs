@@ -83,6 +83,22 @@ impl<A> Transmitter<A> {
   }
 
   /// Wires the transmitter to send to the given receiver using a stateful fold
+  /// function, where the state is a shared mutex.
+  ///
+  /// The fold function returns an `Option<B>`. In the case that the value of
+  /// `Option<B>` is `None`, no message will be sent to the receiver.
+  pub fn wire_filter_fold_shared<T, B, F>(&mut self, rb: &Receiver<B>, var:Arc<Mutex<T>>, f:F)
+  where
+    B: Any,
+    T: Any,
+    F: Fn(&mut T, &A) -> Option<B> + 'static
+  {
+    let tb = rb.new_trns();
+    let ra = self.spawn_recv();
+    ra.forward_filter_fold_shared(&tb, var, f);
+  }
+
+  /// Wires the transmitter to send to the given receiver using a stateful fold
   /// function.
   ///
   /// The fold function returns an `Option<B>`. In the case that the value of
@@ -111,6 +127,19 @@ impl<A> Transmitter<A> {
     let tb = rb.new_trns();
     let ra = self.spawn_recv();
     ra.forward_fold(&tb, init, f);
+  }
+
+  /// Wires the transmitter to send to the given receiver using a stateful fold
+  /// function, where the state is a shared mutex.
+  pub fn wire_fold_shared<T, B, F>(&mut self, rb: &Receiver<B>, var:Arc<Mutex<T>>, f:F)
+  where
+    B: Any,
+    T: Any,
+    F: Fn(&mut T, &A) -> B + 'static
+  {
+    let tb = rb.new_trns();
+    let ra = self.spawn_recv();
+    ra.forward_filter_fold_shared(&tb, var, move |t, a| Some(f(t, a)));
   }
 
   /// Wires the transmitter to the given receiver using a stateless map function.
@@ -221,6 +250,35 @@ impl<A> Receiver<A> {
     branches.insert(k, Box::new(f));
   }
 
+  /// Set the response this receiver has to messages. Upon receiving a message
+  /// the response will run immediately.
+  ///
+  /// Folds mutably over a shared Arc<Mutex<T>>.
+  ///
+  /// NOTE: Clones of receivers share one response function. This means if you
+  /// `respond` on a clone of `recv`, `recv`'s responder will be updated
+  /// as well. *Under the hood they are the same responder*.
+  /// If you want a new receiver that receives messages from the same transmitter
+  /// but has its own responder, use Receiver::branch, not clone.
+  pub fn respond_shared<T:Any, F>(self, val:Arc<Mutex<T>>, f:F)
+  where
+    F: Fn(&mut T, &A) + 'static
+  {
+    let k = self.k;
+    let mut branches =
+      self
+      .branches
+      .try_lock()
+      .expect("Could not try_lock Receiver::respond");
+    branches.insert(k, Box::new(move |a:&A| {
+      let mut t =
+        val
+        .try_lock()
+        .unwrap();
+      f(&mut t, a);
+    }));
+  }
+
   /// Removes the responder from the receiver.
   /// This drops anything owned by the responder.
   pub fn drop_responder(&mut self) {
@@ -271,7 +329,7 @@ impl<A> Receiver<A> {
   ///
   /// All output of the fold function is sent to the new receiver.
   ///
-  /// Each branch will receive from the same transmitter.
+  /// Each branch will receive from the same transmitter(s).
   pub fn branch_fold<B, X, T, F>(&self, init:X, f:F) -> Receiver<B>
   where
     B: Any,
@@ -323,6 +381,31 @@ impl<A> Receiver<A> {
   }
 
   /// Forwards messages on the given receiver to the given transmitter using a
+  /// stateful fold function, where the state is a shared mutex.
+  ///
+  /// The fold function returns an `Option<B>`. In the case that the value of
+  /// `Option<B>` is `None`, no message will be sent to the transmitter.
+  pub fn forward_filter_fold_shared<B, T, F>(self, tx: &Transmitter<B>, var:Arc<Mutex<T>>, f:F)
+  where
+    B: Any,
+    T: Any,
+    F: Fn(&mut T, &A) -> Option<B> + 'static
+  {
+    let tx = tx.clone();
+    self.respond(move |a:&A| {
+      let result = {
+        let mut t = var.try_lock().unwrap();
+        f(&mut t, a)
+      };
+      result
+        .into_iter()
+        .for_each(|b| {
+          tx.send(&b);
+        });
+    });
+  }
+
+  /// Forwards messages on the given receiver to the given transmitter using a
   /// stateful fold function.
   ///
   /// The fold function returns an `Option<B>`. In the case that the value of
@@ -334,16 +417,8 @@ impl<A> Receiver<A> {
     X: Into<T>,
     F: Fn(&mut T, &A) -> Option<B> + 'static
   {
-    let mut state = init.into();
-    let tx = tx.clone();
-    self.respond(move |a:&A| {
-      let may_msg = f(&mut state, a);
-      may_msg
-        .iter()
-        .for_each(|b:&B| {
-          tx.send(b);
-        });
-    })
+    let var = Arc::new(Mutex::new(init.into()));
+    self.forward_filter_fold_shared(tx, var, f);
   }
 
   /// Forwards messages on the given receiver to the given transmitter using a

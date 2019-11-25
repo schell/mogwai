@@ -1,6 +1,7 @@
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Element, Event, HtmlElement, HtmlInputElement, Node, window};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use super::gizmo::Gizmo;
 use super::txrx::{Transmitter, Receiver, hand_clone, txrx};
@@ -35,7 +36,8 @@ pub enum GizmoOption {
   Text(Continuous<String>),
   Value(Continuous<String>),
   Gizmos(Continuous<Vec<GizmoBuilder>>),
-  Prebuilt(HtmlElement)
+  Prebuilt(HtmlElement),
+  CaptureElement(Transmitter<HtmlElement>)
 }
 
 #[derive(Clone)]
@@ -44,12 +46,20 @@ enum ElementOrTag {
   Tag(String)
 }
 
+// TODO: Consider giving GizmoBuilder a tyvar.
+// For example:
+// * `GizmoBuilder<HtmlElement>`
+// * `GizmoBuilder<HtmlInputElement>`
+// * `GizmoBuilder<HtmlSVGElement>`
+// The problem to solve is how to nest GizmoBuilder(s).
+
 #[derive(Clone)]
 pub struct GizmoBuilder {
   tag: ElementOrTag,
   name: String,
   options: Vec<GizmoOption>,
   tx_events: HashMap<String, Transmitter<Event>>,
+  tx_element: Option<Transmitter<HtmlElement>>
 }
 
 
@@ -59,7 +69,8 @@ impl GizmoBuilder {
       name: "unamed_gizmo".into(),
       tag: ElementOrTag::Element(el),
       options: vec![],
-      tx_events: HashMap::new()
+      tx_events: HashMap::new(),
+      tx_element: None
     }
   }
 
@@ -68,7 +79,8 @@ impl GizmoBuilder {
       name: "unamed_gizmo".into(),
       tag: ElementOrTag::Tag(tag.into()),
       options: vec![],
-      tx_events: HashMap::new()
+      tx_events: HashMap::new(),
+      tx_element: None
     }
   }
 
@@ -76,6 +88,13 @@ impl GizmoBuilder {
     let mut gizmo = self;
     gizmo.name = s.into();
     gizmo
+  }
+
+  /// When built, the gizmo will send a the built html_element into the given
+  /// transmitter. This allows you to construct complicated behaviors that
+  /// depend on out-of-band html elements.
+  pub fn tx_post_build(self, tx:Transmitter<HtmlElement>) -> GizmoBuilder {
+    self.option(GizmoOption::CaptureElement(tx))
   }
 
   pub fn option(self, option: GizmoOption) -> GizmoBuilder {
@@ -202,6 +221,34 @@ impl GizmoBuilder {
     b.tx_events.insert(event.into(), tx);
     b
   }
+
+  pub fn tx_on_filter_fold_shared<B, T, F>(
+    self,
+    event: &str,
+    tx: Transmitter<B>,
+    var: Arc<Mutex<T>>,
+    f:F
+  ) -> GizmoBuilder
+  where
+    B: 'static,
+    T: 'static,
+    F: Fn(&mut T, &Event) -> Option<B> + 'static
+  {
+    let (tev, rev) = txrx();
+    rev.respond(move |ev| {
+      let result = {
+        let mut t = var.try_lock().unwrap();
+        f(&mut t, ev)
+      };
+      result
+        .into_iter()
+        .for_each(|b| {
+          tx.send(&b);
+        });
+    });
+    self.tx_on(event, tev)
+  }
+
 
   pub fn tx_on_filter_fold<B, X, T, F>(
     self,
@@ -429,8 +476,14 @@ impl GizmoBuilder {
                 )?;
               Ok(())
             }
+            CaptureElement(tx_pb) => {
+              tx_pb.send(&gizmo.html_element);
+              Ok(())
+            }
           }
         })?;
     Ok(gizmo)
   }
 }
+
+// TODO: builder.tx_post_build
