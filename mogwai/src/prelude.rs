@@ -6,6 +6,7 @@ pub use super::txrx::{
   txrx,
   txrx_filter_fold,
   txrx_fold,
+  txrx_fold_shared,
   txrx_filter_map,
   txrx_map,
   wrap_future,

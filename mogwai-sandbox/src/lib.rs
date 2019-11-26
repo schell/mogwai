@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate log;
 extern crate console_log;
 extern crate console_error_panic_hook;

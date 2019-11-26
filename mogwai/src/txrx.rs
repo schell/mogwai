@@ -57,7 +57,7 @@ impl<A> Clone for Transmitter<A> {
 }
 
 
-impl<A> Transmitter<A> {
+impl<A:Any> Transmitter<A> {
   pub fn new() -> Transmitter<A> {
     Transmitter {
       next_k: Arc::new(Mutex::new(0)),
@@ -81,6 +81,95 @@ impl<A> Transmitter<A> {
         f(a);
       });
   }
+
+  pub fn contra_filter_fold_shared<B, T, F>(
+    &self,
+    var: Arc<Mutex<T>>,
+    f:F
+  ) -> Transmitter<B>
+  where
+    B: 'static,
+    T: 'static,
+    F: Fn(&mut T, &B) -> Option<A> + 'static
+  {
+    let tx = self.clone();
+    let (tev, rev) = txrx();
+    rev.respond(move |ev| {
+      let result = {
+        let mut t = var.try_lock().unwrap();
+        f(&mut t, ev)
+      };
+      result
+        .into_iter()
+        .for_each(|b| {
+          tx.send(&b);
+        });
+    });
+    tev
+  }
+
+
+  pub fn contra_filter_fold<B, X, T, F>(
+    &self,
+    init:X,
+    f:F
+  ) -> Transmitter<B>
+  where
+    B: 'static,
+    T: 'static,
+    X: Into<T>,
+    F: Fn(&mut T, &B) -> Option<A> + 'static
+  {
+    let tx = self.clone();
+    let (tev, rev) = txrx();
+    let mut t = init.into();
+    rev.respond(move |ev| {
+      f(&mut t, ev)
+        .into_iter()
+        .for_each(|b| {
+          tx.send(&b);
+        });
+    });
+    tev
+  }
+
+  pub fn contra_fold<B, X, T, F>(
+    &self,
+    init:X,
+    f:F
+  ) -> Transmitter<B>
+  where
+    B: 'static,
+    T: 'static,
+    X: Into<T>,
+    F: Fn(&mut T, &B) -> A + 'static
+  {
+    self.contra_filter_fold(init, move |t, ev| Some(f(t, ev)))
+  }
+
+  pub fn contra_filter_map<B, F>(
+    &self,
+    f:F
+  ) -> Transmitter<B>
+  where
+    B: 'static,
+    F: Fn(&B) -> Option<A> + 'static
+  {
+    self.contra_filter_fold((), move |&mut (), ev| f(ev))
+  }
+
+  pub fn contra_map<B, F>(
+    &self,
+    f:F
+  ) -> Transmitter<B>
+  where
+    B: 'static,
+    F: Fn(&B) -> A + 'static
+  {
+    self.contra_filter_map(move |ev| Some(f(ev)))
+  }
+
+
 
   /// Wires the transmitter to send to the given receiver using a stateful fold
   /// function, where the state is a shared mutex.
@@ -325,6 +414,26 @@ impl<A> Receiver<A> {
   }
 
   /// Branch a new receiver off of an original and wire any messages sent to the
+  /// original by using a stateful fold function, where the state is a shared
+  /// mutex.
+  ///
+  /// The fold function returns an `Option<B>`. In the case that the value of
+  /// `Option<B>` is `None`, no message will be sent to the new receiver.
+  ///
+  /// Each branch will receive from the same transmitter.
+  pub fn branch_filter_fold_shared<B, T, F>(&self, state:Arc<Mutex<T>>, f:F) -> Receiver<B>
+  where
+    B: Any,
+    T: Any,
+    F: Fn(&mut T, &A) -> Option<B> + 'static
+  {
+    let ra = self.branch();
+    let (tb, rb) = txrx();
+    ra.forward_filter_fold_shared(&tb, state, f);
+    rb
+  }
+
+  /// Branch a new receiver off of an original and wire any messages sent to the
   /// original by using a stateful fold function.
   ///
   /// All output of the fold function is sent to the new receiver.
@@ -340,6 +449,25 @@ impl<A> Receiver<A> {
     let ra = self.branch();
     let (tb, rb) = txrx();
     ra.forward_fold(&tb, init, f);
+    rb
+  }
+
+  /// Branch a new receiver off of an original and wire any messages sent to the
+  /// original by using a stateful fold function, where the state is a shared
+  /// mutex.
+  ///
+  /// All output of the fold function is sent to the new receiver.
+  ///
+  /// Each branch will receive from the same transmitter(s).
+  pub fn branch_fold_shared<B, T, F>(&self, t:Arc<Mutex<T>>, f:F) -> Receiver<B>
+  where
+    B: Any,
+    T: Any,
+    F: Fn(&mut T, &A) -> B + 'static
+  {
+    let ra = self.branch();
+    let (tb, rb) = txrx();
+    ra.forward_fold_shared(&tb, t, f);
     rb
   }
 
@@ -432,6 +560,20 @@ impl<A> Receiver<A> {
     F: Fn(&mut T, &A) -> B + 'static
   {
     self.forward_filter_fold(tx, init, move |t:&mut T, a:&A| {
+      Some(f(t, a))
+    })
+  }
+
+  /// Forwards messages on the given receiver to the given transmitter using a
+  /// stateful fold function, where the state is a shared mutex. All output of
+  /// the fold function is sent to the given transmitter.
+  pub fn forward_fold_shared<B, T, F>(self, tx: &Transmitter<B>, t:Arc<Mutex<T>>, f:F)
+  where
+    B: Any,
+    T: Any,
+    F: Fn(&mut T, &A) -> B + 'static
+  {
+    self.forward_filter_fold_shared(tx, t, move |t:&mut T, a:&A| {
       Some(f(t, a))
     })
   }
@@ -544,12 +686,12 @@ pub fn recv<A>() -> Receiver<A> {
 }
 
 
-pub fn trns<A>() -> Transmitter<A> {
+pub fn trns<A:Any>() -> Transmitter<A> {
   Transmitter::new()
 }
 
 
-pub fn txrx<A>() -> (Transmitter<A>, Receiver<A>) {
+pub fn txrx<A:Any>() -> (Transmitter<A>, Receiver<A>) {
   let mut trns = Transmitter::new();
   let recv = trns.spawn_recv();
   (trns, recv)
@@ -580,6 +722,20 @@ where
   let (ta, ra) = txrx();
   let (tb, rb) = txrx();
   ra.forward_fold(&tb, t, f);
+  (ta, rb)
+}
+
+
+pub fn txrx_fold_shared<A, B, T, F>(t:Arc<Mutex<T>>, f:F) -> (Transmitter<A>, Receiver<B>)
+where
+  A:Any,
+  B:Any,
+  T:Any,
+  F:Fn(&mut T, &A) -> B + 'static,
+{
+  let (ta, ra) = txrx();
+  let (tb, rb) = txrx();
+  ra.forward_fold_shared(&tb, t, f);
   (ta, rb)
 }
 

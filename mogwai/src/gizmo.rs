@@ -61,11 +61,8 @@ impl Gizmo {
       .html_element
       .dyn_ref()
       .expect("Could not get element EventTarget");
-
-    let name = self.name.clone();
     let cb =
       Closure::wrap(Box::new(move |val:JsValue| {
-
         let ev =
           val
           .dyn_into()

@@ -1,10 +1,9 @@
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Element, Event, HtmlElement, HtmlInputElement, Node, window};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 use super::gizmo::Gizmo;
-use super::txrx::{Transmitter, Receiver, hand_clone, txrx};
+use super::txrx::{Transmitter, Receiver, hand_clone};
 
 #[macro_use]
 pub mod tags;
@@ -220,107 +219,6 @@ impl GizmoBuilder {
     let mut b = self;
     b.tx_events.insert(event.into(), tx);
     b
-  }
-
-  pub fn tx_on_filter_fold_shared<B, T, F>(
-    self,
-    event: &str,
-    tx: Transmitter<B>,
-    var: Arc<Mutex<T>>,
-    f:F
-  ) -> GizmoBuilder
-  where
-    B: 'static,
-    T: 'static,
-    F: Fn(&mut T, &Event) -> Option<B> + 'static
-  {
-    let (tev, rev) = txrx();
-    rev.respond(move |ev| {
-      let result = {
-        let mut t = var.try_lock().unwrap();
-        f(&mut t, ev)
-      };
-      result
-        .into_iter()
-        .for_each(|b| {
-          tx.send(&b);
-        });
-    });
-    self.tx_on(event, tev)
-  }
-
-
-  pub fn tx_on_filter_fold<B, X, T, F>(
-    self,
-    event: &str,
-    tx: Transmitter<B>,
-    init:X,
-    f:F
-  ) -> GizmoBuilder
-  where
-    B: 'static,
-    T: 'static,
-    X: Into<T>,
-    F: Fn(&mut T, &Event) -> Option<B> + 'static
-  {
-    let (tev, rev) = txrx();
-    let mut t = init.into();
-    rev.respond(move |ev| {
-      f(&mut t, ev)
-        .into_iter()
-        .for_each(|b| {
-          tx.send(&b);
-        });
-    });
-    self.tx_on(event, tev)
-  }
-
-  pub fn tx_on_fold<B, X, T, F>(
-    self,
-    event: &str,
-    tx: Transmitter<B>,
-    init:X,
-    f:F
-  ) -> GizmoBuilder
-  where
-    B: 'static,
-    T: 'static,
-    X: Into<T>,
-    F: Fn(&mut T, &Event) -> B + 'static
-  {
-    self.tx_on_filter_fold(event, tx, init, move |t, ev| {
-      Some(f(t, ev))
-    })
-  }
-
-  pub fn tx_on_filter_map<B, F>(
-    self,
-    event: &str,
-    tx: Transmitter<B>,
-    f:F
-  ) -> GizmoBuilder
-  where
-    B: 'static,
-    F: Fn(&Event) -> Option<B> + 'static
-  {
-    self.tx_on_filter_fold(event, tx, (), move |&mut (), ev| {
-      f(ev)
-    })
-  }
-
-  pub fn tx_on_map<B, F>(
-    self,
-    event: &str,
-    tx: Transmitter<B>,
-    f:F
-  ) -> GizmoBuilder
-  where
-    B: 'static,
-    F: Fn(&Event) -> B + 'static
-  {
-    self.tx_on_filter_map(event, tx, move |ev| {
-      Some(f(ev))
-    })
   }
 
   pub fn build(self) -> Result<Gizmo, JsValue> {
