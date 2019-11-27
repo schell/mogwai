@@ -29,14 +29,16 @@ impl<T:Clone> Clone for Continuous<T> {
 
 
 #[derive(Clone)]
-pub enum GizmoOption {
+enum GizmoOption {
   Attribute(String, Continuous<Option<String>>),
   Style(String, Continuous<String>),
   Text(Continuous<String>),
   Value(Continuous<String>),
   Gizmos(Continuous<Vec<GizmoBuilder>>),
   Prebuilt(HtmlElement),
-  CaptureElement(Transmitter<HtmlElement>)
+  CaptureElement(Transmitter<HtmlElement>),
+  WindowEvent(String, Transmitter<Event>),
+  DocumentEvent(String, Transmitter<Event>),
 }
 
 #[derive(Clone)]
@@ -89,17 +91,27 @@ impl GizmoBuilder {
     gizmo
   }
 
-  /// When built, the gizmo will send a the built html_element into the given
-  /// transmitter. This allows you to construct complicated behaviors that
-  /// depend on out-of-band html elements.
+  fn option(self, option: GizmoOption) -> GizmoBuilder {
+    let mut gizmo = self;
+    gizmo.options.push(option);
+    gizmo
+  }
+
+  /// When built, the gizmo will send its HtmlElement on the given transmitter.
+  /// This allows you to construct complicated behaviors that depend on
+  /// out-of-band html elements.
   pub fn tx_post_build(self, tx:Transmitter<HtmlElement>) -> GizmoBuilder {
     self.option(GizmoOption::CaptureElement(tx))
   }
 
-  pub fn option(self, option: GizmoOption) -> GizmoBuilder {
-    let mut gizmo = self;
-    gizmo.options.push(option);
-    gizmo
+  /// On the given window event, send an Event on the given transmitter.
+  pub fn tx_on_window(self, ev: &str, tx:Transmitter<Event>) -> GizmoBuilder {
+    self.option(GizmoOption::WindowEvent(ev.into(), tx))
+  }
+
+  /// On the given document event, send an Event on the given transmitter.
+  pub fn tx_on_document(self, ev: &str, tx:Transmitter<Event>) -> GizmoBuilder {
+    self.option(GizmoOption::DocumentEvent(ev.into(), tx))
   }
 
   /// Add an unchanging attribute.
@@ -376,6 +388,14 @@ impl GizmoBuilder {
             }
             CaptureElement(tx_pb) => {
               tx_pb.send(&gizmo.html_element);
+              Ok(())
+            }
+            WindowEvent(ev, tx) => {
+              gizmo.window_tx_on(&ev, tx);
+              Ok(())
+            }
+            DocumentEvent(ev, tx) => {
+              gizmo.document_tx_on(&ev, tx);
               Ok(())
             }
           }

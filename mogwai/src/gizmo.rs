@@ -17,6 +17,8 @@ pub struct Gizmo {
   pub name: String,
   pub html_element: HtmlElement,
   callbacks: HashMap<String, Arc<Closure<dyn FnMut(JsValue)>>>,
+  window_callbacks: HashMap<String, Arc<Closure<dyn FnMut(JsValue)>>>,
+  document_callbacks: HashMap<String, Arc<Closure<dyn FnMut(JsValue)>>>,
   opt_string_rxs: Vec<Receiver<Option<String>>>,
   string_rxs: Vec<Receiver<String>>,
   bool_rxs: Vec<Receiver<bool>>,
@@ -31,6 +33,8 @@ impl Clone for Gizmo {
       name: self.name.clone(),
       html_element: self.html_element.clone(),
       callbacks: self.callbacks.clone(),
+      window_callbacks: self.window_callbacks.clone(),
+      document_callbacks: self.document_callbacks.clone(),
       opt_string_rxs: self.opt_string_rxs.iter().map(|rx| hand_clone(rx)).collect(),
       string_rxs: self.string_rxs.iter().map(|rx| hand_clone(rx)).collect(),
       bool_rxs: self.bool_rxs.iter().map(|rx| hand_clone(rx)).collect(),
@@ -46,6 +50,8 @@ impl Gizmo {
       name: "unknown".into(),
       html_element,
       callbacks: HashMap::new(),
+      window_callbacks: HashMap::new(),
+      document_callbacks: HashMap::new(),
       opt_string_rxs: vec![],
       string_rxs: vec![],
       gizmo_rxs: vec![],
@@ -54,13 +60,12 @@ impl Gizmo {
     }
   }
 
-  /// Sends an event into the given transmitter when the given dom event happens.
-  pub fn tx_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
-    let target:&EventTarget =
-      self
-      .html_element
-      .dyn_ref()
-      .expect("Could not get element EventTarget");
+  fn add_event(
+    &mut self,
+    ev_name: &str,
+    target: &EventTarget,
+    tx: Transmitter<Event>
+  ) -> Arc<Closure<dyn FnMut(JsValue)>> {
     let cb =
       Closure::wrap(Box::new(move |val:JsValue| {
         let ev =
@@ -72,9 +77,45 @@ impl Gizmo {
     target
       .add_event_listener_with_callback(ev_name, cb.as_ref().unchecked_ref())
       .unwrap();
+    Arc::new(cb)
+  }
+
+  /// Sends an event into the given transmitter when the given dom event happens.
+  pub fn window_tx_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
+    let target =
+      utils::window()
+      .dyn_into::<EventTarget>()
+      .expect("Could not get window EventTarget");
+    let cb = self.add_event(ev_name, &target, tx);
+    self
+      .window_callbacks
+      .insert(ev_name.to_string(), cb);
+  }
+
+  /// Sends an event into the given transmitter when the given dom event happens.
+  pub fn document_tx_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
+    let target =
+      utils::document()
+      .dyn_into::<EventTarget>()
+      .expect("Could not get window EventTarget");
+    let cb = self.add_event(ev_name, &target, tx);
+    self
+      .document_callbacks
+      .insert(ev_name.to_string(), cb);
+  }
+
+  /// Sends an event into the given transmitter when the given dom event happens.
+  pub fn tx_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
+    let target =
+      self
+      .html_element
+      .clone()
+      .dyn_into::<EventTarget>()
+      .expect("Could not get element EventTarget");
+    let cb = self.add_event(ev_name, &target, tx);
     self
       .callbacks
-      .insert(ev_name.to_string(), Arc::new(cb));
+      .insert(ev_name.to_string(), cb);
   }
 
   pub fn attribute(&mut self, name: &str, init: Option<String>, rx: Receiver<Option<String>>) {
@@ -276,33 +317,30 @@ impl Gizmo {
 
   pub fn maintain(&mut self) {}
 
+  pub fn append_to(&self, parent: &HtmlElement) {
+    parent
+      .append_child(self.html_element_ref())
+      .map_err(|_| "could not append gizmo to document body".to_string())
+      .unwrap();
+  }
+
   pub fn run_in_container(self, container:HtmlElement) -> Result<(), JsValue> {
-
-
     if cfg!(target_arch = "wasm32") {
-      container
-        .append_child(self.html_element_ref())
-        .map_err(|_| "could not append gizmo to document body".to_string())?;
-
+      self.append_to(&container);
       let gizmo = RefCell::new(self);
-
       timeout(1000, move || {
         // TODO: Use the "main loop" interval to sync stats
         // ...about the gizmo graph and wirings of gizmos.
         gizmo.borrow_mut().maintain();
         true
       });
-
       Ok(())
     } else {
       Err("running gizmos is only supported on wasm".into())
     }
-
   }
 
   pub fn run(self) -> Result<(), JsValue> {
-
-
     if cfg!(target_arch = "wasm32") {
       self
         .run_in_container(body())

@@ -40,6 +40,11 @@ fn recv_from<A>(
   }
 }
 
+// TODO: LockedTransmitter
+// In component update functions you don't want the library user to `send`
+// because it causes a race condition (caught and thrown by a mutex). Make it so
+// a Transmitter can do all the wiring stuff and can send, but a
+// LockedTransmitter
 
 pub struct Transmitter<A> {
   next_k: Arc<Mutex<usize>>,
@@ -168,8 +173,6 @@ impl<A:Any> Transmitter<A> {
   {
     self.contra_filter_map(move |ev| Some(f(ev)))
   }
-
-
 
   /// Wires the transmitter to send to the given receiver using a stateful fold
   /// function, where the state is a shared mutex.
