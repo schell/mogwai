@@ -403,5 +403,3 @@ impl GizmoBuilder {
     Ok(gizmo)
   }
 }
-
-// TODO: builder.tx_post_build

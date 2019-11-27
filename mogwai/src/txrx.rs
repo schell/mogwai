@@ -40,11 +40,6 @@ fn recv_from<A>(
   }
 }
 
-// TODO: LockedTransmitter
-// In component update functions you don't want the library user to `send`
-// because it causes a race condition (caught and thrown by a mutex). Make it so
-// a Transmitter can do all the wiring stuff and can send, but a
-// LockedTransmitter
 
 pub struct Transmitter<A> {
   next_k: Arc<Mutex<usize>>,
@@ -682,7 +677,6 @@ impl<A> Receiver<A> {
   }
 }
 
-// TODO: Remove Clone impls from tx and rx
 
 pub fn recv<A>() -> Receiver<A> {
   Receiver::new()
