@@ -1,4 +1,10 @@
-/// Contains macro'd definitions of GizmoBuilder::new("...") for all html5 tags.
+//! Contains [`GizmoBuilder`] constructors for all html5 tags.
+//! Each of these constructor functions is shorthand for
+//! ```rust,ignore
+//! GizmoBuilder::new("...")
+//! ```
+//!
+//! [`GizmoBuilder`]: ../struct.GizmoBuilder.html
 use super::GizmoBuilder;
 
 /// From https://doc.rust-lang.org/rust-by-example/macros/designators.html

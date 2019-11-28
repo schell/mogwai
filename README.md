@@ -75,20 +75,29 @@ pub fn main() {
 
 ## why
 Rust is beginning to have a good number of frontend libraries. Most however,
-focus on writing trait implementations for component types or encorporate some
-kind of FRP.
+encorporate a virtual DOM with a magical update phase. Even in a languague that
+has performance to spare this step can cause unwanted slowness.
 
-`mogwai` lives in a happy orthogonal space that encourages functional progamming
-patterns. It uses channels and a declarative html builder to define components
-and compose them together. Once the interface is defined and built, the channels
-are effectively erased and it's functions all the way down. There's no vdom,
-shadow dom, polling or patching - just functions! So if you prefer a functional
-style of programming with lots of maps and folds then maybe `mogwai` is right for
-you :).
+`mogwai` lives in a happy space between vdom and bare metal. It does this by
+providing the tools needed to declare what in the DOM changes, and when. These
+same tools encourage functional progamming patterns like encapsulation over
+inheritance (or traits, in this case). It uses channel-like primitives and a
+declarative html builder to define components and compose them together. Once the
+interface is defined and built, the channels are effectively erased and it's
+functions all the way down. There's no vdom, shadow dom, polling or patching -
+just functions! So if you prefer a functional style of programming with lots of
+maps and folds - or if you're looking to go `vroom!` then maybe `mogwai` is right
+for you and your team :).
 
+## made for rustaceans, by a rustacean
 Another benefit of `mogwai` is that it is Rust-first. There is no requirement
 that you have `npm` or `node`. Getting your project up and running without
 writing any javascript is easy enough.
+
+## performance
+`mogwai` is snappy! Here is a very handwavey and sketchy todomvc benchmark:
+
+![mogwai performance benchmarking](img/perf.png)
 
 ## ok - where do i start?
 `mogwai` is meant to be used with [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/).
@@ -98,6 +107,7 @@ writing any javascript is easy enough.
 ## more examples please
 For more examples, check out
 [the sandbox](https://github.com/schell/mogwai/blob/master/mogwai-sandbox/src/lib.rs).
+[the todomvc app](https://github.com/schell/mogwai-todo)
 
 To build the sandbox use:
 ```bash

@@ -1,3 +1,31 @@
+//! A gizmo builder is used to create DOM elements. It adheres to the normal
+//! builder pattern and provides functions for wiring messages in and out of the
+//! DOM.
+//! Here is an example of using [`GizmoBuilder`], Transmitter and Receiver to create
+//! a button that counts its own clicks:
+//! ```rust
+//! extern crate mogwai;
+//! use mogwai::prelude::*;
+//!
+//! let (tx, rx) =
+//!   txrx_fold(
+//!     0,
+//!     |n:&i32, _:&Event| -> String {
+//!       if *n == 1 {
+//!         "Clicked 1 time".to_string()
+//!       } else {
+//!         format!("Clicked {} times", *n)
+//!       }
+//!     }
+//!   );
+//!
+//! button()
+//!   .rx_text("Clicked 0 times", rx)
+//!   .tx_on("click", tx)
+//!   .build().unwrap()
+//!   .run().unwrap()
+//! ```
+//! [`GizmoBuilder`]: struct.GizmoBuilder.html
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Element, Event, HtmlElement, HtmlInputElement, Node, window};
 use std::collections::HashMap;
@@ -8,7 +36,7 @@ use super::txrx::{Transmitter, Receiver, hand_clone};
 #[macro_use]
 pub mod tags;
 
-pub enum Continuous<T> {
+enum Continuous<T> {
   Rx(T, Receiver<T>),
   Static(T)
 }
@@ -54,6 +82,10 @@ enum ElementOrTag {
 // * `GizmoBuilder<HtmlSVGElement>`
 // The problem to solve is how to nest GizmoBuilder(s).
 
+/// Construction and wiring for DOM elements.
+/// For an extensive list of constructor functions see [`tags`].
+///
+/// [`tags`]: tags/index.html
 #[derive(Clone)]
 pub struct GizmoBuilder {
   tag: ElementOrTag,
