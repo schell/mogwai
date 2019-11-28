@@ -4,73 +4,39 @@ Rust that runs in your browser.
 
 ## goals
 
-1. [x] easily declare static and dynamic markup, encapsulate state
-2. [x] compile declarations into gizmos (mogwai's widgets)
-3. [x] compose gizmos
+* provide a declarative approach to creating and managing DOM nodes
+* encapsulate component state and compose components easily
+* explicate DOM updates
+* be small and fast (snappy)
 
-If mogwai achieves these goals, maintaining application state, composing
-widgets and reasoning about your program should be easy.
+If mogwai achieves these goals, which I think it does, then maintaining
+application state, composing widgets and reasoning about your program will be
+easy. Furthermore, your users will be happy because their UI is snappy!
 
 ## example
+Here is an example of a button that counts its own clicks.
+
 ```rust
 extern crate mogwai;
-
 use mogwai::prelude::*;
 
-pub fn main() {
-  let mut tx_click = Transmitter::new();
-  let rx_text = Receiver::<String>::new();
-
-  let button =
-    button()
-    .style("cursor", "pointer")
-    .rx_text("Click me", rx_text.clone())
-    .tx_on("click", tx_click.clone());
-
-  tx_click.wire_fold(
-    &rx_text,
-    true, // our initial folding state
-    |is_red, _| {
-      let out =
-        if *is_red {
-          "Turn me blue".into()
-        } else {
-          "Turn me red".into()
-        };
-      (!is_red, Some(out))
+let (tx, rx) =
+  txrx_fold(
+    0,
+    |n:&i32, _:&Event| -> String {
+      if *n == 1 {
+        "Clicked 1 time".to_string()
+      } else {
+        format!("Clicked {} times", *n)
+      }
     }
   );
 
-  let rx_color = Receiver::<String>::new();
-
-  let h1 =
-    h1()
-    .attribute("id", "header")
-    .attribute("class", "my-header")
-    .rx_style("color", "green", rx_color.clone())
-    .text("Hello from mogwai!");
-
-    tx_click.wire_fold(
-      &rx_color,
-      false, // the intial value for is_red
-      |is_red, _| {
-        let out =
-          if *is_red {
-            "blue".into()
-          } else {
-            "red".into()
-          };
-        (!is_red, Some(out))
-    });
-
-  div()
-    .with(h1)
-    .with(button)
-    .build()
-    .unwrap()
-    .run()
-    .unwrap();
-}
+button()
+  .rx_text("Clicked 0 times", rx)
+  .tx_on("click", tx)
+  .build().unwrap()
+  .run().unwrap()
 ```
 
 ## why
@@ -79,15 +45,18 @@ encorporate a virtual DOM with a magical update phase. Even in a languague that
 has performance to spare this step can cause unwanted slowness.
 
 `mogwai` lives in a happy space between vdom and bare metal. It does this by
-providing the tools needed to declare what in the DOM changes, and when. These
-same tools encourage functional progamming patterns like encapsulation over
-inheritance (or traits, in this case). It uses channel-like primitives and a
-declarative html builder to define components and compose them together. Once the
-interface is defined and built, the channels are effectively erased and it's
-functions all the way down. There's no vdom, shadow dom, polling or patching -
-just functions! So if you prefer a functional style of programming with lots of
-maps and folds - or if you're looking to go `vroom!` then maybe `mogwai` is right
-for you and your team :).
+providing the tools needed to declare exactly what DOM changes, and when.
+
+These same tools encourage functional progamming patterns like encapsulation over
+inheritance (or traits, in this case).
+
+Channel-like primitives and a declarative html builder are used to define
+components and then wire them together. Once the interface is defined and built,
+the channels are effectively erased and it's functions all the way down. There's
+no performance overhead from vdom, shadow dom, polling or patching. So if you
+prefer a functional style of programming with lots of maps and folds - or if
+you're looking to go _vroom!_ then maybe `mogwai` is right for you and your
+team :)
 
 ## made for rustaceans, by a rustacean
 Another benefit of `mogwai` is that it is Rust-first. There is no requirement
