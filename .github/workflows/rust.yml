@@ -1,6 +1,9 @@
-name: Rust
+name: build, test, doc
 
-on: [push]
+on:
+  push:
+    branches-ignore:
+      - master
 
 jobs:
   build:

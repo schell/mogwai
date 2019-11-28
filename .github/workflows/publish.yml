@@ -1,4 +1,4 @@
-name: Rust
+name: build, test, doc, publish to crates.io
 
 on:
   push:
