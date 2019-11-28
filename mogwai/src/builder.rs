@@ -98,16 +98,10 @@ pub struct GizmoBuilder {
 
 
 impl GizmoBuilder {
-  pub fn from_html_element(el:HtmlElement) -> GizmoBuilder {
-    GizmoBuilder {
-      name: "unamed_gizmo".into(),
-      tag: ElementOrTag::Element(el),
-      options: vec![],
-      tx_events: HashMap::new(),
-      tx_element: None
-    }
-  }
-
+  /// Create a new gizmo builder with the given tag.
+  /// ```rust,ignore
+  /// GizmoBuilder::new("div")
+  /// ```
   pub fn new(tag: &str) -> GizmoBuilder {
     GizmoBuilder {
       name: "unamed_gizmo".into(),
@@ -118,6 +112,19 @@ impl GizmoBuilder {
     }
   }
 
+  /// Create a new GizmoBuilder from an existing HtmlElement.
+  pub fn from_html_element(el:HtmlElement) -> GizmoBuilder {
+    GizmoBuilder {
+      name: "unamed_gizmo".into(),
+      tag: ElementOrTag::Element(el),
+      options: vec![],
+      tx_events: HashMap::new(),
+      tx_element: None
+    }
+  }
+
+  /// Name the GizmoBuilder.
+  /// This can be useful for debugging.
   pub fn named(self, s: &str) -> GizmoBuilder {
     let mut gizmo = self;
     gizmo.name = s.into();
@@ -130,9 +137,9 @@ impl GizmoBuilder {
     gizmo
   }
 
-  /// When built, the gizmo will send its HtmlElement on the given transmitter.
-  /// This allows you to construct complicated behaviors that depend on
-  /// out-of-band html elements.
+  /// When built, send the raw HtmlElement on the given transmitter.
+  /// This allows you to construct component behaviors that operate on one or
+  /// more HtmlElement(s) directly.
   pub fn tx_post_build(self, tx:Transmitter<HtmlElement>) -> GizmoBuilder {
     self.option(GizmoOption::CaptureElement(tx))
   }
