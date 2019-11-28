@@ -15,7 +15,7 @@ jobs:
     - uses: icepuma/rust-action@master
       with:
         args: |
-          cargo build
-          cargo test
-          cargo doc
-          cargo publish --token ${{ secrets.cargo_token }}
+          && cargo test \
+          && cargo doc \
+          && cd mogwai \
+          && cargo publish --token ${{ secrets.cargo_token }}

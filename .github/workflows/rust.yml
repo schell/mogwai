@@ -15,7 +15,8 @@ jobs:
     - uses: icepuma/rust-action@master
       with:
         args: |
-          cargo build
-          cargo test
-          cargo doc
-          cargo publish --dry-run
+          cargo build \
+          && cargo test \
+          && cargo doc \
+          && cd mogwai \
+          && cargo publish --dry-run
