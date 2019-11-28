@@ -73,7 +73,7 @@ impl Gizmo {
           .dyn_into()
           .expect("Callback was not an event!");
         tx.send(&ev);
-      }) as Box<dyn FnMut((JsValue))>);
+      }) as Box<dyn FnMut(JsValue)>);
     target
       .add_event_listener_with_callback(ev_name, cb.as_ref().unchecked_ref())
       .unwrap();

@@ -1,8 +1,8 @@
-# mogwai 
+# mogwai
 > minimalist, obvious, graphical web application interface
 
-`mogwai` is a frontend DOM library for creating web applications. 
-It is written in Rust and runs in your browser. It is an alternative 
+`mogwai` is a frontend DOM library for creating web applications.
+It is written in Rust and runs in your browser. It is an alternative
 to React, Backbone, Ember, Elm, Purescript, etc.
 
 ## goals
@@ -27,6 +27,7 @@ let (tx, rx) =
   txrx_fold(
     0,
     |n:&i32, _:&Event| -> String {
+      *n += 1;
       if *n == 1 {
         "Clicked 1 time".to_string()
       } else {

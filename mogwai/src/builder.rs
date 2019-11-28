@@ -3,14 +3,15 @@
 //! DOM.
 //! Here is an example of using [`GizmoBuilder`], Transmitter and Receiver to create
 //! a button that counts its own clicks:
-//! ```rust
+//! ```rust,no_run
 //! extern crate mogwai;
 //! use mogwai::prelude::*;
 //!
 //! let (tx, rx) =
 //!   txrx_fold(
 //!     0,
-//!     |n:&i32, _:&Event| -> String {
+//!     |n:&mut i32, _:&Event| -> String {
+//!       *n += 1;
 //!       if *n == 1 {
 //!         "Clicked 1 time".to_string()
 //!       } else {
