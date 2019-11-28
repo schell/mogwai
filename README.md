@@ -1,6 +1,9 @@
-# mogwai
-`mogwai` is a minimalist, obvious, graphical web application interface written in
-Rust that runs in your browser.
+# mogwai 
+> minimalist, obvious, graphical web application interface
+
+`mogwai` is a frontend DOM library for creating web applications. 
+It is written in Rust and runs in your browser. It is an alternative 
+to React, Backbone, Ember, Elm, Purescript, etc.
 
 ## goals
 
@@ -75,7 +78,9 @@ writing any javascript is easy enough.
 
 ## more examples please
 For more examples, check out
-[the sandbox](https://github.com/schell/mogwai/blob/master/mogwai-sandbox/src/lib.rs).
+
+[the sandbox](https://github.com/schell/mogwai/blob/master/mogwai-sandbox/src/lib.rs)
+
 [the todomvc app](https://github.com/schell/mogwai-todo)
 
 To build the sandbox use:
