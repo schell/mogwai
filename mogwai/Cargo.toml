@@ -1,12 +1,12 @@
 [package]
 name = "mogwai"
-version = "0.0.0"
+version = "0.0.1"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
 license = "MIT"
-description = "The magical, obvious, graphical, web application interface."
+description = "The minimal, obvious, graphical, web application interface."
 readme = "../README.md"
-keywords = ["ui", "dom", "app", "frp", "reactive"]
+keywords = ["ui", "dom", "app", "reactive", "frontend"]
 categories = ["gui", "wasm", "web-programming"]
 
 [dependencies]

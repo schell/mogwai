@@ -1,6 +1,9 @@
 name: Rust
 
-on: [push]
+on:
+  push:
+    branches:
+      - master
 
 jobs:
   build:
@@ -15,4 +18,4 @@ jobs:
           cargo build
           cargo test
           cargo doc
-          cargo publish --dry-run
+          cargo publish --token ${{ secrets.cargo_token }}
