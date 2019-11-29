@@ -73,9 +73,15 @@ writing any javascript is easy enough.
 ![mogwai performance benchmarking](img/perf.png)
 
 ## ok - where do i start?
-`mogwai` is meant to be used with [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/).
+First you'll need new(ish) version of the rust toolchain. For that you can visit
+https://rustup.rs/ and follow the instructions.
 
-(more detailed instructions incoming)
+Then you'll need [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/).
+
+For starting a new mogwai project we'll use the wonderful `cargo-generate`, which
+can be installed using `cargo install cargo-generate`.
+
+TODO: Create a cargo-generate template and explain using it here.
 
 ## more examples please
 For more examples, check out

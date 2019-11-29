@@ -11,8 +11,7 @@ pub use web_sys::{EventTarget, HtmlInputElement};
 pub use wasm_bindgen::{JsCast, JsValue};
 
 
-/// A gizmo is a compiled network of html tags, callback closures and message
-/// responders (in the form of receivers).
+/// A compiled network of html elements, callback closures and receivers.
 pub struct Gizmo {
   pub name: String,
   pub html_element: HtmlElement,
@@ -23,6 +22,7 @@ pub struct Gizmo {
   string_rxs: Vec<Receiver<String>>,
   bool_rxs: Vec<Receiver<bool>>,
   gizmo_rxs: Vec<Receiver<Vec<GizmoBuilder>>>,
+  //pub components:Vec<GizmoComponent<dyn Component>>,
   pub static_gizmos: Vec<Gizmo>,
 }
 

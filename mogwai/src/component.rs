@@ -1,3 +1,8 @@
+//! Sometimes an application can get so entangled that it's hard to follow the
+//! path of messages through `Transmitter`s, `Receiver`s and fold functions. For
+//! situations like these where complexity is unavoidable, Mogwai provides the
+//! `Component` trait and the helper type `GizmoComponent`. Anyone familiar with
+//! the Elm architecture will feel at home writing components in Mogwai.
 use std::sync::{Arc, Mutex};
 use std::any::Any;
 use web_sys::HtmlElement;
@@ -12,6 +17,7 @@ pub mod subscriber;
 use subscriber::Subscriber;
 
 
+/// Defines a component.
 pub trait Component
 where
   Self: Any + Sized,
@@ -25,8 +31,9 @@ where
   /// the view by being used in an rx_* function.
   type ViewMsg;
 
-  /// Update this component in response to any received messages.
-  /// Return any outgoing messages.
+  /// Update this component in response to any received model messages.
+  /// This is essentially the component's fold function.
+  /// Return any outgoing view messages.
   fn update(
     &mut self,
     msg: &Self::ModelMsg,
@@ -48,6 +55,7 @@ where
 }
 
 
+/// A component and all of its pieces.
 pub struct GizmoComponent<T:Component> {
   pub trns: Transmitter<T::ModelMsg>,
   pub recv: Receiver<T::ViewMsg>,
@@ -92,7 +100,10 @@ where
     });
 
     let builder =
-      component.try_lock().unwrap().builder(tx_in.clone(), rx_out.branch());
+      component
+      .try_lock()
+      .unwrap()
+      .builder(tx_in.clone(), rx_out.branch());
 
     GizmoComponent {
       trns: tx_in,
@@ -103,6 +114,8 @@ where
     }
   }
 
+  /// Build the GizmoComponent.builder. This will `take`
+  /// the builder and update GizmoComponent.gizmo.
   pub fn build(&mut self) {
     if self.builder.is_some() {
       let builder =
@@ -118,6 +131,7 @@ where
   }
 
   /// Run and initialize the component with a list of messages.
+  /// This is equivalent to calling `run` and `update` with each message.
   pub fn run_init(mut self, msgs: Vec<T::ModelMsg>) -> Result<(), JsValue> {
     msgs
       .into_iter()
@@ -127,6 +141,7 @@ where
     self.run()
   }
 
+  /// Run this component forever
   pub fn run(mut self) -> Result<(), JsValue> {
     if self.gizmo.is_none() && self.builder.is_some() {
       self.build();
@@ -138,6 +153,8 @@ where
       .run()
   }
 
+  /// Append this component's gizmo an HtmlElement.
+  /// Has no effect if this component has not been built.
   pub fn append_to(&self, parent: &HtmlElement) {
     if self.gizmo.is_some() {
       self
@@ -156,6 +173,7 @@ where
     self.trns.send(msg);
   }
 
+  /// Access the component's underlying state.
   pub fn with_state<F, N>(&self, f:F) -> N
   where
     F: Fn(&T) -> N
