@@ -1,8 +1,69 @@
 //! Sometimes an application can get so entangled that it's hard to follow the
 //! path of messages through `Transmitter`s, `Receiver`s and fold functions. For
-//! situations like these where complexity is unavoidable, Mogwai provides the
+//! situations like these where complexity is unavoidable, Mogwai provides &the
 //! `Component` trait and the helper type `GizmoComponent`. Anyone familiar with
-//! the Elm architecture will feel at home writing components in Mogwai.
+//! the Elm architecture will feel at home writing components in Mogwai:
+//!
+//! ```rust, no_run
+//! extern crate mogwai;
+//! use mogwai::prelude::*;
+//!
+//! enum In {
+//!   Click
+//! }
+//!
+//! #[derive(Clone)]
+//! enum Out {
+//!   DrawClicks(i32)
+//! }
+//!
+//! struct App {
+//!   num_clicks: i32
+//! }
+//!
+//! impl Component for App {
+//!   type ModelMsg = In;
+//!   type ViewMsg = Out;
+//!
+//!   fn builder(&self, tx: Transmitter<In>, rx:Receiver<Out>) -> GizmoBuilder {
+//!     button()
+//!       .tx_on("click", tx.contra_map(|_| In::Click))
+//!       .rx_text("clicks = 0", rx.branch_map(|msg| {
+//!         match msg {
+//!           Out::DrawClicks(n) => {
+//!             format!("clicks = {}", n)
+//!           }
+//!         }
+//!       }))
+//!   }
+//!
+//!   fn update(&mut self, msg: &In, _sub: &Subscriber<In>) -> Vec<Out> {
+//!     match msg {
+//!       In::Click => {
+//!         self.num_clicks += 1;
+//!         vec![Out::DrawClicks(self.num_clicks)]
+//!       }
+//!     }
+//!   }
+//! }
+//!
+//!
+//! pub fn main() -> Result<(), JsValue> {
+//!   App{ num_clicks: 0 }
+//!   .into_component()
+//!   .run()
+//! }
+//! ```
+//!
+//! In the example above we're creating a component that counts its own clicks.
+//! The first step is to define the incoming messages that will update the model.
+//! Next we define the outgoing messages that will update our view. The `builder`
+//! trait method uses these message types to build the view. It does this by
+//! consuming a `Transmitter<Self::ModelMsg>` and a `Receiver<Self::ViewMsg>`.
+//! These represent the inputs and the outputs of your component. If your
+//! component is owned by another, the parent component can communicate to the
+//! child through these messages, either with `GizmoComponent::update` or by
+//! subscribing to the messages when the child component is created.
 use std::sync::{Arc, Mutex};
 use std::any::Any;
 use web_sys::HtmlElement;
