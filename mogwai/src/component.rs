@@ -98,8 +98,9 @@ where
   fn update(
     &mut self,
     msg: &Self::ModelMsg,
+    tx_view: &Transmitter<Self::ViewMsg>,
     sub: &Subscriber<Self::ModelMsg>
-  ) -> Vec<Self::ViewMsg>;
+  );
 
   /// Produce this component's gizmo builder using inputs and outputs.
   fn builder(
@@ -137,26 +138,52 @@ where
     let (tx_out, rx_out) = txrx();
     let (tx_in, rx_in) = txrx();
     let subscriber = Subscriber::new(&tx_in);
-    rx_in.respond(move |msg:&T::ModelMsg| {
-      let out_msgs = {
-        let mut t =
-          state
-          .try_lock()
-          .expect("Could not get component state lock");
-        T::update(&mut t, msg, &subscriber)
-      };
 
-      if out_msgs.len() > 0 {
-        let tx_out_async = tx_out.clone();
+    let (tx_view, rx_view) = txrx();
+    rx_in.respond(move |msg:&T::ModelMsg| {
+      let mut t =
+        state
+        .try_lock()
+        .expect("Could not get component state lock");
+      T::update(&mut t, msg, &tx_view, &subscriber);
+    });
+
+    let out_msgs = Arc::new(Mutex::new(vec![]));
+    rx_view.respond(move |msg:&T::ViewMsg| {
+      let should_schedule = {
+        let mut msgs =
+          out_msgs
+          .try_lock()
+          .expect("Could not try_lock to push to out_msgs");
+        msgs.push(msg.clone());
+        // If there is more than just this message in the queue, this
+        // responder has already been run this frame and a timer has
+        // already been scheduled, so there's no need to schedule another
+        msgs.len() == 1
+      };
+      if should_schedule {
         let out_msgs_async = out_msgs.clone();
-        utils::timeout(0, move || {
-          out_msgs_async
-            .iter()
-            .for_each(|out_msg| {
-              tx_out_async.send(out_msg);
-            });
-          false
-        });
+        let tx_out_async = tx_out.clone();
+        utils::timeout(
+          0,
+          move || {
+            let msgs = {
+              out_msgs_async
+                .try_lock()
+                .expect("Could not try_lock to pop out_msgs")
+                .drain(0..)
+                .collect::<Vec<_>>()
+            };
+            if msgs.len() > 0 {
+              msgs
+                .iter()
+                .for_each(|out_msg| {
+                  tx_out_async.send(out_msg);
+                });
+            }
+            false
+          }
+        );
       }
     });
 

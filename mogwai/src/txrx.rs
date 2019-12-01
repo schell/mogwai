@@ -82,6 +82,17 @@ impl<A:Any> Transmitter<A> {
       });
   }
 
+  pub fn send_async<FutureA>(&self, fa:FutureA)
+  where
+    FutureA: Future<Output = A> + 'static
+  {
+    let tx = self.clone();
+    spawn_local(async move {
+      let a:A = fa.await;
+      tx.send(&a);
+    });
+  }
+
   pub fn contra_filter_fold_shared<B, T, F>(
     &self,
     var: Arc<Mutex<T>>,
@@ -263,8 +274,6 @@ impl<A:Any> Transmitter<A> {
   ///
   /// To aid in returning a viable future in your fold function, use
   /// `wrap_future`.
-  ///
-  /// After the async block returns
   pub fn wire_filter_fold_async<T, B, X, F, H>(
     &mut self,
     rb: &Receiver<B>,
