@@ -1,6 +1,6 @@
 //! Sometimes an application can get so entangled that it's hard to follow the
 //! path of messages through `Transmitter`s, `Receiver`s and fold functions. For
-//! situations like these where complexity is unavoidable, Mogwai provides &the
+//! situations like these where complexity is unavoidable, Mogwai provides the
 //! `Component` trait and the helper type `GizmoComponent`. Anyone familiar with
 //! the Elm architecture will feel at home writing components in Mogwai:
 //!
@@ -37,11 +37,11 @@
 //!       }))
 //!   }
 //!
-//!   fn update(&mut self, msg: &In, _sub: &Subscriber<In>) -> Vec<Out> {
+//!   fn update(&mut self, msg: &In, tx_view: &Transmitter<Out>, _sub: &Subscriber<In>) {
 //!     match msg {
 //!       In::Click => {
 //!         self.num_clicks += 1;
-//!         vec![Out::DrawClicks(self.num_clicks)]
+//!         tx_view.send(&Out::DrawClicks(self.num_clicks));
 //!       }
 //!     }
 //!   }
@@ -60,10 +60,13 @@
 //! Next we define the outgoing messages that will update our view. The `builder`
 //! trait method uses these message types to build the view. It does this by
 //! consuming a `Transmitter<Self::ModelMsg>` and a `Receiver<Self::ViewMsg>`.
-//! These represent the inputs and the outputs of your component. If your
-//! component is owned by another, the parent component can communicate to the
-//! child through these messages, either with `GizmoComponent::update` or by
-//! subscribing to the messages when the child component is created.
+//! These represent the inputs and the outputs of your component. Roughly,
+//! `Self::ModelMsg` comes into the `update` function and `Self::ViewMsg`s go out
+//! of the `update function.
+//! If your component is owned by another, the parent component can communicate to
+//! the child through these messages, either with `GizmoComponent::update` or by
+//! subscribing to the messages when the child component is created (see
+//! `Subscriber`).
 use std::sync::{Arc, Mutex};
 use std::any::Any;
 use web_sys::HtmlElement;
@@ -94,7 +97,6 @@ where
 
   /// Update this component in response to any received model messages.
   /// This is essentially the component's fold function.
-  /// Return any outgoing view messages.
   fn update(
     &mut self,
     msg: &Self::ModelMsg,

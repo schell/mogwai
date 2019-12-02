@@ -168,7 +168,7 @@ impl GizmoBuilder {
     self.option(GizmoOption::Style(name.into(), Continuous::Static(value.into())))
   }
 
-  /// Add the unchanging class.
+  /// Add an unchanging class.
   /// This represents all the classes for this gizmo. If you'd like to specify
   /// more than one class call this as:
   /// ```rust
@@ -187,18 +187,18 @@ impl GizmoBuilder {
     self.option(GizmoOption::Text(Continuous::Static(s.to_string())))
   }
 
-  /// Add an unchunging value.
+  /// Add an unchanging value.
   /// NOTE: This is only for input elements.
   pub fn value(self, s: &str) -> GizmoBuilder {
     self.option(GizmoOption::Value(Continuous::Static(s.to_string())))
   }
 
-  /// Add an unchanging gizmo.
+  /// Add an unchanging child.
   pub fn with(self, g: GizmoBuilder) -> GizmoBuilder {
     self.option(GizmoOption::Gizmos(Continuous::Static(vec![g])))
   }
 
-  /// Add many unchinging gizmos all at once.
+  /// Add many unchinging children all at once.
   pub fn with_many(self, gs: Vec<GizmoBuilder>) -> GizmoBuilder {
     gs.into_iter()
       .fold(
@@ -207,15 +207,15 @@ impl GizmoBuilder {
       )
   }
 
-  /// Add a pre-built web-sys HtmlElement.
+  /// Add a pre-built web-sys HtmlElement as a child.
   /// This allows building and maintaining a gizmo "out-of-band" and passing its
   /// html_element to a GizmoBuilder.
   pub fn with_pre_built(self, el: HtmlElement) -> GizmoBuilder {
     self.option(GizmoOption::Prebuilt(el))
   }
 
-  /// Add an attribute that changes its value every time it receives a message on
-  /// the given receiver. If the receiver receives `None` it will respond by
+  /// Add an attribute that changes its value every time the given receiver
+  /// receives a message. If the receiver receives `None` it will respond by
   /// removing the attribute until it receives `Some(...)`.
   pub fn rx_attribute(self, name: &str, init:Option<&str>, value: Receiver<Option<String>>) -> GizmoBuilder {
     let init =

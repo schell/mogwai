@@ -26,7 +26,7 @@ use mogwai::prelude::*;
 let (tx, rx) =
   txrx_fold(
     0,
-    |n:&i32, _:&Event| -> String {
+    |n:&mut i32, _:&Event| -> String {
       *n += 1;
       if *n == 1 {
         "Clicked 1 time".to_string()
@@ -74,12 +74,14 @@ writing any javascript is easy enough.
 
 ## ok - where do i start?
 First you'll need new(ish) version of the rust toolchain. For that you can visit
-https://rustup.rs/ and follow the instructions.
+https://rustup.rs/ and follow the installation instructions.
 
 Then you'll need [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/).
 
 For starting a new mogwai project we'll use the wonderful `cargo-generate`, which
 can be installed using `cargo install cargo-generate`.
+
+After that installs run
 
 TODO: Create a cargo-generate template and explain using it here.
 
