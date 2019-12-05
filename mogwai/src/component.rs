@@ -1,8 +1,30 @@
+//! Elmesque components through model and view message passing.
+//!
 //! Sometimes an application can get so entangled that it's hard to follow the
 //! path of messages through `Transmitter`s, `Receiver`s and fold functions. For
 //! situations like these where complexity is unavoidable, Mogwai provides the
-//! `Component` trait and the helper type `GizmoComponent`. Anyone familiar with
-//! the Elm architecture will feel at home writing components in Mogwai:
+//! `Component` trait and the helper type `GizmoComponent`.
+//!
+//! Many rust web app libraries use this message passing pattern to wrangle
+//! complexity. Just like other libraries messages come out of the DOM into your
+//! component's model. The model is updated according to the value of the model
+//! message.
+//! Anyone familiar with the Elm architecture will recognize this familiar
+//! pattern. But there is one big difference between Elm-like libraries and
+//! Mogwai. The difference is that Mogwai lacks a virtual DOM implementation.
+//! One might think that this is a disadvantage but to the contrary this is a
+//! strength, as it obviates the entire diffing phase of rendering DOM. This is
+//! where Mogwai gets its speed advantage.
+//!
+//! Instead of a virtual DOM Mogwai uses one more step in its model update. The
+//! `Component::update` method is given a `Transmitter<Self::ViewMsg>` with which
+//! to send _view update messages_. Messages sent on this transmitter will in
+//! turn be sent out to the view to update the DOM. This forms a cycle. Messages
+//! come into the model from the view, update, messages go into the view from the
+//! model. In this way DOM updates are obvious. You know exactly where, when and
+//! why updates are made (both to the model and the view).
+//!
+//! Here is a minimal example of a `Component` that counts its own clicks.
 //!
 //! ```rust, no_run
 //! extern crate mogwai;
@@ -55,7 +77,6 @@
 //! }
 //! ```
 //!
-//! In the example above we're creating a component that counts its own clicks.
 //! The first step is to define the incoming messages that will update the model.
 //! Next we define the outgoing messages that will update our view. The `builder`
 //! trait method uses these message types to build the view. It does this by
@@ -81,7 +102,8 @@ pub mod subscriber;
 use subscriber::Subscriber;
 
 
-/// Defines a component.
+/// Defines a component with distinct input (model update) and output
+/// (view update) messages.
 pub trait Component
 where
   Self: Any + Sized,

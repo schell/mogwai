@@ -41,6 +41,7 @@ fn recv_from<A>(
 }
 
 
+/// Send messages instantly.
 pub struct Transmitter<A> {
   next_k: Arc<Mutex<usize>>,
   branches: Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>,
@@ -58,6 +59,7 @@ impl<A> Clone for Transmitter<A> {
 
 
 impl<A:Any> Transmitter<A> {
+  /// Create a new transmitter.
   pub fn new() -> Transmitter<A> {
     Transmitter {
       next_k: Arc::new(Mutex::new(0)),
@@ -65,10 +67,12 @@ impl<A:Any> Transmitter<A> {
     }
   }
 
+  /// Spawn a receiver for this transmitter.
   pub fn spawn_recv(&mut self) -> Receiver<A> {
     recv_from(self.next_k.clone(), self.branches.clone())
   }
 
+  /// Send a message to any and all receivers of this transmitter.
   pub fn send(&self, a:&A) {
     let mut branches =
       self
@@ -82,6 +86,7 @@ impl<A:Any> Transmitter<A> {
       });
   }
 
+  /// Execute a future that results in a message, then send it.
   pub fn send_async<FutureA>(&self, fa:FutureA)
   where
     FutureA: Future<Output = A> + 'static
@@ -93,6 +98,9 @@ impl<A:Any> Transmitter<A> {
     });
   }
 
+  /// Extend this transmitter with a new transmitter using a filtering fold
+  /// function. The given function folds messages of `B` over a shared state `T`
+  /// and optionally sends `A`s down into this transmitter.
   pub fn contra_filter_fold_shared<B, T, F>(
     &self,
     var: Arc<Mutex<T>>,
@@ -119,7 +127,9 @@ impl<A:Any> Transmitter<A> {
     tev
   }
 
-
+  /// Extend this transmitter with a new transmitter using a filtering fold
+  /// function. The given function folds messages of `B` over a state `T` and
+  /// optionally sends `A`s into this transmitter.
   pub fn contra_filter_fold<B, X, T, F>(
     &self,
     init:X,
@@ -144,6 +154,9 @@ impl<A:Any> Transmitter<A> {
     tev
   }
 
+  /// Extend this transmitter with a new transmitter using a fold function.
+  /// The given function folds messages of `B` into a state `T` and sends `A`s
+  /// into this transmitter.
   pub fn contra_fold<B, X, T, F>(
     &self,
     init:X,
@@ -158,6 +171,9 @@ impl<A:Any> Transmitter<A> {
     self.contra_filter_fold(init, move |t, ev| Some(f(t, ev)))
   }
 
+  /// Extend this transmitter with a new transmitter using a filter function.
+  /// The given function maps messages of `B` and optionally sends `A`s into this
+  /// transmitter.
   pub fn contra_filter_map<B, F>(
     &self,
     f:F
@@ -169,6 +185,11 @@ impl<A:Any> Transmitter<A> {
     self.contra_filter_fold((), move |&mut (), ev| f(ev))
   }
 
+  /// Extend this transmitter with a new transmitter using a map function.
+  /// The given function maps messages of `B` into `A`s and sends them all into
+  /// this transmitter. This is much like Haskell's
+  /// [contramap](https://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor-Contravariant.html#v:contramap),
+  /// hence the `contra_` prefix on this family of methods.
   pub fn contra_map<B, F>(
     &self,
     f:F
@@ -295,6 +316,7 @@ impl<A:Any> Transmitter<A> {
 }
 
 
+/// Receive messages instantly.
 pub struct Receiver<A> {
   k: usize,
   next_k: Arc<Mutex<usize>>,
@@ -303,8 +325,10 @@ pub struct Receiver<A> {
 
 
 /// Clone a receiver.
+///
 /// Be careful with this function. Because of magic, calling `responder` on a
 /// clone of a receiver sets the responder for both of those receivers.
+/// *Under the hood they are the same responder*.
 /// For most cases if you need a new receiver that receives from the same
 /// transmitter you can use `branch`.
 pub fn hand_clone<A>(rx: &Receiver<A>) -> Receiver<A> {
@@ -328,11 +352,6 @@ impl<A> Receiver<A> {
   /// Set the response this receiver has to messages. Upon receiving a message
   /// the response will run immediately.
   ///
-  /// NOTE: Clones of receivers share one response function. This means if you
-  /// `respond` on a clone of `recv`, `recv`'s responder will be updated
-  /// as well. *Under the hood they are the same responder*.
-  /// If you want a new receiver that receives messages from the same transmitter
-  /// but has its own responder, use Receiver::branch, not clone.
   pub fn respond<F>(self, f:F)
   where
     F: FnMut(&A) + 'static
@@ -350,12 +369,6 @@ impl<A> Receiver<A> {
   /// the response will run immediately.
   ///
   /// Folds mutably over a shared Arc<Mutex<T>>.
-  ///
-  /// NOTE: Clones of receivers share one response function. This means if you
-  /// `respond` on a clone of `recv`, `recv`'s responder will be updated
-  /// as well. *Under the hood they are the same responder*.
-  /// If you want a new receiver that receives messages from the same transmitter
-  /// but has its own responder, use Receiver::branch, not clone.
   pub fn respond_shared<T:Any, F>(self, val:Arc<Mutex<T>>, f:F)
   where
     F: Fn(&mut T, &A) + 'static

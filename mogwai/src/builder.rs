@@ -1,8 +1,11 @@
-//! A gizmo builder is used to create DOM elements. It adheres to the normal
-//! builder pattern and provides functions for wiring messages in and out of the
-//! DOM.
-//! Here is an example of using [`GizmoBuilder`], Transmitter and Receiver to create
-//! a button that counts its own clicks:
+//! A gizmo builder is used to build and wire DOM elements.
+//!
+//! It adheres to the rust
+//! [builder pattern](https://doc.rust-lang.org/1.0.0/style/ownership/builders.html)
+//! and provides functions for wiring messages in and out of the DOM.
+//!
+//! Here is an example of using [`GizmoBuilder`], [`Transmitter<T>`] and
+//! [`Receiver<T>`] to create a button that counts its own clicks:
 //! ```rust,no_run
 //! extern crate mogwai;
 //! use mogwai::prelude::*;
@@ -27,12 +30,15 @@
 //!   .run().unwrap()
 //! ```
 //! [`GizmoBuilder`]: struct.GizmoBuilder.html
+//! [`Transmitter<T>`]: ../txrx/struct.Transmitter.html
+//! [`Receiver<T>`]: struct.Receiver.html
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Element, Event, HtmlElement, HtmlInputElement, Node, window};
 use std::collections::HashMap;
 
 use super::gizmo::Gizmo;
 use super::txrx::{Transmitter, Receiver, hand_clone};
+use super::component::Component;
 
 #[macro_use]
 pub mod tags;
@@ -139,9 +145,18 @@ impl GizmoBuilder {
 
   /// When built, send the raw HtmlElement on the given transmitter.
   /// This allows you to construct component behaviors that operate on one or
-  /// more HtmlElement(s) directly.
+  /// more HtmlElement(s) directly. For example, you may want to use
+  /// `input.focus()` within the `update` function of your component. This
+  /// method allows you to store the input's `HtmlElement` once it is built.
   pub fn tx_post_build(self, tx:Transmitter<HtmlElement>) -> GizmoBuilder {
     self.option(GizmoOption::CaptureElement(tx))
+  }
+
+  /// Send events of the given name into the given transmitter.
+  pub fn tx_on(self, event: &str, tx: Transmitter<Event>) -> GizmoBuilder {
+    let mut b = self;
+    b.tx_events.insert(event.into(), tx);
+    b
   }
 
   /// On the given window event, send an Event on the given transmitter.
@@ -208,10 +223,18 @@ impl GizmoBuilder {
   }
 
   /// Add a pre-built web-sys HtmlElement as a child.
-  /// This allows building and maintaining a gizmo "out-of-band" and passing its
-  /// html_element to a GizmoBuilder.
   pub fn with_pre_built(self, el: HtmlElement) -> GizmoBuilder {
     self.option(GizmoOption::Prebuilt(el))
+  }
+
+  /// Add a component as a child node.
+  pub fn with_component<C:Component>(self, c:C) -> GizmoBuilder {
+    let builder =
+      c
+      .into_component()
+      .builder
+      .unwrap();
+    self.with(builder)
   }
 
   /// Add an attribute that changes its value every time the given receiver
@@ -242,23 +265,28 @@ impl GizmoBuilder {
     self.option(GizmoOption::Style(name.into(), Continuous::Rx(init.into(), value)))
   }
 
-  /// Add a changing class attribute.
+  /// Add a changing class attribute. Requires an initial value.
   pub fn rx_class(self, init:&str, rx: Receiver<String>) -> GizmoBuilder {
     self.rx_attribute("class", init.into(), rx.branch_map(|b| Some(b.into())))
   }
 
+  /// Add a changing text node. Requires an initial value.
   pub fn rx_text(self, init: &str, s: Receiver<String>) -> GizmoBuilder {
     self.option(GizmoOption::Text(Continuous::Rx(init.into(), s)))
   }
 
+  /// Add a changing value. Requires an initial value. The element must be
+  /// an input element.
   pub fn rx_value(self, init: &str, rx: Receiver<String>) -> GizmoBuilder {
     self.option(GizmoOption::Value(Continuous::Rx(init.into(), rx)))
   }
 
+  /// Add a changing GizmoBuilder.
   pub fn rx_with(self, init:GizmoBuilder, rx: Receiver<GizmoBuilder>) -> GizmoBuilder {
     self.rx_with_many(vec![init], rx.branch_map(|b| vec![b.clone()]))
   }
 
+  /// Add a changing list of GizmoBuilders.
   pub fn rx_with_many(
     self,
     init:Vec<GizmoBuilder>,
@@ -267,12 +295,7 @@ impl GizmoBuilder {
     self.option(GizmoOption::Gizmos(Continuous::Rx(init, rx)))
   }
 
-  pub fn tx_on(self, event: &str, tx: Transmitter<Event>) -> GizmoBuilder {
-    let mut b = self;
-    b.tx_events.insert(event.into(), tx);
-    b
-  }
-
+  /// Build the `GizmoBuilder` into a `Gizmo`.
   pub fn build(self) -> Result<Gizmo, JsValue> {
 
     let document =
