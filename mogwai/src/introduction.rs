@@ -91,9 +91,9 @@
 //!       .rx_text("Schellsan's website", rx)
 //!   )
 //!   .build().unwrap()
-//!   .run().unwrap()
+//!   .run().unwrap();
 //!
-//! tx.send("Gizmo's website");
+//! tx.send(&"Gizmo's website".into());
 //! ```
 //!
 //! Just like previously, this builds a DOM node and appends it to the document
