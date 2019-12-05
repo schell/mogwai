@@ -1,3 +1,4 @@
+//! All of Mogwai in one easy place.
 pub use super::txrx::{
   Transmitter,
   Receiver,

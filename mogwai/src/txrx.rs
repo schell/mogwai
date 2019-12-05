@@ -1,3 +1,10 @@
+//! # Instant channels.
+//!
+//! The channels defined here are the backbone of this library. Getting to
+//! know the many constructors and combinators may seem like a daunting task but
+//! don't worry - there's an easy pattern to learn to help make sense of it all.
+//!
+//!
 use std::sync::{Arc, Mutex};
 use std::future::Future;
 use std::any::Any;
