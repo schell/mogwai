@@ -144,7 +144,7 @@ pub fn time_req_button_and_pre() -> GizmoBuilder {
 
   req_rx
     .forward_filter_fold_async(
-      resp_tx,
+      &resp_tx,
       false,
       |is_in_flight:&mut bool, _| {
         // When we receive a click event from the button and we're not already

@@ -3,18 +3,20 @@
 //! Sometimes an application can get so entangled that it's hard to follow the
 //! path of messages through `Transmitter`s, `Receiver`s and fold functions. For
 //! situations like these where complexity is unavoidable, Mogwai provides the
-//! `Component` trait and the helper type `GizmoComponent`.
+//! [`Component`] trait and the helper struct [`GizmoComponent`].
 //!
-//! Many rust web app libraries use this message passing pattern to wrangle
-//! complexity. Just like other libraries messages come out of the DOM into your
-//! component's model. The model is updated according to the value of the model
-//! message.
-//! Anyone familiar with the Elm architecture will recognize this familiar
-//! pattern. But there is one big difference between Elm-like libraries and
-//! Mogwai. The difference is that Mogwai lacks a virtual DOM implementation.
-//! One might think that this is a disadvantage but to the contrary this is a
-//! strength, as it obviates the entire diffing phase of rendering DOM. This is
-//! where Mogwai gets its speed advantage.
+//! Many rust web app libraries use a message passing pattern made famous by
+//! the Elm architecture to wrangle complexity. Mogwai is similar, but different
+//! - Like other libraries, messages come out of the DOM into your component's model by way of the [Component::update] function.
+//! - The model is updated according to the value of the model message.
+//! - _Unlike_ Elm-like libraries, view updates are sent out of the update
+//!   function by hand! This sounds tedious but it's actually no big deal. You'll
+//!   soon understand how easy this is in practice.
+//!
+//! Mogwai lacks a virtual DOM implementation. One might think that this is a
+//! disadvantage but to the contrary this is a strength, as it obviates the
+//! entire diffing phase of rendering DOM. This is where Mogwai gets its speed
+//! advantage.
 //!
 //! Instead of a virtual DOM Mogwai uses one more step in its model update. The
 //! `Component::update` method is given a `Transmitter<Self::ViewMsg>` with which
@@ -83,11 +85,20 @@
 //! consuming a `Transmitter<Self::ModelMsg>` and a `Receiver<Self::ViewMsg>`.
 //! These represent the inputs and the outputs of your component. Roughly,
 //! `Self::ModelMsg` comes into the `update` function and `Self::ViewMsg`s go out
-//! of the `update function.
+//! of the `update` function.
+//!
+//! ## Communicating to components
+//!
 //! If your component is owned by another, the parent component can communicate to
-//! the child through these messages, either with `GizmoComponent::update` or by
-//! subscribing to the messages when the child component is created (see
-//! `Subscriber`).
+//! the child through its messages, either by calling [`GizmoComponent::update`]
+//! on the child component within its own `update` function or by subscribing to
+//! the child component's messages when the child component is created (see
+//! [`Subscriber`]).
+//!
+//! ## Placing components
+//!
+//! Components may be used within a [`GizmoBuilder`] using the
+//! [`GizmoBuilder::with_component`] function.
 use std::sync::{Arc, Mutex};
 use std::any::Any;
 use web_sys::HtmlElement;
@@ -104,6 +115,8 @@ use subscriber::Subscriber;
 
 /// Defines a component with distinct input (model update) and output
 /// (view update) messages.
+///
+/// See the [module level documentation](super::component) for more details.
 pub trait Component
 where
   Self: Any + Sized,

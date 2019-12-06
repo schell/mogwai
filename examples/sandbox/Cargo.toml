@@ -2,7 +2,7 @@
 crate-type = ["cdylib", "rlib"]
 
 [package]
-name = "mogwai-sandbox"
+name = "sandbox"
 version = "0.1.0"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
@@ -16,7 +16,9 @@ wasm-bindgen = "0.2"
 futures = "0.3"
 wasm-bindgen-futures = "0.4"
 log = "0.4"
-mogwai = { path = "../mogwai" }
+
+[dependencies.mogwai]
+path = "../../mogwai"
 
 [dependencies.web-sys]
 version = "0.3.31"
