@@ -101,7 +101,7 @@
 //! ```
 //!
 //! Just like previously, this builds a DOM node and appends it to the document
-//! body, but this time we've already updated the link's text to "My website":
+//! body, but this time we've already updated the link's text to "Gizmo's website":
 //!
 //! ```html
 //! <div class="my-div">
