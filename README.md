@@ -117,4 +117,4 @@ cd examples/whatever && wasm-pack build --target no-modules
 ## sponsorship
 Please consider sponsoring the development of this library!
 
-* [sponsor met on github](https://github.com/sponsors/schell/)
+* [sponsor me on github](https://github.com/sponsors/schell/)
