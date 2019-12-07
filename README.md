@@ -83,19 +83,19 @@ For starting a new mogwai project we'll use the wonderful `cargo-generate`, whic
 can be installed using `cargo install cargo-generate`.
 
 Then run
-
-   cargo generate --git https://github.com/schell/mogwai-template.git
-
+```
+cargo generate --git https://github.com/schell/mogwai-template.git
+```
 and give the command line a project name. Then `cd` into your sparkling new
 project and
-
-   wasm-pack build --target no-modules
-
+```
+wasm-pack build --target no-modules
+```
 Then, if you don't already have it, `cargo`install basic-http-server` or use your
 favorite alternative to serve your app:
-
-   basic-http-server -a 127.0.0.1:8888
-
+```
+basic-http-server -a 127.0.0.1:8888
+```
 Happy hacking! :coffee: :coffee: :coffee:
 
 ## more examples please
