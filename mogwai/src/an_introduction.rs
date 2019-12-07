@@ -5,17 +5,6 @@
 //! cognitively small and runtime fast. It acheives these goals by doing very few
 //! things, but doing those things well.
 //!
-//! ## JavaScript interoperability
-//! The library itself is a thin layer on top of the
-//! [web-sys](https://crates.io/crates/web-sys) crate which provides raw bindings
-//! to _tons_ of browser web APIs. Many of the DOM specific structs, enums and
-//! traits come from `web-sys`. Some of those types are re-exported by Mogwai's
-//! [prelude](../prelude). The most important trait to understand for the
-//! purposes of this introduction (and for writing web apps in Rust, in general)
-//! is the [`JsCast`](../prelude/trait.JsCast.html) trait. Its `dyn_into` and
-//! `dyn_ref` functions are the primary way to cast JavaScript values as specific
-//! types.
-//!
 //! The following is a short introduction to the concepts of Mogwai.
 //!
 //! ## Building Gizmos (aka constructing DOM widgets)
@@ -118,6 +107,17 @@
 //! Other times we don't need a full component with an update cycle and instead
 //! we simply require
 //! [transmitters, receivers and some handy folds and maps](super::txrx).
+//!
+//! ## JavaScript interoperability
+//! The library itself is a thin layer on top of the
+//! [web-sys](https://crates.io/crates/web-sys) crate which provides raw bindings
+//! to _tons_ of browser web APIs. Many of the DOM specific structs, enums and
+//! traits come from `web-sys`. Some of those types are re-exported by Mogwai's
+//! [prelude](../prelude). The most important trait to understand for the
+//! purposes of this introduction (and for writing web apps in Rust, in general)
+//! is the [`JsCast`](../prelude/trait.JsCast.html) trait. Its `dyn_into` and
+//! `dyn_ref` functions are the primary way to cast JavaScript values as specific
+//! types.
 //!
 //! [`GizmoBuilder::build`]: GizmoBuilder::build
 //! [`GizmoBuilder::run`]: GizmoBuilder::method@run
