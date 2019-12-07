@@ -125,7 +125,7 @@
 //! [`Gizmo`]: struct@Gizmo
 //! [`Transmitter<T>`]: struct@Transmitter
 //! [`Receiver<T>`]: struct@Receiver
-//! [`HtmlElement`]: struct@Receiver
+//! [`HtmlElement`]: struct@HtmlElement
 //! [`Component`]: trait@Component
 use super::builder::*;
 use super::gizmo::*;
