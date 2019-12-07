@@ -117,7 +117,7 @@
 //!
 //! Other times we don't need a full component with an update cycle and instead
 //! we simply require
-//! [transmitters, receivers and some handy folds and maps](module@txrx).
+//! [transmitters, receivers and some handy folds and maps](super::txrx).
 //!
 //! [`GizmoBuilder::build`]: GizmoBuilder::build
 //! [`GizmoBuilder::run`]: GizmoBuilder::method@run
