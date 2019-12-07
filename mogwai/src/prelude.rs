@@ -1,8 +1,10 @@
+//! All of Mogwai in one easy place.
 pub use super::txrx::{
   Transmitter,
   Receiver,
   recv,
   trns,
+  new_shared,
   txrx,
   txrx_filter_fold,
   txrx_fold,
@@ -21,3 +23,4 @@ pub use web_sys::{Event, HtmlElement, HtmlInputElement};
 pub use wasm_bindgen::JsCast;
 pub use wasm_bindgen_futures::JsFuture;
 pub use super::utils::*;
+pub use std::sync::{Arc, Mutex};

@@ -1,3 +1,104 @@
+//! Elmesque components through model and view message passing.
+//!
+//! Sometimes an application can get so entangled that it's hard to follow the
+//! path of messages through `Transmitter`s, `Receiver`s and fold functions. For
+//! situations like these where complexity is unavoidable, Mogwai provides the
+//! [`Component`] trait and the helper struct [`GizmoComponent`].
+//!
+//! Many rust web app libraries use a message passing pattern made famous by
+//! the Elm architecture to wrangle complexity. Mogwai is similar, but different
+//! - Like other libraries, messages come out of the DOM into your component's model by way of the [Component::update] function.
+//! - The model is updated according to the value of the model message.
+//! - _Unlike_ Elm-like libraries, view updates are sent out of the update
+//!   function by hand! This sounds tedious but it's actually no big deal. You'll
+//!   soon understand how easy this is in practice.
+//!
+//! Mogwai lacks a virtual DOM implementation. One might think that this is a
+//! disadvantage but to the contrary this is a strength, as it obviates the
+//! entire diffing phase of rendering DOM. This is where Mogwai gets its speed
+//! advantage.
+//!
+//! Instead of a virtual DOM Mogwai uses one more step in its model update. The
+//! `Component::update` method is given a `Transmitter<Self::ViewMsg>` with which
+//! to send _view update messages_. Messages sent on this transmitter will in
+//! turn be sent out to the view to update the DOM. This forms a cycle. Messages
+//! come into the model from the view, update, messages go into the view from the
+//! model. In this way DOM updates are obvious. You know exactly where, when and
+//! why updates are made (both to the model and the view).
+//!
+//! Here is a minimal example of a `Component` that counts its own clicks.
+//!
+//! ```rust, no_run
+//! extern crate mogwai;
+//! use mogwai::prelude::*;
+//!
+//! enum In {
+//!   Click
+//! }
+//!
+//! #[derive(Clone)]
+//! enum Out {
+//!   DrawClicks(i32)
+//! }
+//!
+//! struct App {
+//!   num_clicks: i32
+//! }
+//!
+//! impl Component for App {
+//!   type ModelMsg = In;
+//!   type ViewMsg = Out;
+//!
+//!   fn builder(&self, tx: Transmitter<In>, rx:Receiver<Out>) -> GizmoBuilder {
+//!     button()
+//!       .tx_on("click", tx.contra_map(|_| In::Click))
+//!       .rx_text("clicks = 0", rx.branch_map(|msg| {
+//!         match msg {
+//!           Out::DrawClicks(n) => {
+//!             format!("clicks = {}", n)
+//!           }
+//!         }
+//!       }))
+//!   }
+//!
+//!   fn update(&mut self, msg: &In, tx_view: &Transmitter<Out>, _sub: &Subscriber<In>) {
+//!     match msg {
+//!       In::Click => {
+//!         self.num_clicks += 1;
+//!         tx_view.send(&Out::DrawClicks(self.num_clicks));
+//!       }
+//!     }
+//!   }
+//! }
+//!
+//!
+//! pub fn main() -> Result<(), JsValue> {
+//!   App{ num_clicks: 0 }
+//!   .into_component()
+//!   .run()
+//! }
+//! ```
+//!
+//! The first step is to define the incoming messages that will update the model.
+//! Next we define the outgoing messages that will update our view. The `builder`
+//! trait method uses these message types to build the view. It does this by
+//! consuming a `Transmitter<Self::ModelMsg>` and a `Receiver<Self::ViewMsg>`.
+//! These represent the inputs and the outputs of your component. Roughly,
+//! `Self::ModelMsg` comes into the `update` function and `Self::ViewMsg`s go out
+//! of the `update` function.
+//!
+//! ## Communicating to components
+//!
+//! If your component is owned by another, the parent component can communicate to
+//! the child through its messages, either by calling [`GizmoComponent::update`]
+//! on the child component within its own `update` function or by subscribing to
+//! the child component's messages when the child component is created (see
+//! [`Subscriber`]).
+//!
+//! ## Placing components
+//!
+//! Components may be used within a [`GizmoBuilder`] using the
+//! [`GizmoBuilder::with_component`] function.
 use std::sync::{Arc, Mutex};
 use std::any::Any;
 use web_sys::HtmlElement;
@@ -12,6 +113,10 @@ pub mod subscriber;
 use subscriber::Subscriber;
 
 
+/// Defines a component with distinct input (model update) and output
+/// (view update) messages.
+///
+/// See the [module level documentation](super::component) for more details.
 pub trait Component
 where
   Self: Any + Sized,
@@ -25,13 +130,14 @@ where
   /// the view by being used in an rx_* function.
   type ViewMsg;
 
-  /// Update this component in response to any received messages.
-  /// Return any outgoing messages.
+  /// Update this component in response to any received model messages.
+  /// This is essentially the component's fold function.
   fn update(
     &mut self,
     msg: &Self::ModelMsg,
+    tx_view: &Transmitter<Self::ViewMsg>,
     sub: &Subscriber<Self::ModelMsg>
-  ) -> Vec<Self::ViewMsg>;
+  );
 
   /// Produce this component's gizmo builder using inputs and outputs.
   fn builder(
@@ -48,6 +154,7 @@ where
 }
 
 
+/// A component and all of its pieces.
 pub struct GizmoComponent<T:Component> {
   pub trns: Transmitter<T::ModelMsg>,
   pub recv: Receiver<T::ViewMsg>,
@@ -68,31 +175,60 @@ where
     let (tx_out, rx_out) = txrx();
     let (tx_in, rx_in) = txrx();
     let subscriber = Subscriber::new(&tx_in);
-    rx_in.respond(move |msg:&T::ModelMsg| {
-      let out_msgs = {
-        let mut t =
-          state
-          .try_lock()
-          .expect("Could not get component state lock");
-        T::update(&mut t, msg, &subscriber)
-      };
 
-      if out_msgs.len() > 0 {
-        let tx_out_async = tx_out.clone();
+    let (tx_view, rx_view) = txrx();
+    rx_in.respond(move |msg:&T::ModelMsg| {
+      let mut t =
+        state
+        .try_lock()
+        .expect("Could not get component state lock");
+      T::update(&mut t, msg, &tx_view, &subscriber);
+    });
+
+    let out_msgs = Arc::new(Mutex::new(vec![]));
+    rx_view.respond(move |msg:&T::ViewMsg| {
+      let should_schedule = {
+        let mut msgs =
+          out_msgs
+          .try_lock()
+          .expect("Could not try_lock to push to out_msgs");
+        msgs.push(msg.clone());
+        // If there is more than just this message in the queue, this
+        // responder has already been run this frame and a timer has
+        // already been scheduled, so there's no need to schedule another
+        msgs.len() == 1
+      };
+      if should_schedule {
         let out_msgs_async = out_msgs.clone();
-        utils::timeout(0, move || {
-          out_msgs_async
-            .iter()
-            .for_each(|out_msg| {
-              tx_out_async.send(out_msg);
-            });
-          false
-        });
+        let tx_out_async = tx_out.clone();
+        utils::timeout(
+          0,
+          move || {
+            let msgs = {
+              out_msgs_async
+                .try_lock()
+                .expect("Could not try_lock to pop out_msgs")
+                .drain(0..)
+                .collect::<Vec<_>>()
+            };
+            if msgs.len() > 0 {
+              msgs
+                .iter()
+                .for_each(|out_msg| {
+                  tx_out_async.send(out_msg);
+                });
+            }
+            false
+          }
+        );
       }
     });
 
     let builder =
-      component.try_lock().unwrap().builder(tx_in.clone(), rx_out.branch());
+      component
+      .try_lock()
+      .unwrap()
+      .builder(tx_in.clone(), rx_out.branch());
 
     GizmoComponent {
       trns: tx_in,
@@ -103,6 +239,8 @@ where
     }
   }
 
+  /// Build the GizmoComponent.builder. This will `take`
+  /// the builder and update GizmoComponent.gizmo.
   pub fn build(&mut self) {
     if self.builder.is_some() {
       let builder =
@@ -118,6 +256,7 @@ where
   }
 
   /// Run and initialize the component with a list of messages.
+  /// This is equivalent to calling `run` and `update` with each message.
   pub fn run_init(mut self, msgs: Vec<T::ModelMsg>) -> Result<(), JsValue> {
     msgs
       .into_iter()
@@ -127,6 +266,7 @@ where
     self.run()
   }
 
+  /// Run this component forever
   pub fn run(mut self) -> Result<(), JsValue> {
     if self.gizmo.is_none() && self.builder.is_some() {
       self.build();
@@ -138,6 +278,8 @@ where
       .run()
   }
 
+  /// Append this component's gizmo an HtmlElement.
+  /// Has no effect if this component has not been built.
   pub fn append_to(&self, parent: &HtmlElement) {
     if self.gizmo.is_some() {
       self
@@ -156,6 +298,7 @@ where
     self.trns.send(msg);
   }
 
+  /// Access the component's underlying state.
   pub fn with_state<F, N>(&self, f:F) -> N
   where
     F: Fn(&T) -> N

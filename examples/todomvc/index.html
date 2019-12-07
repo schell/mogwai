@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Mogwai • TodoMVC</title>
+        <link rel="stylesheet" href="todo.css">
+    </head>
+    <body>
+        <script src="pkg/mogwai_todo.js"></script>
+        <script type=module>
+         window
+             .wasm_bindgen('pkg/mogwai_todo_bg.wasm')
+             .then( m => m.main() )
+             .catch(console.error);
+        </script>
+    </body>
+</html>

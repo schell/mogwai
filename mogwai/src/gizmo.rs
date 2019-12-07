@@ -1,3 +1,4 @@
+//! A widget.
 use std::collections::HashMap;
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -11,8 +12,7 @@ pub use web_sys::{EventTarget, HtmlInputElement};
 pub use wasm_bindgen::{JsCast, JsValue};
 
 
-/// A gizmo is a compiled network of html tags, callback closures and message
-/// responders (in the form of receivers).
+/// A bundled network of html elements, callback closures and receivers.
 pub struct Gizmo {
   pub name: String,
   pub html_element: HtmlElement,
@@ -45,6 +45,7 @@ impl Clone for Gizmo {
 }
 
 impl Gizmo {
+  /// Create a new `Gizma` from an `HtmlElement`.
   pub fn new(html_element: HtmlElement) -> Gizmo {
     Gizmo {
       name: "unknown".into(),
@@ -81,6 +82,21 @@ impl Gizmo {
   }
 
   /// Sends an event into the given transmitter when the given dom event happens.
+  pub fn tx_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
+    let target =
+      self
+      .html_element
+      .clone()
+      .dyn_into::<EventTarget>()
+      .expect("Could not get element EventTarget");
+    let cb = self.add_event(ev_name, &target, tx);
+    self
+      .callbacks
+      .insert(ev_name.to_string(), cb);
+  }
+
+
+  /// Sends an event into the given transmitter when the given dom event happens.
   pub fn window_tx_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
     let target =
       utils::window()
@@ -104,20 +120,7 @@ impl Gizmo {
       .insert(ev_name.to_string(), cb);
   }
 
-  /// Sends an event into the given transmitter when the given dom event happens.
-  pub fn tx_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
-    let target =
-      self
-      .html_element
-      .clone()
-      .dyn_into::<EventTarget>()
-      .expect("Could not get element EventTarget");
-    let cb = self.add_event(ev_name, &target, tx);
-    self
-      .callbacks
-      .insert(ev_name.to_string(), cb);
-  }
-
+  /// Add a dynamic attribute.
   pub fn attribute(&mut self, name: &str, init: Option<String>, rx: Receiver<Option<String>>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.opt_string_rxs.push(hand_clone(&rx));
@@ -143,6 +146,7 @@ impl Gizmo {
     });
   }
 
+  /// Add a dynamic boolean attribute.
   pub fn boolean_attribute(&mut self, name: &str, init: bool, rx: Receiver<bool>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.bool_rxs.push(hand_clone(&rx));
@@ -168,6 +172,7 @@ impl Gizmo {
     });
   }
 
+  /// Add a dynamic text node.
   pub fn text(&mut self, init: &str, rx: Receiver<String>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.string_rxs.push(hand_clone(&rx));
@@ -186,6 +191,7 @@ impl Gizmo {
     });
   }
 
+  /// Add a dynamic style.
   pub fn style(&mut self, s: &str, init: &str, rx: Receiver<String>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.string_rxs.push(hand_clone(&rx));
@@ -211,6 +217,8 @@ impl Gizmo {
     });
   }
 
+  /// Add a dynamic value. This should only be used on gizmos with an
+  /// HtmlInputElement.
   pub fn value(&mut self, init: &str, rx: Receiver<String>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.string_rxs.push(hand_clone(&rx));
@@ -233,6 +241,7 @@ impl Gizmo {
     }
   }
 
+  /// Add a dynamic list of sub-gizmos.
   pub fn gizmos(&mut self, init: Vec<Gizmo>, rx: Receiver<Vec<GizmoBuilder>>) {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
     self.gizmo_rxs.push(hand_clone(&rx));
@@ -317,6 +326,7 @@ impl Gizmo {
 
   pub fn maintain(&mut self) {}
 
+  /// Append this gizmo to a parent `HtmlElement`.
   pub fn append_to(&self, parent: &HtmlElement) {
     parent
       .append_child(self.html_element_ref())
@@ -324,6 +334,7 @@ impl Gizmo {
       .unwrap();
   }
 
+  /// Run this gizmo in a parent container forever, never dropping it.
   pub fn run_in_container(self, container:HtmlElement) -> Result<(), JsValue> {
     if cfg!(target_arch = "wasm32") {
       self.append_to(&container);
@@ -340,6 +351,7 @@ impl Gizmo {
     }
   }
 
+  /// Run this gizmo in the document body forever, never dropping it.
   pub fn run(self) -> Result<(), JsValue> {
     if cfg!(target_arch = "wasm32") {
       self
