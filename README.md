@@ -43,14 +43,18 @@ button()
   .run().unwrap()
 ```
 
+## introduction
+If you're interested in learning more - please read the [introduction and
+documentation](https://docs.rs/mogwai/).
+
 ## why
 Rust is beginning to have a good number of frontend libraries. Most however,
 encorporate a virtual DOM with a magical update phase. Even in a languague that
 has performance to spare this step can cause unwanted slowness.
 
-`mogwai` lives in a happy space between vdom and "bare metal". It does this by
-providing the tools needed to declare exactly which parts of the DOM change,
-and when.
+`mogwai` lives in a happy space just above "bare metal". It does this by
+providing the tools needed to declare exactly which parts of the DOM change and
+when.
 
 These same tools encourage functional progamming patterns like encapsulation over
 inheritance (or traits, in this case).
@@ -63,12 +67,12 @@ prefer a functional style of programming with lots of maps and folds - or if
 you're looking to go _vroom!_ then maybe `mogwai` is right for you and your
 team :)
 
-## made for rustaceans, by a rustacean
+### made for rustaceans, by a rustacean
 Another benefit of `mogwai` is that it is Rust-first. There is no requirement
 that you have `npm` or `node`. Getting your project up and running without
 writing any javascript is easy enough.
 
-## performance
+### performance
 `mogwai` is snappy! Here is a very handwavey and sketchy todomvc benchmark:
 
 ![mogwai performance benchmarking](img/perf.png)
@@ -109,3 +113,8 @@ To build the examples use:
 ```bash
 cd examples/whatever && wasm-pack build --target no-modules
 ```
+
+## sponsorship
+Please consider sponsoring the development of this library!
+
+* [sponsor met on github](https://github.com/sponsors/schell/)

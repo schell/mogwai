@@ -1,6 +1,6 @@
 [package]
 name = "mogwai"
-version = "0.0.1"
+version = "0.1.0"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -29,12 +29,7 @@ features = [
   "EventTarget",
   "HtmlElement",
   "HtmlInputElement",
-  "Request",
-  "RequestInit",
-  "RequestMode",
-  "Response",
   "Node",
   "Text",
-  "Window",
-  "XmlHttpRequest"
+  "Window"
 ]
