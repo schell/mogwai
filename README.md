@@ -95,7 +95,7 @@ project and
 ```
 wasm-pack build --target no-modules
 ```
-Then, if you don't already have it, `cargo`install basic-http-server` or use your
+Then, if you don't already have it, `cargo install basic-http-server` or use your
 favorite alternative to serve your app:
 ```
 basic-http-server -a 127.0.0.1:8888

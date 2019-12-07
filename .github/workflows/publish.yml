@@ -3,7 +3,7 @@ name: build, test, doc, publish to crates.io
 on:
   push:
     branches:
-      - master
+      - release
 
 jobs:
   build:

@@ -3,7 +3,7 @@ name: build, test, doc
 on:
   push:
     branches-ignore:
-      - master
+      - release
 
 jobs:
   build:
