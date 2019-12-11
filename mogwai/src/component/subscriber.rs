@@ -1,4 +1,5 @@
 //! A very limited transmitter used to map messages.
+use std::future::Future;
 use super::super::txrx::{Transmitter, Receiver};
 
 
@@ -14,7 +15,7 @@ pub struct Subscriber<Msg> {
 }
 
 
-impl<Msg:'static> Subscriber<Msg> {
+impl<Msg: Clone + 'static> Subscriber<Msg> {
   pub fn new(tx: &Transmitter<Msg>) -> Subscriber<Msg> {
     Subscriber { tx: tx.clone() }
   }
@@ -34,5 +35,18 @@ impl<Msg:'static> Subscriber<Msg> {
     F: Fn(&ChildMsg) -> Msg + 'static
   {
     rx.branch().forward_filter_map(&self.tx, move |msg| Some(f(msg)))
+  }
+
+  /// Subscribe to a receiver by forwarding messages from it.
+  pub fn subscribe(&self, rx: &Receiver<Msg>) {
+    rx.branch().forward_map(&self.tx, |msg| msg.clone())
+  }
+
+  /// Send a one-time asynchronous message.
+  pub fn send_async<F>(&self, f:F)
+  where
+    F: Future<Output = Msg> + 'static
+  {
+    self.tx.send_async(f);
   }
 }

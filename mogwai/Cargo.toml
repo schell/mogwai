@@ -12,7 +12,6 @@ categories = ["gui", "wasm", "web-programming"]
 
 [dependencies]
 console_log = "0.1.2"
-either = "1.5.3"
 futures = "0.3"
 js-sys = "0.3.27"
 log = "0.4"

@@ -120,7 +120,8 @@ use subscriber::Subscriber;
 pub trait Component
 where
   Self: Any + Sized,
-  Self::ViewMsg: Clone
+  Self::ModelMsg: Clone,
+  Self::ViewMsg: Clone,
 {
   /// A model message comes out from the view through a tx_on function into your
   /// component's update function.
@@ -139,6 +140,8 @@ where
     sub: &Subscriber<Self::ModelMsg>
   );
 
+
+
   /// Produce this component's gizmo builder using inputs and outputs.
   fn builder(
     &self,
@@ -150,6 +153,15 @@ where
   /// implements Component.
   fn into_component(self) -> GizmoComponent<Self> {
     GizmoComponent::new(self)
+  }
+}
+
+
+impl<T:Component> From<T> for GizmoBuilder {
+  fn from(component: T) -> GizmoBuilder {
+    let gizmo_component = component.into_component();
+    let builder = gizmo_component.builder.unwrap();
+    builder
   }
 }
 
@@ -237,6 +249,31 @@ where
       gizmo: None,
       state: component
     }
+  }
+
+  /// Send model messages into this component from a `Receiver<T::ModelMsg>`.
+  /// This is helpful for sending messages to this component from
+  /// a parent component.
+  pub fn rx_from(
+    self,
+    rx: Receiver<T::ModelMsg>
+  ) -> GizmoComponent<T> {
+    rx.forward_map(&self.trns, |msg| msg.clone());
+    self
+  }
+
+  /// Send view messages from this component into a `Transmitter<T::ViewMsg>`.
+  /// This is helpful for sending messages to this component from
+  /// a parent component.
+  pub fn tx_into(
+    self,
+    tx: &Transmitter<T::ViewMsg>
+  ) -> GizmoComponent<T> {
+    self
+      .recv
+      .branch()
+      .forward_map(&tx, |msg| msg.clone());
+    self
   }
 
   /// Build the GizmoComponent.builder. This will `take`

@@ -10,7 +10,6 @@
 //! ## Learn more
 //! If you're new to Mogwai, check out the [introduction](an_introduction) module.
 extern crate console_log;
-extern crate either;
 #[macro_use]
 extern crate log;
 extern crate web_sys;

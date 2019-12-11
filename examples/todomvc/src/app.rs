@@ -17,7 +17,7 @@ pub enum FilterShow {
 }
 
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum In {
   NewTodo(String, bool),
   NewTodoInput(HtmlElement),
@@ -167,7 +167,7 @@ impl Component for App {
           }
         );
         // Build it, append it to our ul and then store it. If the component goes
-        // out of scope it will be dropped and removed from the DOM automacally.
+        // out of scope it will be dropped and removed from the DOM automatically.
         component.build();
         if *complete {
           component.update(&TodoIn::SetCompletion(true));

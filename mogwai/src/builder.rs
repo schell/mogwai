@@ -197,6 +197,11 @@ impl GizmoBuilder {
     self.attribute("class", value)
   }
 
+  /// Add an unchanging id attribute.
+  pub fn id(self, value: &str) -> GizmoBuilder {
+    self.attribute("id", value)
+  }
+
   /// Add an unchunging text node.
   pub fn text(self, s: &str) -> GizmoBuilder {
     self.option(GizmoOption::Text(Continuous::Static(s.to_string())))
@@ -209,12 +214,13 @@ impl GizmoBuilder {
   }
 
   /// Add an unchanging child.
-  pub fn with(self, g: GizmoBuilder) -> GizmoBuilder {
-    self.option(GizmoOption::Gizmos(Continuous::Static(vec![g])))
+  pub fn with<C:Into<GizmoBuilder>>(self, c:C) -> GizmoBuilder {
+    let builder = c.into();
+    self.option(GizmoOption::Gizmos(Continuous::Static(vec![builder])))
   }
 
   /// Add many unchinging children all at once.
-  pub fn with_many(self, gs: Vec<GizmoBuilder>) -> GizmoBuilder {
+  pub fn with_many<C:Into<GizmoBuilder>>(self, gs: Vec<C>) -> GizmoBuilder {
     gs.into_iter()
       .fold(
         self,
@@ -373,7 +379,7 @@ impl GizmoBuilder {
               Ok(())
             }
             Value(Static(value)) => {
-
+              // TODO: Set value for types other than HtmlInputElement
               html_el
                 .dyn_ref::<HtmlInputElement>()
                 .expect("Attempted to set the value of non-input gizmo element.")

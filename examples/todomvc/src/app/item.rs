@@ -29,6 +29,7 @@ impl Todo {
 }
 
 
+#[derive(Clone)]
 pub enum TodoIn {
   CompletionToggleInput(HtmlElement),
   EditInput(HtmlElement),
