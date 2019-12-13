@@ -10,6 +10,7 @@ use super::super::txrx::{Transmitter, Receiver};
 /// on a component's own ModelMsg transmitter during its Component::update it
 /// triggers a lock contetion. So a subscriber allows forwarding and wiring
 /// without enabling sending.
+#[derive(Clone)]
 pub struct Subscriber<Msg> {
   tx: Transmitter<Msg>
 }

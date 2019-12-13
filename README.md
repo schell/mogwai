@@ -1,5 +1,11 @@
 # mogwai
-> minimalist, obvious, graphical web application interface
+
+> **m**inimalist, **o**bvious, **g**raphical **w**eb **a**pplication **i**nterface
+
+[![Crates.io][ci]][cl]
+
+[ci]: https://img.shields.io/crates/v/mogwai.svg
+[cl]: https://crates.io/crates/mogwai/
 
 `mogwai` is a frontend DOM library for creating web applications.
 It is written in Rust and runs in your browser. It is an alternative
