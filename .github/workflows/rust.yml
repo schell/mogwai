@@ -16,22 +16,22 @@ jobs:
       with:
         path: ~/.cargo/registry
         key: ${{ runner.os }}-cargo-registry-${{ hashFiles('target') }}
-        restore-keys:
-        - ${{ runner.os }}-cargo-registry-
+        restore-keys: |
+          ${{ runner.os }}-cargo-registry-
     - name: Cache cargo index
       uses: actions/cache@v1
       with:
         path: ~/.cargo/git
         key: ${{ runner.os }}-cargo-index-${{ hashFiles('target') }}
-        restore-keys:
-        - ${{ runner.os }}-cargo-index-
+        restore-keys: |
+          ${{ runner.os }}-cargo-index-
     - name: Cache cargo build
       uses: actions/cache@v1
       with:
         path: target
         key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('target') }}
-        restore-keys:
-        - ${{ runner.os }}-cargo-build-target-
+        restore-keys: |
+          ${{ runner.os }}-cargo-build-target-
 
     - name: build
       run: scripts/build.sh
