@@ -1,9 +1,6 @@
-name: build, test, doc
+name: cicd
 
-on:
-  push:
-    branches-ignore:
-      - release
+on: push
 
 jobs:
   build:
@@ -40,12 +37,9 @@ jobs:
         path: target
         key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('Cargo.lock') }}
 
+    - name: build
+      run: scripts/build.sh
 
-    - uses: icepuma/rust-action@master
-      with:
-        args: |
-          cargo build \
-          && cargo test \
-          && cargo doc \
-          && cd mogwai \
-          && cargo publish --dry-run
+    - name: release
+      if: github.ref == 'refs/heads/release'
+      run: cd mogwai && cargo publish --token ${{ secrets.cargo_token }}
