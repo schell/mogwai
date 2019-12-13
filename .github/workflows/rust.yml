@@ -15,21 +15,21 @@ jobs:
       uses: actions/cache@v1
       with:
         path: ~/.cargo/registry
-        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('target') }}
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('./') }}
         restore-keys: |
           ${{ runner.os }}-cargo-registry-
     - name: Cache cargo index
       uses: actions/cache@v1
       with:
         path: ~/.cargo/git
-        key: ${{ runner.os }}-cargo-index-${{ hashFiles('target') }}
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('./') }}
         restore-keys: |
           ${{ runner.os }}-cargo-index-
     - name: Cache cargo build
       uses: actions/cache@v1
       with:
         path: target
-        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('target') }}
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('./') }}
         restore-keys: |
           ${{ runner.os }}-cargo-build-target-
 
