@@ -32,6 +32,14 @@ jobs:
         key: ${{ runner.os }}-cargo-build-target-${{ github.ref }}
         restore-keys: |
           ${{ runner.os }}-cargo-build-target-
+    - name: Cache global cargo bin
+      uses: actions/cache@v1
+      with:
+        path: /usr/share/rust/.cargo/bin
+        key: ${{ runner.os }}-cargo-global-bin-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-global-bin-
+
 
     - name: build
       run: scripts/build.sh
