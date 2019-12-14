@@ -32,6 +32,7 @@
 //! extern crate mogwai;
 //! use mogwai::prelude::*;
 //!
+//! #[derive(Clone)]
 //! enum In {
 //!   Click
 //! }
