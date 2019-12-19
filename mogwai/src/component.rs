@@ -99,7 +99,7 @@
 //! ## Placing components
 //!
 //! Components may be used within a [`GizmoBuilder`] using the
-//! [`GizmoBuilder::with_component`] function.
+//! [`GizmoBuilder::with`] function.
 use std::sync::{Arc, Mutex};
 use std::any::Any;
 use web_sys::HtmlElement;
