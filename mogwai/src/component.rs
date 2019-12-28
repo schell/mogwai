@@ -3,7 +3,7 @@
 //! Sometimes an application can get so entangled that it's hard to follow the
 //! path of messages through `Transmitter`s, `Receiver`s and fold functions. For
 //! situations like these where complexity is unavoidable, Mogwai provides the
-//! [`Component`] trait and the helper struct [`GizmoComponent`].
+//! [Component] trait and the helper struct [`GizmoComponent`].
 //!
 //! Many rust web app libraries use a message passing pattern made famous by
 //! the Elm architecture to wrangle complexity. Mogwai is similar, but different
@@ -278,8 +278,9 @@ where
   }
 
   /// Build the GizmoComponent.builder. This will `take`
-  /// the builder and update GizmoComponent.gizmo.
-  pub fn build(&mut self) {
+  /// the builder, build it into a [Gizmo] and update
+  /// GizmoComponent.gizmo. Returns the built [HtmlElement].
+  pub fn build(&mut self) -> HtmlElement {
     if self.builder.is_some() {
       let builder =
         self
@@ -291,6 +292,12 @@ where
         .build()
         .ok();
     }
+    self
+      .gizmo
+      .as_ref()
+      .unwrap()
+      .html_element
+      .clone()
   }
 
   /// Run and initialize the component with a list of messages.
