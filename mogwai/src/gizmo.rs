@@ -340,8 +340,6 @@ impl Gizmo {
       self.append_to(&container);
       let gizmo = RefCell::new(self);
       timeout(1000, move || {
-        // TODO: Use the "main loop" interval to sync stats
-        // ...about the gizmo graph and wirings of gizmos.
         gizmo.borrow_mut().maintain();
         true
       });

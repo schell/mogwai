@@ -100,6 +100,11 @@ impl Component for Button {
       .tx_on("click", tx.contra_map(|_| ButtonIn::Click))
   }
 }
+
+Button{ clicks: 0 }
+  .into_component()
+  .build().unwrap()
+  .run().unwrap()
 ```
 
 ## introduction
