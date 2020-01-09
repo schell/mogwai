@@ -3,6 +3,8 @@ extern crate console_log;
 extern crate console_error_panic_hook;
 extern crate mogwai;
 
+mod elm_button;
+
 use log::Level;
 use wasm_bindgen::prelude::*;
 use web_sys::{Request, RequestMode, RequestInit, Response};
@@ -235,6 +237,7 @@ pub fn main() -> Result<(), JsValue> {
     .named("root_div")
     .with(h1)
     .with(btn)
+    .with(elm_button::Button{ clicks: 0 })
     .with(GizmoBuilder::new("br"))
     .with(GizmoBuilder::new("br"))
     .with(req)
