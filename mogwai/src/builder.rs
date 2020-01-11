@@ -329,6 +329,7 @@ impl GizmoBuilder {
       .for_each(|(name, tx)| {
         gizmo.tx_on(&name, tx.clone());
       });
+    let mut post_build = None;
     self
       .options
       .into_iter()
@@ -456,7 +457,7 @@ impl GizmoBuilder {
               Ok(())
             }
             CaptureElement(tx_pb) => {
-              tx_pb.send(&gizmo.html_element);
+              post_build = Some(tx_pb);
               Ok(())
             }
             WindowEvent(ev, tx) => {
@@ -469,6 +470,12 @@ impl GizmoBuilder {
             }
           }
         })?;
+
+    // Send the post build tx
+    post_build
+      .into_iter()
+      .for_each(|tx_pb| tx_pb.send(&gizmo.html_element));
+
     Ok(gizmo)
   }
 }
