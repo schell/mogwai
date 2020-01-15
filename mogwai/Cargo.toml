@@ -6,6 +6,7 @@ edition = "2018"
 license = "MIT"
 description = "The minimal, obvious, graphical, web application interface."
 documentation = "https://docs.rs/mogwai/"
+repository = "https://github.com/schell/mogwai"
 readme = "../README.md"
 keywords = ["ui", "dom", "app", "reactive", "frontend"]
 categories = ["gui", "wasm", "web-programming"]
