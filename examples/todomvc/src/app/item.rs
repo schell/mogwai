@@ -112,12 +112,12 @@ impl Component for Todo {
           self
           .edit_input
           .as_ref()
-          .unwrap()
+          .unwrap_throw()
           .clone();
         timeout(1, move || {
           input
             .focus()
-            .unwrap();
+            .unwrap_throw();
           false
         });
         tx_view.send(&TodoOut::UpdateEditComplete(self.is_editing, self.is_done));
@@ -129,14 +129,14 @@ impl Component for Todo {
           self
           .edit_input
           .as_ref()
-          .unwrap();
+          .unwrap_throw();
 
         if let Some(ev) = may_ev {
           // This came from a key event
           let kev =
             ev
             .dyn_ref::<KeyboardEvent>()
-            .unwrap();
+            .unwrap_throw();
           let key =
             kev.key();
           if key == "Enter" {

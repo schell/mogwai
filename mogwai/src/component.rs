@@ -103,7 +103,7 @@
 use std::sync::{Arc, Mutex};
 use std::any::Any;
 use web_sys::HtmlElement;
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsValue, UnwrapThrowExt};
 
 use super::txrx::{Transmitter, Receiver, txrx};
 use super::builder::GizmoBuilder;
@@ -161,7 +161,7 @@ where
 impl<T:Component> From<T> for GizmoBuilder {
   fn from(component: T) -> GizmoBuilder {
     let gizmo_component = component.into_component();
-    let builder = gizmo_component.builder.unwrap();
+    let builder = gizmo_component.builder.unwrap_throw();
     builder
   }
 }
@@ -240,7 +240,7 @@ where
     let builder =
       component
       .try_lock()
-      .unwrap()
+      .unwrap_throw()
       .builder(tx_in.clone(), rx_out.branch());
 
     GizmoComponent {
@@ -286,7 +286,7 @@ where
         self
         .builder
         .take()
-        .unwrap();
+        .unwrap_throw();
       self.gizmo =
         builder
         .build()
@@ -295,7 +295,7 @@ where
     self
       .gizmo
       .as_ref()
-      .unwrap()
+      .unwrap_throw()
       .html_element
       .clone()
   }
@@ -330,7 +330,7 @@ where
       self
         .gizmo
         .as_ref()
-        .unwrap()
+        .unwrap_throw()
         .append_to(parent);
     } else {
       warn!("Tried to append an un-built GizmoComponent to a parent - call 'build' first");

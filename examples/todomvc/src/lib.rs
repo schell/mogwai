@@ -30,7 +30,7 @@ pub fn main() -> Result<(), JsValue> {
   utils::set_panic_hook();
 
   console_log::init_with_level(Level::Trace)
-    .unwrap();
+    .unwrap_throw();
 
   trace!("Hello from mogwai-todo");
 

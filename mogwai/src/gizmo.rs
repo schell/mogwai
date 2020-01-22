@@ -9,7 +9,7 @@ use super::prelude::*;
 use super::txrx::hand_clone;
 pub use super::utils::*;
 pub use web_sys::{EventTarget, HtmlInputElement};
-pub use wasm_bindgen::{JsCast, JsValue};
+pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 
 
 /// A bundled network of html elements, callback closures and receivers.
@@ -61,26 +61,6 @@ impl Gizmo {
     }
   }
 
-  fn add_event(
-    &mut self,
-    ev_name: &str,
-    target: &EventTarget,
-    tx: Transmitter<Event>
-  ) -> Arc<Closure<dyn FnMut(JsValue)>> {
-    let cb =
-      Closure::wrap(Box::new(move |val:JsValue| {
-        let ev =
-          val
-          .dyn_into()
-          .expect("Callback was not an event!");
-        tx.send(&ev);
-      }) as Box<dyn FnMut(JsValue)>);
-    target
-      .add_event_listener_with_callback(ev_name, cb.as_ref().unchecked_ref())
-      .unwrap();
-    Arc::new(cb)
-  }
-
   /// Sends an event into the given transmitter when the given dom event happens.
   pub fn tx_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
     let target =
@@ -89,7 +69,7 @@ impl Gizmo {
       .clone()
       .dyn_into::<EventTarget>()
       .expect("Could not get element EventTarget");
-    let cb = self.add_event(ev_name, &target, tx);
+    let cb = utils::add_event(ev_name, &target, tx);
     self
       .callbacks
       .insert(ev_name.to_string(), cb);
@@ -102,7 +82,7 @@ impl Gizmo {
       utils::window()
       .dyn_into::<EventTarget>()
       .expect("Could not get window EventTarget");
-    let cb = self.add_event(ev_name, &target, tx);
+    let cb = utils::add_event(ev_name, &target, tx);
     self
       .window_callbacks
       .insert(ev_name.to_string(), cb);
@@ -114,7 +94,7 @@ impl Gizmo {
       utils::document()
       .dyn_into::<EventTarget>()
       .expect("Could not get window EventTarget");
-    let cb = self.add_event(ev_name, &target, tx);
+    let cb = utils::add_event(ev_name, &target, tx);
     self
       .document_callbacks
       .insert(ev_name.to_string(), cb);
@@ -179,7 +159,7 @@ impl Gizmo {
 
     let text:Text =
       Text::new_with_data(init)
-      .unwrap();
+      .unwrap_throw();
     self
       .html_element
       .dyn_ref::<Node>()
@@ -286,33 +266,33 @@ impl Gizmo {
                 new
                   .html_element
                   .dyn_ref()
-                  .unwrap(),
+                  .unwrap_throw(),
                 prev
                   .html_element
                   .dyn_ref()
-                  .unwrap()
+                  .unwrap_throw()
               )
-              .unwrap();
+              .unwrap_throw();
           } else {
             node
               .remove_child(
                 prev
                   .html_element
                   .dyn_ref()
-                  .unwrap()
+                  .unwrap_throw()
               )
-              .unwrap();
+              .unwrap_throw();
           }
         } else {
           let new_node =
             new
-            .unwrap()
+            .unwrap_throw()
             .html_element
             .dyn_ref()
-            .unwrap();
+            .unwrap_throw();
           node
             .append_child(new_node)
-            .unwrap();
+            .unwrap_throw();
         }
       }
 
@@ -331,7 +311,7 @@ impl Gizmo {
     parent
       .append_child(self.html_element_ref())
       .map_err(|_| "could not append gizmo to document body".to_string())
-      .unwrap();
+      .unwrap_throw();
   }
 
   /// Run this gizmo in a parent container forever, never dropping it.
@@ -368,7 +348,7 @@ impl Drop for Gizmo {
       self
       .html_element
       .dyn_ref::<Node>()
-      .unwrap();
+      .unwrap_throw();
 
     node
       .parent_node()
@@ -376,7 +356,7 @@ impl Drop for Gizmo {
       .for_each(|parent| {
         parent
           .remove_child(&node)
-          .unwrap();
+          .unwrap_throw();
       });
 
     self

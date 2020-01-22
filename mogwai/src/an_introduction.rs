@@ -25,8 +25,8 @@
 //!       .attribute("href", "http://zyghost.com")
 //!       .text("Schellsan's website")
 //!   )
-//!   .build().unwrap()
-//!   .run().unwrap()
+//!   .build().unwrap_throw()
+//!   .run().unwrap_throw()
 //! ```
 //!
 //! The example above would create a DOM node and append it to the document
@@ -83,8 +83,8 @@
 //!       .attribute("href", "https://zyghost.com")
 //!       .rx_text("Schellsan's website", rx)
 //!   )
-//!   .build().unwrap()
-//!   .run().unwrap();
+//!   .build().unwrap_throw()
+//!   .run().unwrap_throw();
 //!
 //! tx.send(&"Gizmo's website".into());
 //! ```
@@ -133,6 +133,7 @@ use super::txrx::*;
 use super::component::*;
 use super::component::subscriber::*;
 use web_sys::HtmlElement;
+use wasm_bindgen::UnwrapThrowExt;
 
 
 struct Unit {}
@@ -149,6 +150,6 @@ impl Component for Unit {
 // This is here just for the documentation links.
 fn _not_used() {
   let builder = GizmoBuilder::new("");
-  let _ = Gizmo::new(builder.build().unwrap().html_element.clone() as HtmlElement);
+  let _ = Gizmo::new(builder.build().unwrap_throw().html_element.clone() as HtmlElement);
   let (_tx, _rx) = txrx::<()>();
 }

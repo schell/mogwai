@@ -45,8 +45,8 @@ let (tx, rx) =
 button()
   .rx_text("Clicked 0 times", rx)
   .tx_on("click", tx)
-  .build().unwrap()
-  .run().unwrap()
+  .build().unwrap_throw()
+  .run().unwrap_throw()
 ```
 
 Here's that same example using the elm-like `Component` trait:
@@ -103,8 +103,8 @@ impl Component for Button {
 
 Button{ clicks: 0 }
   .into_component()
-  .build().unwrap()
-  .run().unwrap()
+  .build().unwrap_throw()
+  .run().unwrap_throw()
 ```
 
 ## introduction

@@ -195,7 +195,7 @@ impl Component for App {
         timeout(0, move || {
           input
             .focus()
-            .unwrap();
+            .unwrap_throw();
           // Never reschedule the timeout
           false
         });
@@ -236,7 +236,7 @@ impl Component for App {
           self
           .todo_toggle_input
           .as_ref()
-          .unwrap();
+          .unwrap_throw();
 
         let should_complete = input.checked();
         for todo in self.todos.iter_mut() {
@@ -327,7 +327,7 @@ impl Component for App {
                 "change",
                 tx.contra_filter_map(
                   |ev: &Event| {
-                    let todo_name = utils::event_input_value(ev).unwrap();
+                    let todo_name = utils::event_input_value(ev).unwrap_throw();
                     if todo_name.is_empty() {
                       None
                     } else {
@@ -439,7 +439,7 @@ impl Component for App {
                 let ev:&HashChangeEvent =
                   ev
                   .dyn_ref::<HashChangeEvent>()
-                  .unwrap();
+                  .unwrap_throw();
                 let url = ev.new_url();
                 App::url_to_filter_msg(url)
               }))

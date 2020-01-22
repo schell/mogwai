@@ -123,7 +123,7 @@
 //!       "https://worldtimeapi.org/api/timezone/Europe/London.txt",
 //!       &opts
 //!     )
-//!     .unwrap();
+//!     .unwrap_throw();
 //!
 //!   request_to_text(req)
 //!     .await
@@ -170,7 +170,7 @@
 //! tx.send(&());
 //! tx.send(&());
 //! tx.send(&());
-//! assert_eq!(*shared_count.try_lock().unwrap(), 3);
+//! assert_eq!(*shared_count.try_lock().unwrap_throw(), 3);
 //! ```
 //!
 //! ## Composing channels
@@ -215,7 +215,7 @@
 //! tx_a.send(&());
 //! tx_a.send(&());
 //! tx_a.send(&());
-//! assert_eq!(*shared_count.try_lock().unwrap(), 3);
+//! assert_eq!(*shared_count.try_lock().unwrap_throw(), 3);
 //! ```
 //!
 //! That is useful, but we can also do much more than simple maps! We can fold
@@ -279,7 +279,7 @@
 //! });
 //!
 //! tx.send(&());
-//! assert_eq!(*shared_got_it.try_lock().unwrap(), true);
+//! assert_eq!(*shared_got_it.try_lock().unwrap_throw(), true);
 //! ```
 //!
 //! These make up the `forward_*` family of functions on [Receiver]:
@@ -311,7 +311,7 @@
 //! });
 //! tx1.send(&());
 //! tx2.send(&());
-//! assert_eq!(*shared_count.try_lock().unwrap(), 2);
+//! assert_eq!(*shared_count.try_lock().unwrap_throw(), 2);
 //! ```
 //!
 //! [Receiver]s are a bit different from [Transmitter]s, though. They are _not_
@@ -333,7 +333,7 @@
 //!   *count += 1;
 //! });
 //! tx.send(&());
-//! assert_eq!(*shared_count.try_lock().unwrap(), 2);
+//! assert_eq!(*shared_count.try_lock().unwrap_throw(), 2);
 //! ```
 //!
 //! Both [Transmitter]s and [Receiver]s can be "branched" so that multiple
@@ -393,6 +393,7 @@ use std::future::Future;
 use std::any::Any;
 use std::pin::Pin;
 use std::collections::HashMap;
+use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen_futures::spawn_local;
 
 type RecvResponders<A> = Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>;
@@ -505,7 +506,7 @@ impl<A:Any> Transmitter<A> {
     let (tev, rev) = txrx();
     rev.respond(move |ev| {
       let result = {
-        let mut t = var.try_lock().unwrap();
+        let mut t = var.try_lock().unwrap_throw();
         f(&mut t, ev)
       };
       result
@@ -776,7 +777,7 @@ impl<A> Receiver<A> {
       let mut t =
         val
         .try_lock()
-        .unwrap();
+        .unwrap_throw();
       f(&mut t, a);
     }));
   }
@@ -935,7 +936,7 @@ impl<A> Receiver<A> {
     let tx = tx.clone();
     self.respond(move |a:&A| {
       let result = {
-        let mut t = var.try_lock().unwrap();
+        let mut t = var.try_lock().unwrap_throw();
         f(&mut t, a)
       };
       result
@@ -1346,13 +1347,13 @@ mod instant_txrx {
       if *n == 0 {
         *cdone
           .try_lock()
-          .unwrap()
+          .unwrap_throw()
           = true;
       }
     });
 
     tx.send(&());
 
-    assert!(*done.try_lock().unwrap());
+    assert!(*done.try_lock().unwrap_throw());
   }
 }

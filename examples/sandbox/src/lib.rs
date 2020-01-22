@@ -127,7 +127,7 @@ async fn click_to_text() -> Option<String> {
       "https://worldtimeapi.org/api/timezone/Europe/London.txt",
       &opts
     )
-    .unwrap();
+    .unwrap_throw();
 
   let result =
     match request_to_text(req).await {
@@ -222,7 +222,7 @@ pub fn counter() -> GizmoBuilder {
 pub fn main() -> Result<(), JsValue> {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   console_log::init_with_level(Level::Trace)
-    .unwrap();
+    .unwrap_throw();
 
 
   // Create a transmitter to send button clicks into.

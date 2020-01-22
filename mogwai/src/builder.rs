@@ -26,13 +26,17 @@
 //! button()
 //!   .rx_text("Clicked 0 times", rx)
 //!   .tx_on("click", tx)
-//!   .build().unwrap()
-//!   .run().unwrap()
+//!   .build().unwrap_throw()
+//!   .run().unwrap_throw()
 //! ```
 //! [`GizmoBuilder`]: struct.GizmoBuilder.html
 //! [`Transmitter<T>`]: ../txrx/struct.Transmitter.html
 //! [`Receiver<T>`]: struct.Receiver.html
-use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::{
+  JsCast,
+  JsValue,
+  UnwrapThrowExt
+};
 use web_sys::{Element, Event, HtmlElement, HtmlInputElement, Node, window};
 use std::collections::HashMap;
 
@@ -239,7 +243,7 @@ impl GizmoBuilder {
       c
       .into_component()
       .builder
-      .unwrap();
+      .unwrap_throw();
     self.with(builder)
   }
 
@@ -305,8 +309,8 @@ impl GizmoBuilder {
   pub fn build(self) -> Result<Gizmo, JsValue> {
 
     let document =
-      window().unwrap()
-      .document().unwrap();
+      window().unwrap_throw()
+      .document().unwrap_throw();
     let html_el:HtmlElement =
       match self.tag {
         ElementOrTag::Element(el) => { el }
@@ -367,10 +371,10 @@ impl GizmoBuilder {
 
               let text:web_sys::Text =
                 web_sys::Text::new_with_data(&value)
-                .unwrap();
+                .unwrap_throw();
               html_el
                 .dyn_ref::<Node>()
-                .unwrap()
+                .unwrap_throw()
                 .append_child(text.as_ref())?;
               Ok(())
             }
