@@ -113,6 +113,8 @@ use super::utils;
 pub mod subscriber;
 use subscriber::Subscriber;
 
+pub mod simple;
+
 
 /// Defines a component with distinct input (model update) and output
 /// (view update) messages.
