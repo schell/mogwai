@@ -114,36 +114,6 @@ pub mod subscriber;
 use subscriber::Subscriber;
 
 
-/// The type of function that uses a txrx pair and returns a GizmoBuilder.
-pub type BuilderFn<T> = dyn Fn(Transmitter<T>, Receiver<T>) -> GizmoBuilder;
-
-
-/// Any function that takes a transmitter and receiver of the same type and
-/// returns a GizmoBuilder can be made into a component that holds no internal
-/// state. It forwards all of its incoming messages to its view.
-impl<T:Any + Clone> Component for Box<BuilderFn<T>> {
-  type ModelMsg = T;
-  type ViewMsg = T;
-
-  fn update(
-    &mut self,
-    msg: &T,
-    tx_view: &Transmitter<T>,
-    _sub: &Subscriber<T>
-  ) {
-    tx_view.send(msg);
-  }
-
-  fn builder(
-    &self,
-    tx: Transmitter<T>,
-    rx: Receiver<T>
-  ) -> GizmoBuilder {
-    self(tx, rx)
-  }
-}
-
-
 /// Defines a component with distinct input (model update) and output
 /// (view update) messages.
 ///
@@ -184,18 +154,6 @@ where
   /// implements Component.
   fn into_component(self) -> GizmoComponent<Self> {
     GizmoComponent::new(self)
-  }
-
-  /// Create a simple component from a BuilderFn.
-  /// This is shorthand for boxing a BuilderFn and calling
-  /// Component::into_component on it.
-  fn from_builder_fn<T, F>(b:F) -> GizmoComponent<Box<BuilderFn<T>>>
-  where
-    T:Any + Clone,
-    F:Fn(Transmitter<T>, Receiver<T>) -> GizmoBuilder + 'static
-  {
-    (Box::new(b) as Box<BuilderFn<T>>)
-      .into_component()
   }
 }
 
@@ -396,5 +354,39 @@ where
       .try_lock()
       .expect("Could not get lock on GizmoComponent state");
     f(&t)
+  }
+}
+
+
+/// The type of function that uses a txrx pair and returns a GizmoBuilder.
+pub type BuilderFn<T> = dyn Fn(Transmitter<T>, Receiver<T>) -> GizmoBuilder;
+
+
+/// A simple component made from a BuilderFn.
+pub type SimpleComponent<T> = GizmoComponent<Box<BuilderFn<T>>>;
+
+
+/// Any function that takes a transmitter and receiver of the same type and
+/// returns a GizmoBuilder can be made into a component that holds no internal
+/// state. It forwards all of its incoming messages to its view.
+impl<T:Any + Clone> Component for Box<BuilderFn<T>> {
+  type ModelMsg = T;
+  type ViewMsg = T;
+
+  fn update(
+    &mut self,
+    msg: &T,
+    tx_view: &Transmitter<T>,
+    _sub: &Subscriber<T>
+  ) {
+    tx_view.send(msg);
+  }
+
+  fn builder(
+    &self,
+    tx: Transmitter<T>,
+    rx: Receiver<T>
+  ) -> GizmoBuilder {
+    self(tx, rx)
   }
 }
