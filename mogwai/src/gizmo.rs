@@ -314,6 +314,17 @@ impl Gizmo {
       .unwrap_throw();
   }
 
+  /// Replace the given `HtmlElement` with this gizmo.
+  pub fn replace(&self, target: &HtmlElement) -> Result<(), JsValue> {
+    let parent =
+      target
+      .parent_node()
+      .ok_or(JsValue::NULL)?;
+    parent
+      .replace_child(self.html_element_ref(), target)
+      .map(|_| ())
+  }
+
   /// Run this gizmo in a parent container forever, never dropping it.
   pub fn run_in_container(self, container:HtmlElement) -> Result<(), JsValue> {
     if cfg!(target_arch = "wasm32") {
