@@ -329,12 +329,7 @@ impl Gizmo {
   pub fn run_in_container(self, container:HtmlElement) -> Result<(), JsValue> {
     if cfg!(target_arch = "wasm32") {
       self.append_to(&container);
-      let gizmo = RefCell::new(self);
-      timeout(1000, move || {
-        gizmo.borrow_mut().maintain();
-        true
-      });
-      Ok(())
+      self.forget()
     } else {
       Err("running gizmos is only supported on wasm".into())
     }
@@ -347,6 +342,20 @@ impl Gizmo {
         .run_in_container(body())
     } else {
       Err("running gizmos is only supported on wasm".into())
+    }
+  }
+
+  /// Run this gizmo forever without appending it to anything.
+  pub fn forget(self) -> Result<(), JsValue> {
+    if cfg!(target_arch = "wasm32") {
+      let gizmo = RefCell::new(self);
+      timeout(1000, move || {
+        gizmo.borrow_mut().maintain();
+        true
+      });
+      Ok(())
+    } else {
+      Err("forgetting and running a gizmo is only supported on wasm".into())
     }
   }
 }
