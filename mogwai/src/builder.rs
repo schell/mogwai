@@ -43,6 +43,7 @@ use std::collections::HashMap;
 use super::gizmo::Gizmo;
 use super::txrx::{Transmitter, Receiver, hand_clone};
 use super::component::Component;
+use super::utils::document;
 
 #[macro_use]
 pub mod tags;
@@ -100,7 +101,6 @@ enum ElementOrTag {
 #[derive(Clone)]
 pub struct GizmoBuilder {
   tag: ElementOrTag,
-  name: String,
   options: Vec<GizmoOption>,
   tx_events: HashMap<String, Transmitter<Event>>,
   tx_element: Option<Transmitter<HtmlElement>>
@@ -114,7 +114,6 @@ impl GizmoBuilder {
   /// ```
   pub fn new(tag: &str) -> GizmoBuilder {
     GizmoBuilder {
-      name: "unamed_gizmo".into(),
       tag: ElementOrTag::Tag(tag.into()),
       options: vec![],
       tx_events: HashMap::new(),
@@ -125,7 +124,6 @@ impl GizmoBuilder {
   /// Create a new GizmoBuilder from an existing HtmlElement.
   pub fn from_html_element(el:HtmlElement) -> GizmoBuilder {
     GizmoBuilder {
-      name: "unamed_gizmo".into(),
       tag: ElementOrTag::Element(el),
       options: vec![],
       tx_events: HashMap::new(),
@@ -133,12 +131,15 @@ impl GizmoBuilder {
     }
   }
 
-  /// Name the GizmoBuilder.
-  /// This can be useful for debugging.
-  pub fn named(self, s: &str) -> GizmoBuilder {
-    let mut gizmo = self;
-    gizmo.name = s.into();
-    gizmo
+  /// Create a new GizmoBuilder from an existing HtmlElement
+  /// with the given id. Returns None if it cannot be found.
+  pub fn from_element_by_id(id:&str) -> Option<GizmoBuilder> {
+    let el =
+      document()
+      .get_element_by_id(id)?
+      .dyn_into::<HtmlElement>()
+      .ok()?;
+    Some(Self::from_html_element(el))
   }
 
   fn option(self, option: GizmoOption) -> GizmoBuilder {
@@ -223,7 +224,7 @@ impl GizmoBuilder {
     self.option(GizmoOption::Gizmos(Continuous::Static(vec![builder])))
   }
 
-  /// Add many unchinging children all at once.
+  /// Add many unchanging children all at once.
   pub fn with_many<C:Into<GizmoBuilder>>(self, gs: Vec<C>) -> GizmoBuilder {
     gs.into_iter()
       .fold(
@@ -245,6 +246,19 @@ impl GizmoBuilder {
       .builder
       .unwrap_throw();
     self.with(builder)
+  }
+
+  /// Add a vector of Gizmo.
+  /// Some other structure manages the lifetime of these gizmos.
+  pub fn with_gizmos(self, cs:Vec<&Gizmo>) -> Self {
+    cs.into_iter()
+      .fold(
+        self,
+        |builder:GizmoBuilder, gizmo:&Gizmo| -> GizmoBuilder {
+          builder
+            .with_pre_built(gizmo.html_element.clone())
+        }
+      )
   }
 
   /// Add an attribute that changes its value every time the given receiver
@@ -326,7 +340,6 @@ impl GizmoBuilder {
       .expect("Could not get gizmo element");
     let mut gizmo =
       Gizmo::new(html_el.clone());
-    gizmo.name = self.name.clone();
     self
       .tx_events
       .iter()

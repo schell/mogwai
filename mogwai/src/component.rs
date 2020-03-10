@@ -7,7 +7,8 @@
 //!
 //! Many rust web app libraries use a message passing pattern made famous by
 //! the Elm architecture to wrangle complexity. Mogwai is similar, but different
-//! - Like other libraries, messages come out of the DOM into your component's model by way of the [Component::update] function.
+//! - Like other libraries, messages come out of the DOM into your component's
+//!   model by way of the [Component::update] function.
 //! - The model is updated according to the value of the model message.
 //! - _Unlike_ Elm-like libraries, view updates are sent out of the update
 //!   function by hand! This sounds tedious but it's actually no big deal. You'll
@@ -140,8 +141,6 @@ where
     tx_view: &Transmitter<Self::ViewMsg>,
     sub: &Subscriber<Self::ModelMsg>
   );
-
-
 
   /// Produce this component's gizmo builder using inputs and outputs.
   fn builder(
@@ -362,13 +361,31 @@ where
 pub type BuilderFn<T> = dyn Fn(Transmitter<T>, Receiver<T>) -> GizmoBuilder;
 
 
-/// A simple component made from a BuilderFn.
-pub type SimpleComponent<T> = GizmoComponent<Box<BuilderFn<T>>>;
-
-
+/// A simple component made from a [BuilderFn].
+///
 /// Any function that takes a transmitter and receiver of the same type and
 /// returns a GizmoBuilder can be made into a component that holds no internal
 /// state. It forwards all of its incoming messages to its view.
+///
+/// ```rust
+/// extern crate mogwai;
+/// use mogwai::prelude::*;
+///
+/// let component:SimpleComponent<()> =
+///   (Box::new(|tx: Transmitter<()>, rx: Receiver<()>| -> GizmoBuilder {
+///     button()
+///       .style("cursor", "pointer")
+///       .rx_text(
+///         "Click me",
+///         rx.branch_map(|()| "Clicked!".to_string())
+///       )
+///       .tx_on("click", tx.contra_map(|_| ()))
+///   }) as Box<BuilderFn<()>>)
+///   .into_component();
+/// ```
+pub type SimpleComponent<T> = GizmoComponent<Box<BuilderFn<T>>>;
+
+
 impl<T:Any + Clone> Component for Box<BuilderFn<T>> {
   type ModelMsg = T;
   type ViewMsg = T;

@@ -24,7 +24,6 @@ pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> GizmoBuilder {
   // comes in on the receiver.
   let button =
     button()
-    .named("button")
     .style("cursor", "pointer")
     // The button receives its text
     .rx_text("Click me", rx_text.branch())
@@ -64,7 +63,6 @@ pub fn new_h1_gizmo(mut tx_click:Transmitter<Event>) -> GizmoBuilder {
   // Create the builder for our heading, giving it the receiver.
   let h1:GizmoBuilder =
     h1()
-    .named("h1")
     .attribute("id", "header")
     .attribute("class", "my-header")
     .rx_style("color", "green", rx_color.branch())
@@ -173,13 +171,11 @@ pub fn time_req_button_and_pre() -> GizmoBuilder {
 
   let btn =
     button()
-    .named("request_button")
     .style("cursor", "pointer")
     .text("Get the time (london)")
     .tx_on("click", req_tx);
   let pre =
     GizmoBuilder::new("pre")
-    .named("request_pre")
     .rx_text("(waiting)", resp_rx);
   div()
     .with(btn)
@@ -234,7 +230,6 @@ pub fn main() -> Result<(), JsValue> {
 
   // Put it all in a parent gizmo and run it right now
   div()
-    .named("root_div")
     .with(h1)
     .with(btn)
     .with(elm_button::Button{ clicks: 0 })
