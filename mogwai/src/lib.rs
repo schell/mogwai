@@ -9,13 +9,7 @@
 //!
 //! ## Learn more
 //! If you're new to Mogwai, check out the [introduction](an_introduction) module.
-extern crate console_log;
-#[macro_use]
-extern crate log;
-extern crate web_sys;
-
 pub mod an_introduction;
-pub mod builder;
 pub mod component;
 pub mod gizmo;
 pub mod prelude;

@@ -1,11 +1,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys;
 
-use super::gizmo::Gizmo;
 use super::txrx::Transmitter;
 
 
@@ -78,38 +76,19 @@ where
   return;
 }
 
-/// Insert a child element into a parant element.
-pub fn nest_gizmos(parent: &Gizmo, child: &Gizmo) -> Result<(), JsValue> {
-  let child =
-    child
-    .html_element
-    .dyn_ref::<web_sys::Node>()
-    .ok_or(JsValue::NULL)?;
-  let _ =
-    parent
-    .html_element
-    .dyn_ref::<web_sys::Node>()
-    .ok_or(JsValue::NULL)?
-    .append_child(child)?;
-  Ok(())
-}
-
 
 pub fn add_event(
   ev_name: &str,
   target: &web_sys::EventTarget,
   tx: Transmitter<web_sys::Event>
-) -> Arc<Closure<dyn FnMut(JsValue)>> {
+) -> Rc<Closure<dyn FnMut(JsValue)>> {
   let cb =
     Closure::wrap(Box::new(move |val:JsValue| {
-      let ev =
-        val
-        .dyn_into()
-        .expect("Callback was not an event!");
+      let ev = val.unchecked_into();
       tx.send(&ev);
     }) as Box<dyn FnMut(JsValue)>);
   target
     .add_event_listener_with_callback(ev_name, cb.as_ref().unchecked_ref())
     .unwrap_throw();
-  Arc::new(cb)
+  Rc::new(cb) 
 }

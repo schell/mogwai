@@ -1,0 +1,6 @@
+blank_lines_upper_bound = 2
+combine_control_expr = false
+format_code_in_doc_comments = true
+max_width = 80
+tab_spaces = 2
+wrap_long_multiline_chains = true

@@ -31,14 +31,14 @@ impl Todo {
 
 #[derive(Clone)]
 pub enum TodoIn {
-  CompletionToggleInput(HtmlElement),
-  EditInput(HtmlElement),
+  CompletionToggleInput(HtmlInputElement),
+  EditInput(HtmlInputElement),
   ToggleCompletion,
   SetCompletion(bool),
   StartEditing,
   StopEditing(Option<Event>),
   SetVisible(bool),
-  Remove
+  Remove,
 }
 
 
@@ -47,25 +47,24 @@ pub enum TodoOut {
   UpdateEditComplete(bool, bool),
   SetName(String),
   SetVisible(bool),
-  Remove
+  Remove,
 }
 
 
 impl TodoOut {
   fn as_list_class(&self) -> Option<String> {
     match self {
-      TodoOut::UpdateEditComplete(editing, completed) => {
-        Some(
-          if *editing {
-            "editing"
-          } else if *completed {
-            "completed"
-          } else {
-            ""
-          }.to_string()
-        )
-      }
-      _ => { None }
+      TodoOut::UpdateEditComplete(editing, completed) => Some(
+        if *editing {
+          "editing"
+        } else if *completed {
+          "completed"
+        } else {
+          ""
+        }
+        .to_string(),
+      ),
+      _ => None,
     }
   }
 }
@@ -74,29 +73,28 @@ impl TodoOut {
 impl Component for Todo {
   type ModelMsg = TodoIn;
   type ViewMsg = TodoOut;
+  type DomNode = HtmlElement;
 
-  fn update(&mut self, msg: &TodoIn, tx_view: &Transmitter<TodoOut>, _: &Subscriber<TodoIn>) {
+  fn update(
+    &mut self,
+    msg: &TodoIn,
+    tx_view: &Transmitter<TodoOut>,
+    _: &Subscriber<TodoIn>,
+  ) {
     match msg {
       TodoIn::SetVisible(visible) => {
         tx_view.send(&TodoOut::SetVisible(*visible));
       }
       TodoIn::CompletionToggleInput(el) => {
-        self.toggle_input = Some(
-          el.clone()
-            .dyn_into::<HtmlInputElement>()
-            .expect("Todo toggle completion input is not an input")
-        );
+        self.toggle_input = Some(el.clone());
       }
       TodoIn::EditInput(el) => {
-        self.edit_input = Some(
-          el.clone()
-            .dyn_into::<HtmlInputElement>()
-            .expect("Todo edit input is not an input")
-        );
+        self.edit_input = Some(el.clone());
       }
       TodoIn::ToggleCompletion => {
         self.is_done = !self.is_done;
-        tx_view.send(&TodoOut::UpdateEditComplete(self.is_editing, self.is_done));
+        tx_view
+          .send(&TodoOut::UpdateEditComplete(self.is_editing, self.is_done));
       }
       TodoIn::SetCompletion(completed) => {
         self.is_done = *completed;
@@ -104,41 +102,29 @@ impl Component for Todo {
           .toggle_input
           .iter()
           .for_each(|input| input.set_checked(*completed));
-        tx_view.send(&TodoOut::UpdateEditComplete(self.is_editing, self.is_done));
+        tx_view
+          .send(&TodoOut::UpdateEditComplete(self.is_editing, self.is_done));
       }
       TodoIn::StartEditing => {
         self.is_editing = true;
-        let input =
-          self
-          .edit_input
-          .as_ref()
-          .unwrap_throw()
-          .clone();
+        let input: HtmlInputElement =
+          self.edit_input.as_ref().expect("no input").clone();
         timeout(1, move || {
-          input
-            .focus()
-            .unwrap_throw();
+          input.focus().expect("can't focus");
           false
         });
-        tx_view.send(&TodoOut::UpdateEditComplete(self.is_editing, self.is_done));
+        tx_view
+          .send(&TodoOut::UpdateEditComplete(self.is_editing, self.is_done));
       }
       TodoIn::StopEditing(may_ev) => {
         self.is_editing = false;
 
-        let input:&HtmlInputElement =
-          self
-          .edit_input
-          .as_ref()
-          .unwrap_throw();
+        let input: &HtmlInputElement = self.edit_input.as_ref().expect("no input");
 
         if let Some(ev) = may_ev {
           // This came from a key event
-          let kev =
-            ev
-            .dyn_ref::<KeyboardEvent>()
-            .unwrap_throw();
-          let key =
-            kev.key();
+          let kev = ev.unchecked_ref::<KeyboardEvent>();
+          let key = kev.key();
           if key == "Enter" {
             utils::input_value(input)
               .into_iter()
@@ -156,7 +142,8 @@ impl Component for Todo {
             .for_each(|name| self.name = name);
         }
         tx_view.send(&TodoOut::SetName(self.name.clone()));
-        tx_view.send(&TodoOut::UpdateEditComplete(self.is_editing, self.is_done));
+        tx_view
+          .send(&TodoOut::UpdateEditComplete(self.is_editing, self.is_done));
       }
       TodoIn::Remove => {
         // A todo cannot remove itself - its gizmo is owned by the parent App.
@@ -167,64 +154,74 @@ impl Component for Todo {
     }
   }
 
-  fn builder(&self, tx: Transmitter<TodoIn>, rx: Receiver<TodoOut>) -> GizmoBuilder {
+  fn view(
+    &self,
+    tx: Transmitter<TodoIn>,
+    rx: Receiver<TodoOut>,
+  ) -> Gizmo<HtmlElement> {
     li()
       .rx_class("", rx.branch_filter_map(|msg| msg.as_list_class()))
-      .rx_style("display", "block", rx.branch_filter_map(|msg| {
-        match msg {
+      .rx_style(
+        "display",
+        "block",
+        rx.branch_filter_map(|msg| match msg {
           TodoOut::SetVisible(visible) => {
-            Some(
-              if *visible {
-                "block"
-              } else {
-                "none"
-              }.to_string()
-            )
+            Some(if *visible { "block" } else { "none" }.to_string())
           }
-          _ => { None }
-        }
-      }))
+          _ => None,
+        }),
+      )
       .with(
         div()
           .class("view")
           .with(
             input()
-              .tx_post_build(
-                tx.contra_map(|el:&HtmlElement| {
-                  TodoIn::CompletionToggleInput(el.clone())
-                })
-              )
               .class("toggle")
               .attribute("type", "checkbox")
               .style("cursor", "pointer")
-              .tx_on("click", tx.contra_map(|_:&Event| TodoIn::ToggleCompletion))
+              .tx_post_build(tx.contra_map(|el: &HtmlInputElement| {
+                TodoIn::CompletionToggleInput(el.clone())
+              }))
+              .tx_on(
+                "click",
+                tx.contra_map(|_: &Event| TodoIn::ToggleCompletion),
+              ),
           )
           .with(
             label()
-              .rx_text(&self.name, rx.branch_filter_map(|msg| {
-                match msg {
-                  TodoOut::SetName(name) => { Some(name.clone()) }
-                  _ => { None }
-                }
-              }))
-              .tx_on("dblclick", tx.contra_map(|_:&Event| TodoIn::StartEditing))
+              .rx_text(
+                &self.name,
+                rx.branch_filter_map(|msg| match msg {
+                  TodoOut::SetName(name) => Some(name.clone()),
+                  _ => None,
+                }),
+              )
+              .tx_on(
+                "dblclick",
+                tx.contra_map(|_: &Event| TodoIn::StartEditing),
+              ),
           )
           .with(
             button()
               .class("destroy")
               .style("cursor", "pointer")
-              .tx_on("click", tx.contra_map(|_:&Event| TodoIn::Remove))
-          )
+              .tx_on("click", tx.contra_map(|_: &Event| TodoIn::Remove)),
+          ),
       )
       .with(
         input()
-          .tx_post_build(
-            tx.contra_map(|el:&HtmlElement| TodoIn::EditInput(el.clone()))
-          )
           .class("edit")
-          .value(&self.name, )
-          .tx_on("blur", tx.contra_map(|_:&Event| TodoIn::StopEditing(None)))
-          .tx_on("keyup", tx.contra_map(|ev:&Event| TodoIn::StopEditing(Some(ev.clone()))))
+          .value(&self.name)
+          .tx_post_build(
+            tx.contra_map(|el: &HtmlInputElement| {
+              TodoIn::EditInput(el.clone())
+            }),
+          )
+          .tx_on("blur", tx.contra_map(|_: &Event| TodoIn::StopEditing(None)))
+          .tx_on(
+            "keyup",
+            tx.contra_map(|ev: &Event| TodoIn::StopEditing(Some(ev.clone()))),
+          ),
       )
   }
 }

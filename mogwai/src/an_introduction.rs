@@ -127,13 +127,10 @@
 //! [`Receiver<T>`]: struct@Receiver
 //! [`HtmlElement`]: struct@HtmlElement
 //! [`Component`]: trait@Component
-use super::builder::*;
 use super::gizmo::*;
 use super::txrx::*;
 use super::component::*;
 use super::component::subscriber::*;
-use web_sys::HtmlElement;
-use wasm_bindgen::UnwrapThrowExt;
 
 
 struct Unit {}
@@ -141,15 +138,16 @@ struct Unit {}
 impl Component for Unit {
   type ModelMsg = ();
   type ViewMsg = ();
-  fn builder(&self, _: Transmitter<()>, _: Receiver<()>) -> GizmoBuilder {
-    GizmoBuilder::new("")
+  type DomNode = Element;
+
+  fn view(&self, _: Transmitter<()>, _: Receiver<()>) -> Gizmo<Element> {
+    Gizmo::element("") as Gizmo<Element>
   }
   fn update(&mut self, _: &(), _: &Transmitter<()>, _sub: &Subscriber<()>) {}
 }
 
 // This is here just for the documentation links.
 fn _not_used() {
-  let builder = GizmoBuilder::new("");
-  let _ = Gizmo::new(builder.build().unwrap_throw().html_element.clone() as HtmlElement);
+  let _element = Gizmo::element("");
   let (_tx, _rx) = txrx::<()>();
 }

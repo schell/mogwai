@@ -388,15 +388,15 @@
 //!
 //! [contramap]: https://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor-Contravariant.html#v:contramap
 //! [fmap]: https://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor.html#v:fmap
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
+use std::cell::RefCell;
 use std::future::Future;
 use std::any::Any;
 use std::pin::Pin;
 use std::collections::HashMap;
-use wasm_bindgen::UnwrapThrowExt;
-use wasm_bindgen_futures::spawn_local;
+use wasm_bindgen_futures::spawn_local; 
 
-type RecvResponders<A> = Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>;
+type RecvResponders<A> = Rc<RefCell<HashMap<usize, Box<dyn FnMut(&A)>>>>;
 
 
 pub type RecvFuture<A> = Pin<Box<dyn Future<Output = Option<A>>>>;
@@ -411,14 +411,11 @@ where
 
 
 fn recv_from<A>(
-  next_k: Arc<Mutex<usize>>,
+  next_k: Rc<RefCell<usize>>,
   branches: RecvResponders<A>
 ) -> Receiver<A> {
   let k = {
-    let mut next_k =
-      next_k
-      .try_lock()
-      .expect("Could not try_lock Transmitter::new_recv");
+    let mut next_k = next_k.borrow_mut();
     let k = *next_k;
     *next_k += 1;
     k
@@ -434,8 +431,8 @@ fn recv_from<A>(
 
 /// Send messages instantly.
 pub struct Transmitter<A> {
-  next_k: Arc<Mutex<usize>>,
-  branches: Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>,
+  next_k: Rc<RefCell<usize>>,
+  branches: Rc<RefCell<HashMap<usize, Box<dyn FnMut(&A)>>>>,
 }
 
 
@@ -453,8 +450,8 @@ impl<A:Any> Transmitter<A> {
   /// Create a new transmitter.
   pub fn new() -> Transmitter<A> {
     Transmitter {
-      next_k: Arc::new(Mutex::new(0)),
-      branches: Arc::new(Mutex::new(HashMap::new()))
+      next_k: Rc::new(RefCell::new(0)),
+      branches: Rc::new(RefCell::new(HashMap::new()))
     }
   }
 
@@ -465,11 +462,7 @@ impl<A:Any> Transmitter<A> {
 
   /// Send a message to any and all receivers of this transmitter.
   pub fn send(&self, a:&A) {
-    let mut branches =
-      self
-      .branches
-      .try_lock()
-      .expect("Could not get Transmitter lookup");
+    let mut branches = self.branches.borrow_mut();
     branches
       .iter_mut()
       .for_each(|(_, f)| {
@@ -494,7 +487,7 @@ impl<A:Any> Transmitter<A> {
   /// and optionally sends `A`s down into this transmitter.
   pub fn contra_filter_fold_shared<B, T, F>(
     &self,
-    var: Arc<Mutex<T>>,
+    var: Rc<RefCell<T>>,
     f:F
   ) -> Transmitter<B>
   where
@@ -506,7 +499,7 @@ impl<A:Any> Transmitter<A> {
     let (tev, rev) = txrx();
     rev.respond(move |ev| {
       let result = {
-        let mut t = var.try_lock().unwrap_throw();
+        let mut t = var.borrow_mut();//var.try_lock().unwrap_throw();
         f(&mut t, ev)
       };
       result
@@ -597,7 +590,7 @@ impl<A:Any> Transmitter<A> {
   ///
   /// The fold function returns an `Option<B>`. In the case that the value of
   /// `Option<B>` is `None`, no message will be sent to the receiver.
-  pub fn wire_filter_fold_shared<T, B, F>(&mut self, rb: &Receiver<B>, var:Arc<Mutex<T>>, f:F)
+  pub fn wire_filter_fold_shared<T, B, F>(&mut self, rb: &Receiver<B>, var:Rc<RefCell<T>>, f:F)
   where
     B: Any,
     T: Any,
@@ -641,7 +634,7 @@ impl<A:Any> Transmitter<A> {
 
   /// Wires the transmitter to send to the given receiver using a stateful fold
   /// function, where the state is a shared mutex.
-  pub fn wire_fold_shared<T, B, F>(&mut self, rb: &Receiver<B>, var:Arc<Mutex<T>>, f:F)
+  pub fn wire_fold_shared<T, B, F>(&mut self, rb: &Receiver<B>, var:Rc<RefCell<T>>, f:F)
   where
     B: Any,
     T: Any,
@@ -710,8 +703,8 @@ impl<A:Any> Transmitter<A> {
 /// Receive messages instantly.
 pub struct Receiver<A> {
   k: usize,
-  next_k: Arc<Mutex<usize>>,
-  branches: Arc<Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>>,
+  next_k: Rc<RefCell<usize>>,
+  branches: Rc<RefCell<HashMap<usize, Box<dyn FnMut(&A)>>>>,
 }
 
 
@@ -738,8 +731,8 @@ impl<A> Receiver<A> {
   pub fn new() -> Receiver<A> {
     Receiver {
       k: 0,
-      next_k: Arc::new(Mutex::new(1)),
-      branches: Arc::new(Mutex::new(HashMap::new()))
+      next_k: Rc::new(RefCell::new(1)),
+      branches: Rc::new(RefCell::new(HashMap::new()))
     }
   }
 
@@ -751,33 +744,33 @@ impl<A> Receiver<A> {
     F: FnMut(&A) + 'static
   {
     let k = self.k;
-    let mut branches =
-      self
-      .branches
-      .try_lock()
-      .expect("Could not try_lock Receiver::respond");
+    let mut branches = self.branches.borrow_mut();
+      //self
+      //.branches
+      //.try_lock()
+      //.expect("Could not try_lock Receiver::respond");
     branches.insert(k, Box::new(f));
   }
 
   /// Set the response this receiver has to messages. Upon receiving a message
   /// the response will run immediately.
   ///
-  /// Folds mutably over a shared Arc<Mutex<T>>.
-  pub fn respond_shared<T:Any, F>(self, val:Arc<Mutex<T>>, f:F)
+  /// Folds mutably over a shared Rc<RefCell<T>>.
+  pub fn respond_shared<T:Any, F>(self, val:Rc<RefCell<T>>, f:F)
   where
     F: Fn(&mut T, &A) + 'static
   {
     let k = self.k;
-    let mut branches =
-      self
-      .branches
-      .try_lock()
-      .expect("Could not try_lock Receiver::respond");
+    let mut branches = self.branches.borrow_mut();
+      //self
+      //.branches
+      //.try_lock()
+      //.expect("Could not try_lock Receiver::respond");
     branches.insert(k, Box::new(move |a:&A| {
-      let mut t =
-        val
-        .try_lock()
-        .unwrap_throw();
+      let mut t = val.borrow_mut();
+        //val
+        //.try_lock()
+        //.unwrap_throw();
       f(&mut t, a);
     }));
   }
@@ -785,11 +778,11 @@ impl<A> Receiver<A> {
   /// Removes the responder from the receiver.
   /// This drops anything owned by the responder.
   pub fn drop_responder(&mut self) {
-    let mut branches =
-      self
-      .branches
-      .try_lock()
-      .expect("Could not try_lock Receiver::drop_responder");
+    let mut branches = self.branches.borrow_mut();
+      //self
+      //.branches
+      //.try_lock()
+      //.expect("Could not try_lock Receiver::drop_responder");
     let _ = branches.remove(&self.k);
   }
 
@@ -835,7 +828,7 @@ impl<A> Receiver<A> {
   /// `Option<B>` is `None`, no message will be sent to the new receiver.
   ///
   /// Each branch will receive from the same transmitter.
-  pub fn branch_filter_fold_shared<B, T, F>(&self, state:Arc<Mutex<T>>, f:F) -> Receiver<B>
+  pub fn branch_filter_fold_shared<B, T, F>(&self, state:Rc<RefCell<T>>, f:F) -> Receiver<B>
   where
     B: Any,
     T: Any,
@@ -873,7 +866,7 @@ impl<A> Receiver<A> {
   /// All output of the fold function is sent to the new receiver.
   ///
   /// Each branch will receive from the same transmitter(s).
-  pub fn branch_fold_shared<B, T, F>(&self, t:Arc<Mutex<T>>, f:F) -> Receiver<B>
+  pub fn branch_fold_shared<B, T, F>(&self, t:Rc<RefCell<T>>, f:F) -> Receiver<B>
   where
     B: Any,
     T: Any,
@@ -927,7 +920,7 @@ impl<A> Receiver<A> {
   ///
   /// The fold function returns an `Option<B>`. In the case that the value of
   /// `Option<B>` is `None`, no message will be sent to the transmitter.
-  pub fn forward_filter_fold_shared<B, T, F>(self, tx: &Transmitter<B>, var:Arc<Mutex<T>>, f:F)
+  pub fn forward_filter_fold_shared<B, T, F>(self, tx: &Transmitter<B>, var:Rc<RefCell<T>>, f:F)
   where
     B: Any,
     T: Any,
@@ -936,7 +929,7 @@ impl<A> Receiver<A> {
     let tx = tx.clone();
     self.respond(move |a:&A| {
       let result = {
-        let mut t = var.try_lock().unwrap_throw();
+        let mut t = var.borrow_mut(); //var.try_lock().unwrap_throw();
         f(&mut t, a)
       };
       result
@@ -959,7 +952,7 @@ impl<A> Receiver<A> {
     X: Into<T>,
     F: Fn(&mut T, &A) -> Option<B> + 'static
   {
-    let var = Arc::new(Mutex::new(init.into()));
+    let var = Rc::new(RefCell::new(init.into()));
     self.forward_filter_fold_shared(tx, var, f);
   }
 
@@ -981,7 +974,7 @@ impl<A> Receiver<A> {
   /// Forwards messages on the given receiver to the given transmitter using a
   /// stateful fold function, where the state is a shared mutex. All output of
   /// the fold function is sent to the given transmitter.
-  pub fn forward_fold_shared<B, T, F>(self, tx: &Transmitter<B>, t:Arc<Mutex<T>>, f:F)
+  pub fn forward_fold_shared<B, T, F>(self, tx: &Transmitter<B>, t:Rc<RefCell<T>>, f:F)
   where
     B: Any,
     T: Any,
@@ -1040,15 +1033,12 @@ impl<A> Receiver<A> {
     F: Fn(&mut T, &A) -> Option<RecvFuture<B>> + 'static,
     H: Fn(&mut T, &Option<B>) + 'static
   {
-    let state = Arc::new(Mutex::new(init.into()));
-    let cleanup = Arc::new(Box::new(h));
+    let state = Rc::new(RefCell::new(init.into()));
+    let cleanup = Rc::new(Box::new(h));
     let tb = tb.clone();
     self.respond(move |a:&A| {
       let may_async = {
-        let mut block_state =
-          state
-          .try_lock()
-          .expect("Could not try_lock in Receiver::forward_filter_fold_async for block_state");
+        let mut block_state = state.borrow_mut();
         f(&mut block_state, a)
       };
       may_async
@@ -1064,10 +1054,7 @@ impl<A> Receiver<A> {
               opt
                 .iter()
                 .for_each(|b| tb_clone.send(&b));
-              let mut inner_state =
-                state_clone
-                .try_lock()
-                .expect("Could not try_lock Receiver::forward_filter_fold_async for inner_state");
+              let mut inner_state = state_clone.borrow_mut();
               cleanup_clone(&mut inner_state, &opt);
             };
           spawn_local(future);
@@ -1146,7 +1133,7 @@ where
 /// In the case that the return value of the given function is `None`, no message
 /// will be sent to the receiver.
 pub fn txrx_filter_fold_shared<A, B, T, F>(
-  var:Arc<Mutex<T>>,
+  var:Rc<RefCell<T>>,
   f:F
 ) -> (Transmitter<A>, Receiver<B>)
 where
@@ -1184,7 +1171,7 @@ where
 /// Using the given fold function, messages sent on the transmitter are folded
 /// into the given internal state and all output messages will be sent to the
 /// receiver.
-pub fn txrx_fold_shared<A, B, T, F>(t:Arc<Mutex<T>>, f:F) -> (Transmitter<A>, Receiver<B>)
+pub fn txrx_fold_shared<A, B, T, F>(t:Rc<RefCell<T>>, f:F) -> (Transmitter<A>, Receiver<B>)
 where
   A:Any,
   B:Any,
@@ -1239,8 +1226,8 @@ where
 /// Use this as a short hand for creating variables to pass to
 /// the many `*_shared` flavored fold functions in the [txrx](index.html)
 /// module.
-pub fn new_shared<A:Any, X:Into<A>>(init:X) -> Arc<Mutex<A>> {
-  Arc::new(Mutex::new(init.into()))
+pub fn new_shared<A:Any, X:Into<A>>(init:X) -> Rc<RefCell<A>> {
+  Rc::new(RefCell::new(init.into()))
 }
 
 
@@ -1265,17 +1252,15 @@ mod instant_txrx {
 
   #[test]
   fn txrx_test() {
-    let count = Arc::new(Mutex::new(0));
+    let count = Rc::new(RefCell::new(0));
     let (tx_unit, rx_unit) = txrx::<()>();
     let (tx_i32, rx_i32) = txrx::<i32>();
     {
       let my_count = count.clone();
       rx_i32.respond(move |n:&i32| {
         println!("Got message: {:?}", n);
-        my_count
-          .try_lock()
-          .into_iter()
-          .for_each(|mut c| *c = *n);
+        let mut c = my_count.borrow_mut();
+        *c = *n;
       });
 
       let mut n = 0;
@@ -1289,11 +1274,7 @@ mod instant_txrx {
     tx_unit.send(&());
     tx_unit.send(&());
 
-    let final_count:i32 =
-      *count
-      .try_lock()
-      .expect("Could not get final count");
-
+    let final_count:i32 = *count.borrow(); 
     assert_eq!(final_count, 3);
   }
 
@@ -1310,26 +1291,19 @@ mod instant_txrx {
       }
     });
 
-    let got_called = Arc::new(Mutex::new(false));
+    let got_called = Rc::new(RefCell::new(false));
     let remote_got_called = got_called.clone();
     rx_str.respond(move |s: &String| {
       println!("got: {:?}", s);
-      remote_got_called
-        .try_lock()
-        .into_iter()
-        .for_each(|mut called| *called = true);
+      let mut called = remote_got_called.borrow_mut();
+      *called = true;
     });
 
     tx_unit.send(&());
     tx_unit.send(&());
     tx_unit.send(&());
 
-    let ever_called =
-      got_called
-      .try_lock()
-      .map(|t| *t)
-      .unwrap_or(false);
-
+    let ever_called = *got_called.borrow();
     assert!(ever_called);
   }
 
@@ -1337,23 +1311,20 @@ mod instant_txrx {
   fn branch_map() {
     let (tx, rx) = txrx::<()>();
     let ry:Receiver<i32> =
-      rx.branch_map(|_| 0);
+      rx.branch_map(|_| 0); 
 
     let done =
-      Arc::new(Mutex::new(false));
+      Rc::new(RefCell::new(false));
 
     let cdone = done.clone();
     ry.respond(move |n| {
       if *n == 0 {
-        *cdone
-          .try_lock()
-          .unwrap_throw()
-          = true;
+        *cdone.borrow_mut() = true;
       }
     });
 
     tx.send(&());
 
-    assert!(*done.try_lock().unwrap_throw());
+    assert!(*done.borrow());
   }
 }

@@ -1,8 +1,3 @@
-extern crate log;
-extern crate console_log;
-extern crate console_error_panic_hook;
-extern crate mogwai;
-
 mod elm_button;
 
 use log::Level;
@@ -14,7 +9,7 @@ use std::panic;
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
-pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> GizmoBuilder {
+pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> Gizmo<HtmlElement> {
   // Create a receiver for our button to get its text from.
   let rx_text = Receiver::<String>::new();
 
@@ -56,12 +51,12 @@ pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> GizmoBuilder {
 
 
 /// Creates a h1 heading that changes its color.
-pub fn new_h1_gizmo(mut tx_click:Transmitter<Event>) -> GizmoBuilder {
+pub fn new_h1_gizmo(mut tx_click:Transmitter<Event>) -> Gizmo<HtmlElement> {
   // Create a receiver for our heading to get its color from.
   let rx_color = Receiver::<String>::new();
 
-  // Create the builder for our heading, giving it the receiver.
-  let h1:GizmoBuilder =
+  // Create the gizmo for our heading, giving it the receiver.
+  let h1 =
     h1()
     .attribute("id", "header")
     .attribute("class", "my-header")
@@ -138,7 +133,7 @@ async fn click_to_text() -> Option<String> {
 
 /// Creates a button that when clicked requests the time in london and sends
 /// it down a receiver.
-pub fn time_req_button_and_pre() -> GizmoBuilder {
+pub fn time_req_button_and_pre() -> Gizmo<HtmlElement> {
   let (req_tx, req_rx) = txrx::<Event>();
   let (resp_tx, resp_rx) = txrx::<String>();
 
@@ -174,9 +169,7 @@ pub fn time_req_button_and_pre() -> GizmoBuilder {
     .style("cursor", "pointer")
     .text("Get the time (london)")
     .tx_on("click", req_tx);
-  let pre =
-    GizmoBuilder::new("pre")
-    .rx_text("(waiting)", resp_rx);
+  let pre = pre().rx_text("(waiting)", resp_rx);
   div()
     .with(btn)
     .with(pre)
@@ -184,7 +177,7 @@ pub fn time_req_button_and_pre() -> GizmoBuilder {
 
 
 /// Creates a gizmo that ticks a count upward every second.
-pub fn counter() -> GizmoBuilder {
+pub fn counter() -> Gizmo<Element> {
   // Create a transmitter to send ticks every second
   let mut tx = Transmitter::<()>::new();
 
@@ -209,7 +202,7 @@ pub fn counter() -> GizmoBuilder {
     }
   );
 
-  GizmoBuilder::new("h3")
+  Gizmo::element("h3")
     .rx_text("Awaiting first count", rx)
 }
 
@@ -219,7 +212,6 @@ pub fn main() -> Result<(), JsValue> {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   console_log::init_with_level(Level::Trace)
     .unwrap_throw();
-
 
   // Create a transmitter to send button clicks into.
   let tx_click = Transmitter::new();
@@ -233,10 +225,9 @@ pub fn main() -> Result<(), JsValue> {
     .with(h1)
     .with(btn)
     .with(elm_button::Button{ clicks: 0 })
-    .with(GizmoBuilder::new("br"))
-    .with(GizmoBuilder::new("br"))
+    .with(Gizmo::element("br"))
+    .with(Gizmo::element("br"))
     .with(req)
     .with(counter)
-    .build()?
     .run()
 }

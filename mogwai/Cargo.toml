@@ -1,6 +1,6 @@
 [package]
 name = "mogwai"
-version = "0.1.6"
+version = "0.2.0"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -35,5 +35,10 @@ features = [
   "Window"
 ]
 
+[dev-dependencies]
+wasm-bindgen-test = "^0.3"
+wasm-bindgen-futures = "^0.4"
+
 [profile.release]
 lto = true
+opt-level = 3 

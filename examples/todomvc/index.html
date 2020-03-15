@@ -6,10 +6,9 @@
         <link rel="stylesheet" href="todo.css">
     </head>
     <body>
-        <script src="pkg/mogwai_todo.js"></script>
+        <script src="pkg/todomvc.js"></script>
         <script type=module>
-         window
-             .wasm_bindgen('pkg/mogwai_todo_bg.wasm')
+         wasm_bindgen('pkg/todomvc_bg.wasm')
              .then( m => m.main() )
              .catch(console.error);
         </script>
