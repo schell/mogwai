@@ -179,8 +179,27 @@ impl GizmoBuilder {
     self.option(GizmoOption::Attribute(name.to_string(), Continuous::Static(Some(value.to_string()))))
   }
 
+  /// Add an unchanging boolean attribute.
   pub fn boolean_attribute(self, name: &str) -> GizmoBuilder {
     self.option(GizmoOption::Attribute(name.to_string(), Continuous::Static(Some("".into()))))
+  }
+
+  /// Add an unchanging boolean attribute only if the given condition is `true`.
+  pub fn conditional_boolean_attribute(
+    self,
+    name: &str,
+    condition: bool
+  ) -> GizmoBuilder {
+    if condition {
+      self.option(
+        GizmoOption::Attribute(
+          name.to_string(),
+          Continuous::Static(Some("".into()))
+        )
+      )
+    } else {
+      self
+    }
   }
 
   /// Add an unchanging style.
