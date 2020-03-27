@@ -2,8 +2,9 @@
 
 > **m**inimalist, **o**bvious, **g**raphical **w**eb **a**pplication **i**nterface
 
-current release: [![Crates.io][ci]][cl] ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=release)
-next release: ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=master)
+release: [![Crates.io][ci]][cl] ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=release)
+
+master: ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=master)
 
 [ci]: https://img.shields.io/crates/v/mogwai.svg
 [cl]: https://crates.io/crates/mogwai/
