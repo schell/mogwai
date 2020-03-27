@@ -25,7 +25,6 @@
 //!       .attribute("href", "http://zyghost.com")
 //!       .text("Schellsan's website")
 //!   )
-//!   .build().unwrap_throw()
 //!   .run().unwrap_throw()
 //! ```
 //!
@@ -83,7 +82,6 @@
 //!       .attribute("href", "https://zyghost.com")
 //!       .rx_text("Schellsan's website", rx)
 //!   )
-//!   .build().unwrap_throw()
 //!   .run().unwrap_throw();
 //!
 //! tx.send(&"Gizmo's website".into());

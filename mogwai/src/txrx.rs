@@ -170,7 +170,7 @@
 //! tx.send(&());
 //! tx.send(&());
 //! tx.send(&());
-//! assert_eq!(*shared_count.try_lock().unwrap_throw(), 3);
+//! assert_eq!(*shared_count.borrow(), 3);
 //! ```
 //!
 //! ## Composing channels
@@ -215,7 +215,7 @@
 //! tx_a.send(&());
 //! tx_a.send(&());
 //! tx_a.send(&());
-//! assert_eq!(*shared_count.try_lock().unwrap_throw(), 3);
+//! assert_eq!(*shared_count.borrow(), 3);
 //! ```
 //!
 //! That is useful, but we can also do much more than simple maps! We can fold
@@ -279,7 +279,7 @@
 //! });
 //!
 //! tx.send(&());
-//! assert_eq!(*shared_got_it.try_lock().unwrap_throw(), true);
+//! assert_eq!(*shared_got_it.borrow(), true);
 //! ```
 //!
 //! These make up the `forward_*` family of functions on [Receiver]:
@@ -311,7 +311,7 @@
 //! });
 //! tx1.send(&());
 //! tx2.send(&());
-//! assert_eq!(*shared_count.try_lock().unwrap_throw(), 2);
+//! assert_eq!(*shared_count.borrow(), 2);
 //! ```
 //!
 //! [Receiver]s are a bit different from [Transmitter]s, though. They are _not_
@@ -333,7 +333,7 @@
 //!   *count += 1;
 //! });
 //! tx.send(&());
-//! assert_eq!(*shared_count.try_lock().unwrap_throw(), 2);
+//! assert_eq!(*shared_count.borrow(), 2);
 //! ```
 //!
 //! Both [Transmitter]s and [Receiver]s can be "branched" so that multiple
@@ -499,7 +499,7 @@ impl<A:Any> Transmitter<A> {
     let (tev, rev) = txrx();
     rev.respond(move |ev| {
       let result = {
-        let mut t = var.borrow_mut();//var.try_lock().unwrap_throw();
+        let mut t = var.borrow_mut();
         f(&mut t, ev)
       };
       result
@@ -745,10 +745,6 @@ impl<A> Receiver<A> {
   {
     let k = self.k;
     let mut branches = self.branches.borrow_mut();
-      //self
-      //.branches
-      //.try_lock()
-      //.expect("Could not try_lock Receiver::respond");
     branches.insert(k, Box::new(f));
   }
 
@@ -762,15 +758,8 @@ impl<A> Receiver<A> {
   {
     let k = self.k;
     let mut branches = self.branches.borrow_mut();
-      //self
-      //.branches
-      //.try_lock()
-      //.expect("Could not try_lock Receiver::respond");
     branches.insert(k, Box::new(move |a:&A| {
       let mut t = val.borrow_mut();
-        //val
-        //.try_lock()
-        //.unwrap_throw();
       f(&mut t, a);
     }));
   }
@@ -779,10 +768,6 @@ impl<A> Receiver<A> {
   /// This drops anything owned by the responder.
   pub fn drop_responder(&mut self) {
     let mut branches = self.branches.borrow_mut();
-      //self
-      //.branches
-      //.try_lock()
-      //.expect("Could not try_lock Receiver::drop_responder");
     let _ = branches.remove(&self.k);
   }
 
@@ -929,7 +914,7 @@ impl<A> Receiver<A> {
     let tx = tx.clone();
     self.respond(move |a:&A| {
       let result = {
-        let mut t = var.borrow_mut(); //var.try_lock().unwrap_throw();
+        let mut t = var.borrow_mut();
         f(&mut t, a)
       };
       result

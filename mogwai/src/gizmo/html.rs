@@ -1,7 +1,9 @@
-//! Contains [`GizmoBuilder`] constructors for all html5 tags.
+//! Contains [`GizmoBuilder`] constructors for html5 tags.
+//!
 //! Each of these constructor functions is shorthand for
 //! ```rust,ignore
 //! Gizmo::element("...")
+//! .downcast::<HtmlElement>().ok().unwrap()
 //! ```
 //!
 //! [`GizmoBuilder`]: ../struct.GizmoBuilder.html

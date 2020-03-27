@@ -208,12 +208,17 @@ impl<T: JsCast + AsRef<Element>> Gizmo<T> {
   ///
   /// This represents all the classes for this gizmo. If you'd like to specify
   /// more than one class call this as:
-  /// ```rust
+  /// ```rust, no_run
   /// extern crate mogwai;
   /// use mogwai::prelude::*;
   ///
+  /// let gizmo_the_long_way =
+  ///   Gizmo::element("div")
+  ///   .downcast::<HtmlElement>().ok().unwrap()
+  ///   .class("class1 class2 class3 etc");
+  ///
   /// let gizmo =
-  ///   Gizmo::element("div");
+  ///   div()
   ///   .class("class1 class2 class3 etc");
   /// ```
   pub fn class(self, value: &str) -> Gizmo<T> {

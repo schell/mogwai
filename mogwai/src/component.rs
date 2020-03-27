@@ -50,8 +50,9 @@
 //! impl Component for App {
 //!   type ModelMsg = In;
 //!   type ViewMsg = Out;
+//!   type DomNode = HtmlElement;
 //!
-//!   fn builder(&self, tx: Transmitter<In>, rx:Receiver<Out>) -> GizmoBuilder {
+//!   fn view(&self, tx: Transmitter<In>, rx:Receiver<Out>) -> Gizmo<HtmlElement> {
 //!     button()
 //!       .tx_on("click", tx.contra_map(|_| In::Click))
 //!       .rx_text("clicks = 0", rx.branch_map(|msg| {
@@ -355,19 +356,19 @@ pub type BuilderFn<T, D> = dyn Fn(Transmitter<T>, Receiver<T>) -> Gizmo<D>;
 /// returns a GizmoBuilder can be made into a component that holds no internal
 /// state. It forwards all of its incoming messages to its view.
 ///
-/// ```rust
+/// ```rust,no_run
 /// extern crate mogwai;
 /// use mogwai::prelude::*;
 ///
-/// let component: SimpleComponent<()> =
+/// let component: SimpleComponent<(), HtmlElement> =
 ///   (Box::new(
-///   |tx: Transmitter<()>, rx: Receiver<()>| -> GizmoBuilder {
+///   |tx: Transmitter<()>, rx: Receiver<()>| -> Gizmo<HtmlElement> {
 ///     button()
 ///       .style("cursor", "pointer")
 ///       .rx_text("Click me", rx.branch_map(|()| "Clicked!".to_string()))
 ///       .tx_on("click", tx.contra_map(|_| ()))
 ///   },
-/// ) as Box<BuilderFn<()>>)
+/// ) as Box<BuilderFn<(), HtmlElement>>)
 ///   .into_component();
 /// ```
 pub type SimpleComponent<T, D> = GizmoComponent<Box<BuilderFn<T, D>>>;
