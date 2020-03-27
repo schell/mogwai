@@ -83,7 +83,7 @@
 //! ```
 //!
 //! The first step is to define the incoming messages that will update the model.
-//! Next we define the outgoing messages that will update our view. The `builder`
+//! Next we define the outgoing messages that will update our view. The `Component::view`
 //! trait method uses these message types to build the view. It does this by
 //! consuming a `Transmitter<Self::ModelMsg>` and a `Receiver<Self::ViewMsg>`.
 //! These represent the inputs and the outputs of your component. Roughly,
@@ -100,8 +100,8 @@
 //!
 //! ## Placing components
 //!
-//! Components may be used within a [`GizmoBuilder`] using the
-//! [`GizmoBuilder::with`] function.
+//! Components may be used within a [`Gizmo`] using the
+//! [`Gizmo::with`] function.
 use std::any::Any;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -353,7 +353,7 @@ pub type BuilderFn<T, D> = dyn Fn(Transmitter<T>, Receiver<T>) -> Gizmo<D>;
 /// A simple component made from a [BuilderFn].
 ///
 /// Any function that takes a transmitter and receiver of the same type and
-/// returns a GizmoBuilder can be made into a component that holds no internal
+/// returns a Gizmo can be made into a component that holds no internal
 /// state. It forwards all of its incoming messages to its view.
 ///
 /// ```rust,no_run

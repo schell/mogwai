@@ -2,7 +2,8 @@
 
 > **m**inimalist, **o**bvious, **g**raphical **w**eb **a**pplication **i**nterface
 
-[![Crates.io][ci]][cl]
+current release: [![Crates.io][ci]][cl] ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=release)
+next release: ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=master)
 
 [ci]: https://img.shields.io/crates/v/mogwai.svg
 [cl]: https://crates.io/crates/mogwai/
@@ -16,7 +17,7 @@ to React, Backbone, Ember, Elm, Purescript, etc.
 * provide a declarative approach to creating and managing DOM nodes
 * encapsulate component state and compose components easily
 * explicate DOM updates
-* be small and fast (snappy)
+* be small and fast (snappy af)
 
 If mogwai achieves these goals, which I think it does, then maintaining
 application state, composing widgets and reasoning about your program will be
@@ -25,7 +26,7 @@ easy. Furthermore, your users will be happy because their UI is snappy!
 ## example
 Here is an example of a button that counts its own clicks.
 
-```rust
+```rust, no_run
 extern crate mogwai;
 use mogwai::prelude::*;
 
@@ -45,13 +46,12 @@ let (tx, rx) =
 button()
   .rx_text("Clicked 0 times", rx)
   .tx_on("click", tx)
-  .build().unwrap_throw()
   .run().unwrap_throw()
 ```
 
 Here's that same example using the elm-like `Component` trait:
 
-```rust
+```rust, no_run
 use mogwai::prelude::*;
 
 pub struct Button {
@@ -71,6 +71,7 @@ pub enum ButtonOut {
 impl Component for Button {
   type ModelMsg = ButtonIn;
   type ViewMsg = ButtonOut;
+  type DomNode = HtmlElement;
 
   fn update(
     &mut self,
@@ -86,11 +87,11 @@ impl Component for Button {
     }
   }
 
-  fn builder(
+  fn view(
     &self,
     tx: Transmitter<ButtonIn>,
     rx: Receiver<ButtonOut>
-  ) -> GizmoBuilder {
+  ) -> Gizmo<HtmlElement> {
     button()
       .rx_text("Clicked 0 times", rx.branch_map(|msg| {
         match msg {
@@ -103,7 +104,6 @@ impl Component for Button {
 
 Button{ clicks: 0 }
   .into_component()
-  .build().unwrap_throw()
   .run().unwrap_throw()
 ```
 
@@ -151,17 +151,17 @@ For starting a new mogwai project we'll use the wonderful `cargo-generate`, whic
 can be installed using `cargo install cargo-generate`.
 
 Then run
-```
+```shell
 cargo generate --git https://github.com/schell/mogwai-template.git
 ```
 and give the command line a project name. Then `cd` into your sparkling new
 project and
-```
+```shell
 wasm-pack build --target no-modules
 ```
 Then, if you don't already have it, `cargo install basic-http-server` or use your
 favorite alternative to serve your app:
-```
+```shell
 basic-http-server -a 127.0.0.1:8888
 ```
 Happy hacking! :coffee: :coffee: :coffee:
@@ -174,7 +174,7 @@ For more examples, check out
 [the todomvc app](https://github.com/schell/mogwai/blob/master/examples/todomvc)
 
 To build the examples use:
-```bash
+```shell
 cd examples/whatever && wasm-pack build --target no-modules
 ```
 

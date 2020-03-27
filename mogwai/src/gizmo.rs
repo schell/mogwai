@@ -7,7 +7,7 @@ use std::rc::Rc;
 use wasm_bindgen::closure::Closure; 
 use web_sys::{HtmlElement, Node, Text};
 
-//use super::builder::GizmoBuilder;
+//use super::builder::Gizmo;
 use super::txrx::{hand_clone, Receiver, Transmitter};
 pub use super::utils;
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};

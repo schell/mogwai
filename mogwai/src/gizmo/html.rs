@@ -1,4 +1,4 @@
-//! Contains [`GizmoBuilder`] constructors for html5 tags.
+//! Contains [`Gizmo`] constructors for html5 tags.
 //!
 //! Each of these constructor functions is shorthand for
 //! ```rust,ignore
@@ -6,7 +6,7 @@
 //! .downcast::<HtmlElement>().ok().unwrap()
 //! ```
 //!
-//! [`GizmoBuilder`]: ../struct.GizmoBuilder.html
+//! [`Gizmo`]: ../struct.Gizmo.html
 use super::Gizmo;
 use super::super::utils as utils;
 use wasm_bindgen::JsCast;

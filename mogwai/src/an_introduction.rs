@@ -9,10 +9,9 @@
 //!
 //! ## Building Gizmos (aka constructing DOM widgets)
 //! Building DOM is one of the main authorship modes in Mogwai. DOM nodes
-//! are created using a builder pattern. The builder itself is called
-//! [`GizmoBuilder`] and it gets built into a [`Gizmo`]. A `Gizmo` is Mogwai's
-//! name for a widget. `Gizmo`s can be run or attached to other `Gizmo`s. The
-//! builder pattern looks like this:
+//! are created using a builder pattern. The builder itself is called a
+//! [`Gizmo`] and it defines a user interface widget. `Gizmo`s can be run or
+//! attached to other `Gizmo`s. The builder pattern looks like this:
 //!
 //! ```rust, no_run
 //! extern crate mogwai;
@@ -28,8 +27,8 @@
 //!   .run().unwrap_throw()
 //! ```
 //!
-//! The example above would create a DOM node and append it to the document
-//! body. It would look like this:
+//! The example above would create a DOM node with a link inside it and append it
+//! to the document body. It would look like this:
 //!
 //! ```html
 //! <div class="my-div">
@@ -39,18 +38,19 @@
 //!
 //! ### Running Gizmos and removing gizmos
 //!
-//! Note that the builder is built into a [`Gizmo`] with [`GizmoBuilder::build`]
-//! and then added to the body automatically with the [`GizmoBuilder::run`]
-//! function. This `run` function is special. It hands off the gizmo to be
-//! owned by the window. Otherwise the gizmo would go out of scope and be
-//! dropped. When a gizmo is dropped its [`HtmlElement`] is removed from the DOM.
+//! Note that the [`Gizmo`] is added to the body automatically with the
+//! [`Gizmo::run`] function. This `run` function is special. It hands off the
+//! gizmo to be owned by the window - otherwise the gizmo would go out of scope
+//! and be dropped. This is important when a gizmo is dropped and all references
+//! to its inner DOM node are no longer in scope, that DOM nodeis removed from
+//! the DOM.
 //!
-//! You may have noticed that we can use the [`GizmoBuilder::class`] method to set
-//! the class of our `div` tag, but we use the [`GizmoBuilder::attribute`] method
-//! to set the href attribute of our `a` tag. That's because [`GizmoBuilder::class`]
-//! is a convenience method that simply calls [`GizmoBuilder::attribute`] under the
+//! You may have noticed that we can use the [`Gizmo::class`] method to set
+//! the class of our `div` tag, but we use the [`Gizmo::attribute`] method
+//! to set the href attribute of our `a` tag. That's because [`Gizmo::class`]
+//! is a convenience method that simply calls [`Gizmo::attribute`] under the
 //! hood. Some DOM attributes have these conveniences and others do not. See the
-//! documentation for [`GizmoBuilder`] for more info. If you don't see a method that
+//! documentation for [`Gizmo`] for more info. If you don't see a method that
 //! you think should be there, I welcome you to
 //! [add it in a pull request](https://github.com/schell/mogwai) :)
 //!
@@ -63,7 +63,7 @@
 //! channel in other rust libraries.
 //!
 //! Creating a channel is easy using the [txrx()] function. Then we "wire" it
-//! into the `GizmoBuilder` with one of a number of `rx_` flavored `GizmoBuilder`
+//! into the `Gizmo` with one of a number of `rx_` flavored `Gizmo`
 //! methods.
 //!
 //! Whenever the `Transmitter<T>` of the channel sends a value, the DOM is
@@ -117,9 +117,9 @@
 //! `dyn_ref` functions are the primary way to cast JavaScript values as specific
 //! types.
 //!
-//! [`GizmoBuilder::build`]: GizmoBuilder::build
-//! [`GizmoBuilder::run`]: GizmoBuilder::method@run
-//! [`GizmoBuilder`]: struct@GizmoBuilder
+//! [`Gizmo::build`]: Gizmo::build
+//! [`Gizmo::run`]: Gizmo::method@run
+//! [`Gizmo`]: struct@Gizmo
 //! [`Gizmo`]: struct@Gizmo
 //! [`Transmitter<T>`]: struct@Transmitter
 //! [`Receiver<T>`]: struct@Receiver
