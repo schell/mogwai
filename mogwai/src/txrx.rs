@@ -394,7 +394,7 @@ use std::future::Future;
 use std::any::Any;
 use std::pin::Pin;
 use std::collections::HashMap;
-use wasm_bindgen_futures::spawn_local; 
+use wasm_bindgen_futures::spawn_local;
 
 type RecvResponders<A> = Rc<RefCell<HashMap<usize, Box<dyn FnMut(&A)>>>>;
 
@@ -1259,7 +1259,7 @@ mod instant_txrx {
     tx_unit.send(&());
     tx_unit.send(&());
 
-    let final_count:i32 = *count.borrow(); 
+    let final_count:i32 = *count.borrow();
     assert_eq!(final_count, 3);
   }
 
@@ -1296,7 +1296,7 @@ mod instant_txrx {
   fn branch_map() {
     let (tx, rx) = txrx::<()>();
     let ry:Receiver<i32> =
-      rx.branch_map(|_| 0); 
+      rx.branch_map(|_| 0);
 
     let done =
       Rc::new(RefCell::new(false));
