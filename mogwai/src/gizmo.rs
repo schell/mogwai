@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::rc::Rc;
-use wasm_bindgen::closure::Closure; 
+use wasm_bindgen::closure::Closure;
 use web_sys::{HtmlElement, Node, Text};
 
 //use super::builder::Gizmo;
@@ -20,7 +20,7 @@ pub mod html;
 /// closures and receivers.
 pub struct Gizmo<T: JsCast> {
   pub(crate) element: Rc<JsValue>,
-  pub(crate) phantom: PhantomData<T>, 
+  pub(crate) phantom: PhantomData<T>,
   pub(crate) callbacks: HashMap<String, Rc<Closure<dyn FnMut(JsValue)>>>,
   pub(crate) window_callbacks:
     HashMap<String, Rc<Closure<dyn FnMut(JsValue)>>>,
@@ -66,7 +66,7 @@ impl<T: JsCast + AsRef<EventTarget>> Gizmo<T> {
   pub fn tx_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Gizmo<T> {
     let target: &EventTarget = self.as_ref();
     let cb = utils::add_event(ev_name, target, tx);
-    self.callbacks.insert(ev_name.to_string(), cb); 
+    self.callbacks.insert(ev_name.to_string(), cb);
     self
   }
 
