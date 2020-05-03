@@ -8,9 +8,9 @@
     <body>
         <script src="pkg/todomvc.js"></script>
         <script type=module>
-         wasm_bindgen('pkg/todomvc_bg.wasm')
-             .then( m => m.main() )
-             .catch(console.error);
+            wasm_bindgen('pkg/todomvc_bg.wasm')
+                .then( m => m.main() )
+                .catch(console.error);
         </script>
     </body>
 </html>

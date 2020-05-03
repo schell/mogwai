@@ -2,15 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Mogwai</title>
+    <title>Mogwai • Sandbox</title>
     </head>
     <body>
-        <script src="pkg/mogwai_sandbox.js"></script>
+        <script src="pkg/sandbox.js"></script>
         <script type=module>
-         window
-             .wasm_bindgen('pkg/mogwai_sandbox_bg.wasm')
-             .then( m => m.main() )
-             .catch(console.error);
+            wasm_bindgen('pkg/sandbox_bg.wasm')
+                .then( m => m.main() )
+                .catch(console.error);
         </script>
     </body>
 </html>
