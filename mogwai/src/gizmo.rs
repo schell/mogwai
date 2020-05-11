@@ -353,14 +353,14 @@ impl<T: JsCast + AsRef<HtmlElement>> Gizmo<T> {
 
 
 impl<T: JsCast + AsRef<HtmlInputElement>> Gizmo<T> {
-  /// Set the value of the Gizmo being built.
+  /// Set the value of the Gizmo input.
   pub fn value(self, s: &str) -> Gizmo<T> {
     let input: &HtmlInputElement = self.as_ref();
     input.set_value(s);
     self
   }
 
-  /// Set the value of the Gizmo being built that updates every time a message is
+  /// Set the value of the Gizmo input that updates every time a message is
   /// received on the given Receiver.
   pub fn rx_value(mut self, init: &str, rx: Receiver<String>) -> Gizmo<T> {
     // Save a clone so we can drop_responder if this gizmo goes out of scope
@@ -371,6 +371,29 @@ impl<T: JsCast + AsRef<HtmlInputElement>> Gizmo<T> {
     let input = input.clone();
     rx.respond(move |val: &String| {
       input.set_value(val);
+    });
+
+    self
+  }
+
+  /// Set the checked value of the Gizmo input.
+  pub fn checked(self, checked:bool) -> Gizmo<T> {
+    let input: &HtmlInputElement = self.as_ref();
+    input.set_checked(checked);
+    self
+  }
+
+  /// Set the value of the Gizmo input that updates every time a message is
+  /// received on the given Receiver.
+  pub fn rx_checked(mut self, checked: bool, rx: Receiver<bool>) -> Gizmo<T> {
+    // Save a clone so we can drop_responder if this gizmo goes out of scope
+    self.bool_rxs.push(hand_clone(&rx));
+    let input: &HtmlInputElement = self.as_ref();
+    input.set_checked(checked);
+
+    let input = input.clone();
+    rx.respond(move |val: &bool| {
+      input.set_checked(*val);
     });
 
     self
