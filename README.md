@@ -1,6 +1,16 @@
-# mogwai
+<div align="center">
+  <h1>
+    <a href="https://bomtoons.newgrounds.com/" target="_blank" alt="art by bomtoons at newgrounds"> 
+      <img src="img/gizmo.png" />
+    </a> 
+    <br />
+    mogwai
+  </h1>
+</div>
+
 
 > **m**inimalist, **o**bvious, **g**raphical **w**eb **a**pplication **i**nterface
+
 
 release: [![Crates.io][ci]][cl] ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=release)
 
@@ -8,6 +18,7 @@ master: ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch
 
 [ci]: https://img.shields.io/crates/v/mogwai.svg
 [cl]: https://crates.io/crates/mogwai/
+
 
 `mogwai` is a frontend DOM library for creating web applications.
 It is written in Rust and runs in your browser. It is an alternative
