@@ -1,6 +1,6 @@
 <div align="center">
   <h1>
-    <a href="https://bomtoons.newgrounds.com/" target="_blank" alt="art by bomtoons at newgrounds"> 
+    <a href="https://bomtoons.newgrounds.com/" target="_blank" title="art by bomtoons at newgrounds"> 
       <img src="img/gizmo.png" />
     </a> 
     <br />
