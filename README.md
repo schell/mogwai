@@ -174,7 +174,7 @@ For more examples, check out
 
 [the todomvc app](https://github.com/schell/mogwai/blob/master/examples/todomvc)
 
-[the benchmark suite](https://github.com/schell/todo-mvc-bench/
+[the benchmark suite](https://github.com/schell/todo-mvc-bench/)
 
 To build the examples use:
 ```shell
