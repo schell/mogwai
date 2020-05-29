@@ -254,11 +254,9 @@ where
                 .drain(0..)
                 .collect::<Vec<_>>()
           };
-          if msgs.len() > 0 {
-            msgs.iter().for_each(|out_msg| {
-              tx_out_async.send(out_msg);
-            });
-          }
+          msgs.iter().for_each(|out_msg| {
+            tx_out_async.send(out_msg);
+          });
           false
         });
       }
