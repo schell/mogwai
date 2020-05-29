@@ -431,7 +431,7 @@ fn recv_from<A>(
 /// Send messages instantly.
 pub struct Transmitter<A> {
   next_k: Rc<Cell<usize>>,
-  branches: Rc<RefCell<HashMap<usize, Box<dyn FnMut(&A)>>>>,
+  branches: RecvResponders<A>,
 }
 
 
@@ -450,7 +450,7 @@ impl<A:Any> Transmitter<A> {
   pub fn new() -> Transmitter<A> {
     Transmitter {
       next_k: Rc::new(Cell::new(0)),
-      branches: Rc::new(RefCell::new(HashMap::new()))
+      branches: RecvResponders::default(),
     }
   }
 
@@ -703,7 +703,7 @@ impl<A:Any> Transmitter<A> {
 pub struct Receiver<A> {
   k: usize,
   next_k: Rc<Cell<usize>>,
-  branches: Rc<RefCell<HashMap<usize, Box<dyn FnMut(&A)>>>>,
+  branches: RecvResponders<A>,
 }
 
 
@@ -731,7 +731,7 @@ impl<A> Receiver<A> {
     Receiver {
       k: 0,
       next_k: Rc::new(Cell::new(1)),
-      branches: Rc::new(RefCell::new(HashMap::new()))
+      branches: RecvResponders::default(),
     }
   }
 
