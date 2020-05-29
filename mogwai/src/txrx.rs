@@ -389,7 +389,7 @@
 //! [contramap]: https://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor-Contravariant.html#v:contramap
 //! [fmap]: https://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor.html#v:fmap
 use std::rc::Rc;
-use std::cell::RefCell;
+use std::cell::{RefCell, Cell};
 use std::future::Future;
 use std::any::Any;
 use std::pin::Pin;
@@ -411,13 +411,12 @@ where
 
 
 fn recv_from<A>(
-  next_k: Rc<RefCell<usize>>,
+  next_k: Rc<Cell<usize>>,
   branches: RecvResponders<A>
 ) -> Receiver<A> {
   let k = {
-    let mut next_k = next_k.borrow_mut();
-    let k = *next_k;
-    *next_k += 1;
+    let k = next_k.get();
+    next_k.set(k + 1);
     k
   };
 
@@ -431,7 +430,7 @@ fn recv_from<A>(
 
 /// Send messages instantly.
 pub struct Transmitter<A> {
-  next_k: Rc<RefCell<usize>>,
+  next_k: Rc<Cell<usize>>,
   branches: Rc<RefCell<HashMap<usize, Box<dyn FnMut(&A)>>>>,
 }
 
@@ -450,7 +449,7 @@ impl<A:Any> Transmitter<A> {
   /// Create a new transmitter.
   pub fn new() -> Transmitter<A> {
     Transmitter {
-      next_k: Rc::new(RefCell::new(0)),
+      next_k: Rc::new(Cell::new(0)),
       branches: Rc::new(RefCell::new(HashMap::new()))
     }
   }
@@ -703,7 +702,7 @@ impl<A:Any> Transmitter<A> {
 /// Receive messages instantly.
 pub struct Receiver<A> {
   k: usize,
-  next_k: Rc<RefCell<usize>>,
+  next_k: Rc<Cell<usize>>,
   branches: Rc<RefCell<HashMap<usize, Box<dyn FnMut(&A)>>>>,
 }
 
@@ -731,7 +730,7 @@ impl<A> Receiver<A> {
   pub fn new() -> Receiver<A> {
     Receiver {
       k: 0,
-      next_k: Rc::new(RefCell::new(1)),
+      next_k: Rc::new(Cell::new(1)),
       branches: Rc::new(RefCell::new(HashMap::new()))
     }
   }
