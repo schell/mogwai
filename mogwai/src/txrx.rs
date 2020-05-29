@@ -423,8 +423,8 @@ fn recv_from<A>(
 
   Receiver {
     k,
-    next_k: next_k.clone(),
-    branches: branches.clone()
+    next_k,
+    branches
   }
 }
 
