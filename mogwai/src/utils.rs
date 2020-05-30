@@ -1,4 +1,5 @@
-use std::cell::RefCell;
+use std::cell::{RefCell, Cell};
+use std::collections::VecDeque;
 use std::rc::Rc;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
@@ -28,6 +29,48 @@ pub fn set_checkup_interval(millis: i32, f: &Closure<dyn FnMut()>) -> i32 {
   window()
     .set_timeout_with_callback_and_timeout_and_arguments_0(f.as_ref().unchecked_ref(), millis)
     .expect("should register `setInterval` OK")
+}
+
+pub fn set_immediate<F>(f: F) where F: FnOnce() + 'static {
+    // `setTimeout(0, callback)` does not run the callback immediately, there is a minimum delay of ~4ms
+    // https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/setTimeout#Reasons_for_delays_longer_than_specified
+    // browsers do not have a native `setImmediate(callback)` function, so we have to use a hack :(
+    thread_local! {
+        static PENDING: RefCell<VecDeque<Box<dyn FnOnce()>>> = Default::default();
+        static CALLBACK: Closure<dyn Fn()> = Closure::wrap(Box::new(on_message));
+        static SCHEDULED: Cell<bool> = Cell::new(false);
+        static PORT_TO_SELF: web_sys::MessagePort = {
+            let channel = web_sys::MessageChannel::new().unwrap_throw();
+            CALLBACK.with(|callback| {
+                channel.port2().set_onmessage(Some(callback.as_ref().unchecked_ref()));
+            });
+            channel.port1()
+        };
+    }
+
+    fn on_message() {
+        PENDING.with(|pending| {
+            loop {
+                let f = pending.borrow_mut().pop_front();
+                match f {
+                    Some(f) => f(),
+                    None => break,
+                }
+            }
+            SCHEDULED.with(|scheduled| scheduled.set(false));
+        })
+    }
+
+    PENDING.with(|pending| {
+        let mut pending = pending.borrow_mut();
+        pending.push_back(Box::new(f));
+        SCHEDULED.with(|scheduled| {
+            if !scheduled.get() {
+                PORT_TO_SELF.with(|port| port.post_message(&JsValue::NULL).unwrap_throw());
+                scheduled.set(true);
+            }
+        });
+    });
 }
 
 pub fn timeout<F>(millis: i32, mut logic: F) -> i32
