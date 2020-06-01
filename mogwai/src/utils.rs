@@ -49,28 +49,24 @@ pub fn set_immediate<F>(f: F) where F: FnOnce() + 'static {
     }
 
     fn on_message() {
+        SCHEDULED.with(|scheduled| scheduled.set(false));
         PENDING.with(|pending| {
-            loop {
-                let f = pending.borrow_mut().pop_front();
-                match f {
-                    Some(f) => f(),
-                    None => break,
-                }
+            // callbacks can (and do) schedule more callbacks;
+            // to ensure that we yield to the event loop between each batch,
+            // only dequeue callbacks that were scheduled before we started running this batch
+            let initial_len = pending.borrow().len();
+            for _ in 0..initial_len {
+                let f = pending.borrow_mut().pop_front().unwrap_throw();
+                f();
             }
-            SCHEDULED.with(|scheduled| scheduled.set(false));
         })
     }
 
-    PENDING.with(|pending| {
-        let mut pending = pending.borrow_mut();
-        pending.push_back(Box::new(f));
-        SCHEDULED.with(|scheduled| {
-            if !scheduled.get() {
-                PORT_TO_SELF.with(|port| port.post_message(&JsValue::NULL).unwrap_throw());
-                scheduled.set(true);
-            }
-        });
-    });
+    PENDING.with(|pending| pending.borrow_mut().push_back(Box::new(f)));
+    let was_scheduled = SCHEDULED.with(|scheduled| scheduled.replace(true));
+    if !was_scheduled {
+        PORT_TO_SELF.with(|port| port.post_message(&JsValue::NULL).unwrap_throw());
+    }
 }
 
 pub fn timeout<F>(millis: i32, mut logic: F) -> i32
@@ -133,5 +129,5 @@ pub fn add_event(
   target
     .add_event_listener_with_callback(ev_name, cb.as_ref().unchecked_ref())
     .unwrap_throw();
-  Rc::new(cb) 
+  Rc::new(cb)
 }
