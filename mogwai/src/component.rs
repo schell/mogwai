@@ -232,36 +232,10 @@ where
       T::update(&mut t, msg, &tx_view, &subscriber);
     });
 
-    let out_msgs = Rc::new(RefCell::new(vec![]));
     rx_view.respond(move |msg: &T::ViewMsg| {
-      let should_schedule =
-        {
-        let mut msgs = out_msgs.borrow_mut();
-        msgs.push(msg.clone());
-        // If there is more than just this message in the queue, this
-        // responder has already been run this frame and a timer has
-        // already been scheduled, so there's no need to schedule another
-        msgs.len() == 1
-      };
-      if should_schedule {
-        let out_msgs_async = out_msgs.clone();
-        let tx_out_async = tx_out.clone();
-        utils::timeout(0, move || {
-          let msgs =
-            {
-              out_msgs_async
-                .borrow_mut()
-                .drain(0..)
-                .collect::<Vec<_>>()
-          };
-          if msgs.len() > 0 {
-            msgs.iter().for_each(|out_msg| {
-              tx_out_async.send(out_msg);
-            });
-          }
-          false
-        });
-      }
+      let tx_out = tx_out.clone();
+      let msg = msg.clone();
+      utils::set_immediate(move || tx_out.send(&msg));
     });
 
     let gizmo = {

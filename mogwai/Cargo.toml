@@ -30,6 +30,8 @@ features = [
   "EventTarget",
   "HtmlElement",
   "HtmlInputElement",
+  "MessageChannel",
+  "MessagePort",
   "Node",
   "Text",
   "Window"
