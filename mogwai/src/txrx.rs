@@ -395,9 +395,6 @@ use std::pin::Pin;
 use std::collections::HashMap;
 use wasm_bindgen_futures::spawn_local;
 
-type RecvResponders<A> = Rc<RefCell<HashMap<usize, Box<dyn FnMut(&A)>>>>;
-
-
 pub type RecvFuture<A> = Pin<Box<dyn Future<Output = Option<A>>>>;
 
 
@@ -409,36 +406,60 @@ where
 }
 
 
-fn recv_from<A>(
-  next_k: Rc<Cell<usize>>,
-  branches: RecvResponders<A>
-) -> Receiver<A> {
-  let k = {
-    let k = next_k.get();
-    next_k.set(k + 1);
-    k
-  };
+struct Responders<A> {
+  next_k: Cell<usize>,
+  branches: RefCell<HashMap<usize, Box<dyn FnMut(&A)>>>,
+}
 
-  Receiver {
-    k,
-    next_k,
-    branches
+impl<A> Default for Responders<A> {
+  fn default() -> Self {
+    Self {
+      next_k: Cell::new(0),
+      branches: Default::default(),
+    }
+  }
+}
+
+impl<A> Responders<A> {
+  fn recv_from(self: Rc<Self>) -> Receiver<A> {
+    let k = {
+      let k = self.next_k.get();
+      self.next_k.set(k + 1);
+      k
+    };
+
+    Receiver {
+      k,
+      responders: self
+    }
+  }
+
+  fn insert(&self, k: usize, f: impl FnMut(&A) + 'static) {
+    self.branches.borrow_mut().insert(k, Box::new(f));
+  }
+
+  fn remove(&self, k: usize) {
+    self.branches.borrow_mut().remove(&k);
+  }
+
+  fn send(&self, a: &A) {
+    self.branches.borrow_mut().values_mut().for_each(|f| {
+      f(a);
+    });
   }
 }
 
 
 /// Send messages instantly.
 pub struct Transmitter<A> {
-  next_k: Rc<Cell<usize>>,
-  branches: RecvResponders<A>,
+  responders: Rc<Responders<A>>
 }
 
 
 impl<A> Clone for Transmitter<A> {
   fn clone(&self) -> Self {
-    Transmitter {
-      next_k: self.next_k.clone(),
-      branches: self.branches.clone()
+    Self {
+      responders: self.responders.clone()
     }
   }
 }
@@ -447,25 +468,19 @@ impl<A> Clone for Transmitter<A> {
 impl<A: 'static> Transmitter<A> {
   /// Create a new transmitter.
   pub fn new() -> Transmitter<A> {
-    Transmitter {
-      next_k: Rc::new(Cell::new(0)),
-      branches: RecvResponders::default(),
+    Self {
+      responders: Default::default()
     }
   }
 
   /// Spawn a receiver for this transmitter.
   pub fn spawn_recv(&mut self) -> Receiver<A> {
-    recv_from(self.next_k.clone(), self.branches.clone())
+    self.responders.clone().recv_from()
   }
 
   /// Send a message to any and all receivers of this transmitter.
   pub fn send(&self, a:&A) {
-    let mut branches = self.branches.borrow_mut();
-    branches
-      .iter_mut()
-      .for_each(|(_, f)| {
-        f(a);
-      });
+    self.responders.send(a);
   }
 
   /// Execute a future that results in a message, then send it.
@@ -701,8 +716,7 @@ impl<A: 'static> Transmitter<A> {
 /// Receive messages instantly.
 pub struct Receiver<A> {
   k: usize,
-  next_k: Rc<Cell<usize>>,
-  branches: RecvResponders<A>,
+  responders: Rc<Responders<A>>,
 }
 
 
@@ -719,19 +733,14 @@ pub struct Receiver<A> {
 pub fn hand_clone<A>(rx: &Receiver<A>) -> Receiver<A> {
   Receiver {
     k: rx.k,
-    next_k: rx.next_k.clone(),
-    branches: rx.branches.clone()
+    responders: rx.responders.clone(),
   }
 }
 
 
 impl<A> Receiver<A> {
   pub fn new() -> Receiver<A> {
-    Receiver {
-      k: 0,
-      next_k: Rc::new(Cell::new(1)),
-      branches: RecvResponders::default(),
-    }
+    Responders::recv_from(Default::default())
   }
 
   /// Set the response this receiver has to messages. Upon receiving a message
@@ -741,9 +750,7 @@ impl<A> Receiver<A> {
   where
     F: FnMut(&A) + 'static
   {
-    let k = self.k;
-    let mut branches = self.branches.borrow_mut();
-    branches.insert(k, Box::new(f));
+    self.responders.insert(self.k, f);
   }
 
   /// Set the response this receiver has to messages. Upon receiving a message
@@ -754,25 +761,21 @@ impl<A> Receiver<A> {
   where
     F: Fn(&mut T, &A) + 'static
   {
-    let k = self.k;
-    let mut branches = self.branches.borrow_mut();
-    branches.insert(k, Box::new(move |a:&A| {
+    self.responders.insert(self.k, move |a:&A| {
       let mut t = val.borrow_mut();
       f(&mut t, a);
-    }));
+    });
   }
 
   /// Removes the responder from the receiver.
   /// This drops anything owned by the responder.
   pub fn drop_responder(&mut self) {
-    let mut branches = self.branches.borrow_mut();
-    let _ = branches.remove(&self.k);
+    self.responders.remove(self.k);
   }
 
   pub fn new_trns(&self) -> Transmitter<A> {
     Transmitter {
-      next_k: self.next_k.clone(),
-      branches: self.branches.clone()
+      responders: self.responders.clone()
     }
   }
 
@@ -780,7 +783,7 @@ impl<A> Receiver<A> {
   /// Each branch will receive from the same transmitter.
   /// The new branch has no initial response to messages.
   pub fn branch(&self) -> Receiver<A> {
-    recv_from(self.next_k.clone(), self.branches.clone())
+    self.responders.clone().recv_from()
   }
 
   /// Branch a new receiver off of an original and wire any messages sent to the
