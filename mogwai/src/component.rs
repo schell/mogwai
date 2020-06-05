@@ -102,7 +102,6 @@
 //!
 //! Components may be used within a [`Gizmo`] using the
 //! [`Gizmo::with`] function.
-use std::any::Any;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::ops::Deref;
@@ -123,7 +122,7 @@ use subscriber::Subscriber;
 /// See the [module level documentation](super::component) for more details.
 pub trait Component
 where
-  Self: Any + Sized,
+  Self: Sized + 'static,
   Self::ModelMsg: Clone,
   Self::ViewMsg: Clone,
   Self::DomNode: JsCast + AsRef<Node> + Clone,
@@ -350,7 +349,7 @@ pub type SimpleComponent<T, D> = GizmoComponent<Box<BuilderFn<T, D>>>;
 
 impl<T, D> Component for Box<BuilderFn<T, D>>
 where
-  T: Any + Clone,
+  T: Clone + 'static,
   D: JsCast + AsRef<Node> + Clone + 'static
 {
   type ModelMsg = T;
