@@ -3,5 +3,6 @@
 members = [
   "mogwai",
   "examples/sandbox",
-  "examples/todomvc"
+  "examples/todomvc",
+  #"cookbook"
 ]
