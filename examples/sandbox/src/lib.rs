@@ -88,8 +88,7 @@ pub fn new_h1_gizmo(mut tx_click:Transmitter<Event>) -> Gizmo<HtmlElement> {
 async fn request_to_text(req:Request) -> Result<String, String> {
   let resp:Response =
     JsFuture::from(
-      window()
-        .fetch_with_request(&req)
+        fetch_with_request(&req)
     )
     .await
     .map_err(|_| "request failed".to_string())?
