@@ -18,7 +18,7 @@ use app::{App, In};
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 
-#[wasm_bindgen]
+#[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {
   panic::set_hook(Box::new(console_error_panic_hook::hook));
   console_log::init_with_level(Level::Trace)
