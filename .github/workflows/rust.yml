@@ -12,7 +12,7 @@ jobs:
 
     # caching
     - name: Cache .cargo
-      uses: actions/cache@v1
+      uses: actions/cache@v2
       with:
         path: |
           ~/.cargo
