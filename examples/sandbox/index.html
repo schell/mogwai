@@ -5,11 +5,11 @@
     <title>Mogwai • Sandbox</title>
     </head>
     <body>
-        <script src="pkg/sandbox.js"></script>
-        <script type=module>
-            wasm_bindgen('pkg/sandbox_bg.wasm')
-                .then( m => m.main() )
-                .catch(console.error);
+        <script type="module">
+        import init from './pkg/sandbox.js';
+            window.addEventListener('load', async () => {
+                await init();
+            });
         </script>
     </body>
 </html>

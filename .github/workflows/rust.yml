@@ -10,40 +10,18 @@ jobs:
     steps:
     - uses: actions/checkout@v1
 
-    # cacheing
-    - name: Cache cargo registry
-      uses: actions/cache@v1
+    # caching
+    - name: Cache .cargo
+      uses: actions/cache@v2
       with:
-        path: ~/.cargo/registry
-        key: ${{ runner.os }}-cargo-registry-${{ github.ref }}
+        path: |
+          ~/.cargo
+          /usr/share/rust/.cargo/bin
+          target
+        key: ${{ runner.os }}-cargo-all-${{ github.ref }}
         restore-keys: |
-          ${{ runner.os }}-cargo-registry-refs/heads/master
-          ${{ runner.os }}-cargo-registry-
-    - name: Cache cargo index
-      uses: actions/cache@v1
-      with:
-        path: ~/.cargo/git
-        key: ${{ runner.os }}-cargo-index-${{ github.ref }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-index-refs/heads/master
-          ${{ runner.os }}-cargo-index-
-    - name: Cache cargo build
-      uses: actions/cache@v1
-      with:
-        path: target
-        key: ${{ runner.os }}-cargo-build-target-${{ github.ref }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-build-target-refs/heads/master
-          ${{ runner.os }}-cargo-build-target-
-    - name: Cache global cargo bin
-      uses: actions/cache@v1
-      with:
-        path: /usr/share/rust/.cargo/bin
-        key: ${{ runner.os }}-cargo-global-bin-${{ github.ref }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-global-bin-refs/heads/master
-          ${{ runner.os }}-cargo-global-bin-
-
+          ${{ runner.os }}-cargo-all-refs/heads/master
+          ${{ runner.os }}-cargo-all-
 
     - name: build
       run: scripts/build.sh

@@ -1,8 +1,8 @@
 <div align="center">
   <h1>
-    <a href="https://bomtoons.newgrounds.com/" target="_blank" title="art by bomtoons at newgrounds"> 
+    <a href="https://bomtoons.newgrounds.com/" target="_blank" title="art by bomtoons at newgrounds">
       <img src="img/gizmo.png" />
-    </a> 
+    </a>
     <br />
     mogwai
   </h1>
@@ -169,7 +169,7 @@ cargo generate --git https://github.com/schell/mogwai-template.git
 and give the command line a project name. Then `cd` into your sparkling new
 project and
 ```shell
-wasm-pack build --target no-modules
+wasm-pack build --target web
 ```
 Then, if you don't already have it, `cargo install basic-http-server` or use your
 favorite alternative to serve your app:

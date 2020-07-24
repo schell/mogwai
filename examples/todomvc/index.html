@@ -6,11 +6,11 @@
         <link rel="stylesheet" href="todo.css">
     </head>
     <body>
-        <script src="pkg/todomvc.js"></script>
         <script type=module>
-            wasm_bindgen('pkg/todomvc_bg.wasm')
-                .then( m => m.main() )
-                .catch(console.error);
+         import init from './pkg/todomvc.js';
+         window.addEventListener('load', async () => {
+             await init();
+         });
         </script>
     </body>
 </html>
