@@ -102,15 +102,15 @@
 //!
 //! Components may be used within a [`Gizmo`] using the
 //! [`Gizmo::with`] function.
-use std::rc::Rc;
-use std::cell::RefCell;
-use std::ops::Deref;
+use std::{cell::RefCell, ops::Deref, rc::Rc};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::Node;
 
-use super::gizmo::{Gizmo, SubGizmo};
-use super::txrx::{txrx, Receiver, Transmitter};
-use super::utils;
+use super::{
+    gizmo::{Gizmo, SubGizmo},
+    txrx::{txrx, Receiver, Transmitter},
+    utils,
+};
 
 pub mod subscriber;
 use subscriber::Subscriber;
@@ -122,71 +122,69 @@ use subscriber::Subscriber;
 /// See the [module level documentation](super::component) for more details.
 pub trait Component
 where
-  Self: Sized + 'static,
-  Self::ModelMsg: Clone,
-  Self::ViewMsg: Clone,
-  Self::DomNode: JsCast + AsRef<Node> + Clone,
+    Self: Sized + 'static,
+    Self::ModelMsg: Clone,
+    Self::ViewMsg: Clone,
+    Self::DomNode: JsCast + AsRef<Node> + Clone,
 {
-  /// A model message comes out from the view through a tx_on function into your
-  /// component's update function.
-  type ModelMsg;
+    /// A model message comes out from the view through a tx_on function into your
+    /// component's update function.
+    type ModelMsg;
 
-  /// A view message comes out from your component's update function and changes
-  /// the view by being used in an rx_* function.
-  type ViewMsg;
+    /// A view message comes out from your component's update function and changes
+    /// the view by being used in an rx_* function.
+    type ViewMsg;
 
-  /// The type of DOM node that represents the root of this component.
-  type DomNode;
+    /// The type of DOM node that represents the root of this component.
+    type DomNode;
 
-  /// Update this component in response to any received model messages.
-  /// This is essentially the component's fold function.
-  fn update(
-    &mut self,
-    msg: &Self::ModelMsg,
-    tx_view: &Transmitter<Self::ViewMsg>,
-    sub: &Subscriber<Self::ModelMsg>,
-  );
+    /// Update this component in response to any received model messages.
+    /// This is essentially the component's fold function.
+    fn update(
+        &mut self,
+        msg: &Self::ModelMsg,
+        tx_view: &Transmitter<Self::ViewMsg>,
+        sub: &Subscriber<Self::ModelMsg>,
+    );
 
-  /// Produce this component's gizmo using inputs and outputs.
-  fn view(
-    &self,
-    tx: Transmitter<Self::ModelMsg>,
-    rx: Receiver<Self::ViewMsg>,
-  ) -> Gizmo<Self::DomNode>;
+    /// Produce this component's gizmo using inputs and outputs.
+    fn view(
+        &self,
+        tx: Transmitter<Self::ModelMsg>,
+        rx: Receiver<Self::ViewMsg>,
+    ) -> Gizmo<Self::DomNode>;
 
-  /// Helper function for constructing a GizmoComponent for a type that
-  /// implements Component.
-  fn into_component(self) -> GizmoComponent<Self> {
-    GizmoComponent::new(self)
-  }
+
+    /// Helper function for constructing a GizmoComponent for a type that
+    /// implements Component.
+    fn into_component(self) -> GizmoComponent<Self> {
+        GizmoComponent::new(self)
+    }
 }
 
 
 impl<T, D> From<T> for Gizmo<D>
 where
-  T: Component,
-  T::DomNode: AsRef<D>,
-  D: JsCast + 'static
+    T: Component,
+    T::DomNode: AsRef<D>,
+    D: JsCast + 'static,
 {
-  fn from(component: T) -> Gizmo<D> {
-    let gizmo:Gizmo<T::DomNode> =
-    component
-      .into_component()
-      .gizmo;
-    gizmo.upcast::<D>()
-  }
+    fn from(component: T) -> Gizmo<D> {
+        let gizmo: Gizmo<T::DomNode> = component.into_component().gizmo;
+        gizmo.upcast::<D>()
+    }
 }
 
 
 impl<T> SubGizmo for T
-  where
-  T: Component,
-  T::DomNode: AsRef<Node>
+where
+    T: Component,
+    T::DomNode: AsRef<Node>,
 {
-  fn into_sub_gizmo(self) -> Result<Gizmo<Node>, Node> {
-    let component:GizmoComponent<T> = self.into_component();
-    component.into_sub_gizmo()
-  }
+    fn into_sub_gizmo(self) -> Result<Gizmo<Node>, Node> {
+        let component: GizmoComponent<T> = self.into_component();
+        component.into_sub_gizmo()
+    }
 }
 
 
@@ -195,127 +193,127 @@ impl<T> SubGizmo for T
 /// TODO: Think about renaming Gizmo to Dom and GizmoComponent to Gizmo.
 /// I think people will use this GizmoComponent more often.
 pub struct GizmoComponent<T: Component> {
-  pub trns: Transmitter<T::ModelMsg>,
-  pub recv: Receiver<T::ViewMsg>,
+    pub trns: Transmitter<T::ModelMsg>,
+    pub recv: Receiver<T::ViewMsg>,
 
-  pub(crate) gizmo: Gizmo<T::DomNode>,
-  pub(crate) state: Rc<RefCell<T>>,
+    pub(crate) gizmo: Gizmo<T::DomNode>,
+    pub(crate) state: Rc<RefCell<T>>,
 }
 
 
-impl<T:Component> Deref for GizmoComponent<T> {
-  type Target = Gizmo<T::DomNode>;
+impl<T: Component> Deref for GizmoComponent<T> {
+    type Target = Gizmo<T::DomNode>;
 
-  fn deref(&self) -> &Gizmo<T::DomNode> {
-    self.gizmo_ref()
-  }
+    fn deref(&self) -> &Gizmo<T::DomNode> {
+        self.gizmo_ref()
+    }
 }
 
 
 impl<T> GizmoComponent<T>
 where
-  T: Component + 'static,
-  T::ViewMsg: Clone,
-  T::DomNode: AsRef<Node> + Clone
+    T: Component + 'static,
+    T::ViewMsg: Clone,
+    T::DomNode: AsRef<Node> + Clone,
 {
-  pub fn new(init: T) -> GizmoComponent<T> {
-    let component_var = Rc::new(RefCell::new(init));
-    let state = component_var.clone();
-    let (tx_out, rx_out) = txrx();
-    let (tx_in, rx_in) = txrx();
-    let subscriber = Subscriber::new(&tx_in);
+    pub fn new(init: T) -> GizmoComponent<T> {
+        let component_var = Rc::new(RefCell::new(init));
+        let state = component_var.clone();
+        let (tx_out, rx_out) = txrx();
+        let (tx_in, rx_in) = txrx();
+        let subscriber = Subscriber::new(&tx_in);
 
-    let (tx_view, rx_view) = txrx();
-    rx_in.respond(move |msg: &T::ModelMsg| {
-      let mut t = state.borrow_mut();
-      T::update(&mut t, msg, &tx_view, &subscriber);
-    });
+        let (tx_view, rx_view) = txrx();
+        rx_in.respond(move |msg: &T::ModelMsg| {
+            let mut t = state.borrow_mut();
+            T::update(&mut t, msg, &tx_view, &subscriber);
+        });
 
-    rx_view.respond(move |msg: &T::ViewMsg| {
-      let tx_out = tx_out.clone();
-      let msg = msg.clone();
-      utils::set_immediate(move || tx_out.send(&msg));
-    });
+        rx_view.respond(move |msg: &T::ViewMsg| {
+            let tx_out = tx_out.clone();
+            let msg = msg.clone();
+            utils::set_immediate(move || tx_out.send(&msg));
+        });
 
-    let gizmo = {
-      let component = component_var.borrow();
-      component.view(tx_in.clone(), rx_out.branch())
-    };
+        let gizmo = {
+            let component = component_var.borrow();
+            component.view(tx_in.clone(), rx_out.branch())
+        };
 
-    GizmoComponent {
-      trns: tx_in,
-      recv: rx_out,
-      gizmo,
-      state: component_var,
+        GizmoComponent {
+            trns: tx_in,
+            recv: rx_out,
+            gizmo,
+            state: component_var,
+        }
     }
-  }
 
-  /// A reference to the DomNode.
-  pub fn dom_ref(&self) -> &T::DomNode {
-    let gizmo:&Gizmo<T::DomNode> = &self.gizmo;
-    gizmo.element.unchecked_ref()
-  }
+    /// A reference to the DomNode.
+    pub fn dom_ref(&self) -> &T::DomNode {
+        let gizmo: &Gizmo<T::DomNode> = &self.gizmo;
+        gizmo.element.unchecked_ref()
+    }
 
-  /// A reference to the Gizmo.
-  pub fn gizmo_ref(&self) -> &Gizmo<T::DomNode> {
-    &self.gizmo
-  }
+    /// A reference to the Gizmo.
+    pub fn gizmo_ref(&self) -> &Gizmo<T::DomNode> {
+        &self.gizmo
+    }
 
-  /// Send model messages into this component from a `Receiver<T::ModelMsg>`.
-  /// This is helpful for sending messages to this component from
-  /// a parent component.
-  pub fn rx_from(self, rx: Receiver<T::ModelMsg>) -> GizmoComponent<T> {
-    rx.forward_map(&self.trns, |msg| msg.clone());
-    self
-  }
+    /// Send model messages into this component from a `Receiver<T::ModelMsg>`.
+    /// This is helpful for sending messages to this component from
+    /// a parent component.
+    pub fn rx_from(self, rx: Receiver<T::ModelMsg>) -> GizmoComponent<T> {
+        rx.forward_map(&self.trns, |msg| msg.clone());
+        self
+    }
 
-  /// Send view messages from this component into a `Transmitter<T::ViewMsg>`.
-  /// This is helpful for sending messages to this component from
-  /// a parent component.
-  pub fn tx_into(self, tx: &Transmitter<T::ViewMsg>) -> GizmoComponent<T> {
-    self.recv.branch().forward_map(&tx, |msg| msg.clone());
-    self
-  }
+    /// Send view messages from this component into a `Transmitter<T::ViewMsg>`.
+    /// This is helpful for sending messages to this component from
+    /// a parent component.
+    pub fn tx_into(self, tx: &Transmitter<T::ViewMsg>) -> GizmoComponent<T> {
+        self.recv.branch().forward_map(&tx, |msg| msg.clone());
+        self
+    }
 
-  /// Run and initialize the component with a list of messages.
-  /// This is equivalent to calling `run` and `update` with each message.
-  pub fn run_init(mut self, msgs: Vec<T::ModelMsg>) -> Result<(), JsValue> {
-    msgs.into_iter().for_each(|msg| {
-      self.update(&msg);
-    });
-    self.run()
-  }
+    /// Run and initialize the component with a list of messages.
+    /// This is equivalent to calling `run` and `update` with each message.
+    pub fn run_init(mut self, msgs: Vec<T::ModelMsg>) -> Result<(), JsValue> {
+        msgs.into_iter().for_each(|msg| {
+            self.update(&msg);
+        });
+        self.run()
+    }
 
-  /// Run this component forever
-  pub fn run(self) -> Result<(), JsValue> {
-    self.gizmo.run()
-  }
+    /// Run this component forever
+    pub fn run(self) -> Result<(), JsValue> {
+        self.gizmo.run()
+    }
 
-  /// Update the component with the given message.
-  /// This how a parent component communicates down to its child components.
-  pub fn update(&mut self, msg: &T::ModelMsg) {
-    self.trns.send(msg);
-  }
+    /// Update the component with the given message.
+    /// This how a parent component communicates down to its child components.
+    pub fn update(&mut self, msg: &T::ModelMsg) {
+        self.trns.send(msg);
+    }
 
-  /// Access the component's underlying state.
-  pub fn with_state<F, N>(&self, f: F) -> N
-  where
-    F: Fn(&T) -> N,
-  {
-    let t = self.state.borrow();
-    f(&t)
-  }
+    /// Access the component's underlying state.
+    pub fn with_state<F, N>(&self, f: F) -> N
+    where
+        F: Fn(&T) -> N,
+    {
+        let t = self.state.borrow();
+        f(&t)
+    }
 }
 
 
 impl<T> SubGizmo for GizmoComponent<T>
 where
-  T: Component,
-  T::DomNode: AsRef<Node>
+    T: Component,
+    T::DomNode: AsRef<Node>,
 {
-  fn into_sub_gizmo(self) -> Result<Gizmo<Node>, Node> {
-    self.gizmo.into_sub_gizmo()
-  }
+    fn into_sub_gizmo(self) -> Result<Gizmo<Node>, Node> {
+        self.gizmo.into_sub_gizmo()
+    }
 }
 
 
@@ -349,23 +347,18 @@ pub type SimpleComponent<T, D> = GizmoComponent<Box<BuilderFn<T, D>>>;
 
 impl<T, D> Component for Box<BuilderFn<T, D>>
 where
-  T: Clone + 'static,
-  D: JsCast + AsRef<Node> + Clone + 'static
+    T: Clone + 'static,
+    D: JsCast + AsRef<Node> + Clone + 'static,
 {
-  type ModelMsg = T;
-  type ViewMsg = T;
-  type DomNode = D;
+    type ModelMsg = T;
+    type ViewMsg = T;
+    type DomNode = D;
 
-  fn update(
-    &mut self,
-    msg: &T,
-    tx_view: &Transmitter<T>,
-    _sub: &Subscriber<T>,
-  ) {
-    tx_view.send(msg);
-  }
+    fn update(&mut self, msg: &T, tx_view: &Transmitter<T>, _sub: &Subscriber<T>) {
+        tx_view.send(msg);
+    }
 
-  fn view(&self, tx: Transmitter<T>, rx: Receiver<T>) -> Gizmo<D> {
-    self(tx, rx)
-  }
+    fn view(&self, tx: Transmitter<T>, rx: Receiver<T>) -> Gizmo<D> {
+        self(tx, rx)
+    }
 }

@@ -7,8 +7,7 @@
 //! ```
 //!
 //! [`Gizmo`]: ../struct.Gizmo.html
-use super::Gizmo;
-use super::super::utils as utils;
+use super::{super::utils, Gizmo};
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlElement, HtmlInputElement};
 
@@ -32,7 +31,7 @@ macro_rules! tag_constructor {
 }
 
 // structural
-tag_constructor!{
+tag_constructor! {
   a,
   article,
   aside,
@@ -60,7 +59,7 @@ tag_constructor!{
 }
 
 // metadata
-tag_constructor!{
+tag_constructor! {
   base,
   basefont,
   link,
@@ -70,7 +69,7 @@ tag_constructor!{
 }
 
 // form
-tag_constructor!{
+tag_constructor! {
   button,
   datalist,
   fieldset,
@@ -86,16 +85,15 @@ tag_constructor!{
 }
 
 pub fn input() -> Gizmo<HtmlInputElement> {
-  let element:HtmlInputElement =
-    utils::document()
-    .create_element("input")
-    .expect("can't create element")
-    .unchecked_into();
-  Gizmo::wrapping(element)
+    let element: HtmlInputElement = utils::document()
+        .create_element("input")
+        .expect("can't create element")
+        .unchecked_into();
+    Gizmo::wrapping(element)
 }
 
 // formatting
-tag_constructor!{
+tag_constructor! {
   abbr,
   acronym,
   address,
@@ -136,7 +134,7 @@ tag_constructor!{
 }
 
 // list
-tag_constructor!{
+tag_constructor! {
   dd,
   dir,
   dl,
@@ -147,7 +145,7 @@ tag_constructor!{
   ul
 }
 // table
-tag_constructor!{
+tag_constructor! {
   caption,
   col,
   colgroup,
@@ -161,13 +159,13 @@ tag_constructor!{
 }
 
 // scripting
-tag_constructor!{
+tag_constructor! {
   noscript,
   script
 }
 
 // embedded content
-tag_constructor!{
+tag_constructor! {
   applet,
   area,
   audio,

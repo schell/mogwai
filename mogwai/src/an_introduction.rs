@@ -125,27 +125,28 @@
 //! [`Receiver<T>`]: struct@Receiver
 //! [`HtmlElement`]: struct@HtmlElement
 //! [`Component`]: trait@Component
-use super::gizmo::*;
-use super::txrx::*;
-use super::component::*;
-use super::component::subscriber::*;
+use super::{
+    component::{subscriber::*, *},
+    gizmo::*,
+    txrx::*,
+};
 
 
 struct Unit {}
 
 impl Component for Unit {
-  type ModelMsg = ();
-  type ViewMsg = ();
-  type DomNode = Element;
+    type ModelMsg = ();
+    type ViewMsg = ();
+    type DomNode = Element;
 
-  fn view(&self, _: Transmitter<()>, _: Receiver<()>) -> Gizmo<Element> {
-    Gizmo::element("") as Gizmo<Element>
-  }
-  fn update(&mut self, _: &(), _: &Transmitter<()>, _sub: &Subscriber<()>) {}
+    fn view(&self, _: Transmitter<()>, _: Receiver<()>) -> Gizmo<Element> {
+        Gizmo::element("") as Gizmo<Element>
+    }
+    fn update(&mut self, _: &(), _: &Transmitter<()>, _sub: &Subscriber<()>) {}
 }
 
 // This is here just for the documentation links.
 fn _not_used() {
-  let _element = Gizmo::element("");
-  let (_tx, _rx) = txrx::<()>();
+    let _element = Gizmo::element("");
+    let (_tx, _rx) = txrx::<()>();
 }
