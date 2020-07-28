@@ -9,12 +9,13 @@
 //!
 //! ## Learn more
 //! If you're new to Mogwai, check out the [introduction](an_introduction) module.
-pub mod an_introduction;
+//pub mod an_introduction;
 pub mod component;
 pub mod gizmo;
 pub mod prelude;
 pub mod txrx;
 pub mod utils;
+pub mod ssr;
 
-#[cfg(doctest)]
-doc_comment::doctest!("../../README.md");
+//#[cfg(doctest)]
+//doc_comment::doctest!("../../README.md");

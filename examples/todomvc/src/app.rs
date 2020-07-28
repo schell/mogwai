@@ -31,7 +31,6 @@ pub enum In {
 
 #[derive(Clone)]
 pub enum Out {
-    ClearNewTodoInput,
     ShouldShowTodoList(bool),
     NumItems(usize),
     ShouldShowCompleteButton(bool),
@@ -41,7 +40,7 @@ pub enum Out {
 
 pub struct App {
     next_index: usize,
-    todos: Vec<GizmoComponent<Todo>>,
+    todos: Vec<Gizmo<Todo>>,
     todo_input: Option<HtmlInputElement>,
     todo_toggle_input: Option<HtmlInputElement>,
     todo_list_ul: Option<HtmlElement>,
@@ -125,6 +124,12 @@ impl App {
             tx.send(&Out::ShouldShowCompleteButton(self.are_any_complete()));
         }
     }
+
+    fn clear_todo_input(&mut self) {
+        if let Some(input) = &self.todo_input {
+            input.set_value("");
+        }
+    }
 }
 
 
@@ -137,8 +142,8 @@ impl Component for App {
         match msg {
             In::NewTodo(name, complete) => {
                 let index = self.next_index;
-                // Turn the new todo into a sub-component.
-                let mut component = Todo::new(index, name.to_string()).into_component();
+                // Turn the new todo into a gizmo.
+                let mut component = Todo::new(index, name.to_string()).into_gizmo();
                 // Subscribe to some of its view messages
                 sub.subscribe_filter_map(&component.recv, move |todo_out_msg| match todo_out_msg {
                     TodoOut::UpdateEditComplete(_, is_complete) => {
@@ -152,12 +157,13 @@ impl Component for App {
                 }
                 // If we have a ul, add the component to it.
                 if let Some(ul) = self.todo_list_ul.as_ref() {
-                    let _ = ul.append_child(&component);
+                    let _ = ul.append_child(component.dom_ref());
                 }
                 self.todos.push(component);
                 self.next_index += 1;
 
-                tx_view.send(&Out::ClearNewTodoInput);
+                self.clear_todo_input();
+
                 tx_view.send(&Out::NumItems(self.todos.len()));
                 tx_view.send(&Out::ShouldShowTodoList(true));
             }
@@ -205,7 +211,7 @@ impl Component for App {
                 // If we have todos already created (from local storage), add them to
                 // the ul.
                 self.todos.iter().for_each(|component| {
-                    let _ = ul.append_child(&component);
+                    let _ = ul.append_child(component.dom_ref());
                 });
             }
             In::Remove(index) => {
@@ -251,7 +257,7 @@ impl Component for App {
         store::write_items(items).expect("Could not store todos");
     }
 
-    fn view(&self, tx: Transmitter<In>, rx: Receiver<Out>) -> Gizmo<HtmlElement> {
+    fn view(&self, tx: Transmitter<In>, rx: Receiver<Out>) -> DomWrapper<HtmlElement> {
         let rx_display = rx.branch_filter_map(|msg| match msg {
             Out::ShouldShowTodoList(should) => {
                 Some(if *should { "block" } else { "none" }.to_string())
@@ -259,16 +265,13 @@ impl Component for App {
             _ => None,
         });
 
-        section()
-            .class("todoapp")
-            .with(
-                header().class("header").with(h1().text("todos")).with(
-                    input()
-                        .class("new-todo")
-                        .attribute("id", "new-todo")
-                        .attribute("placeholder", "What needs to be done?")
-                        .tx_on(
-                            "change",
+        dom!{
+            <section class="todoapp">
+                <header class="header">
+                    <h1>"todos"</h1>
+                    <input
+                        class="new-todo" id="new-todo" placeholder="What needs to be done?"
+                        on:change=
                             tx.contra_filter_map(|ev: &Event| {
                                 let todo_name =
                                     utils::event_input_value(ev).expect("event input value");
@@ -277,126 +280,79 @@ impl Component for App {
                                 } else {
                                     Some(In::NewTodo(todo_name, false))
                                 }
-                            }),
-                        )
-                        .rx_value(
-                            "",
-                            rx.branch_filter_map(|msg| match msg {
-                                Out::ClearNewTodoInput => Some("".to_string()),
-                                _ => None,
-                            }),
-                        )
-                        .tx_post_build(
-                            tx.contra_map(|el: &HtmlInputElement| In::NewTodoInput(el.clone())),
-                        ),
-                ),
-            )
-            .with(
-                section()
-                    .class("main")
-                    .rx_style("display", "none", rx_display.branch())
-                    .with(
-                        // This is the "check all as complete" toggle
-                        input()
-                            .attribute("id", "toggle-all")
-                            .attribute("type", "checkbox")
-                            .class("toggle-all")
-                            .tx_post_build(tx.contra_map(|el: &HtmlInputElement| {
+                            })
+                        post:build=
+                            tx.contra_map(|el: &HtmlInputElement| In::NewTodoInput(el.clone()))>
+                    </input>
+                </header>
+                <section class="main" style:display=("none", rx_display.branch())>
+                    // This is the "check all as complete" toggle
+                    <input
+                        id="toggle-all"
+                        type="checkbox"
+                        class="toggle-all"
+                        post:build=
+                            tx.contra_map(|el: &HtmlInputElement| {
                                 In::CompletionToggleInput(el.clone())
-                            }))
-                            .tx_on("click", tx.contra_map(|_| In::ToggleCompleteAll)),
-                    )
-                    .with(
-                        label()
-                            .attribute("for", "toggle-all")
-                            .text("Mark all as complete"),
-                    )
-                    .with(
-                        ul().class("todo-list")
-                            .rx_style("display", "none", rx_display.branch())
-                            .tx_post_build(
-                                tx.contra_map(|el: &HtmlElement| In::TodoListUl(el.clone())),
-                            ),
-                    ),
-            )
-            .with(
-                footer()
-                    .class("footer")
-                    .rx_style("display", "none", rx_display)
-                    .with(span().class("todo-count").with(strong().rx_text(
-                        "0 items left",
-                        rx.branch_filter_map(|msg| match msg {
-                            Out::NumItems(n) => {
-                                let items = if *n == 1 { "item" } else { "items" };
-                                Some(format!("{} {} left", n, items))
-                            }
-                            _ => None,
-                        }),
-                    )))
-                    .with(
-                        ul().class("filters")
-                            .with(
-                                li().with(
-                                    a().rx_class(
-                                        "",
-                                        rx.branch_filter_map(|msg| {
-                                            App::filter_selected(msg, FilterShow::All)
-                                        }),
-                                    )
-                                    .attribute("href", "#/")
-                                    .text("All"),
-                                ),
-                            )
-                            .with(
-                                li().with(
-                                    a().rx_class(
-                                        "",
-                                        rx.branch_filter_map(|msg| {
-                                            App::filter_selected(msg, FilterShow::Active)
-                                        }),
-                                    )
-                                    .attribute("href", "#/active")
-                                    .text("Active"),
-                                ),
-                            )
-                            .with(
-                                li().with(
-                                    a().rx_class(
-                                        "",
-                                        rx.branch_filter_map(|msg| {
-                                            App::filter_selected(msg, FilterShow::Completed)
-                                        }),
-                                    )
-                                    .attribute("href", "#/completed")
-                                    .text("Completed"),
-                                ),
-                            )
-                            .tx_on_window(
-                                "hashchange",
-                                tx.contra_filter_map(|ev: &Event| {
-                                    let ev: &HashChangeEvent =
-                                        ev.dyn_ref::<HashChangeEvent>().expect("not hash event");
-                                    let url = ev.new_url();
-                                    App::url_to_filter_msg(url)
-                                }),
-                            ),
-                    )
-                    .with(
-                        button()
-                            .class("clear-completed")
-                            .text("Clear completed")
-                            .rx_style(
-                                "display",
+                            })
+                        on:click=tx.contra_map(|_| In::ToggleCompleteAll)>
+                    </input>
+                    <label for="toggle-all">"Mark all as complete"</label>
+                    <ul class="todo-list"
+                        style:display=("none", rx_display.branch())
+                        post:build=tx.contra_map(|el: &HtmlElement| In::TodoListUl(el.clone()))>
+                    </ul>
+                </section>
+                <footer class="footer" style:display=("none", rx_display)>
+                    <span class="todo-count">
+                        <strong>
+                            {(
+                                "0 items left",
+                                rx.branch_filter_map(|msg| match msg {
+                                    Out::NumItems(n) => {
+                                        let items = if *n == 1 { "item" } else { "items" };
+                                        Some(format!("{} {} left", n, items))
+                                    }
+                                    _ => None,
+                                })
+                            )}
+                        </strong>
+                    </span>
+                    <ul class="filters"
+                        window:hashchange=
+                            tx.contra_filter_map(|ev: &Event| {
+                                let ev: &HashChangeEvent =
+                                    ev.dyn_ref::<HashChangeEvent>().expect("not hash event");
+                                let url = ev.new_url();
+                                App::url_to_filter_msg(url)
+                            })>
+                        <li>
+                            <a href="#/" class=rx.branch_filter_map(|msg| App::filter_selected(msg, FilterShow::All))>"All"</a>
+                        </li>
+                        <li>
+                            <a href="#/active" class=rx.branch_filter_map(|msg| App::filter_selected(msg, FilterShow::Active))>"Active"</a>
+                        </li>
+                        <li>
+                            <a href="#/completed" class=rx.branch_filter_map(|msg| App::filter_selected(msg, FilterShow::Completed))>"Completed"</a>
+                        </li>
+                    </ul>
+                    <button
+                        class="clear-completed"
+                        style:display=
+                            (
                                 "none",
                                 rx.branch_filter_map(|msg| match msg {
                                     Out::ShouldShowCompleteButton(should) => {
                                         Some(if *should { "block" } else { "none" }.to_string())
                                     }
                                     _ => None,
-                                }),
+                                })
                             )
-                            .tx_on("click", tx.contra_map(|_: &Event| In::RemoveCompleted)),
-                    ),
-            )
+                        on:click=tx.contra_map(|_: &Event| In::RemoveCompleted)>
+                        "Clear completed"
+                    </button>
+                </footer>
+            </section>
+        }
     }
 }
