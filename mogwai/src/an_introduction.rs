@@ -7,24 +7,24 @@
 //!
 //! The following is a short introduction to the concepts of Mogwai.
 //!
-//! ## Building Gizmos (aka constructing DOM widgets)
-//! Building DOM is one of the main authorship modes in Mogwai. DOM nodes
-//! are created using a builder pattern. The builder itself is called a
-//! [`Gizmo`] and it defines a user interface widget. `Gizmo`s can be run or
-//! attached to other `Gizmo`s. The builder pattern looks like this:
+//! ## Constructing DOM Nodes
+//! Building DOM is one of the main tasks of web development. In mogwai the
+//! quickest way to construct DOM nodes is with the [`dom`] RSX macro. RSX
+//! is a lot like React's JSX, except that it uses type checket rust expressions.
+//! The [`dom`] macro evaluates to a [`DomWrapper`] which is used as the view
+//! of a [`Component`] or can be used by itself:
 //!
 //! ```rust, no_run
 //! extern crate mogwai;
 //! use::mogwai::prelude::*;
 //!
-//! div()
-//!   .class("my-div")
-//!   .with(
-//!     a()
-//!       .attribute("href", "http://zyghost.com")
-//!       .text("Schellsan's website")
-//!   )
-//!   .run().unwrap_throw()
+//! dom!(
+//!     <div class="my-div">
+//!         <a href="http://zyghost.com">
+//!             "Schellsan's website"
+//!         </a>
+//!     </div>
+//!   ).run().unwrap_throw()
 //! ```
 //!
 //! The example above would create a DOM node with a link inside it and append it
@@ -32,39 +32,30 @@
 //!
 //! ```html
 //! <div class="my-div">
-//!   <a href="http://zyghost.com">Schell's website</a>
+//!       <a href="http://zyghost.com">Schell's website</a>
 //! </div>
 //! ```
 //!
 //! ### Running Gizmos and removing gizmos
 //!
-//! Note that the [`Gizmo`] is added to the body automatically with the
-//! [`Gizmo::run`] function. This `run` function is special. It hands off the
-//! gizmo to be owned by the window - otherwise the gizmo would go out of scope
-//! and be dropped. This is important when a gizmo is dropped and all references
-//! to its inner DOM node are no longer in scope, that DOM nodeis removed from
+//! Note that by using the [`DomWrapper::run`] function the nod is added to the
+//! body automatically. This `run` function is special. It hands off the
+//! callee to be *owned by the window* - otherwise the gizmo would go out of scope
+//! and be dropped. This is important - when a [`DomWrapper`] is dropped and all references
+//! to its inner DOM node are no longer in scope, that DOM node is removed from
 //! the DOM.
-//!
-//! You may have noticed that we can use the [`Gizmo::class`] method to set
-//! the class of our `div` tag, but we use the [`Gizmo::attribute`] method
-//! to set the href attribute of our `a` tag. That's because [`Gizmo::class`]
-//! is a convenience method that simply calls [`Gizmo::attribute`] under the
-//! hood. Some DOM attributes have these conveniences and others do not. See the
-//! documentation for [`Gizmo`] for more info. If you don't see a method that
-//! you think should be there, I welcome you to
-//! [add it in a pull request](https://github.com/schell/mogwai) :)
 //!
 //! ### Wiring DOM
 //!
-//! `Gizmo`s can be static like the one above, or they can change over time.
-//! `Gizmo`s get their dynamic values from the receiving end of a channel
+//! [`DomWrapper`]s can be static like the one above, or they can change over time.
+//! [`DomWrapper`]s get their dynamic values from the receiving end of a channel
 //! called a [`Receiver<T>`]. The transmitting end of the channel is called a
 //! [`Transmitter<T>`]. This should be somewhat familiar if you've ever used a
 //! channel in other rust libraries.
 //!
-//! Creating a channel is easy using the [txrx()] function. Then we "wire" it
-//! into the `Gizmo` with one of a number of `rx_` flavored `Gizmo`
-//! methods.
+//! You can create a channel using the [txrx()] function. Then "wire" it
+//! into the DOM using RSX - simply assign it to an attribute or add
+//! it as a text node. You may even tuple it with an initial value.
 //!
 //! Whenever the `Transmitter<T>` of the channel sends a value, the DOM is
 //! updated.
@@ -75,14 +66,13 @@
 //!
 //! let (tx, rx) = txrx();
 //!
-//! div()
-//!   .class("my-div")
-//!   .with(
-//!     a()
-//!       .attribute("href", "https://zyghost.com")
-//!       .rx_text("Schellsan's website", rx)
-//!   )
-//!   .run().unwrap_throw();
+//! dom!(
+//!     <div class="my-div">
+//!         <a href="http://zyghost.com">
+//!           {("Schellsan's website", rx)}
+//!         </a>
+//!     </div>
+//! ).run().unwrap_throw();
 //!
 //! tx.send(&"Gizmo's website".into());
 //! ```
@@ -117,19 +107,16 @@
 //! `dyn_ref` functions are the primary way to cast JavaScript values as specific
 //! types.
 //!
-//! [`Gizmo::build`]: Gizmo::build
-//! [`Gizmo::run`]: Gizmo::method@run
-//! [`Gizmo`]: struct@Gizmo
-//! [`Gizmo`]: struct@Gizmo
+//! [`dom`]: dom
+//! [`DomWrapper::run`]: DomWrapper::method@run
+//! [`DomWrapper`]: struct@DomWrapper
+//! [`DomWrapper`]: struct@DomWrapper
 //! [`Transmitter<T>`]: struct@Transmitter
 //! [`Receiver<T>`]: struct@Receiver
 //! [`HtmlElement`]: struct@HtmlElement
 //! [`Component`]: trait@Component
-use super::{
-    component::{subscriber::*, *},
-    gizmo::*,
-    txrx::*,
-};
+use super::prelude::*;
+use crate as mogwai;
 
 
 struct Unit {}
@@ -137,16 +124,17 @@ struct Unit {}
 impl Component for Unit {
     type ModelMsg = ();
     type ViewMsg = ();
-    type DomNode = Element;
+    type DomNode = HtmlElement;
 
-    fn view(&self, _: Transmitter<()>, _: Receiver<()>) -> Gizmo<Element> {
-        Gizmo::element("") as Gizmo<Element>
+    fn view(&self, _: Transmitter<()>, _: Receiver<()>) -> DomWrapper<HtmlElement> {
+        dom! {
+            <a href="/#">"Hello"</a>
+        }
     }
     fn update(&mut self, _: &(), _: &Transmitter<()>, _sub: &Subscriber<()>) {}
 }
 
 // This is here just for the documentation links.
 fn _not_used() {
-    let _element = Gizmo::element("");
     let (_tx, _rx) = txrx::<()>();
 }

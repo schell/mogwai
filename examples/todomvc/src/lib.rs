@@ -41,22 +41,21 @@ pub fn main() -> Result<(), JsValue> {
         .into_iter()
         .for_each(|msg| msgs.push(msg));
 
-    App::new().into_component().run_init(msgs)?;
+    App::new().into_gizmo().run_init(msgs)?;
 
     // The footer has no relation to the rest of the app and is simply a view
     // attached to the body
-    footer()
-        .class("info")
-        .with(p().text("Double click to edit a todo"))
-        .with(
-            p().text("Written by ").with(
-                a().attribute("href", "https://github.com/schell")
-                    .text("Schell Scivally"),
-            ),
-        )
-        .with(
-            p().text("Part of ")
-                .with(a().attribute("href", "http://todomvc.com").text("TodoMVC")),
-        )
-        .run()
+    dom!(
+        <footer class="info">
+            <p>"Double click to edit a todo"</p>
+            <p>
+                "Written by "
+                <a href="https://github.com/schell">"Schell Scivally"</a>
+            </p>
+            <p>
+                "Part of "
+                <a href="http://todomvc.com">"TodoMVC"</a>
+            </p>
+        </footer>
+    ).run()
 }

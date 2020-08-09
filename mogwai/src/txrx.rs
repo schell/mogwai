@@ -704,7 +704,7 @@ pub struct Receiver<A> {
 ///
 /// Instead of cloning, if you need a new receiver that receives from the same
 /// transmitter you should use [Receiver::branch], which comes in many flavors.
-pub fn hand_clone<A>(rx: &Receiver<A>) -> Receiver<A> {
+pub(crate) fn hand_clone<A>(rx: &Receiver<A>) -> Receiver<A> {
     Receiver {
         k: rx.k,
         responders: rx.responders.clone(),

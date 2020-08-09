@@ -55,10 +55,11 @@ let (tx, rx) =
     }
   );
 
-button()
-  .rx_text("Clicked 0 times", rx)
-  .tx_on("click", tx)
-  .run().unwrap_throw()
+dom!(
+    <button on:click=tx>
+        {("Clicked 0 times", rx)}
+    </button>
+).run().unwrap_throw()
 ```
 
 Here's that same example using the elm-like `Component` trait:
@@ -67,56 +68,60 @@ Here's that same example using the elm-like `Component` trait:
 use mogwai::prelude::*;
 
 pub struct Button {
-  pub clicks: i32
+    pub clicks: i32
 }
 
 #[derive(Clone)]
 pub enum ButtonIn {
-  Click
+    Click
 }
 
 #[derive(Clone)]
 pub enum ButtonOut {
-  Clicks(i32)
+    Clicks(i32)
 }
 
 impl Component for Button {
-  type ModelMsg = ButtonIn;
-  type ViewMsg = ButtonOut;
-  type DomNode = HtmlElement;
+    type ModelMsg = ButtonIn;
+    type ViewMsg = ButtonOut;
+    type DomNode = HtmlElement;
 
-  fn update(
-    &mut self,
-    msg: &ButtonIn,
-    tx_view: &Transmitter<ButtonOut>,
-    _subscriber: &Subscriber<ButtonIn>
-  ) {
-    match msg {
-      ButtonIn::Click => {
-        self.clicks += 1;
-        tx_view.send(&ButtonOut::Clicks(self.clicks))
-      }
-    }
-  }
-
-  fn view(
-    &self,
-    tx: Transmitter<ButtonIn>,
-    rx: Receiver<ButtonOut>
-  ) -> Gizmo<HtmlElement> {
-    button()
-      .rx_text("Clicked 0 times", rx.branch_map(|msg| {
+    fn update(
+        &mut self,
+        msg: &ButtonIn,
+        tx_view: &Transmitter<ButtonOut>,
+        _subscriber: &Subscriber<ButtonIn>
+    ) {
         match msg {
-          ButtonOut::Clicks(n) => format!("Clicked {} times", n)
+            ButtonIn::Click => {
+                self.clicks += 1;
+                tx_view.send(&ButtonOut::Clicks(self.clicks))
+            }
         }
-      }))
-      .tx_on("click", tx.contra_map(|_| ButtonIn::Click))
-  }
+    }
+
+    fn view(
+        &self,
+        tx: Transmitter<ButtonIn>,
+        rx: Receiver<ButtonOut>
+    ) -> DomWrapper<HtmlElement> {
+        let rx_text = rx.branch_map(|msg| match msg {
+            ButtonOut::Clicks(n) => format!("Clicked {} times", n)
+        });
+        let tx_event = tx.contra_map(|_:&Event| ButtonIn::Click);
+
+        dom!(
+            <button on:click=tx_event>
+                {("Clicked 0 times", rx_text)}
+            </button>
+        )
+    }
 }
 
 Button{ clicks: 0 }
-  .into_component()
-  .run().unwrap_throw()
+    .into_gizmo()
+    .run()
+    .unwrap_throw()
 ```
 
 ## introduction
@@ -135,7 +140,7 @@ when.
 These same tools encourage functional progamming patterns like encapsulation over
 inheritance (or traits, in this case).
 
-Channel-like primitives and a declarative html builder are used to define
+Channel-like primitives and a declarative view are used to define
 components and then wire them together. Once the interface is defined and built,
 the channels are effectively erased and it's functions all the way down. There's
 no performance overhead from vdom, shadow dom, polling or patching. So if you

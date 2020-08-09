@@ -1,9 +1,4 @@
-use mogwai::{
-    component::{subscriber::Subscriber, Component},
-    gizmo::{html::button, Gizmo},
-    txrx::{Receiver, Transmitter},
-};
-use web_sys::HtmlElement;
+use mogwai::prelude::*;
 
 pub struct Button {
     pub clicks: i32,
@@ -38,14 +33,16 @@ impl Component for Button {
         }
     }
 
-    fn view(&self, tx: Transmitter<ButtonIn>, rx: Receiver<ButtonOut>) -> Gizmo<HtmlElement> {
-        button()
-            .rx_text(
-                "Clicked 0 times",
-                rx.branch_map(|msg| match msg {
-                    ButtonOut::Clicks(n) => format!("Clicked {} times", n),
-                }),
-            )
-            .tx_on("click", tx.contra_map(|_| ButtonIn::Click))
+    fn view(&self, tx: Transmitter<ButtonIn>, rx: Receiver<ButtonOut>) -> DomWrapper<HtmlElement> {
+        dom! {
+            <button on:click=tx.contra_map(|_| ButtonIn::Click)>
+                {(
+                    format!("Clicked {} times", self.clicks),
+                    rx.branch_map(|msg| match msg {
+                        ButtonOut::Clicks(n) => format!("Clicked {} times", n),
+                    })
+                )}
+            </button>
+        }
     }
 }

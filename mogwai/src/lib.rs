@@ -15,6 +15,7 @@ pub mod gizmo;
 pub mod prelude;
 pub mod txrx;
 pub mod utils;
+pub mod ssr;
 
 #[cfg(doctest)]
 doc_comment::doctest!("../../README.md");

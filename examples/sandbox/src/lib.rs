@@ -1,3 +1,5 @@
+#![allow(unused_braces)]
+
 mod elm_button;
 
 use log::Level;
@@ -9,7 +11,7 @@ use web_sys::{Request, RequestInit, RequestMode, Response};
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
-pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> Gizmo<HtmlElement> {
+pub fn new_button_view(mut tx_click: Transmitter<Event>) -> DomWrapper<HtmlElement> {
     // Create a receiver for our button to get its text from.
     let rx_text = Receiver::<String>::new();
 
@@ -17,12 +19,13 @@ pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> Gizmo<HtmlElement> 
     //
     // The button text will start out as "Click me" and then change to whatever
     // comes in on the receiver.
-    let button = button()
-        .style("cursor", "pointer")
-        // The button receives its text
-        .rx_text("Click me", rx_text.branch())
-        // The button transmits its clicks
-        .tx_on("click", tx_click.clone());
+    let button = dom! {
+        // The button has a style and transmits its clicks
+        <button style="cursor: pointer;" on:click=tx_click.clone()>
+            // The text starts with "Click me" and receives updates
+            {("Click me", rx_text.branch())}
+        </button>
+    };
 
     // Now that the routing is done, we can define how the signal changes from
     // transmitter to receiver over each occurance.
@@ -48,18 +51,22 @@ pub fn new_button_gizmo(mut tx_click: Transmitter<Event>) -> Gizmo<HtmlElement> 
 
 
 /// Creates a h1 heading that changes its color.
-pub fn new_h1_gizmo(mut tx_click: Transmitter<Event>) -> Gizmo<HtmlElement> {
+pub fn new_h1_view(mut tx_click: Transmitter<Event>) -> DomWrapper<HtmlElement> {
     // Create a receiver for our heading to get its color from.
     let rx_color = Receiver::<String>::new();
 
-    // Create the gizmo for our heading, giving it the receiver.
-    let h1 = h1()
-        .attribute("id", "header")
-        .attribute("class", "my-header")
-        .rx_style("color", "green", rx_color.branch())
-        .text("Hello from mogwai!");
+    // Create the view for our heading, giving it the receiver.
+    let h1 = dom! {
+        <h1 id="header" class="my-header"
+            // set style.color with an initial value and then update it whenever
+            // we get a message on rx_color
+            style:color=("green", rx_color.branch())
+            >
+            "Hello from mogwai!"
+        </h1>
+    };
 
-    // Now that the routing is done, let's define the logic
+    // Now that the view is done, let's define the logic
     // The h1's color will change every click back and forth between blue and red
     // after the initial green.
     tx_click.wire_fold(
@@ -112,7 +119,7 @@ async fn click_to_text() -> Option<String> {
 
 /// Creates a button that when clicked requests the time in london and sends
 /// it down a receiver.
-pub fn time_req_button_and_pre() -> Gizmo<HtmlElement> {
+pub fn time_req_button_and_pre() -> DomWrapper<HtmlElement> {
     let (req_tx, req_rx) = txrx::<Event>();
     let (resp_tx, resp_rx) = txrx::<String>();
 
@@ -141,17 +148,22 @@ pub fn time_req_button_and_pre() -> Gizmo<HtmlElement> {
         },
     );
 
-    let btn = button()
-        .style("cursor", "pointer")
-        .text("Get the time (london)")
-        .tx_on("click", req_tx);
-    let pre = pre().rx_text("(waiting)", resp_rx);
-    div().with(btn).with(pre)
+    dom! {
+        <div>
+            <button
+                style="cursor: pointer;"
+                on:click=req_tx >
+
+                "Get the time (london)"
+            </button>
+            <pre>{("(waiting)", resp_rx)}</pre>
+        </div>
+    }
 }
 
 
-/// Creates a gizmo that ticks a count upward every second.
-pub fn counter() -> Gizmo<Element> {
+/// Creates a view that ticks a count upward every second.
+pub fn counter() -> DomWrapper<HtmlElement> {
     // Create a transmitter to send ticks every second
     let mut tx = Transmitter::<()>::new();
 
@@ -172,7 +184,7 @@ pub fn counter() -> Gizmo<Element> {
         format!("Count: {}", *n)
     });
 
-    Gizmo::element("h3").rx_text("Awaiting first count", rx)
+    dom!{ <h3>{("Awaiting first count", rx)}</h3> }
 }
 
 
@@ -183,19 +195,22 @@ pub fn main() -> Result<(), JsValue> {
 
     // Create a transmitter to send button clicks into.
     let tx_click = Transmitter::new();
-    let h1 = new_h1_gizmo(tx_click.clone());
-    let btn = new_button_gizmo(tx_click);
+    let h1 = new_h1_view(tx_click.clone());
+    let btn = new_button_view(tx_click);
     let req = time_req_button_and_pre();
     let counter = counter();
 
-    // Put it all in a parent gizmo and run it right now
-    div()
-        .with(h1)
-        .with(btn)
-        .with(elm_button::Button { clicks: 0 })
-        .with(Gizmo::element("br"))
-        .with(Gizmo::element("br"))
-        .with(req)
-        .with(counter)
-        .run()
+    // Put it all in a parent view and run it right now
+    let root = dom! {
+        <div>
+            {h1}
+            {btn}
+            {elm_button::Button { clicks: 0 }.into_gizmo()}
+            <br />
+            <br />
+            {req}
+            {counter}
+        </div>
+    };
+    root.run()
 }

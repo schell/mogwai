@@ -84,6 +84,7 @@ impl Component for Todo {
                 self.toggle_input = Some(el.clone());
             }
             TodoIn::EditInput(el) => {
+                el.set_value(&self.name);
                 self.edit_input = Some(el.clone());
             }
             TodoIn::ToggleCompletion => {
@@ -142,61 +143,45 @@ impl Component for Todo {
         }
     }
 
-    fn view(&self, tx: Transmitter<TodoIn>, rx: Receiver<TodoOut>) -> Gizmo<HtmlElement> {
-        li().rx_class("", rx.branch_filter_map(|msg| msg.as_list_class()))
-            .rx_style(
-                "display",
-                "block",
-                rx.branch_filter_map(|msg| match msg {
-                    TodoOut::SetVisible(visible) => {
-                        Some(if *visible { "block" } else { "none" }.to_string())
-                    }
-                    _ => None,
-                }),
-            )
-            .with(
-                div()
-                    .class("view")
-                    .with(
-                        input()
-                            .class("toggle")
-                            .attribute("type", "checkbox")
-                            .style("cursor", "pointer")
-                            .tx_post_build(tx.contra_map(|el: &HtmlInputElement| {
-                                TodoIn::CompletionToggleInput(el.clone())
-                            }))
-                            .tx_on("click", tx.contra_map(|_: &Event| TodoIn::ToggleCompletion)),
-                    )
-                    .with(
-                        label()
-                            .rx_text(
-                                &self.name,
-                                rx.branch_filter_map(|msg| match msg {
-                                    TodoOut::SetName(name) => Some(name.clone()),
-                                    _ => None,
-                                }),
-                            )
-                            .tx_on("dblclick", tx.contra_map(|_: &Event| TodoIn::StartEditing)),
-                    )
-                    .with(
-                        button()
-                            .class("destroy")
-                            .style("cursor", "pointer")
-                            .tx_on("click", tx.contra_map(|_: &Event| TodoIn::Remove)),
-                    ),
-            )
-            .with(
-                input()
-                    .class("edit")
-                    .value(&self.name)
-                    .tx_post_build(
-                        tx.contra_map(|el: &HtmlInputElement| TodoIn::EditInput(el.clone())),
-                    )
-                    .tx_on("blur", tx.contra_map(|_: &Event| TodoIn::StopEditing(None)))
-                    .tx_on(
-                        "keyup",
-                        tx.contra_map(|ev: &Event| TodoIn::StopEditing(Some(ev.clone()))),
-                    ),
-            )
+    fn view(&self, tx: Transmitter<TodoIn>, rx: Receiver<TodoOut>) -> DomWrapper<HtmlElement> {
+        dom! {
+            <li class=rx.branch_filter_map(|msg| msg.as_list_class())
+                style:display=(
+                    "block",
+                    rx.branch_filter_map(|msg| match msg {
+                        TodoOut::SetVisible(visible) => {
+                            Some(if *visible { "block" } else { "none" }.to_string())
+                        }
+                        _ => None,
+                    })
+                )>
+                <div class="view">
+                    <input class="toggle" type="checkbox" style:cursor="pointer"
+                        post:build=tx.contra_map(|el: &HtmlInputElement| {
+                            TodoIn::CompletionToggleInput(el.clone())
+                        })
+                        on:click=tx.contra_map(|_: &Event| TodoIn::ToggleCompletion)
+                    />
+                    <label on:dblclick=tx.contra_map(|_: &Event| TodoIn::StartEditing)>
+                        {(
+                            &self.name,
+                            rx.branch_filter_map(|msg| match msg {
+                                TodoOut::SetName(name) => Some(name.clone()),
+                                _ => None,
+                            })
+                        )}
+                    </label>
+                    <button
+                        class="destroy"
+                        style="cursor: pointer;"
+                        on:click=tx.contra_map(|_: &Event| TodoIn::Remove) />
+                </div>
+                <input
+                    class="edit"
+                    post:build=tx.contra_map(|el: &HtmlInputElement| TodoIn::EditInput(el.clone()))
+                    on:blur=tx.contra_map(|_: &Event| TodoIn::StopEditing(None))
+                    on:keyup=tx.contra_map(|ev: &Event| TodoIn::StopEditing(Some(ev.clone()))) />
+            </li>
+        }
     }
 }
