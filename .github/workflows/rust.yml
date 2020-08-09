@@ -28,4 +28,7 @@ jobs:
 
     - name: release
       if: github.ref == 'refs/heads/release'
-      run: cd mogwai && cargo publish --token ${{ secrets.cargo_token }}
+      run: |
+        cd crates/mogwai-html-macro && cargo publish --tokon ${{ secrets.cargo_token }}
+        cd ../..
+        cd mogwai && cargo publish --token ${{ secrets.cargo_token }}
