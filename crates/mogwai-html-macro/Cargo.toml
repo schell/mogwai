@@ -4,6 +4,12 @@ version = "0.1.0"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
 readme = "README.md"
+description = "Declare mogwai views with RSX"
+license = "MIT"
+keywords = ["ui", "dom", "app", "reactive", "frontend"]
+categories = ["gui", "wasm", "web-programming"]
+documentation = "https://docs.rs/mogwai/"
+
 
 [lib]
 proc-macro = true
