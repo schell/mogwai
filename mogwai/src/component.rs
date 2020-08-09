@@ -82,8 +82,8 @@
 //!
 //! pub fn main() -> Result<(), JsValue> {
 //!     App{ num_clicks: 0 }
-//!     .into_gizmo()
-//!     .run()
+//!         .into_gizmo()
+//!         .run()
 //! }
 //! ```
 //!
@@ -106,12 +106,17 @@
 //! ## Placing components
 //!
 //! Gizmos may be used within a [`DomWrapper`] using the
-//! [`DomWrapper::with`] function.
+//! [`ParentView::with`] function.
 use wasm_bindgen::JsCast;
 use web_sys::Node;
 
+#[allow(unused_imports)]
 use super::{
-    gizmo::{dom::DomWrapper, Gizmo},
+    gizmo::{
+        dom::DomWrapper,
+        view::ParentView,
+        Gizmo
+    },
     txrx::{Receiver, Transmitter},
 };
 
@@ -138,9 +143,8 @@ where
     /// the view by being used in an rx_* function.
     type ViewMsg;
 
-    /// The type of DOM node that represents the root of this component.
-    /// This will be one of the `web-sys` element types, ie HtmlElement,
-    /// HtmlInputElement, etc.
+    /// The type of [`web_sys::Node`] that represents the root of this component.
+    /// ie HtmlElement, HtmlInputElement, etc.
     type DomNode;
 
     /// Update this component in response to any received model messages.
