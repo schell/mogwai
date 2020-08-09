@@ -16,7 +16,7 @@ console_log = "0.1.2"
 futures = "0.3"
 js-sys = "0.3.27"
 log = "0.4"
-mogwai-html-macro = { path = "../crates/mogwai-html-macro" }
+mogwai-html-macro = { path = "../crates/mogwai-html-macro", version = "^0.1" }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 
