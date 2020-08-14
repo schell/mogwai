@@ -113,7 +113,7 @@ fn node_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
                     Err(error)
                 } else {
                     Ok(quote! {
-                        (mogwai::gizmo::dom::DomWrapper::element(#tag) as DomWrapper<#type_is>)
+                        (mogwai::gizmo::dom::View::element(#tag) as View<#type_is>)
                            #(#attribute_tokens)*
                            #(#child_tokens)*
 

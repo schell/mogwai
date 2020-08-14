@@ -1,35 +1,25 @@
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement};
 
+use super::super::txrx::{Receiver, Transmitter};
 pub use super::utils;
-use super::{
-    super::txrx::{Receiver, Transmitter},
-    dom::DomWrapper,
-};
 
 
 /// `Effect`s describe the state of something right now and what it will be in the
 /// future after receiving a message through a `Receiver`.
 pub enum Effect<T> {
-    OnceNow {
-        now: T
-    },
-    ManyLater {
-        later: Receiver<T>
-    },
-    OnceNowAndManyLater {
-        now: T,
-        later: Receiver<T>
-    }
+    OnceNow { now: T },
+    ManyLater { later: Receiver<T> },
+    OnceNowAndManyLater { now: T, later: Receiver<T> },
 }
 
 
 impl<T> Effect<T> {
     pub fn into_some(self) -> (Option<T>, Option<Receiver<T>>) {
         match self {
-            Effect::OnceNow{ now } => (Some(now), None),
-            Effect::ManyLater{ later } => (None, Some(later)),
-            Effect::OnceNowAndManyLater{ now, later } => (Some(now), Some(later)),
+            Effect::OnceNow { now } => (Some(now), None),
+            Effect::ManyLater { later } => (None, Some(later)),
+            Effect::OnceNowAndManyLater { now, later } => (Some(now), Some(later)),
         }
     }
 }
@@ -44,7 +34,7 @@ impl<T> From<T> for Effect<T> {
 
 impl From<&str> for Effect<String> {
     fn from(s: &str) -> Effect<String> {
-        Effect::OnceNow{ now: s.into() }
+        Effect::OnceNow { now: s.into() }
     }
 }
 
@@ -58,9 +48,7 @@ impl<T> From<Receiver<T>> for Effect<T> {
 
 impl<T> From<(T, Receiver<T>)> for Effect<T> {
     fn from((now, later): (T, Receiver<T>)) -> Effect<T> {
-        Effect::OnceNowAndManyLater {
-            now, later
-        }
+        Effect::OnceNowAndManyLater { now, later }
     }
 }
 
@@ -68,7 +56,8 @@ impl<T> From<(T, Receiver<T>)> for Effect<T> {
 impl From<(&str, Receiver<String>)> for Effect<String> {
     fn from((now, later): (&str, Receiver<String>)) -> Effect<String> {
         Effect::OnceNowAndManyLater {
-            now: now.into(), later
+            now: now.into(),
+            later,
         }
     }
 }
@@ -102,7 +91,7 @@ pub trait AttributeView {
     /// use mogwai::prelude::*;
     ///
     /// let (tx, rx) = txrx::<String>();
-    /// let my_div = (DomWrapper::element("div") as DomWrapper<HtmlElement>)
+    /// let my_div = (View::element("div") as View<HtmlElement>)
     ///     .attribute("id", "my_div")
     ///     .attribute("class", ("hero_div", rx.branch_map(|class_update| {
     ///         ["hero_div", class_update].join(" ")
@@ -116,7 +105,7 @@ pub trait AttributeView {
     /// use mogwai::prelude::*;
     ///
     /// let (tx, rx) = txrx::<String>();
-    /// let my_div:DomWrapper<HtmlElement> = dom! {
+    /// let my_div:View<HtmlElement> = dom! {
     ///     <div id="my_div" class=("hero_div", rx.branch_map(|class_update| {
     ///         ["hero_div", class_update].join(" ")
     ///     })) />
@@ -180,20 +169,4 @@ pub trait PostBuildView {
     /// After the view is built, transmit its underlying DomNode on the given
     /// transmitter.
     fn post_build(self, tx: Transmitter<Self::DomNode>) -> Self;
-}
-
-
-/// A `View` is that which ultimately gets built by the `Component` trait's `view`
-/// function.
-pub trait View {
-    type DomNode;
-
-    /// Convert this view into a gizmo.
-    fn into_dom(self) -> DomWrapper<Self::DomNode>
-    where
-        Self::DomNode: JsCast;
-
-    /// Convert this view into an html string.
-    /// This is used on the server to generate a
-    fn into_html_string(self) -> String;
 }

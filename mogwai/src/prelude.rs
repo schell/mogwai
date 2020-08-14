@@ -1,7 +1,7 @@
 //! All of Mogwai in one easy place.
 pub use super::{
     component::{subscriber::Subscriber, *},
-    gizmo::{dom::*, view::*, Gizmo, SimpleComponent, BuilderFn},
+    gizmo::{dom::*, view::*, BuilderFn, Gizmo, SimpleComponent},
     txrx::{
         new_shared, recv, trns, txrx, txrx_filter_fold, txrx_filter_map, txrx_fold,
         txrx_fold_shared, txrx_map, wrap_future, Receiver, Transmitter,

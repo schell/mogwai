@@ -104,7 +104,7 @@ impl Component for Button {
         &self,
         tx: Transmitter<ButtonIn>,
         rx: Receiver<ButtonOut>
-    ) -> DomWrapper<HtmlElement> {
+    ) -> View<HtmlElement> {
         let rx_text = rx.branch_map(|msg| match msg {
             ButtonOut::Clicks(n) => format!("Clicked {} times", n)
         });

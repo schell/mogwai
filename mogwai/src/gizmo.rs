@@ -11,14 +11,14 @@ use super::{
 
 pub mod dom;
 pub mod view;
-use dom::DomWrapper;
+use dom::View;
 
 /// A concrete component/widget and all of its pieces.
 pub struct Gizmo<T: Component> {
     pub trns: Transmitter<T::ModelMsg>,
     pub recv: Receiver<T::ViewMsg>,
 
-    pub(crate) view: DomWrapper<T::DomNode>,
+    pub(crate) view: View<T::DomNode>,
     pub(crate) state: Rc<RefCell<T>>,
 }
 
@@ -72,7 +72,7 @@ where
         panic!("Gizmo::dom_ref is only available on wasm32")
     }
 
-    pub fn view_ref(&self) -> &DomWrapper<T::DomNode> {
+    pub fn view_ref(&self) -> &View<T::DomNode> {
         &self.view
     }
 
@@ -137,14 +137,14 @@ impl<T: Component> From<T> for Gizmo<T> {
 }
 
 
-/// The type of function that uses a txrx pair and returns a DomWrapper.
-pub type BuilderFn<T, D> = dyn Fn(Transmitter<T>, Receiver<T>) -> DomWrapper<D>;
+/// The type of function that uses a txrx pair and returns a View.
+pub type BuilderFn<T, D> = dyn Fn(Transmitter<T>, Receiver<T>) -> View<D>;
 
 
 /// A simple component made from a [BuilderFn].
 ///
 /// Any function that takes a transmitter and receiver of the same type and
-/// returns a [DomWrapper] can be made into a component that holds no internal
+/// returns a [View] can be made into a component that holds no internal
 /// state. It forwards all of its incoming messages to its view.
 ///
 /// ```rust,no_run
@@ -153,7 +153,7 @@ pub type BuilderFn<T, D> = dyn Fn(Transmitter<T>, Receiver<T>) -> DomWrapper<D>;
 ///
 /// let component: SimpleComponent<(), HtmlElement> = (
 ///     Box::new(
-///         |tx: Transmitter<()>, rx: Receiver<()>| -> DomWrapper<HtmlElement> {
+///         |tx: Transmitter<()>, rx: Receiver<()>| -> View<HtmlElement> {
 ///             dom!{
 ///                 <button style="pointer" on:click=tx.contra_map(|_| ())>
 ///                     {("Click me", rx.branch_map(|()| "Clicked!".to_string()))}
@@ -179,7 +179,7 @@ where
         tx_view.send(msg);
     }
 
-    fn view(&self, tx: Transmitter<T>, rx: Receiver<T>) -> DomWrapper<D> {
+    fn view(&self, tx: Transmitter<T>, rx: Receiver<T>) -> View<D> {
         self(tx, rx)
     }
 }

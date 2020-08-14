@@ -33,7 +33,7 @@ impl Component for Button {
         }
     }
 
-    fn view(&self, tx: Transmitter<ButtonIn>, rx: Receiver<ButtonOut>) -> DomWrapper<HtmlElement> {
+    fn view(&self, tx: Transmitter<ButtonIn>, rx: Receiver<ButtonOut>) -> View<HtmlElement> {
         dom! {
             <button on:click=tx.contra_map(|_| ButtonIn::Click)>
                 {(

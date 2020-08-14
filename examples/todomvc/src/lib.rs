@@ -57,5 +57,6 @@ pub fn main() -> Result<(), JsValue> {
                 <a href="http://todomvc.com">"TodoMVC"</a>
             </p>
         </footer>
-    ).run()
+    )
+    .run()
 }

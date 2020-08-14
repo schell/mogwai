@@ -54,7 +54,7 @@
 //!     type ViewMsg = Out;
 //!     type DomNode = HtmlElement;
 //!
-//!     fn view(&self, tx: Transmitter<In>, rx:Receiver<Out>) -> DomWrapper<HtmlElement> {
+//!     fn view(&self, tx: Transmitter<In>, rx:Receiver<Out>) -> View<HtmlElement> {
 //!         dom! {
 //!             <button on:click=tx.contra_map(|_| In::Click)>
 //!                 {(
@@ -105,18 +105,14 @@
 //!
 //! ## Placing components
 //!
-//! Gizmos may be used within a [`DomWrapper`] using the
+//! Gizmos may be used within a [`View`] using the
 //! [`ParentView::with`] function.
 use wasm_bindgen::JsCast;
 use web_sys::Node;
 
 #[allow(unused_imports)]
 use super::{
-    gizmo::{
-        dom::DomWrapper,
-        view::ParentView,
-        Gizmo
-    },
+    gizmo::{dom::View, view::ParentView, Gizmo},
     txrx::{Receiver, Transmitter},
 };
 
@@ -165,7 +161,7 @@ where
         &self,
         tx: Transmitter<Self::ModelMsg>,
         rx: Receiver<Self::ViewMsg>,
-    ) -> DomWrapper<Self::DomNode>;
+    ) -> View<Self::DomNode>;
 
     /// Convert into a Gizmo<Self>. Use this to convert a type into a Gizmo<Self>
     /// that can be added to the DOM.

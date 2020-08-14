@@ -6,7 +6,7 @@ use std::{
 use wasm_bindgen::{closure::Closure, JsCast, JsValue, UnwrapThrowExt};
 use web_sys;
 
-use super::txrx::Transmitter;
+use super::{gizmo::dom::MogwaiCallback, txrx::Transmitter};
 
 
 pub fn window() -> web_sys::Window {
@@ -113,11 +113,12 @@ where
 }
 
 
+#[cfg(target_arch = "wasm32")]
 pub fn add_event(
     ev_name: &str,
     target: &web_sys::EventTarget,
     tx: Transmitter<web_sys::Event>,
-) -> Rc<Closure<dyn FnMut(JsValue)>> {
+) -> MogwaiCallback {
     let cb = Closure::wrap(Box::new(move |val: JsValue| {
         let ev = val.unchecked_into();
         tx.send(&ev);
@@ -125,5 +126,17 @@ pub fn add_event(
     target
         .add_event_listener_with_callback(ev_name, cb.as_ref().unchecked_ref())
         .unwrap_throw();
-    Rc::new(cb)
+    MogwaiCallback {
+        callback: Rc::new(cb),
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+pub fn add_event(
+    _ev_name: &str,
+    _target: &web_sys::EventTarget,
+    _tx: Transmitter<web_sys::Event>,
+) -> MogwaiCallback {
+    MogwaiCallback {
+        callback: Rc::new(Box::new(|_| {})),
+    }
 }

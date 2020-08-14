@@ -257,7 +257,7 @@ impl Component for App {
         store::write_items(items).expect("Could not store todos");
     }
 
-    fn view(&self, tx: Transmitter<In>, rx: Receiver<Out>) -> DomWrapper<HtmlElement> {
+    fn view(&self, tx: Transmitter<In>, rx: Receiver<Out>) -> View<HtmlElement> {
         let rx_display = rx.branch_filter_map(|msg| match msg {
             Out::ShouldShowTodoList(should) => {
                 Some(if *should { "block" } else { "none" }.to_string())
@@ -265,7 +265,7 @@ impl Component for App {
             _ => None,
         });
 
-        dom!{
+        dom! {
             <section class="todoapp">
                 <header class="header">
                     <h1>"todos"</h1>

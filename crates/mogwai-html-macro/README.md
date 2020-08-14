@@ -23,28 +23,28 @@ Example - this RSX:
 will generate this rust code:
 
 ```rust
-    (mogwai::gizmo::dom::DomWrapper::element("footer") as DomWrapper<web_sys::HtmlElement>)
+    (mogwai::gizmo::dom::View::element("footer") as View<web_sys::HtmlElement>)
         .attribute("class", "info")
         .with(
-            (mogwai::gizmo::dom::DomWrapper::element("p") as DomWrapper<web_sys::HtmlElement>)
+            (mogwai::gizmo::dom::View::element("p") as View<web_sys::HtmlElement>)
                 .with("Double click to edit a todo"),
         )
         .with(
-            (mogwai::gizmo::dom::DomWrapper::element("p") as DomWrapper<web_sys::HtmlElement>)
+            (mogwai::gizmo::dom::View::element("p") as View<web_sys::HtmlElement>)
                 .with("Written by ")
                 .with(
-                    (mogwai::gizmo::dom::DomWrapper::element("a")
-                        as DomWrapper<web_sys::HtmlElement>)
+                    (mogwai::gizmo::dom::View::element("a")
+                        as View<web_sys::HtmlElement>)
                         .attribute("href", "https://github.com/schell")
                         .with("Schell Scivally"),
                 ),
         )
         .with(
-            (mogwai::gizmo::dom::DomWrapper::element("p") as DomWrapper<web_sys::HtmlElement>)
+            (mogwai::gizmo::dom::View::element("p") as View<web_sys::HtmlElement>)
                 .with("Part of ")
                 .with(
-                    (mogwai::gizmo::dom::DomWrapper::element("a")
-                        as DomWrapper<web_sys::HtmlElement>)
+                    (mogwai::gizmo::dom::View::element("a")
+                        as View<web_sys::HtmlElement>)
                         .attribute("href", "http://todomvc.com")
                         .with("TodoMVC"),
                 ),

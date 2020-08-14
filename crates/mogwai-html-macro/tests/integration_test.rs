@@ -1,5 +1,5 @@
 #![allow(unused_braces)]
-use mogwai::gizmo::{dom::DomWrapper, view::*};
+use mogwai::gizmo::{dom::View, view::*};
 use mogwai_html_macro::dom;
 
 
@@ -7,7 +7,8 @@ use mogwai_html_macro::dom;
 fn node_self_closing() {
     let div: String = dom! {
         <a href="http://zyghost.com" />
-    }.into_html_string();
+    }
+    .into_html_string();
     assert_eq!(&div, r#"<a href="http://zyghost.com" />"#);
 }
 
@@ -72,12 +73,13 @@ fn lt_in_text() {
 
 #[test]
 fn allow_attributes_on_next_line() {
-    let _: String = dom!{
+    let _: String = dom! {
         <div
             id="my_div"
             style="float: left;"
             >
             "A string"
         </div>
-    }.into_html_string();
+    }
+    .into_html_string();
 }
