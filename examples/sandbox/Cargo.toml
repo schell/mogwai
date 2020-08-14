@@ -23,6 +23,8 @@ path = "../../mogwai"
 [dependencies.web-sys]
 version = "0.3.31"
 features = [
+  "Node",
+  "NodeList",
   "Request",
   "RequestInit",
   "RequestMode",

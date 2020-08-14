@@ -212,5 +212,47 @@ pub fn main() -> Result<(), JsValue> {
             {counter}
         </div>
     };
-    root.run()
+    root.run().unwrap_throw();
+
+    // Here we'll start a hydration-by-hand experiment.
+    let body: HtmlElement = utils::document().body().unwrap_throw();
+    {
+        // First we'll create some non-mogwai managed DOM using web_sys:
+        let section = utils::document()
+            .create_element("section")
+            .unwrap_throw()
+            .dyn_into::<HtmlElement>()
+            .unwrap_throw();
+        section.set_inner_html(r#"<div id="my_div"><p class="my_p">This is pre-existing text that will be hydrated</p></div>"#);
+
+        body.append_child(&section).unwrap_throw();
+    }
+
+    // Now we'll attempt to hydrate a view from the pre-existing DOM
+    let (tx, rx) = txrx_fold(0, |count: &mut u32, _:&()| -> String {
+        *count += 1;
+        if *count == 1 {
+            "Sent 1 message".into()
+        } else {
+            format!("Sent {} messages", *count)
+        }
+    });
+    {
+        let mut div_view:View<HtmlElement> = View::from_element_by_id("my_div").unwrap_throw();
+        let children = (div_view.as_ref() as &HtmlElement).child_nodes();
+        let p = children.get(0).unwrap_throw();
+        let mut p_view = View::wrapping(p.clone());
+        let text = p.child_nodes().get(0).unwrap_throw().dyn_into::<web_sys::Text>().unwrap_throw();
+        let mut text_view = View::wrapping(text.clone());
+        text_view.rx_text(rx);
+        p_view.children.push(text_view.upcast());
+        div_view.children.push(p_view);
+        div_view.forget().unwrap_throw();
+    };
+
+    tx.send(&());
+    tx.send(&());
+    tx.send(&());
+
+    Ok(())
 }

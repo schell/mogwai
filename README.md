@@ -64,7 +64,7 @@ dom!(
 
 Here's that same example using the elm-like `Component` trait:
 
-```rust, no_run
+```rust
 use mogwai::prelude::*;
 
 pub struct Button {
@@ -118,10 +118,20 @@ impl Component for Button {
     }
 }
 
-Button{ clicks: 0 }
-    .into_gizmo()
-    .run()
-    .unwrap_throw()
+let mut gizmo = Button{ clicks: 0 }.into_gizmo();
+
+// Pass some messages in to update the view, as if the button had been
+// clicked.
+gizmo.update(&ButtonIn::Click);
+gizmo.update(&ButtonIn::Click);
+
+assert_eq!(&gizmo.view_ref().clone().into_html_string(), "<button>Clicked 2 times</button>");
+
+if cfg!(target_arch = "wasm32") {
+    // running a gizmo or a view only works in the browser, as ownership
+    // of is passed to the window
+    gizmo.run().unwrap_throw()
+}
 ```
 
 ## introduction
@@ -154,7 +164,7 @@ that you have `npm` or `node`. Getting your project up and running without
 writing any javascript is easy enough.
 
 ### performance
-`mogwai` is snappy! Here is a very handwavey and sketchy todomvc benchmark:
+`mogwai` is snappy! Here is some very handwavey and sketchy todomvc benchmarketing:
 
 ![mogwai performance benchmarking](img/perf.png)
 
@@ -194,7 +204,7 @@ For more examples, check out
 
 To build the examples use:
 ```shell
-cd examples/whatever && wasm-pack build --target no-modules
+cd examples/whatever && wasm-pack build --target web
 ```
 
 ## sponsorship

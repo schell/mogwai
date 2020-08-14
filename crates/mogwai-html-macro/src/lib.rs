@@ -139,16 +139,18 @@ fn node_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
 }
 
 
-#[proc_macro]
-pub fn dom(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+fn walk_dom(
+    input: proc_macro::TokenStream,
+    f: impl Fn(Node) -> Result<proc_macro2::TokenStream, Error>,
+) -> proc_macro::TokenStream {
     match syn_rsx::parse(input, None) {
         Ok(parsed) => {
-            let (tokens, errs) = partition_unzip(parsed, node_to_token_stream);
+            let (tokens, errs) = partition_unzip(parsed, f);
             if let Some(error) = combine_errors(errs) {
                 error.to_compile_error().into()
             } else {
                 proc_macro::TokenStream::from(match tokens.len() {
-                    0 => quote! { compile_error("dom! must not be empty") },
+                    0 => quote! { compile_error("dom/hydrate macro must not be empty") },
                     1 => {
                         let ts = &tokens[0];
                         quote! { #ts }
@@ -164,6 +166,18 @@ pub fn dom(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             })
         }
     }
+}
+
+
+#[proc_macro]
+pub fn dom(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    walk_dom(input, node_to_token_stream)
+}
+
+
+#[proc_macro]
+pub fn hydrate(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    walk_dom(input, node_to_token_stream)
 }
 
 

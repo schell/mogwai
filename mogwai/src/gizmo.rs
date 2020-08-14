@@ -29,11 +29,19 @@ where
     T::ViewMsg: Clone,
     T::DomNode: AsRef<Node> + Clone,
 {
-    pub fn new(init: T) -> Gizmo<T> {
-        let component_var = Rc::new(RefCell::new(init));
-        let state = component_var.clone();
-        let (tx_out, rx_out) = txrx();
-        let (tx_in, rx_in) = txrx();
+    /// Create a new [`Gizmo`] from an initial state using
+    /// a view and the [`Transmitter`] + [`Receiver`] used to
+    /// create that view.
+    pub fn from_parts(
+        init: T,
+        mut tx_in: Transmitter<T::ModelMsg>,
+        rx_out: Receiver<T::ViewMsg>,
+        view: View<T::DomNode>,
+    ) -> Self {
+        let state_var = Rc::new(RefCell::new(init));
+        let state = state_var.clone();
+        let tx_out = rx_out.new_trns();
+        let rx_in = tx_in.spawn_recv();
         let subscriber = Subscriber::new(&tx_in);
 
         let (tx_view, rx_view) = txrx();
@@ -48,17 +56,21 @@ where
             utils::set_immediate(move || tx_out.send(&msg));
         });
 
-        let gizmo = {
-            let component = component_var.borrow();
-            component.view(tx_in.clone(), rx_out.branch())
-        };
-
         Gizmo {
             trns: tx_in,
             recv: rx_out,
-            view: gizmo,
-            state: component_var,
+            view,
+            state: state_var,
         }
+    }
+
+    /// Create a new [`Gizmo`] from a stateful [`Component`].
+    pub fn new(init: T) -> Gizmo<T> {
+        let tx_in = Transmitter::new();
+        let rx_out = Receiver::new();
+        let view = init.view(tx_in.clone(), rx_out.branch());
+
+        Gizmo::from_parts(init, tx_in, rx_out, view)
     }
 
     /// A reference to the browser's DomNode.
@@ -101,7 +113,7 @@ where
         self.run()
     }
 
-    /// Run this component forever
+    /// Run this component forever, handing ownership over to the browser window.
     ///
     /// # Panics
     /// Only works in the browser. Panics on compilation targets that are not
@@ -127,6 +139,14 @@ where
         let t = self.state.borrow();
         f(&t)
     }
+
+    /// Dangerously update this gizmo's state.
+    ///
+    /// This silently updates the state and doesn't trigger any messages
+    /// and does *not* update the view.
+    pub fn set_state(&mut self, t: T) {
+        *self.state.borrow_mut() = t;
+    }
 }
 
 
@@ -151,22 +171,30 @@ pub type BuilderFn<T, D> = dyn Fn(Transmitter<T>, Receiver<T>) -> View<D>;
 /// extern crate mogwai;
 /// use mogwai::prelude::*;
 ///
-/// let component: SimpleComponent<(), HtmlElement> = (
-///     Box::new(
-///         |tx: Transmitter<()>, rx: Receiver<()>| -> View<HtmlElement> {
-///             dom!{
-///                 <button style="pointer" on:click=tx.contra_map(|_| ())>
-///                     {("Click me", rx.branch_map(|()| "Clicked!".to_string()))}
-///                 </button>
-///             }
+/// let component = SimpleComponent::new(
+///     |tx: Transmitter<()>, rx: Receiver<()>| -> View<HtmlElement> {
+///         dom!{
+///             <button style="pointer" on:click=tx.contra_map(|_| ())>
+///                 {("Click me", rx.branch_map(|()| "Clicked!".to_string()))}
+///             </button>
 ///         }
-///     ) as Box<BuilderFn<(), HtmlElement>>
+///     }
 /// ).into_gizmo();
 /// ```
-pub type SimpleComponent<T, D> = Gizmo<Box<BuilderFn<T, D>>>;
+pub struct SimpleComponent<T, D: JsCast>(Box<BuilderFn<T, D>>);
 
 
-impl<T, D> Component for Box<BuilderFn<T, D>>
+impl<T, D: JsCast> SimpleComponent<T, D> {
+    pub fn new<F>(f: F) -> Self
+    where
+        F: Fn(Transmitter<T>, Receiver<T>) -> View<D> + 'static,
+    {
+        SimpleComponent(Box::new(f))
+    }
+}
+
+
+impl<T, D> Component for SimpleComponent<T, D>
 where
     T: Clone + 'static,
     D: JsCast + AsRef<Node> + Clone + 'static,
@@ -180,6 +208,6 @@ where
     }
 
     fn view(&self, tx: Transmitter<T>, rx: Receiver<T>) -> View<D> {
-        self(tx, rx)
+        self.0(tx, rx)
     }
 }

@@ -79,6 +79,16 @@ pub trait ElementView {
 }
 
 
+pub fn hydrate_element<T, F>(id: &str, f:F) -> T
+where
+    T: ElementView,
+    F: FnOnce() -> T
+{
+    ElementView::from_element_by_id(id)
+        .unwrap_or_else(f)
+}
+
+
 /// `AttributeView`s can describe themselves with key value pairs.
 pub trait AttributeView {
     /// Create a named attribute on the view that may change over time as

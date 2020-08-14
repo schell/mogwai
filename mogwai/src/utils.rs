@@ -27,44 +27,52 @@ pub fn set_checkup_interval(millis: i32, f: &Closure<dyn FnMut()>) -> i32 {
         .expect("should register `setInterval` OK")
 }
 
+/// Schedule the given closure to be run as soon as possible.
+///
+/// On wasm32 this schedules the closure to run async at the next "frame". Any other
+/// target sees the closure called immediately.
 pub fn set_immediate<F>(f: F)
 where
     F: FnOnce() + 'static,
 {
-    // `setTimeout(0, callback)` does not run the callback immediately, there is a minimum delay of ~4ms
-    // https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/setTimeout#Reasons_for_delays_longer_than_specified
-    // browsers do not have a native `setImmediate(callback)` function, so we have to use a hack :(
-    thread_local! {
-        static PENDING: RefCell<VecDeque<Box<dyn FnOnce()>>> = Default::default();
-        static CALLBACK: Closure<dyn Fn()> = Closure::wrap(Box::new(on_message));
-        static SCHEDULED: Cell<bool> = Cell::new(false);
-        static PORT_TO_SELF: web_sys::MessagePort = {
-            let channel = web_sys::MessageChannel::new().unwrap_throw();
-            CALLBACK.with(|callback| {
-                channel.port2().set_onmessage(Some(callback.as_ref().unchecked_ref()));
-            });
-            channel.port1()
-        };
-    }
+    if cfg!(target_arch = "wasm32") {
+        // `setTimeout(0, callback)` does not run the callback immediately, there is a minimum delay of ~4ms
+        // https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/setTimeout#Reasons_for_delays_longer_than_specified
+        // browsers do not have a native `setImmediate(callback)` function, so we have to use a hack :(
+        thread_local! {
+            static PENDING: RefCell<VecDeque<Box<dyn FnOnce()>>> = Default::default();
+            static CALLBACK: Closure<dyn Fn()> = Closure::wrap(Box::new(on_message));
+            static SCHEDULED: Cell<bool> = Cell::new(false);
+            static PORT_TO_SELF: web_sys::MessagePort = {
+                let channel = web_sys::MessageChannel::new().unwrap_throw();
+                CALLBACK.with(|callback| {
+                    channel.port2().set_onmessage(Some(callback.as_ref().unchecked_ref()));
+                });
+                channel.port1()
+            };
+        }
 
-    fn on_message() {
-        SCHEDULED.with(|scheduled| scheduled.set(false));
-        PENDING.with(|pending| {
-            // callbacks can (and do) schedule more callbacks;
-            // to ensure that we yield to the event loop between each batch,
-            // only dequeue callbacks that were scheduled before we started running this batch
-            let initial_len = pending.borrow().len();
-            for _ in 0..initial_len {
-                let f = pending.borrow_mut().pop_front().unwrap_throw();
-                f();
-            }
-        })
-    }
+        fn on_message() {
+            SCHEDULED.with(|scheduled| scheduled.set(false));
+            PENDING.with(|pending| {
+                // callbacks can (and do) schedule more callbacks;
+                // to ensure that we yield to the event loop between each batch,
+                // only dequeue callbacks that were scheduled before we started running this batch
+                let initial_len = pending.borrow().len();
+                for _ in 0..initial_len {
+                    let f = pending.borrow_mut().pop_front().unwrap_throw();
+                    f();
+                }
+            })
+        }
 
-    PENDING.with(|pending| pending.borrow_mut().push_back(Box::new(f)));
-    let was_scheduled = SCHEDULED.with(|scheduled| scheduled.replace(true));
-    if !was_scheduled {
-        PORT_TO_SELF.with(|port| port.post_message(&JsValue::NULL).unwrap_throw());
+        PENDING.with(|pending| pending.borrow_mut().push_back(Box::new(f)));
+        let was_scheduled = SCHEDULED.with(|scheduled| scheduled.replace(true));
+        if !was_scheduled {
+            PORT_TO_SELF.with(|port| port.post_message(&JsValue::NULL).unwrap_throw());
+        }
+    } else {
+        f()
     }
 }
 

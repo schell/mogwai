@@ -19,7 +19,8 @@ use super::{
 
 
 #[derive(Clone)]
-pub enum NameOrText {
+#[allow(dead_code)]
+pub(crate) enum NameOrText {
     Name(Rc<RefCell<String>>),
     Text(Rc<RefCell<String>>),
 }
@@ -57,13 +58,8 @@ impl MogwaiCallback {
 }
 
 
-/// A place to store Closures and Receivers.
-#[derive(Default)]
-pub struct DomStorage {}
-
-
 #[derive(Clone)]
-pub struct ServerNode {
+pub(crate) struct ServerNode {
     pub(crate) name_or_text: NameOrText,
     pub(crate) attributes: Vec<(String, Rc<RefCell<Option<String>>>)>,
     pub(crate) styles: Vec<(String, Rc<RefCell<String>>)>,
@@ -74,9 +70,10 @@ pub struct ServerNode {
 /// closures and receivers. This wraps a Javascript DOM node and maintains lists
 /// and maps needed to orchestrate user interaction.
 pub struct View<T: JsCast> {
+    pub children: Vec<View<Node>>,
+
     pub(crate) phantom: PhantomData<T>,
     pub(crate) element: Rc<JsValue>,
-    pub(crate) children: Vec<View<Node>>,
     pub(crate) callbacks: HashMap<String, MogwaiCallback>,
     pub(crate) window_callbacks: HashMap<String, MogwaiCallback>,
     pub(crate) document_callbacks: HashMap<String, MogwaiCallback>,
@@ -149,37 +146,6 @@ impl<T: JsCast> View<T> {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn element(name: &str) -> Self {
-        View {
-            element: Rc::new(JsValue::NULL),
-            phantom: std::marker::PhantomData,
-            server_node: ServerNode {
-                name_or_text: NameOrText::Name(Rc::new(RefCell::new(name.into()))),
-                attributes: vec![],
-                styles: vec![],
-            },
-            children: vec![],
-
-            callbacks: HashMap::default(),
-            window_callbacks: HashMap::default(),
-            document_callbacks: HashMap::default(),
-
-            string_rxs: vec![],
-            opt_string_rxs: vec![],
-            bool_rxs: vec![],
-        }
-    }
-    #[cfg(target_arch = "wasm32")]
-    pub fn element(name: &str) -> Self {
-        let name = name.into();
-        let el = utils::document()
-            .create_element(name)
-            .expect(&format!("cannot create element {:?}", name))
-            .unchecked_into();
-        View::wrapping(el)
-    }
-
     /// Adds a View as a child node.
     pub fn add_child<E: JsCast + AsRef<Node> + Clone>(&mut self, child: View<E>) {
         if cfg!(target_arch = "wasm32") {
@@ -241,6 +207,24 @@ impl View<Text> {
             bool_rxs: vec![],
         }
     }
+
+    pub fn rx_text(&mut self, rx: Receiver<String>) {
+        self.string_rxs.push(hand_clone(&rx));
+        if cfg!(target_arch = "wasm32") {
+            let text: Text = (self.as_ref() as &Text).clone();
+            rx.respond(move |s| text.set_data(s));
+        } else {
+            self.with_node(|node| {
+                let text = node.name_or_text.clone();
+                rx.respond(move |s| match &text {
+                    NameOrText::Text(var) => {
+                        *var.borrow_mut() = s.into();
+                    }
+                    _ => {}
+                })
+            });
+        }
+    }
 }
 
 
@@ -267,6 +251,85 @@ impl<T: JsCast> Deref for View<T> {
 
     fn deref(&self) -> &T {
         self.element.unchecked_ref::<T>()
+    }
+}
+
+
+impl<T: JsCast> ElementView for View<T> {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn element(name: &str) -> Self {
+        View {
+            element: Rc::new(JsValue::NULL),
+            phantom: std::marker::PhantomData,
+            server_node: ServerNode {
+                name_or_text: NameOrText::Name(Rc::new(RefCell::new(name.into()))),
+                attributes: vec![],
+                styles: vec![],
+            },
+            children: vec![],
+
+            callbacks: HashMap::default(),
+            window_callbacks: HashMap::default(),
+            document_callbacks: HashMap::default(),
+
+            string_rxs: vec![],
+            opt_string_rxs: vec![],
+            bool_rxs: vec![],
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn element(name: &str) -> Self {
+        let name = name.into();
+        let el = utils::document()
+            .create_element(name)
+            .expect(&format!("cannot create element {:?}", name))
+            .unchecked_into();
+        View::wrapping(el)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn element_ns(tag: &str, ns: &str) -> Self {
+        View {
+            element: Rc::new(JsValue::NULL),
+            phantom: std::marker::PhantomData,
+            server_node: ServerNode {
+                name_or_text: NameOrText::Name(Rc::new(RefCell::new(name.into()))),
+                attributes: vec![("xmlns".into(), Rc::new(RefCell::new(Some(ns.into()))))],
+                styles: vec![],
+            },
+            children: vec![],
+
+            callbacks: HashMap::default(),
+            window_callbacks: HashMap::default(),
+            document_callbacks: HashMap::default(),
+
+            string_rxs: vec![],
+            opt_string_rxs: vec![],
+            bool_rxs: vec![],
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn element_ns(tag: &str, ns: &str) -> Self {
+        let el = utils::document()
+            .create_element_ns(Some(ns), tag)
+            .expect(&format!("cannot create element_ns '{}' '{}'", tag, ns))
+            .unchecked_into();
+        View::wrapping(el)
+    }
+
+    fn from_element_by_id(id: &str) -> Option<Self> {
+        if cfg!(target_arch = "wasm32") {
+            utils::document().get_element_by_id(id).map(|el| {
+                let t_el: T = el.dyn_into::<T>().expect(&format!(
+                    "found '{}' but it is not '{}'",
+                    id,
+                    std::any::type_name::<T>(),
+                ));
+                View::wrapping(t_el)
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -474,15 +537,6 @@ impl<T: JsCast + AsRef<Node>> ParentView<Effect<String>> for View<T> {
 }
 
 
-impl<T: JsCast + AsRef<Node>> ParentView<&Node> for View<T> {
-    fn with(self, child: &Node) -> Self {
-        let this: &Node = self.as_ref();
-        this.append_child(child).unwrap_throw();
-        self
-    }
-}
-
-
 impl<T: JsCast + AsRef<Node>> ParentView<&str> for View<T> {
     fn with(mut self, text: &str) -> Self {
         self.add_child(View::text(text));
@@ -523,6 +577,7 @@ where
 
 
 /// # StyleView
+
 
 impl<T: JsCast + AsRef<HtmlElement>> StyleView for View<T> {
     fn style<E: Into<Effect<String>>>(mut self, name: &str, eff: E) -> Self {
@@ -743,8 +798,12 @@ impl<T: JsCast> Drop for View<T> {
             if let Some(parent) = node.parent_node() {
                 let _ = parent.remove_child(&node);
             }
-            self.string_rxs.iter_mut().for_each(|rx| rx.drop_responder());
-            self.opt_string_rxs.iter_mut().for_each(|rx| rx.drop_responder());
+            self.string_rxs
+                .iter_mut()
+                .for_each(|rx| rx.drop_responder());
+            self.opt_string_rxs
+                .iter_mut()
+                .for_each(|rx| rx.drop_responder());
             self.bool_rxs.iter_mut().for_each(|rx| rx.drop_responder());
         }
     }
