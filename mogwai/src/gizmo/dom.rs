@@ -65,8 +65,8 @@ pub struct DomStorage {}
 #[derive(Clone)]
 pub struct ServerNode {
     pub(crate) name_or_text: NameOrText,
-    pub(crate) attributes: Vec<(String, Option<String>)>,
-    pub(crate) styles: Vec<String>,
+    pub(crate) attributes: Vec<(String, Rc<RefCell<Option<String>>>)>,
+    pub(crate) styles: Vec<(String, Rc<RefCell<String>>)>,
 }
 
 
@@ -81,6 +81,7 @@ pub struct View<T: JsCast> {
     pub(crate) window_callbacks: HashMap<String, MogwaiCallback>,
     pub(crate) document_callbacks: HashMap<String, MogwaiCallback>,
     pub(crate) string_rxs: Vec<Receiver<String>>,
+    pub(crate) opt_string_rxs: Vec<Receiver<Option<String>>>,
     pub(crate) bool_rxs: Vec<Receiver<bool>>,
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -120,7 +121,28 @@ impl<T: JsCast> View<T> {
         match server_node.name_or_text {
             NameOrText::Name(name) => SsrNode::Container {
                 name: name.borrow().clone(),
-                attributes: server_node.attributes,
+                attributes: {
+                    // TODO: Merge attribute style with explicit styles
+                    let mut attributes = server_node
+                        .attributes
+                        .into_iter()
+                        .map(|(k, var)| (k, var.borrow().clone()))
+                        .collect::<Vec<_>>();
+                    if !server_node.styles.is_empty() {
+                        attributes.push((
+                            "style".into(),
+                            Some(
+                                server_node
+                                    .styles
+                                    .into_iter()
+                                    .map(|(k, v)| format!("{}: {};", k, v.borrow()))
+                                    .collect::<Vec<_>>()
+                                    .join(" "),
+                            ),
+                        ));
+                    }
+                    attributes
+                },
                 children: children.into_iter().map(|g| g.to_ssr_node()).collect(),
             },
             NameOrText::Text(text) => SsrNode::Text(text.borrow().clone()),
@@ -144,6 +166,7 @@ impl<T: JsCast> View<T> {
             document_callbacks: HashMap::default(),
 
             string_rxs: vec![],
+            opt_string_rxs: vec![],
             bool_rxs: vec![],
         }
     }
@@ -214,6 +237,7 @@ impl View<Text> {
             document_callbacks: HashMap::default(),
 
             string_rxs: vec![],
+            opt_string_rxs: vec![],
             bool_rxs: vec![],
         }
     }
@@ -289,70 +313,66 @@ impl<T: JsCast + AsRef<EventTarget>> EventTargetView for View<T> {
 
 impl<T: JsCast + AsRef<Element>> AttributeView for View<T> {
     fn attribute<E: Into<Effect<String>>>(mut self, name: &str, eff: E) -> View<T> {
-        let once = |wrapper: &mut View<T>, now: &str| {
-            if cfg!(target_arch = "wasm32") {
-                (wrapper.as_ref() as &Element)
-                    .set_attribute(name, now)
+        let (may_now, may_later) = eff.into().into_some();
+        if cfg!(target_arch = "wasm32") {
+            if let Some(now) = may_now {
+                (self.as_ref() as &Element)
+                    .set_attribute(name, &now)
                     .unwrap_throw();
-            } else {
-                wrapper.with_node(|node| {
-                    node.attributes.push((name.into(), Some(now.to_string())));
+            }
+            if let Some(later) = may_later {
+                let rx = later;
+
+                // Save a clone so we can drop_responder if this gizmo goes out of scope
+                self.string_rxs.push(hand_clone(&rx));
+
+                let element: &Element = self.as_ref();
+                let element = element.clone();
+                let name = name.to_string();
+
+                rx.respond(move |s| {
+                    element
+                        .set_attribute(&name, s)
+                        .expect("Could not set attribute");
                 });
             }
-        };
-        let many = |wrapper: &mut View<T>, rx: Receiver<String>| {
-            // Save a clone so we can drop_responder if this gizmo goes out of scope
-            wrapper.string_rxs.push(hand_clone(&rx));
-
-            let element: &Element = wrapper.as_ref();
-            let element = element.clone();
-            let name = name.to_string();
-
-            rx.respond(move |s| {
-                element
-                    .set_attribute(&name, s)
-                    .expect("Could not set attribute");
+        } else {
+            let var = Rc::new(RefCell::new(None));
+            self.with_node(|node| {
+                node.attributes.push((name.into(), var.clone()));
             });
-        };
-
-        match eff.into() {
-            Effect::OnceNow { now } => once(&mut self, now.as_ref()),
-            Effect::ManyLater { later } => {
-                if cfg!(target_arch = "wasm32") {
-                    many(&mut self, later)
-                }
+            if let Some(now) = may_now {
+                *var.borrow_mut() = Some(now.to_string());
             }
-            Effect::OnceNowAndManyLater { now, later } => {
-                once(&mut self, now.as_ref());
-                if cfg!(target_arch = "wasm32") {
-                    many(&mut self, later);
-                }
+            if let Some(later) = may_later {
+                let rx = later.branch_map(|s| Some(s.to_string()));
+
+                // Save a clone so we can drop_responder if this gizmo goes out of scope
+                self.opt_string_rxs.push(hand_clone(&rx));
+
+                rx.respond(move |may_s: &Option<String>| {
+                    *var.borrow_mut() = may_s.clone();
+                });
             }
         }
+
         self
     }
 
     fn boolean_attribute<E: Into<Effect<bool>>>(mut self, name: &str, eff: E) -> View<T> {
-        let once = |wrapper: &mut View<T>, is_present: bool| {
-            if is_present {
-                if cfg!(target_arch = "wasm32") {
-                    (wrapper.as_ref() as &Element)
-                        .set_attribute(name, "")
-                        .unwrap_throw();
-                } else {
-                    wrapper.with_node(|node| {
-                        node.attributes.push((name.into(), None));
-                    });
-                }
+        let (may_now, may_later) = eff.into().into_some();
+        if cfg!(target_arch = "wasm32") {
+            if let Some(true) = may_now {
+                (self.as_ref() as &Element)
+                    .set_attribute(name, "")
+                    .unwrap_throw();
             }
-        };
-        let many = |wrapper: &mut View<T>, rx: &Receiver<bool>| {
-            if cfg!(target_arch = "wasm32") {
-                let rx = rx.branch();
+            if let Some(later) = may_later {
+                let rx = later.branch();
                 // Save a clone so we can drop_responder if this gizmo goes out of scope
-                wrapper.bool_rxs.push(hand_clone(&rx));
+                self.bool_rxs.push(hand_clone(&rx));
 
-                let element: &Element = wrapper.as_ref();
+                let element: &Element = self.as_ref();
                 let element = element.clone();
                 let name = name.to_string();
 
@@ -368,13 +388,26 @@ impl<T: JsCast + AsRef<Element>> AttributeView for View<T> {
                     }
                 });
             }
-        };
-        match eff.into() {
-            Effect::OnceNow { now } => once(&mut self, now),
-            Effect::ManyLater { later } => many(&mut self, &later),
-            Effect::OnceNowAndManyLater { now, later } => {
-                once(&mut self, now);
-                many(&mut self, &later);
+        } else {
+            let var = Rc::new(RefCell::new(None));
+            self.with_node(|node| {
+                node.attributes.push((name.into(), var.clone()));
+            });
+            if let Some(true) = may_now {
+                *var.borrow_mut() = Some("".to_string());
+            }
+            if let Some(later) = may_later {
+                let rx = later.branch();
+                // Save a clone so we can drop_responder if this gizmo goes out of scope
+                self.bool_rxs.push(hand_clone(&rx));
+
+                rx.respond(move |is_present| {
+                    *var.borrow_mut() = if *is_present {
+                        Some("".to_string())
+                    } else {
+                        None
+                    };
+                });
             }
         }
 
@@ -494,19 +527,13 @@ where
 impl<T: JsCast + AsRef<HtmlElement>> StyleView for View<T> {
     fn style<E: Into<Effect<String>>>(mut self, name: &str, eff: E) -> Self {
         let (may_now, may_later) = eff.into().into_some();
-        if let Some(now) = may_now {
-            if cfg!(target_arch = "wasm32") {
+        if cfg!(target_arch = "wasm32") {
+            if let Some(now) = may_now {
                 (self.as_ref() as &HtmlElement)
                     .style()
                     .set_property(name, now.as_str())
                     .unwrap_throw();
-            } else {
-                self.with_node(|node| {
-                    node.styles.push(format!("{}:{};", name, now));
-                });
             }
-        }
-        if cfg!(target_arch = "wasm32") {
             if let Some(later) = may_later {
                 let rx = later;
                 // Save a clone so we can drop_responder if this gizmo goes out of scope
@@ -519,6 +546,24 @@ impl<T: JsCast + AsRef<HtmlElement>> StyleView for View<T> {
                 rx.respond(move |s| {
                     style.set_property(&name, s).expect("Could not set style");
                 });
+            }
+        } else {
+            let var = Rc::new(RefCell::new("".to_string()));
+            if let Some(now) = may_now {
+                *var.borrow_mut() = now.to_string();
+                self.with_node(|node| {
+                    node.styles.push((name.into(), var.clone()));
+                });
+            }
+            if let Some(later) = may_later {
+                let rx = later;
+
+                // Save a clone so we can drop_responder if this gizmo goes out of scope
+                self.string_rxs.push(hand_clone(&rx));
+
+                rx.respond(move |s| {
+                    *var.borrow_mut() = s.to_string();
+                })
             }
         }
 
@@ -551,13 +596,12 @@ impl<T: JsCast> View<T> {
         View {
             element: Rc::new(element.into()),
             phantom: PhantomData,
-            dom_storage: DomStorage {
-                callbacks: HashMap::new(),
-                window_callbacks: HashMap::new(),
-                document_callbacks: HashMap::new(),
-                string_rxs: vec![],
-                bool_rxs: vec![],
-            },
+            callbacks: HashMap::new(),
+            window_callbacks: HashMap::new(),
+            document_callbacks: HashMap::new(),
+            string_rxs: vec![],
+            opt_string_rxs: vec![],
+            bool_rxs: vec![],
             children: vec![],
         }
     }
@@ -583,6 +627,11 @@ impl<T: JsCast + Clone> View<T> {
             window_callbacks: self.window_callbacks.clone(),
             document_callbacks: self.document_callbacks.clone(),
             string_rxs: self.string_rxs.iter().map(|rx| hand_clone(rx)).collect(),
+            opt_string_rxs: self
+                .opt_string_rxs
+                .iter()
+                .map(|rx| hand_clone(rx))
+                .collect(),
             bool_rxs: self.bool_rxs.iter().map(|rx| hand_clone(rx)).collect(),
 
             children: self.children.clone(),
@@ -601,6 +650,11 @@ impl<T: JsCast + Clone> View<T> {
             window_callbacks: self.window_callbacks.clone(),
             document_callbacks: self.document_callbacks.clone(),
             string_rxs: self.string_rxs.iter().map(|rx| hand_clone(rx)).collect(),
+            opt_string_rxs: self
+                .opt_string_rxs
+                .iter()
+                .map(|rx| hand_clone(rx))
+                .collect(),
             bool_rxs: self.bool_rxs.iter().map(|rx| hand_clone(rx)).collect(),
 
             server_node: self.server_node.clone(),
@@ -686,13 +740,12 @@ impl<T: JsCast> Drop for View<T> {
         let count = Rc::strong_count(&self.element);
         let node = self.element.unchecked_ref::<Node>().clone();
         if count <= 1 {
-            self.with_storage(|dom| {
-                if let Some(parent) = node.parent_node() {
-                    let _ = parent.remove_child(&node);
-                }
-                dom.string_rxs.iter_mut().for_each(|rx| rx.drop_responder());
-                dom.bool_rxs.iter_mut().for_each(|rx| rx.drop_responder());
-            });
+            if let Some(parent) = node.parent_node() {
+                let _ = parent.remove_child(&node);
+            }
+            self.string_rxs.iter_mut().for_each(|rx| rx.drop_responder());
+            self.opt_string_rxs.iter_mut().for_each(|rx| rx.drop_responder());
+            self.bool_rxs.iter_mut().for_each(|rx| rx.drop_responder());
         }
     }
 }
@@ -926,14 +979,35 @@ mod gizmo_tests {
     //}
 
     #[test]
+    #[wasm_bindgen_test]
     fn can_i_alter_views_on_the_server() {
-        let (tx, rx) = txrx::<String>();
+        let (tx_text, rx_text) = txrx::<String>();
+        let (tx_style, rx_style) = txrx::<String>();
+        let (tx_class, rx_class) = txrx::<String>();
         let view = dom! {
-            <div><p>{("here", rx)}</p></div>
+            <div style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
         };
-        assert_eq!(&view.clone().into_html_string(), "<div><p>here</p></div>");
+        assert_eq!(
+            &view.clone().into_html_string(),
+            r#"<div style="float: left;"><p class="p_class">here</p></div>"#
+        );
 
-        tx.send(&"there".to_string());
-        assert_eq!(&view.clone().into_html_string(), "<div><p>there</p></div>");
+        tx_text.send(&"there".to_string());
+        assert_eq!(
+            &view.clone().into_html_string(),
+            r#"<div style="float: left;"><p class="p_class">there</p></div>"#
+        );
+
+        tx_style.send(&"right".to_string());
+        assert_eq!(
+            &view.clone().into_html_string(),
+            r#"<div style="float: right;"><p class="p_class">there</p></div>"#
+        );
+
+        tx_class.send(&"my_p_class".to_string());
+        assert_eq!(
+            &view.clone().into_html_string(),
+            r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#
+        );
     }
 }
