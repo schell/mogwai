@@ -18,6 +18,9 @@ use super::{
 };
 
 
+pub mod hydration;
+
+
 #[derive(Clone)]
 #[allow(dead_code)]
 pub(crate) enum NameOrText {
@@ -293,7 +296,7 @@ impl<T: JsCast> ElementView for View<T> {
             element: Rc::new(JsValue::NULL),
             phantom: std::marker::PhantomData,
             server_node: ServerNode {
-                name_or_text: NameOrText::Name(Rc::new(RefCell::new(name.into()))),
+                name_or_text: NameOrText::Name(Rc::new(RefCell::new(tag.into()))),
                 attributes: vec![("xmlns".into(), Rc::new(RefCell::new(Some(ns.into()))))],
                 styles: vec![],
             },
@@ -848,7 +851,8 @@ mod gizmo_tests {
         // show that the div tag has no children.
         let div = {
             let pre = dom! { <pre>"this has text"</pre> };
-            let div = dom! { <div id="parent">{pre.as_ref() as &Node}</div> };
+            let div = dom! { <div id="parent"></div> };
+            (div.as_ref() as &Node).append_child(pre.as_ref()).unwrap();
             assert!(
                 div.first_child().is_some(),
                 "parent does not contain in-scope child"

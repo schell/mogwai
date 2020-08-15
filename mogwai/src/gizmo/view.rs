@@ -73,19 +73,10 @@ pub trait ElementView {
 
     /// Create a view from an existing element with the given id.
     /// Returns None if it cannot be found.
+    // TODO: Determine if this is necessary
     fn from_element_by_id(id: &str) -> Option<Self>
     where
         Self: Sized;
-}
-
-
-pub fn hydrate_element<T, F>(id: &str, f:F) -> T
-where
-    T: ElementView,
-    F: FnOnce() -> T
-{
-    ElementView::from_element_by_id(id)
-        .unwrap_or_else(f)
 }
 
 
@@ -149,18 +140,18 @@ pub trait EventTargetView {
     fn on(self, ev_name: &str, tx: Transmitter<Event>) -> Self;
 
     /// Transmit an event message on the given transmitter when the named event
-    /// happens on `window`.
+    /// happens on [`Window`].
     fn window_on(self, ev_name: &str, tx: Transmitter<Event>) -> Self;
 
     /// Transmit an event message into the given transmitter when the named event
-    /// happens on `document`.
+    /// happens on [`Document`].
     fn document_on(self, ev_name: &str, tx: Transmitter<Event>) -> Self;
 }
 
 
 /// `ParentView`s can nest child views.
 pub trait ParentView<T> {
-    /// Add a child to this parent.
+    /// Add a child view to this parent.
     fn with(self, child: T) -> Self;
 }
 
