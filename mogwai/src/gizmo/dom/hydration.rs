@@ -26,7 +26,8 @@ pub struct HydrateView<T:JsCast> {
     tag: String,
     id: Option<String>,
     child_of: Option<(Node, u32)>,
-    effect: Box<dyn FnOnce(View<T>) -> View<T>>
+    effect: Box<dyn FnOnce(View<T>) -> View<T>>,
+    children: Vec<HydrateView<Node>>
 }
 
 
@@ -36,7 +37,25 @@ impl<T:JsCast> HydrateView<T> {
             tag: tag.into(),
             id: None,
             child_of: None,
-            effect: Box::new(|v| v)
+            effect: Box::new(|v| v),
+            children: vec![]
+        }
+    }
+}
+
+impl<T:JsCast + Clone + AsRef<Node> + 'static> HydrateView<T> {
+    fn upcast_to_node(self) -> HydrateView<Node> {
+        let prev_effect = self.effect;
+        HydrateView {
+            tag: self.tag,
+            id: self.id,
+            child_of: self.child_of,
+            effect: Box::new(|v:View<Node>| -> View<Node> {
+                let v = v.downcast::<T>().ok().unwrap_throw();
+                let v = prev_effect(v);
+                v.upcast::<Node>()
+            }),
+            children: self.children
         }
     }
 }
@@ -57,7 +76,8 @@ impl<T: JsCast> ElementView for HydrateView<T> {
                 tag: "...".into(),
                 id: Some(id.into()),
                 child_of: None,
-                effect: Box::new(|v| v)
+                effect: Box::new(|v| v),
+                children: vec![]
             }
         )
     }
@@ -100,10 +120,72 @@ impl<T: JsCast + AsRef<Element> + 'static> AttributeView for HydrateView<T> {
 }
 
 
+impl<T: JsCast + AsRef<HtmlElement> + 'static> StyleView for HydrateView<T> {
+    fn style<E: Into<Effect<String>>>(mut self, name: &str, eff: E) -> Self {
+        if let Some(later) = eff.into().into_some().1 {
+            let name = name.to_string();
+            let prev_effect = self.effect;
+            self.effect = Box::new(move |v| {
+                prev_effect(v)
+                    .style(&name, later)
+            });
+        }
+        self
+    }
+}
+
+
+impl<T: JsCast + AsRef<EventTarget> + 'static> EventTargetView for HydrateView<T> {
+    fn on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
+        let ev_name = ev_name.to_string();
+        let prev_effect = self.effect;
+        self.effect = Box::new(move |v| {
+            prev_effect(v)
+                .on(&ev_name, tx)
+        });
+        self
+    }
+
+    fn window_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
+        let ev_name = ev_name.to_string();
+        let prev_effect = self.effect;
+        self.effect = Box::new(move |v| {
+            prev_effect(v)
+                .window_on(&ev_name, tx)
+        });
+        self
+    }
+
+    fn document_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
+        let ev_name = ev_name.to_string();
+        let prev_effect = self.effect;
+        self.effect = Box::new(move |v| {
+            prev_effect(v)
+                .document_on(&ev_name, tx)
+        });
+        self
+    }
+}
+
+
+impl<P, C> ParentView<HydrateView<C>> for HydrateView<P>
+where
+    P: JsCast,
+    C: JsCast + Clone + AsRef<Node> + 'static,
+{
+    fn with(mut self, child: HydrateView<C>) -> Self {
+        self.children.push(
+            child.upcast_to_node()
+        );
+        self
+    }
+}
+
+
 impl<T: JsCast> TryFrom<HydrateView<T>> for View<T> {
     type Error = String;
 
-    fn try_from(HydrateView { tag, id, child_of, effect }: HydrateView<T>) -> Result<View<T>, Self::Error> {
+    fn try_from(HydrateView { tag, id, child_of, effect, children }: HydrateView<T>) -> Result<View<T>, Self::Error> {
         let view =
             if let Some((parent, index)) = child_of {
                 let children = parent.child_nodes();
@@ -131,6 +213,14 @@ impl<T: JsCast> TryFrom<HydrateView<T>> for View<T> {
             } else {
                 Err(format!("Not enough information to hydrate tag '{}' - needs an id or a parent element", tag))
             }?;
-        Ok(effect(view))
+
+        let mut view = effect(view);
+
+        for hydrate_child in children {
+            let child = View::try_from(hydrate_child)?;
+            view.children.push(child);
+        }
+
+        Ok(view)
     }
 }
