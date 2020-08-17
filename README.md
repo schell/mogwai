@@ -55,7 +55,7 @@ let (tx, rx) =
     }
   );
 
-dom!(
+view!(
     <button on:click=tx>
         {("Clicked 0 times", rx)}
     </button>
@@ -110,7 +110,7 @@ impl Component for Button {
         });
         let tx_event = tx.contra_map(|_:&Event| ButtonIn::Click);
 
-        dom!(
+        view!(
             <button on:click=tx_event>
                 {("Clicked 0 times", rx_text)}
             </button>

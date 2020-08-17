@@ -144,7 +144,7 @@ impl Component for Todo {
     }
 
     fn view(&self, tx: Transmitter<TodoIn>, rx: Receiver<TodoOut>) -> View<HtmlElement> {
-        dom! {
+        view! {
             <li class=rx.branch_filter_map(|msg| msg.as_list_class())
                 style:display=(
                     "block",

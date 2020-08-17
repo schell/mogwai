@@ -265,7 +265,7 @@ impl Component for App {
             _ => None,
         });
 
-        dom! {
+        view! {
             <section class="todoapp">
                 <header class="header">
                     <h1>"todos"</h1>

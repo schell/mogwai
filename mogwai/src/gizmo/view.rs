@@ -106,7 +106,7 @@ pub trait AttributeView {
     /// use mogwai::prelude::*;
     ///
     /// let (tx, rx) = txrx::<String>();
-    /// let my_div:View<HtmlElement> = dom! {
+    /// let my_div:View<HtmlElement> = view! {
     ///     <div id="my_div" class=("hero_div", rx.branch_map(|class_update| {
     ///         ["hero_div", class_update].join(" ")
     ///     })) />

@@ -258,6 +258,83 @@ impl<T: JsCast> Deref for View<T> {
 }
 
 
+/// # From instances for [`View`]
+///
+/// * String, str etc get converted into [`View<Text>`] - text nodes,
+///   with their initial inner text set to the input string.
+/// * Receiver<String> get converted into [`View<Text>`] with their
+///   inner text set by the receiver.
+/// * Effect<String> gets converted into [`View<Text>`] with possibly
+///   an initial string and updates through the receiver.
+/// * [`Gizmo<C>`] returns its view, a [`View<<C::as Component>::DomNode>`].
+
+
+impl From<Effect<String>> for View<Text> {
+    fn from(eff: Effect<String>) -> Self {
+        let (may_now, may_later) = eff.into_some();
+        let now = may_now.unwrap_or("".into());
+        let mut text = View::text(&now);
+        if let Some(rx) = may_later {
+            text.rx_text(rx);
+        }
+        text
+    }
+}
+
+
+impl From<(&str, Receiver<String>)> for View<Text> {
+    fn from(tuple: (&str, Receiver<String>)) -> Self {
+        let eff: Effect<String> = tuple.into();
+        eff.into()
+    }
+}
+
+
+impl From<(String, Receiver<String>)> for View<Text> {
+    fn from(tuple: (String, Receiver<String>)) -> Self {
+        let eff: Effect<String> = tuple.into();
+        eff.into()
+    }
+}
+
+
+impl From<(&String, Receiver<String>)> for View<Text> {
+    fn from((now, later): (&String, Receiver<String>)) -> Self {
+        let tuple = (now.clone(), later);
+        let eff: Effect<String> = tuple.into();
+        eff.into()
+    }
+}
+
+
+impl<'a> From<&'a str> for View<Text> {
+    fn from(s: &'a str) -> Self {
+        View::text(s)
+    }
+}
+
+
+impl From<&String> for View<Text> {
+    fn from(s: &String) -> Self {
+        View::text(s)
+    }
+}
+
+
+impl<T> From<Gizmo<T>> for View<<T as Component>::DomNode>
+where
+    T: Component,
+    <T as Component>::DomNode: JsCast + AsRef<Node>,
+{
+    fn from(gizmo: Gizmo<T>) -> Self {
+        gizmo.view
+    }
+}
+
+
+/// # ElementView
+
+
 impl<T: JsCast> ElementView for View<T> {
     #[cfg(not(target_arch = "wasm32"))]
     fn element(name: &str) -> Self {
@@ -484,96 +561,10 @@ impl<T: JsCast + AsRef<Element>> AttributeView for View<T> {
 
 /// # ParentView
 
-impl<T: JsCast + AsRef<Node>> ParentView<(&str, Receiver<String>)> for View<T> {
-    fn with(self, tuple: (&str, Receiver<String>)) -> Self {
-        let eff: Effect<String> = tuple.into();
-        self.with(eff)
-    }
-}
 
-
-impl<T: JsCast + AsRef<Node>> ParentView<(String, Receiver<String>)> for View<T> {
-    fn with(self, tuple: (String, Receiver<String>)) -> Self {
-        let eff: Effect<String> = tuple.into();
-        self.with(eff)
-    }
-}
-
-
-impl<T: JsCast + AsRef<Node>> ParentView<(&String, Receiver<String>)> for View<T> {
-    fn with(self, (now, later): (&String, Receiver<String>)) -> Self {
-        let tuple = (now.clone(), later);
-        let eff: Effect<String> = tuple.into();
-        self.with(eff)
-    }
-}
-
-
-impl<T: JsCast + AsRef<Node>> ParentView<Effect<String>> for View<T> {
-    fn with(mut self, eff: Effect<String>) -> Self {
-        let (may_now, may_later) = eff.into_some();
-        let now = may_now.unwrap_or("".into());
-        let mut text = View::text(&now);
-        if let Some(rx) = may_later {
-            self.string_rxs.push(hand_clone(&rx));
-            if cfg!(target_arch = "wasm32") {
-                let text_node: Text = (text.as_ref() as &Text).clone();
-                rx.respond(move |s| {
-                    text_node.set_data(s.as_str());
-                });
-            } else {
-                text.with_node(|node| match &node.name_or_text {
-                    NameOrText::Text(var) => {
-                        let text: Rc<RefCell<String>> = var.clone();
-                        rx.respond(move |s| {
-                            *text.borrow_mut() = s.to_string();
-                        });
-                    }
-                    _ => panic!("impossible! text was name"),
-                });
-            }
-        }
-        self.add_child(text);
-
-        self
-    }
-}
-
-
-impl<T: JsCast + AsRef<Node>> ParentView<&str> for View<T> {
-    fn with(mut self, text: &str) -> Self {
-        self.add_child(View::text(text));
-        self
-    }
-}
-
-
-impl<T: JsCast + AsRef<Node>> ParentView<&String> for View<T> {
-    fn with(mut self, text: &String) -> Self {
-        self.add_child(View::text(text));
-        self
-    }
-}
-
-
-impl<T> ParentView<Gizmo<T>> for View<<T as Component>::DomNode>
-where
-    T: Component,
-    <T as Component>::DomNode: JsCast + AsRef<Node>,
-{
-    fn with(self, gizmo: Gizmo<T>) -> Self {
-        self.with(gizmo.view)
-    }
-}
-
-
-impl<P, C> ParentView<View<C>> for View<P>
-where
-    P: JsCast + AsRef<Node>,
-    C: JsCast + AsRef<Node> + Clone,
-{
-    fn with(mut self, dom: View<C>) -> Self {
-        self.add_child(dom);
+impl<S:JsCast + AsRef<Node> + Clone, T: JsCast + AsRef<Node>> ParentView<View<S>> for View<T> {
+    fn with(mut self, view: View<S>) -> Self {
+        self.add_child(view);
         self
     }
 }
@@ -813,20 +804,6 @@ impl<T: JsCast> Drop for View<T> {
 }
 
 
-impl<'a> From<&'a str> for View<Text> {
-    fn from(s: &'a str) -> Self {
-        View::text(s)
-    }
-}
-
-
-impl From<&String> for View<Text> {
-    fn from(s: &String) -> Self {
-        View::text(s)
-    }
-}
-
-
 #[cfg(test)]
 #[allow(unused_braces)]
 mod gizmo_tests {
@@ -850,8 +827,8 @@ mod gizmo_tests {
         // Since the pre tag is dropped after the scope block the last assert should
         // show that the div tag has no children.
         let div = {
-            let pre = dom! { <pre>"this has text"</pre> };
-            let div = dom! { <div id="parent"></div> };
+            let pre = view! { <pre>"this has text"</pre> };
+            let div = view! { <div id="parent"></div> };
             (div.as_ref() as &Node).append_child(pre.as_ref()).unwrap();
             assert!(
                 div.first_child().is_some(),
@@ -872,7 +849,7 @@ mod gizmo_tests {
         // Since the pre tag is *not* dropped after the scope block the last assert
         // should show that the div tag has a child.
         let div = {
-            let div = dom! {
+            let div = view! {
                 <div id="parent-div">
                     <pre>"some text"</pre>
                 </div>
@@ -890,7 +867,7 @@ mod gizmo_tests {
 
     #[wasm_bindgen_test]
     fn gizmo_tree() {
-        let root = dom! {
+        let root = view! {
             <div id="root">
                 <div id="branch">
                     <div id="leaf">
@@ -916,7 +893,7 @@ mod gizmo_tests {
 
     #[wasm_bindgen_test]
     fn gizmo_texts() {
-        let div = dom! {
+        let div = view! {
             <div>
                 "here is some text "
                 // i can use comments, yay!
@@ -933,7 +910,7 @@ mod gizmo_tests {
     #[wasm_bindgen_test]
     fn rx_attribute_jsx() {
         let (tx, rx) = txrx::<String>();
-        let div = dom! {
+        let div = view! {
             <div class=("now", rx) />
         };
         let div_el: &HtmlElement = div.as_ref();
@@ -960,7 +937,7 @@ mod gizmo_tests {
     #[wasm_bindgen_test]
     fn rx_style_jsx() {
         let (tx, rx) = txrx::<String>();
-        let div = dom! { <div style:display=("block", rx) /> };
+        let div = view! { <div style:display=("block", rx) /> };
         let div_el: &HtmlElement = div.as_ref();
         assert_eq!(
             div_el.outer_html(),
@@ -974,7 +951,7 @@ mod gizmo_tests {
     #[wasm_bindgen_test]
     fn rx_text() {
         let (tx, rx) = txrx();
-        let div = (View::element("div") as View<HtmlElement>).with(("initial", rx));
+        let div = (View::element("div") as View<HtmlElement>).with(("initial", rx).into());
         let el: &HtmlElement = div.as_ref();
         assert_eq!(el.inner_text().as_str(), "initial");
         tx.send(&"after".into());
@@ -993,7 +970,7 @@ mod gizmo_tests {
         });
 
         let button = (View::element("button") as View<HtmlElement>)
-            .with(("Clicked 0 times", rx))
+            .with(("Clicked 0 times", rx).into())
             .on("click", tx);
         let el: &HtmlElement = button.as_ref();
 
@@ -1013,7 +990,7 @@ mod gizmo_tests {
             }
         });
 
-        let button = dom! { <button on:click=tx>{("Clicked 0 times", rx)}</button> };
+        let button = view! { <button on:click=tx>{("Clicked 0 times", rx)}</button> };
         let el: &HtmlElement = button.as_ref();
 
         assert_eq!(el.inner_html(), "Clicked 0 times");
@@ -1025,7 +1002,7 @@ mod gizmo_tests {
     #[wasm_bindgen_test]
     fn tx_window_on_click_jsx() {
         let (tx, rx) = txrx();
-        let _button = dom! {
+        let _button = view! {
             <button window:load=tx>
             {(
                 "Waiting...",
@@ -1036,7 +1013,7 @@ mod gizmo_tests {
     }
 
     //fn nice_compiler_error() {
-    //    let _div = dom! {
+    //    let _div = view! {
     //        <div unknown:colon:thing="not ok" />
     //    };
     //}
@@ -1047,7 +1024,7 @@ mod gizmo_tests {
         let (tx_text, rx_text) = txrx::<String>();
         let (tx_style, rx_style) = txrx::<String>();
         let (tx_class, rx_class) = txrx::<String>();
-        let view = dom! {
+        let view = view! {
             <div style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
         };
         assert_eq!(
@@ -1071,6 +1048,76 @@ mod gizmo_tests {
         assert_eq!(
             &view.clone().into_html_string(),
             r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#
+        );
+    }
+
+
+    #[wasm_bindgen_test]
+    fn can_hydrate_view() {
+        let original_view = view! {
+            <div id="my_div">
+                <p class="class">"inner text"</p>
+            </div>
+        };
+        let original_el:HtmlElement = (original_view.as_ref() as &HtmlElement).clone();
+        original_view.run().unwrap();
+
+        let (tx_class, rx_class) = txrx::<String>();
+        let (tx_text, rx_text) = txrx::<String>();
+        let hydrated_view = View::try_from(hydrate! {
+            <div id="my_div">
+                <p class=("unused_class", rx_class)>{("unused inner text", rx_text)}</p>
+            </div>
+        }).unwrap();
+
+        hydrated_view.forget().unwrap();
+
+        tx_class.send(&"new_class".to_string());
+        tx_text.send(&"different inner text".to_string());
+
+        assert_eq!(
+            original_el.outer_html().as_str(),
+            r#"<div id="my_div"><p class="new_class">different inner text</p></div>"#
+        );
+    }
+
+
+    #[wasm_bindgen_test]
+    fn can_hydrate_or_view() {
+        let (tx_class, rx_class) = txrx::<String>();
+        let (tx_text, rx_text) = txrx::<String>();
+        let (tx_pb, rx_pb) = txrx::<HtmlElement>();
+        let fresh_view = || {
+            view! {
+                <div id="my_div" post:build=tx_pb>
+                    <p class=("class", rx_class.branch())>{("inner text", rx_text.branch())}</p>
+                </div>
+            }
+        };
+        let hydrate_view = || {
+            View::try_from(
+                hydrate! {
+                    <div id="my_div" post:build=tx_pb>
+                        <p class=("class", rx_class.branch())>{("inner text", rx_text.branch())}</p>
+                    </div>
+                }
+            )
+        };
+
+        let view = fresh_view();
+
+        let original_el:HtmlElement = (view.as_ref() as &HtmlElement).clone();
+        view.run().unwrap();
+
+        let hydrated_view = hydrate_view().unwrap();
+        hydrated_view.forget().unwrap();
+
+        tx_class.send(&"new_class".to_string());
+        tx_text.send(&"different inner text".to_string());
+
+        assert_eq!(
+            original_el.outer_html().as_str(),
+            r#"<div id="my_div"><p class="new_class">different inner text</p></div>"#
         );
     }
 }

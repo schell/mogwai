@@ -34,7 +34,7 @@ impl Component for Button {
     }
 
     fn view(&self, tx: Transmitter<ButtonIn>, rx: Receiver<ButtonOut>) -> View<HtmlElement> {
-        dom! {
+        view! {
             <button style="cursor: pointer;" on:click=tx.contra_map(|_| ButtonIn::Click)>
                 {(
                     format!("Clicked {} times", self.clicks),

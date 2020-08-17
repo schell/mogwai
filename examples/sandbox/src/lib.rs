@@ -19,7 +19,7 @@ pub fn new_button_view(mut tx_click: Transmitter<Event>) -> View<HtmlElement> {
     //
     // The button text will start out as "Click me" and then change to whatever
     // comes in on the receiver.
-    let button = dom! {
+    let button = view! {
         // The button has a style and transmits its clicks
         <button style="cursor: pointer;" on:click=tx_click.clone()>
             // The text starts with "Click me" and receives updates
@@ -56,7 +56,7 @@ pub fn new_h1_view(mut tx_click: Transmitter<Event>) -> View<HtmlElement> {
     let rx_color = Receiver::<String>::new();
 
     // Create the view for our heading, giving it the receiver.
-    let h1 = dom! {
+    let h1 = view! {
         <h1 id="header" class="my-header"
             // set style.color with an initial value and then update it whenever
             // we get a message on rx_color
@@ -148,7 +148,7 @@ pub fn time_req_button_and_pre() -> View<HtmlElement> {
         },
     );
 
-    dom! {
+    view! {
         <div>
             <button
                 style="cursor: pointer;"
@@ -184,7 +184,7 @@ pub fn counter() -> View<HtmlElement> {
         format!("Count: {}", *n)
     });
 
-    dom! { <h3>{("Awaiting first count", rx)}</h3> }
+    view! { <h3>{("Awaiting first count", rx)}</h3> }
 }
 
 
@@ -201,7 +201,7 @@ pub fn main() -> Result<(), JsValue> {
     let counter = counter();
 
     // Put it all in a parent view and run it right now
-    let root = dom! {
+    let root = view! {
         <div>
             {h1}
             {btn}

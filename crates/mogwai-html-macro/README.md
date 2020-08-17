@@ -1,11 +1,11 @@
 # mogwai-html-macro
-Provides procedural macro `dom!`, which allows the use of RSX
+Provides procedural macro `view!`, which allows the use of RSX
 to declare mogwai views.
 
 Example - this RSX:
 
 ```html
-    dom!(
+    view!(
         <footer class="info">
             <p>"Double click to edit a todo"</p>
             <p>

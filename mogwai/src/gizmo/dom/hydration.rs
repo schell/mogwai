@@ -1,105 +1,248 @@
-use std::convert::TryFrom;
-/// [`TryFrom`] instances that can 're-animate' views or portions of views using the DOM.
-use std::{cell::RefCell, collections::HashMap, marker::PhantomData, ops::Deref, rc::Rc};
+//! Types and [`TryFrom`] instances that can 're-animate' views or portions of views from the DOM.
+use snafu::{OptionExt, Snafu};
+pub use std::convert::TryFrom;
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::closure::Closure;
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
 use web_sys::{Node, Text};
 
-use super::super::{
-    super::{
-        component::Component,
-        ssr::Node as SsrNode,
-        txrx::{hand_clone, Receiver, Transmitter},
-    },
-    view::*,
-    Gizmo,
-};
 pub use super::utils;
+use super::{
+    super::{
+        super::txrx::{Receiver, Transmitter},
+        view::*,
+    },
+    View,
+};
 
 
-use super::View;
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display(
+        "Missing any hydration option for node '{}' - must be the child of a node or have an id",
+        tag
+    ))]
+    NoHydrationOption { tag: String },
 
+    #[snafu(display("Could not find an element with id '{}'", id))]
+    MissingId { id: String },
 
-pub struct HydrateView<T:JsCast> {
-    tag: String,
-    id: Option<String>,
-    child_of: Option<(Node, u32)>,
-    effect: Box<dyn FnOnce(View<T>) -> View<T>>,
-    children: Vec<HydrateView<Node>>
+    #[snafu(display("Child at index {} could not be found in node '{}' containing '{:?}'", index, node.node_name(), node.node_value()))]
+    MissingChild { node: Node, index: u32 },
+
+    #[snafu(display("Could not convert from '{}' to '{}' for node '{}' containing '{:?}", from, to, node.node_name(), node.node_value()))]
+    Conversion {
+        from: String,
+        to: String,
+        node: Node,
+    },
 }
 
 
-impl<T:JsCast> HydrateView<T> {
-    pub fn new(tag: &str) -> Self {
+pub enum HydrationKey {
+    Id(String),
+    IndexedChildOf { node: Node, index: u32 },
+}
+
+
+impl HydrationKey {
+    pub fn hydrate<T: JsCast + AsRef<Node>>(self) -> Result<View<T>, Error> {
+        let el: T = match self {
+            HydrationKey::Id(id) => {
+                let el = utils::document()
+                    .get_element_by_id(&id)
+                    .with_context(|| MissingId { id })?;
+                el.clone().dyn_into::<T>().or_else(|_| {
+                    Conversion {
+                        from: "Element",
+                        to: std::any::type_name::<T>(),
+                        node: el,
+                    }
+                    .fail()
+                })?
+            }
+            HydrationKey::IndexedChildOf { node, index } => {
+                let children = node.child_nodes();
+                let el = children
+                    .get(index)
+                    .with_context(|| MissingChild { node, index })?;
+                el.clone().dyn_into::<T>().or_else(|_| {
+                    Conversion {
+                        from: "Node",
+                        to: std::any::type_name::<T>(),
+                        node: el,
+                    }
+                    .fail()
+                })?
+            }
+        };
+
+        Ok(View::wrapping(el))
+    }
+}
+
+
+pub struct HydrateView<T: JsCast> {
+    create: Box<dyn FnOnce() -> Result<View<T>, Error>>,
+    update: Option<Box<dyn FnOnce(View<T>) -> Result<View<T>, Error>>>,
+}
+
+
+impl<T: JsCast + 'static> HydrateView<T> {
+    pub fn from_create_fn<F>(f: F) -> Self
+    where
+        F: FnOnce() -> Result<View<T>, Error> + 'static,
+    {
         HydrateView {
-            tag: tag.into(),
-            id: None,
-            child_of: None,
-            effect: Box::new(|v| v),
-            children: vec![]
+            create: Box::new(f),
+            update: None,
+        }
+    }
+
+    pub fn append_update<F>(&mut self, f: F)
+    where
+        F: FnOnce(View<T>) -> Result<View<T>, Error> + 'static,
+    {
+        let prev_update = self.update.take();
+        self.update = Some(Box::new(|view: View<T>| {
+            let view = if let Some(prev) = prev_update {
+                prev(view)
+            } else {
+                Ok(view)
+            }?;
+            f(view)
+        }));
+    }
+}
+
+
+/// # [`From`] instances for [`HydrateView`]
+///
+/// Most of these mimic the corresponding [`From`] instances for [`View`],
+/// the rest are here for the operation of this module.
+
+
+impl From<Effect<String>> for HydrateView<Text> {
+    fn from(eff: Effect<String>) -> Self {
+        // Text alone is not enough to hydrate a view, so we start
+        // out with a HydrateView that will err if it is converted to
+        // a View.
+        let (may_now, may_later) = eff.into_some();
+        let mut hydrate_view = HydrateView::from_create_fn(|| {
+            NoHydrationOption {
+                tag: may_now.unwrap_or_else(|| "#text".to_string()),
+            }
+            .fail()
+        });
+        if let Some(rx) = may_later {
+            hydrate_view.append_update(|mut v: View<Text>| {
+                v.rx_text(rx);
+                Ok(v)
+            })
+        }
+
+        hydrate_view
+    }
+}
+
+
+impl From<(&str, Receiver<String>)> for HydrateView<Text> {
+    fn from(tuple: (&str, Receiver<String>)) -> Self {
+        let eff: Effect<String> = tuple.into();
+        eff.into()
+    }
+}
+
+
+impl From<(String, Receiver<String>)> for HydrateView<Text> {
+    fn from(tuple: (String, Receiver<String>)) -> Self {
+        let eff: Effect<String> = tuple.into();
+        eff.into()
+    }
+}
+
+
+impl From<(&String, Receiver<String>)> for HydrateView<Text> {
+    fn from((now, later): (&String, Receiver<String>)) -> Self {
+        let tuple = (now.clone(), later);
+        let eff: Effect<String> = tuple.into();
+        eff.into()
+    }
+}
+
+
+impl From<&String> for HydrateView<Text> {
+    fn from(text: &String) -> Self {
+        let tag = text.to_owned();
+        HydrateView::from_create_fn(|| NoHydrationOption { tag }.fail())
+    }
+}
+
+
+impl From<&str> for HydrateView<Text> {
+    fn from(tag_or_text: &str) -> Self {
+        let tag = tag_or_text.to_owned();
+        HydrateView::from_create_fn(|| NoHydrationOption { tag }.fail())
+    }
+}
+
+
+impl<T: JsCast + AsRef<Node> + 'static> From<HydrationKey> for HydrateView<T> {
+    fn from(key: HydrationKey) -> Self {
+        HydrateView::from_create_fn(move || key.hydrate::<T>())
+    }
+}
+
+
+impl<T: JsCast> TryFrom<HydrateView<T>> for View<T> {
+    type Error = Error;
+
+    fn try_from(hydrate_view: HydrateView<T>) -> Result<View<T>, Self::Error> {
+        let view = (hydrate_view.create)()?;
+        if let Some(update) = hydrate_view.update {
+            update(view)
+        } else {
+            Ok(view)
         }
     }
 }
 
-impl<T:JsCast + Clone + AsRef<Node> + 'static> HydrateView<T> {
-    fn upcast_to_node(self) -> HydrateView<Node> {
-        let prev_effect = self.effect;
-        HydrateView {
-            tag: self.tag,
-            id: self.id,
-            child_of: self.child_of,
-            effect: Box::new(|v:View<Node>| -> View<Node> {
-                let v = v.downcast::<T>().ok().unwrap_throw();
-                let v = prev_effect(v);
-                v.upcast::<Node>()
-            }),
-            children: self.children
-        }
-    }
-}
+
+/// # ElementView
 
 
-impl<T: JsCast> ElementView for HydrateView<T> {
+impl<T: JsCast + AsRef<Node> + 'static> ElementView for HydrateView<T> {
     fn element(tag: &str) -> Self {
-        HydrateView::new(tag)
+        let tag = tag.to_owned();
+        HydrateView::from_create_fn(|| NoHydrationOption { tag }.fail())
     }
 
-    fn element_ns(tag: &str, _ns: &str) -> Self {
-        HydrateView::new(tag)
+    fn element_ns(tag: &str, ns: &str) -> Self {
+        let tag = format!("{}:{}", tag, ns);
+        HydrateView::from_create_fn(|| NoHydrationOption { tag }.fail())
     }
 
     fn from_element_by_id(id: &str) -> Option<Self> {
-        Some(
-            HydrateView {
-                tag: "...".into(),
-                id: Some(id.into()),
-                child_of: None,
-                effect: Box::new(|v| v),
-                children: vec![]
-            }
-        )
+        Some(HydrateView::from(HydrationKey::Id(id.to_string())))
     }
 }
 
 
-impl<T: JsCast + AsRef<Element> + 'static> AttributeView for HydrateView<T> {
+/// # AttributeView
+
+
+impl<T: JsCast + AsRef<Node> + AsRef<Element> + 'static> AttributeView for HydrateView<T> {
     fn attribute<E: Into<Effect<String>>>(mut self, name: &str, eff: E) -> Self {
         let (may_now, may_later) = eff.into().into_some();
         if let Some(now) = may_now {
             if name == "id" {
-                self.id = Some(now);
+                self.create = HydrateView::from(HydrationKey::Id(now.to_string())).create;
             }
         }
 
         if let Some(later) = may_later {
             let name = name.to_string();
-            let prev_effect = self.effect;
-            self.effect = Box::new(move |v| {
-                prev_effect(v)
-                    .attribute(&name, later)
-            });
+            self.append_update(move |v| Ok(v.attribute(&name, later)));
         }
         self
     }
@@ -109,11 +252,7 @@ impl<T: JsCast + AsRef<Element> + 'static> AttributeView for HydrateView<T> {
         let (_may_now, may_later) = eff.into().into_some();
         if let Some(later) = may_later {
             let name = name.to_string();
-            let prev_effect = self.effect;
-            self.effect = Box::new(move |v| {
-                prev_effect(v)
-                    .boolean_attribute(&name, later)
-            });
+            self.append_update(move |v| Ok(v.boolean_attribute(&name, later)));
         }
         self
     }
@@ -124,11 +263,7 @@ impl<T: JsCast + AsRef<HtmlElement> + 'static> StyleView for HydrateView<T> {
     fn style<E: Into<Effect<String>>>(mut self, name: &str, eff: E) -> Self {
         if let Some(later) = eff.into().into_some().1 {
             let name = name.to_string();
-            let prev_effect = self.effect;
-            self.effect = Box::new(move |v| {
-                prev_effect(v)
-                    .style(&name, later)
-            });
+            self.append_update(move |v| Ok(v.style(&name, later)));
         }
         self
     }
@@ -138,31 +273,19 @@ impl<T: JsCast + AsRef<HtmlElement> + 'static> StyleView for HydrateView<T> {
 impl<T: JsCast + AsRef<EventTarget> + 'static> EventTargetView for HydrateView<T> {
     fn on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
         let ev_name = ev_name.to_string();
-        let prev_effect = self.effect;
-        self.effect = Box::new(move |v| {
-            prev_effect(v)
-                .on(&ev_name, tx)
-        });
+        self.append_update(move |v| Ok(v.on(&ev_name, tx)));
         self
     }
 
     fn window_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
         let ev_name = ev_name.to_string();
-        let prev_effect = self.effect;
-        self.effect = Box::new(move |v| {
-            prev_effect(v)
-                .window_on(&ev_name, tx)
-        });
+        self.append_update(move |v| Ok(v.window_on(&ev_name, tx)));
         self
     }
 
     fn document_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
         let ev_name = ev_name.to_string();
-        let prev_effect = self.effect;
-        self.effect = Box::new(move |v| {
-            prev_effect(v)
-                .document_on(&ev_name, tx)
-        });
+        self.append_update(move |v| Ok(v.document_on(&ev_name, tx)));
         self
     }
 }
@@ -170,57 +293,41 @@ impl<T: JsCast + AsRef<EventTarget> + 'static> EventTargetView for HydrateView<T
 
 impl<P, C> ParentView<HydrateView<C>> for HydrateView<P>
 where
-    P: JsCast,
+    P: JsCast + AsRef<Node> + 'static,
     C: JsCast + Clone + AsRef<Node> + 'static,
 {
-    fn with(mut self, child: HydrateView<C>) -> Self {
-        self.children.push(
-            child.upcast_to_node()
-        );
+    fn with(mut self, mut child: HydrateView<C>) -> Self {
+        self.append_update(|v: View<P>| {
+            let node = (v.as_ref() as &Node).clone();
+            let index = v.children.len() as u32;
+            child.create = HydrateView::from(HydrationKey::IndexedChildOf { node, index }).create;
+            let child_view: View<C> = View::try_from(child)?;
+            Ok(v.with(child_view))
+        });
         self
     }
 }
 
 
-impl<T: JsCast> TryFrom<HydrateView<T>> for View<T> {
-    type Error = String;
-
-    fn try_from(HydrateView { tag, id, child_of, effect, children }: HydrateView<T>) -> Result<View<T>, Self::Error> {
-        let view =
-            if let Some((parent, index)) = child_of {
-                let children = parent.child_nodes();
-                let child = children.get(index).ok_or_else(|| format!("Could not find child {}", index))?;
-                let el: T = child.dyn_into::<T>().map_err(|_| {
-                    format!(
-                        "Could not cast child at '{}' '{}'",
-                        index,
-                        std::any::type_name::<T>()
-                    )
-                })?;
-                Ok(View::wrapping(el))
-            } else if let Some(id) = id {
-                let el: Element = utils::document()
-                    .get_element_by_id(&id)
-                    .ok_or_else(|| format!("Could not find any element by id '{}'", id))?;
-                let el: T = el.dyn_into::<T>().map_err(|_| {
-                    format!(
-                        "Could not cast element by id '{}' into '{}'",
-                        id,
-                        std::any::type_name::<T>()
-                    )
-                })?;
-                Ok(View::wrapping(el))
-            } else {
-                Err(format!("Not enough information to hydrate tag '{}' - needs an id or a parent element", tag))
-            }?;
-
-        let mut view = effect(view);
-
-        for hydrate_child in children {
-            let child = View::try_from(hydrate_child)?;
-            view.children.push(child);
-        }
-
-        Ok(view)
-    }
-}
+///// # Low cost hydration with a backup.
+/////
+///// Here we attempt to have our cake and eat it too.
+//pub struct ViewBuilder<T: JsCast> {
+//    view_fn: Box<dyn FnOnce() -> View<T>>,
+//    hydrate_fn: Box<dyn FnOnce() -> Result<View<T>, Error>>,
+//}
+//
+//
+//impl<T: JsCast> ViewBuilder<T: JsCast> {
+//    pub fn new(view_fn:VF, hydrate_fn:HF) -> Self
+//    where
+//        VF: FnOnce() -> View<T> + 'static,
+//        HF: FnOnce() -> Result<View<T>, Error> + 'static
+//    {
+//        ViewBuilder {
+//            view_fn, hydrate_fn
+//        }
+//    }
+//
+//    pub fn fresh_view() -> View<T>
+//}

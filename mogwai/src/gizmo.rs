@@ -173,7 +173,7 @@ pub type BuilderFn<T, D> = dyn Fn(Transmitter<T>, Receiver<T>) -> View<D>;
 ///
 /// let component = SimpleComponent::new(
 ///     |tx: Transmitter<()>, rx: Receiver<()>| -> View<HtmlElement> {
-///         dom!{
+///         view!{
 ///             <button style="pointer" on:click=tx.contra_map(|_| ())>
 ///                 {("Click me", rx.branch_map(|()| "Clicked!".to_string()))}
 ///             </button>

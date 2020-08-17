@@ -18,7 +18,7 @@
 //! extern crate mogwai;
 //! use::mogwai::prelude::*;
 //!
-//! dom!(
+//! view!(
 //!     <div class="my-div">
 //!         <a href="http://zyghost.com">
 //!             "Schellsan's website"
@@ -66,7 +66,7 @@
 //!
 //! let (tx, rx) = txrx();
 //!
-//! dom!(
+//! view!(
 //!     <div class="my-div">
 //!         <a href="http://zyghost.com">
 //!           {("Schellsan's website", rx)}
@@ -127,7 +127,7 @@ impl Component for Unit {
     type DomNode = HtmlElement;
 
     fn view(&self, _: Transmitter<()>, _: Receiver<()>) -> View<HtmlElement> {
-        dom! {
+        view! {
             <a href="/#">"Hello"</a>
         }
     }

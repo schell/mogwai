@@ -55,7 +55,7 @@
 //!     type DomNode = HtmlElement;
 //!
 //!     fn view(&self, tx: Transmitter<In>, rx:Receiver<Out>) -> View<HtmlElement> {
-//!         dom! {
+//!         view! {
 //!             <button on:click=tx.contra_map(|_| In::Click)>
 //!                 {(
 //!                     "clicks = 0",

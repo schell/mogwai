@@ -45,7 +45,7 @@ pub fn main() -> Result<(), JsValue> {
 
     // The footer has no relation to the rest of the app and is simply a view
     // attached to the body
-    dom!(
+    view!(
         <footer class="info">
             <p>"Double click to edit a todo"</p>
             <p>
