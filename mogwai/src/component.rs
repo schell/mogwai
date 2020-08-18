@@ -111,10 +111,7 @@ use wasm_bindgen::JsCast;
 use web_sys::Node;
 
 #[allow(unused_imports)]
-use super::{
-    gizmo::{dom::View, view::ParentView, Gizmo},
-    txrx::{Receiver, Transmitter},
-};
+use crate::prelude::{Gizmo, ParentView, Receiver, Transmitter, View, ViewBuilder};
 
 pub mod subscriber;
 use subscriber::Subscriber;
@@ -161,7 +158,7 @@ where
         &self,
         tx: &Transmitter<Self::ModelMsg>,
         rx: &Receiver<Self::ViewMsg>,
-    ) -> View<Self::DomNode>;
+    ) -> ViewBuilder<Self::DomNode>;
 
     /// Convert into a Gizmo<Self>. Use this to convert a type into a Gizmo<Self>
     /// that can be added to the DOM.

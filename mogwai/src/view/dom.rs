@@ -6,19 +6,12 @@ pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
 use web_sys::{Node, Text};
 
-pub use super::utils;
-use super::{
-    super::{
-        component::Component,
-        ssr::Node as SsrNode,
-        txrx::{hand_clone, Receiver, Transmitter},
-    },
-    view::*,
-    Gizmo,
+use crate::{
+    utils,
+    view::interface::*,
+    prelude::{Component, Effect, Gizmo, Receiver, Transmitter},
+    ssr::Node as SsrNode,
 };
-
-
-pub mod hydration;
 
 
 #[derive(Clone)]
@@ -212,7 +205,7 @@ impl View<Text> {
     }
 
     pub fn rx_text(&mut self, rx: Receiver<String>) {
-        self.string_rxs.push(hand_clone(&rx));
+        self.string_rxs.push(crate::txrx::hand_clone(&rx));
         if cfg!(target_arch = "wasm32") {
             let text: Text = (self.as_ref() as &Text).clone();
             rx.respond(move |s| text.set_data(s));
@@ -321,6 +314,13 @@ impl From<&String> for View<Text> {
 }
 
 
+impl From<String> for View<Text> {
+    fn from(s: String) -> Self {
+        View::text(&s)
+    }
+}
+
+
 impl<T> From<Gizmo<T>> for View<<T as Component>::DomNode>
 where
     T: Component,
@@ -396,21 +396,6 @@ impl<T: JsCast> ElementView for View<T> {
             .unchecked_into();
         View::wrapping(el)
     }
-
-    fn from_element_by_id(id: &str) -> Option<Self> {
-        if cfg!(target_arch = "wasm32") {
-            utils::document().get_element_by_id(id).map(|el| {
-                let t_el: T = el.dyn_into::<T>().expect(&format!(
-                    "found '{}' but it is not '{}'",
-                    id,
-                    std::any::type_name::<T>(),
-                ));
-                View::wrapping(t_el)
-            })
-        } else {
-            None
-        }
-    }
 }
 
 
@@ -467,7 +452,7 @@ impl<T: JsCast + AsRef<Element>> AttributeView for View<T> {
                 let rx = later;
 
                 // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.string_rxs.push(hand_clone(&rx));
+                self.string_rxs.push(crate::txrx::hand_clone(&rx));
 
                 let element: &Element = self.as_ref();
                 let element = element.clone();
@@ -491,7 +476,7 @@ impl<T: JsCast + AsRef<Element>> AttributeView for View<T> {
                 let rx = later.branch_map(|s| Some(s.to_string()));
 
                 // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.opt_string_rxs.push(hand_clone(&rx));
+                self.opt_string_rxs.push(crate::txrx::hand_clone(&rx));
 
                 rx.respond(move |may_s: &Option<String>| {
                     *var.borrow_mut() = may_s.clone();
@@ -513,7 +498,7 @@ impl<T: JsCast + AsRef<Element>> AttributeView for View<T> {
             if let Some(later) = may_later {
                 let rx = later.branch();
                 // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.bool_rxs.push(hand_clone(&rx));
+                self.bool_rxs.push(crate::txrx::hand_clone(&rx));
 
                 let element: &Element = self.as_ref();
                 let element = element.clone();
@@ -542,7 +527,7 @@ impl<T: JsCast + AsRef<Element>> AttributeView for View<T> {
             if let Some(later) = may_later {
                 let rx = later.branch();
                 // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.bool_rxs.push(hand_clone(&rx));
+                self.bool_rxs.push(crate::txrx::hand_clone(&rx));
 
                 rx.respond(move |is_present| {
                     *var.borrow_mut() = if *is_present {
@@ -562,7 +547,7 @@ impl<T: JsCast + AsRef<Element>> AttributeView for View<T> {
 /// # ParentView
 
 
-impl<S:JsCast + AsRef<Node> + Clone, T: JsCast + AsRef<Node>> ParentView<View<S>> for View<T> {
+impl<S: JsCast + AsRef<Node> + Clone, T: JsCast + AsRef<Node>> ParentView<View<S>> for View<T> {
     fn with(mut self, view: View<S>) -> Self {
         self.add_child(view);
         self
@@ -586,7 +571,7 @@ impl<T: JsCast + AsRef<HtmlElement>> StyleView for View<T> {
             if let Some(later) = may_later {
                 let rx = later;
                 // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.string_rxs.push(hand_clone(&rx));
+                self.string_rxs.push(crate::txrx::hand_clone(&rx));
 
                 let element: &HtmlElement = self.as_ref();
                 let style = element.style();
@@ -608,7 +593,7 @@ impl<T: JsCast + AsRef<HtmlElement>> StyleView for View<T> {
                 let rx = later;
 
                 // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.string_rxs.push(hand_clone(&rx));
+                self.string_rxs.push(crate::txrx::hand_clone(&rx));
 
                 rx.respond(move |s| {
                     *var.borrow_mut() = s.to_string();
@@ -675,13 +660,21 @@ impl<T: JsCast + Clone> View<T> {
             callbacks: self.callbacks.clone(),
             window_callbacks: self.window_callbacks.clone(),
             document_callbacks: self.document_callbacks.clone(),
-            string_rxs: self.string_rxs.iter().map(|rx| hand_clone(rx)).collect(),
+            string_rxs: self
+                .string_rxs
+                .iter()
+                .map(|rx| crate::txrx::hand_clone(rx))
+                .collect(),
             opt_string_rxs: self
                 .opt_string_rxs
                 .iter()
-                .map(|rx| hand_clone(rx))
+                .map(|rx| crate::txrx::hand_clone(rx))
                 .collect(),
-            bool_rxs: self.bool_rxs.iter().map(|rx| hand_clone(rx)).collect(),
+            bool_rxs: self
+                .bool_rxs
+                .iter()
+                .map(|rx| crate::txrx::hand_clone(rx))
+                .collect(),
 
             children: self.children.clone(),
         }
@@ -698,13 +691,21 @@ impl<T: JsCast + Clone> View<T> {
             callbacks: self.callbacks.clone(),
             window_callbacks: self.window_callbacks.clone(),
             document_callbacks: self.document_callbacks.clone(),
-            string_rxs: self.string_rxs.iter().map(|rx| hand_clone(rx)).collect(),
+            string_rxs: self
+                .string_rxs
+                .iter()
+                .map(|rx| crate::txrx::hand_clone(rx))
+                .collect(),
             opt_string_rxs: self
                 .opt_string_rxs
                 .iter()
-                .map(|rx| hand_clone(rx))
+                .map(|rx| crate::txrx::hand_clone(rx))
                 .collect(),
-            bool_rxs: self.bool_rxs.iter().map(|rx| hand_clone(rx)).collect(),
+            bool_rxs: self
+                .bool_rxs
+                .iter()
+                .map(|rx| crate::txrx::hand_clone(rx))
+                .collect(),
 
             server_node: self.server_node.clone(),
             children: self.children.clone(),
@@ -1059,7 +1060,7 @@ mod gizmo_tests {
                 <p class="class">"inner text"</p>
             </div>
         };
-        let original_el:HtmlElement = (original_view.as_ref() as &HtmlElement).clone();
+        let original_el: HtmlElement = (original_view.as_ref() as &HtmlElement).clone();
         original_view.run().unwrap();
 
         let (tx_class, rx_class) = txrx::<String>();
@@ -1068,7 +1069,8 @@ mod gizmo_tests {
             <div id="my_div">
                 <p class=("unused_class", rx_class)>{("unused inner text", rx_text)}</p>
             </div>
-        }).unwrap();
+        })
+        .unwrap();
 
         hydrated_view.forget().unwrap();
 
@@ -1087,10 +1089,11 @@ mod gizmo_tests {
         let (tx_class, rx_class) = txrx::<String>();
         let (tx_text, rx_text) = txrx::<String>();
         let count = txrx::new_shared(0 as u32);
-        let (tx_pb, rx_pb) = txrx_fold_shared(count.clone(), |count: &mut u32, _:&HtmlElement| -> () {
-            *count += 1;
-            ()
-        });
+        let (tx_pb, rx_pb) =
+            txrx_fold_shared(count.clone(), |count: &mut u32, _: &HtmlElement| -> () {
+                *count += 1;
+                ()
+            });
 
         rx_pb.respond(|_| println!("post build"));
 
@@ -1102,18 +1105,16 @@ mod gizmo_tests {
             }
         };
         let hydrate_view = || {
-            View::try_from(
-                hydrate! {
-                    <div id="my_div" post:build=(&tx_pb).clone()>
-                        <p class=("class", rx_class.branch())>{("inner text", rx_text.branch())}</p>
-                    </div>
-                }
-            )
+            View::try_from(hydrate! {
+                <div id="my_div" post:build=(&tx_pb).clone()>
+                    <p class=("class", rx_class.branch())>{("inner text", rx_text.branch())}</p>
+                </div>
+            })
         };
 
         let view = fresh_view();
 
-        let original_el:HtmlElement = (view.as_ref() as &HtmlElement).clone();
+        let original_el: HtmlElement = (view.as_ref() as &HtmlElement).clone();
         view.run().unwrap();
 
         let hydrated_view = hydrate_view().unwrap();

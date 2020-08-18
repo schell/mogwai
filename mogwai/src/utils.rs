@@ -6,7 +6,7 @@ use std::{
 use wasm_bindgen::{closure::Closure, JsCast, JsValue, UnwrapThrowExt};
 use web_sys;
 
-use super::{gizmo::dom::MogwaiCallback, txrx::Transmitter};
+use crate::prelude::{MogwaiCallback, Transmitter};
 
 
 pub fn window() -> web_sys::Window {

@@ -124,7 +124,8 @@ where
                     Err(error)
                 } else {
                     Ok(quote! {
-                        (#view_path::element(#tag) as #view_path<#type_is>)
+                        (#view_path::element(#tag)
+                           as #view_path<#type_is>)
                            #(#attribute_tokens)*
                            #(#child_tokens)*
                     })
@@ -151,7 +152,7 @@ where
 
 fn node_to_view_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
-        quote!{ mogwai::gizmo::dom::View },
+        quote!{ mogwai::prelude::View },
         node_to_view_token_stream,
         node
     )
@@ -160,8 +161,17 @@ fn node_to_view_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
 
 fn node_to_hydrateview_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
-        quote!{ mogwai::gizmo::dom::hydration::HydrateView },
+        quote!{ mogwai::prelude::HydrateView },
         node_to_hydrateview_token_stream,
+        node,
+    )
+}
+
+
+fn node_to_builder_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
+    walk_node(
+        quote!{ mogwai::prelude::ViewBuilder },
+        node_to_builder_token_stream,
         node,
     )
 }
@@ -213,32 +223,10 @@ pub fn hydrate(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 
 #[proc_macro]
-/// Uses an html description to construct a [`Result<View, Error>`].
-/// When compiled for wasm32 the resulting code will attempt to hydrate a view from the
-/// DOM.
-/// Any other compilation target will result in the creation of a fresh [`View`].
-pub fn ssr_view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let view = walk_dom(input.clone(), node_to_view_token_stream);
-    let hydrate = walk_dom(input, node_to_hydrateview_token_stream);
-    let code = quote! {
-        if cfg!(target_arch = "wasm32") {
-            Ok(#view)
-        } else {
-            View::try_from(#hydrate)
-        }
-    };
-    proc_macro::TokenStream::from(code)
+/// Uses an html description to construct a [`ViewBuilder`].
+pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    proc_macro::TokenStream::from(walk_dom(input, node_to_builder_token_stream))
 }
-
-//#[proc_macro]
-///// Uses an html description to construct a [`ViewBuilder`], which is like a hydration
-///// function and a view creation function.
-//pub fn view_and_hydrate_fn(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-//    let view = view(input);
-//    let hydrate = hydrate(input);
-//
-//
-//}
 
 
 #[proc_macro]

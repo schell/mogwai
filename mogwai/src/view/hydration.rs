@@ -1,19 +1,17 @@
 //! Types and [`TryFrom`] instances that can 're-animate' views or portions of views from the DOM.
 use snafu::{OptionExt, Snafu};
 pub use std::convert::TryFrom;
-#[cfg(target_arch = "wasm32")]
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
 use web_sys::{Node, Text};
 
-pub use super::utils;
-use super::{
-    super::{
-        super::txrx::{Receiver, Transmitter},
-        view::*,
-    },
-    View,
+use crate::{
+    view::interface::*,
+    prelude::{
+        Effect, Receiver, Transmitter, View
+    }
 };
+use crate::utils;
 
 
 #[derive(Debug, Snafu)]
@@ -179,6 +177,13 @@ impl From<&String> for HydrateView<Text> {
 }
 
 
+impl From<String> for HydrateView<Text> {
+    fn from(text: String) -> Self {
+        HydrateView::from_create_fn(|| NoHydrationOption { tag: text }.fail())
+    }
+}
+
+
 impl From<&str> for HydrateView<Text> {
     fn from(tag_or_text: &str) -> Self {
         let tag = tag_or_text.to_owned();
@@ -221,10 +226,6 @@ impl<T: JsCast + AsRef<Node> + 'static> ElementView for HydrateView<T> {
         let tag = format!("{}:{}", tag, ns);
         HydrateView::from_create_fn(|| NoHydrationOption { tag }.fail())
     }
-
-    fn from_element_by_id(id: &str) -> Option<Self> {
-        Some(HydrateView::from(HydrationKey::Id(id.to_string())))
-    }
 }
 
 
@@ -259,6 +260,9 @@ impl<T: JsCast + AsRef<Node> + AsRef<Element> + 'static> AttributeView for Hydra
 }
 
 
+/// # StyleView
+
+
 impl<T: JsCast + AsRef<HtmlElement> + 'static> StyleView for HydrateView<T> {
     fn style<E: Into<Effect<String>>>(mut self, name: &str, eff: E) -> Self {
         if let Some(later) = eff.into().into_some().1 {
@@ -268,6 +272,9 @@ impl<T: JsCast + AsRef<HtmlElement> + 'static> StyleView for HydrateView<T> {
         self
     }
 }
+
+
+/// # EventTargetView
 
 
 impl<T: JsCast + AsRef<EventTarget> + 'static> EventTargetView for HydrateView<T> {
@@ -291,6 +298,9 @@ impl<T: JsCast + AsRef<EventTarget> + 'static> EventTargetView for HydrateView<T
 }
 
 
+/// # ParentView
+
+
 impl<P, C> ParentView<HydrateView<C>> for HydrateView<P>
 where
     P: JsCast + AsRef<Node> + 'static,
@@ -309,6 +319,9 @@ where
 }
 
 
+/// # PostBuildView
+
+
 impl<T: JsCast + Clone + 'static> PostBuildView for HydrateView<T> {
     type DomNode = T;
 
@@ -317,47 +330,5 @@ impl<T: JsCast + Clone + 'static> PostBuildView for HydrateView<T> {
             Ok(v.post_build(tx))
         });
         self
-    }
-}
-
-
-/// # A low cost intermediate structure for creating views either by
-/// hydration from the DOM or by creating a fresh view from scratch.
-///
-/// Here we attempt to have our cake and eat it too.
-pub struct ViewBuilder<T: JsCast> {
-    view_fn: Box<dyn FnOnce() -> View<T>>,
-    hydrate_fn: Box<dyn FnOnce() -> Result<View<T>, Error>>,
-}
-
-
-impl<T: JsCast> ViewBuilder<T> {
-    pub fn new<VF, HF>(view_fn: VF, hydrate_fn: HF) -> Self
-    where
-        VF: FnOnce() -> View<T> + 'static,
-        HF: FnOnce() -> Result<View<T>, Error> + 'static
-    {
-        let view_fn = Box::new(view_fn);
-        let hydrate_fn = Box::new(hydrate_fn);
-        ViewBuilder {view_fn, hydrate_fn}
-    }
-
-    /// Convert this builder into a fresh [`View`].
-    pub fn fresh_view(self) -> View<T> {
-        (self.view_fn)()
-    }
-
-    /// Attempt to convert this builder into a [`View`] hydrated from
-    /// the existing DOM.
-    pub fn hydrate_view(self) -> Result<View<T>, Error> {
-        (self.hydrate_fn)()
-    }
-
-    /// Attempt to convert this build into a [`View`] hydrated from
-    /// the existing DOM - if that fails, create a fresh view.
-    pub fn hydrate_or_else_fresh_view(self) -> View<T> {
-        let hydrate = self.hydrate_fn;
-        let fresh = self.view_fn;
-        hydrate().unwrap_or_else(|_| fresh())
     }
 }

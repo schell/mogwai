@@ -1,6 +1,5 @@
 #![allow(unused_braces)]
-use mogwai::gizmo::{dom::View, view::*};
-use mogwai_html_macro::view;
+use mogwai::prelude::*;
 
 
 #[test]
@@ -22,10 +21,10 @@ fn node_self_closing_gt_1_att() {
 
 #[test]
 fn by_hand() {
-    let _div: String = (mogwai::gizmo::dom::View::element("a") as View<web_sys::HtmlElement>)
+    let _div: String = (View::element("a") as View<web_sys::HtmlElement>)
         .attribute("href", "http://zyghost.com")
         .attribute("class", "a_link")
-        .with(mogwai::gizmo::dom::View::from("a text node"))
+        .with(View::from("a text node"))
         .into_html_string();
 }
 

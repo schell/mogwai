@@ -58,8 +58,8 @@ mod item {
             }
         }
 
-        fn view(&self, tx: &Transmitter<In>, rx: &Receiver<Out>) -> View<HtmlElement> {
-            view! {
+        fn view(&self, tx: &Transmitter<In>, rx: &Receiver<Out>) -> ViewBuilder<HtmlElement> {
+            builder! {
                 <li>
                     <button on:click=tx.contra_map(|_| In::Click)>"Increment"</button>
                     <button on:click=tx.contra_map(|_| In::Delete)>"Remove"</button>
@@ -140,7 +140,7 @@ mod app {
             }
         }
 
-        fn view(&self, tx: &Transmitter<In>, rx: &Receiver<Out>) -> View<HtmlElement> {
+        fn view(&self, tx: &Transmitter<In>, rx: &Receiver<Out>) -> ViewBuilder<HtmlElement> {
             view! {
                 <main>
                     <header>
@@ -178,6 +178,7 @@ mod app {
         }
     }
 }
+
 
 
 #[wasm_bindgen(start)]

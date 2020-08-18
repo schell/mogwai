@@ -3,15 +3,9 @@ pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement};
 
-pub use super::utils;
-use super::{
-    component::{subscriber::Subscriber, Component},
-    txrx::{txrx, Receiver, Transmitter},
-};
+use crate::prelude::{txrx, Component, Receiver, Subscriber, Transmitter, View, ViewBuilder};
+use crate::utils;
 
-pub mod dom;
-pub mod view;
-use dom::View;
 
 /// A concrete component/widget and all of its pieces.
 pub struct Gizmo<T: Component> {
@@ -68,7 +62,8 @@ where
     pub fn new(init: T) -> Gizmo<T> {
         let tx_in = Transmitter::new();
         let rx_out = Receiver::new();
-        let view = init.view(&tx_in, &rx_out);
+        let view_builder = init.view(&tx_in, &rx_out);
+        let view = view_builder.fresh_view();
 
         Gizmo::from_parts(init, tx_in, rx_out, view)
     }
@@ -149,7 +144,7 @@ impl<T: Component> From<T> for Gizmo<T> {
 
 
 /// The type of function that uses a txrx pair and returns a View.
-pub type BuilderFn<T, D> = dyn Fn(&Transmitter<T>, &Receiver<T>) -> View<D>;
+pub type BuilderFn<T, D> = dyn Fn(&Transmitter<T>, &Receiver<T>) -> ViewBuilder<D>;
 
 
 /// A simple component made from a [BuilderFn].
@@ -178,7 +173,7 @@ pub struct SimpleComponent<T, D: JsCast>(Box<BuilderFn<T, D>>);
 impl<T, D: JsCast> SimpleComponent<T, D> {
     pub fn new<F>(f: F) -> Self
     where
-        F: Fn(&Transmitter<T>, &Receiver<T>) -> View<D> + 'static,
+        F: Fn(&Transmitter<T>, &Receiver<T>) -> ViewBuilder<D> + 'static,
     {
         SimpleComponent(Box::new(f))
     }
@@ -198,7 +193,7 @@ where
         tx_view.send(msg);
     }
 
-    fn view(&self, tx: &Transmitter<T>, rx: &Receiver<T>) -> View<D> {
+    fn view(&self, tx: &Transmitter<T>, rx: &Receiver<T>) -> ViewBuilder<D> {
         self.0(tx, rx)
     }
 }
