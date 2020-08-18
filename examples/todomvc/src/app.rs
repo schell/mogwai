@@ -143,7 +143,7 @@ impl Component for App {
             In::NewTodo(name, complete) => {
                 let index = self.next_index;
                 // Turn the new todo into a gizmo.
-                let mut component = Todo::new(index, name.to_string()).into_gizmo();
+                let component = Todo::new(index, name.to_string()).into_gizmo();
                 // Subscribe to some of its view messages
                 sub.subscribe_filter_map(&component.recv, move |todo_out_msg| match todo_out_msg {
                     TodoOut::UpdateEditComplete(_, is_complete) => {
@@ -257,7 +257,7 @@ impl Component for App {
         store::write_items(items).expect("Could not store todos");
     }
 
-    fn view(&self, tx: Transmitter<In>, rx: Receiver<Out>) -> View<HtmlElement> {
+    fn view(&self, tx: &Transmitter<In>, rx: &Receiver<Out>) -> View<HtmlElement> {
         let rx_display = rx.branch_filter_map(|msg| match msg {
             Out::ShouldShowTodoList(should) => {
                 Some(if *should { "block" } else { "none" }.to_string())

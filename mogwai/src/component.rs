@@ -54,7 +54,7 @@
 //!     type ViewMsg = Out;
 //!     type DomNode = HtmlElement;
 //!
-//!     fn view(&self, tx: Transmitter<In>, rx:Receiver<Out>) -> View<HtmlElement> {
+//!     fn view(&self, tx: &Transmitter<In>, rx: &Receiver<Out>) -> View<HtmlElement> {
 //!         view! {
 //!             <button on:click=tx.contra_map(|_| In::Click)>
 //!                 {(
@@ -159,8 +159,8 @@ where
     /// flow from the update function to the view.
     fn view(
         &self,
-        tx: Transmitter<Self::ModelMsg>,
-        rx: Receiver<Self::ViewMsg>,
+        tx: &Transmitter<Self::ModelMsg>,
+        rx: &Receiver<Self::ViewMsg>,
     ) -> View<Self::DomNode>;
 
     /// Convert into a Gizmo<Self>. Use this to convert a type into a Gizmo<Self>

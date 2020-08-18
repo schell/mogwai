@@ -102,8 +102,8 @@ impl Component for Button {
 
     fn view(
         &self,
-        tx: Transmitter<ButtonIn>,
-        rx: Receiver<ButtonOut>
+        tx: &Transmitter<ButtonIn>,
+        rx: &Receiver<ButtonOut>
     ) -> View<HtmlElement> {
         let rx_text = rx.branch_map(|msg| match msg {
             ButtonOut::Clicks(n) => format!("Clicked {} times", n)

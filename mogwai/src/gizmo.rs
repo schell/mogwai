@@ -68,7 +68,7 @@ where
     pub fn new(init: T) -> Gizmo<T> {
         let tx_in = Transmitter::new();
         let rx_out = Receiver::new();
-        let view = init.view(tx_in.clone(), rx_out.branch());
+        let view = init.view(&tx_in, &rx_out);
 
         Gizmo::from_parts(init, tx_in, rx_out, view)
     }
@@ -104,15 +104,6 @@ where
         self
     }
 
-    /// Run and initialize the component with a list of messages.
-    /// This is equivalent to calling `run` and `update` with each message.
-    pub fn run_init(mut self, msgs: Vec<T::ModelMsg>) -> Result<(), JsValue> {
-        msgs.into_iter().for_each(|msg| {
-            self.update(&msg);
-        });
-        self.run()
-    }
-
     /// Run this component forever, handing ownership over to the browser window.
     ///
     /// # Panics
@@ -127,7 +118,7 @@ where
 
     /// Update the component with the given message.
     /// This how a parent component communicates down to its child components.
-    pub fn update(&mut self, msg: &T::ModelMsg) {
+    pub fn update(&self, msg: &T::ModelMsg) {
         self.trns.send(msg);
     }
 
@@ -140,7 +131,7 @@ where
         f(&t)
     }
 
-    /// Dangerously update this gizmo's state.
+    /// Set this gizmo's state.
     ///
     /// This silently updates the state and doesn't trigger any messages
     /// and does *not* update the view.
@@ -158,7 +149,7 @@ impl<T: Component> From<T> for Gizmo<T> {
 
 
 /// The type of function that uses a txrx pair and returns a View.
-pub type BuilderFn<T, D> = dyn Fn(Transmitter<T>, Receiver<T>) -> View<D>;
+pub type BuilderFn<T, D> = dyn Fn(&Transmitter<T>, &Receiver<T>) -> View<D>;
 
 
 /// A simple component made from a [BuilderFn].
@@ -172,7 +163,7 @@ pub type BuilderFn<T, D> = dyn Fn(Transmitter<T>, Receiver<T>) -> View<D>;
 /// use mogwai::prelude::*;
 ///
 /// let component = SimpleComponent::new(
-///     |tx: Transmitter<()>, rx: Receiver<()>| -> View<HtmlElement> {
+///     |tx: &Transmitter<()>, rx: &Receiver<()>| -> View<HtmlElement> {
 ///         view!{
 ///             <button style="pointer" on:click=tx.contra_map(|_| ())>
 ///                 {("Click me", rx.branch_map(|()| "Clicked!".to_string()))}
@@ -187,7 +178,7 @@ pub struct SimpleComponent<T, D: JsCast>(Box<BuilderFn<T, D>>);
 impl<T, D: JsCast> SimpleComponent<T, D> {
     pub fn new<F>(f: F) -> Self
     where
-        F: Fn(Transmitter<T>, Receiver<T>) -> View<D> + 'static,
+        F: Fn(&Transmitter<T>, &Receiver<T>) -> View<D> + 'static,
     {
         SimpleComponent(Box::new(f))
     }
@@ -207,7 +198,7 @@ where
         tx_view.send(msg);
     }
 
-    fn view(&self, tx: Transmitter<T>, rx: Receiver<T>) -> View<D> {
+    fn view(&self, tx: &Transmitter<T>, rx: &Receiver<T>) -> View<D> {
         self.0(tx, rx)
     }
 }

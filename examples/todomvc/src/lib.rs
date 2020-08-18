@@ -41,7 +41,17 @@ pub fn main() -> Result<(), JsValue> {
         .into_iter()
         .for_each(|msg| msgs.push(msg));
 
-    App::new().into_gizmo().run_init(msgs)?;
+    // Create our app
+    let app = App::new().into_gizmo();
+    // Send our app all the initi messages it needs
+    msgs.into_iter().for_each(|msg| {
+        // notice how this doesn't mutate the app object -
+        // under the hood we're simply queueing these messages
+        app.update(&msg);
+    });
+    // run the app, giving up ownership to the window
+    app.run().unwrap_throw();
+
 
     // The footer has no relation to the rest of the app and is simply a view
     // attached to the body

@@ -321,25 +321,43 @@ impl<T: JsCast + Clone + 'static> PostBuildView for HydrateView<T> {
 }
 
 
-///// # Low cost hydration with a backup.
-/////
-///// Here we attempt to have our cake and eat it too.
-//pub struct ViewBuilder<T: JsCast> {
-//    view_fn: Box<dyn FnOnce() -> View<T>>,
-//    hydrate_fn: Box<dyn FnOnce() -> Result<View<T>, Error>>,
-//}
-//
-//
-//impl<T: JsCast> ViewBuilder<T: JsCast> {
-//    pub fn new(view_fn:VF, hydrate_fn:HF) -> Self
-//    where
-//        VF: FnOnce() -> View<T> + 'static,
-//        HF: FnOnce() -> Result<View<T>, Error> + 'static
-//    {
-//        ViewBuilder {
-//            view_fn, hydrate_fn
-//        }
-//    }
-//
-//    pub fn fresh_view() -> View<T>
-//}
+/// # A low cost intermediate structure for creating views either by
+/// hydration from the DOM or by creating a fresh view from scratch.
+///
+/// Here we attempt to have our cake and eat it too.
+pub struct ViewBuilder<T: JsCast> {
+    view_fn: Box<dyn FnOnce() -> View<T>>,
+    hydrate_fn: Box<dyn FnOnce() -> Result<View<T>, Error>>,
+}
+
+
+impl<T: JsCast> ViewBuilder<T> {
+    pub fn new<VF, HF>(view_fn: VF, hydrate_fn: HF) -> Self
+    where
+        VF: FnOnce() -> View<T> + 'static,
+        HF: FnOnce() -> Result<View<T>, Error> + 'static
+    {
+        let view_fn = Box::new(view_fn);
+        let hydrate_fn = Box::new(hydrate_fn);
+        ViewBuilder {view_fn, hydrate_fn}
+    }
+
+    /// Convert this builder into a fresh [`View`].
+    pub fn fresh_view(self) -> View<T> {
+        (self.view_fn)()
+    }
+
+    /// Attempt to convert this builder into a [`View`] hydrated from
+    /// the existing DOM.
+    pub fn hydrate_view(self) -> Result<View<T>, Error> {
+        (self.hydrate_fn)()
+    }
+
+    /// Attempt to convert this build into a [`View`] hydrated from
+    /// the existing DOM - if that fails, create a fresh view.
+    pub fn hydrate_or_else_fresh_view(self) -> View<T> {
+        let hydrate = self.hydrate_fn;
+        let fresh = self.view_fn;
+        hydrate().unwrap_or_else(|_| fresh())
+    }
+}
