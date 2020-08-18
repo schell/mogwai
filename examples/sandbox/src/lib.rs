@@ -11,7 +11,7 @@ use web_sys::{Request, RequestInit, RequestMode, Response};
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
-pub fn new_button_view(mut tx_click: Transmitter<Event>) -> View<HtmlElement> {
+pub fn new_button_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
     // Create a receiver for our button to get its text from.
     let rx_text = Receiver::<String>::new();
 
@@ -51,7 +51,7 @@ pub fn new_button_view(mut tx_click: Transmitter<Event>) -> View<HtmlElement> {
 
 
 /// Creates a h1 heading that changes its color.
-pub fn new_h1_view(mut tx_click: Transmitter<Event>) -> View<HtmlElement> {
+pub fn new_h1_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
     // Create a receiver for our heading to get its color from.
     let rx_color = Receiver::<String>::new();
 
@@ -165,7 +165,7 @@ pub fn time_req_button_and_pre() -> View<HtmlElement> {
 /// Creates a view that ticks a count upward every second.
 pub fn counter() -> View<HtmlElement> {
     // Create a transmitter to send ticks every second
-    let mut tx = Transmitter::<()>::new();
+    let tx = Transmitter::<()>::new();
 
     // Create a receiver for a string to accept our counter's text
     let rx = Receiver::<String>::new();

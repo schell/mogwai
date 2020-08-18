@@ -1086,10 +1086,17 @@ mod gizmo_tests {
     fn can_hydrate_or_view() {
         let (tx_class, rx_class) = txrx::<String>();
         let (tx_text, rx_text) = txrx::<String>();
-        let (tx_pb, rx_pb) = txrx::<HtmlElement>();
+        let count = txrx::new_shared(0 as u32);
+        let (tx_pb, rx_pb) = txrx_fold_shared(count.clone(), |count: &mut u32, _:&HtmlElement| -> () {
+            *count += 1;
+            ()
+        });
+
+        rx_pb.respond(|_| println!("post build"));
+
         let fresh_view = || {
             view! {
-                <div id="my_div" post:build=tx_pb>
+                <div id="my_div" post:build=(&tx_pb).clone()>
                     <p class=("class", rx_class.branch())>{("inner text", rx_text.branch())}</p>
                 </div>
             }
@@ -1097,7 +1104,7 @@ mod gizmo_tests {
         let hydrate_view = || {
             View::try_from(
                 hydrate! {
-                    <div id="my_div" post:build=tx_pb>
+                    <div id="my_div" post:build=(&tx_pb).clone()>
                         <p class=("class", rx_class.branch())>{("inner text", rx_text.branch())}</p>
                     </div>
                 }
@@ -1119,5 +1126,7 @@ mod gizmo_tests {
             original_el.outer_html().as_str(),
             r#"<div id="my_div"><p class="new_class">different inner text</p></div>"#
         );
+
+        assert_eq!(*count.borrow(), 2);
     }
 }

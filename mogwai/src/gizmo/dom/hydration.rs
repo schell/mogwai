@@ -309,6 +309,18 @@ where
 }
 
 
+impl<T: JsCast + Clone + 'static> PostBuildView for HydrateView<T> {
+    type DomNode = T;
+
+    fn post_build(mut self, tx: Transmitter<T>) -> Self {
+        self.append_update(move |v| {
+            Ok(v.post_build(tx))
+        });
+        self
+    }
+}
+
+
 ///// # Low cost hydration with a backup.
 /////
 ///// Here we attempt to have our cake and eat it too.

@@ -34,7 +34,7 @@ where
     /// create that view.
     pub fn from_parts(
         init: T,
-        mut tx_in: Transmitter<T::ModelMsg>,
+        tx_in: Transmitter<T::ModelMsg>,
         rx_out: Receiver<T::ViewMsg>,
         view: View<T::DomNode>,
     ) -> Self {
