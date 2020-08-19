@@ -143,7 +143,7 @@ impl Component for App {
             In::NewTodo(name, complete) => {
                 let index = self.next_index;
                 // Turn the new todo into a gizmo.
-                let component = Todo::new(index, name.to_string()).into_gizmo();
+                let component = Gizmo::new(Todo::new(index, name.to_string()));
                 // Subscribe to some of its view messages
                 sub.subscribe_filter_map(&component.recv, move |todo_out_msg| match todo_out_msg {
                     TodoOut::UpdateEditComplete(_, is_complete) => {
@@ -266,7 +266,7 @@ impl Component for App {
         });
 
         builder! {
-            <section class="todoapp">
+            <section id="todo_main" class="todoapp">
                 <header class="header">
                     <h1>"todos"</h1>
                     <input

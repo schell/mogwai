@@ -7,7 +7,7 @@ use crate::prelude::{txrx, Component, Receiver, Subscriber, Transmitter, View, V
 use crate::utils;
 
 
-/// A concrete component/widget and all of its pieces.
+/// A widget and all of its pieces.
 pub struct Gizmo<T: Component> {
     pub trns: Transmitter<T::ModelMsg>,
     pub recv: Receiver<T::ViewMsg>,
@@ -32,16 +32,14 @@ where
         rx_out: Receiver<T::ViewMsg>,
         view: View<T::DomNode>,
     ) -> Self {
-        let state_var = Rc::new(RefCell::new(init));
-        let state = state_var.clone();
+        let state = Rc::new(RefCell::new(init));
         let tx_out = rx_out.new_trns();
         let rx_in = tx_in.spawn_recv();
         let subscriber = Subscriber::new(&tx_in);
 
         let (tx_view, rx_view) = txrx();
-        rx_in.respond(move |msg: &T::ModelMsg| {
-            let mut t = state.borrow_mut();
-            T::update(&mut t, msg, &tx_view, &subscriber);
+        rx_in.respond_shared(state.clone(), move |t: &mut T, msg: &T::ModelMsg| {
+            T::update(t, msg, &tx_view, &subscriber);
         });
 
         rx_view.respond(move |msg: &T::ViewMsg| {
@@ -54,16 +52,41 @@ where
             trns: tx_in,
             recv: rx_out,
             view,
-            state: state_var,
+            state,
         }
     }
 
     /// Create a new [`Gizmo`] from a stateful [`Component`].
+    /// This will create a 'fresh' view.
     pub fn new(init: T) -> Gizmo<T> {
         let tx_in = Transmitter::new();
         let rx_out = Receiver::new();
         let view_builder = init.view(&tx_in, &rx_out);
         let view = view_builder.fresh_view();
+
+        Gizmo::from_parts(init, tx_in, rx_out, view)
+    }
+
+
+    /// Hydrates a new [`Gizmo`] from a stateful [`Component`].
+    /// If the view cannot be hydrated an error is returned.
+    pub fn hydrate(init: T) -> Result<Gizmo<T>, crate::view::hydration::Error> {
+        let tx_in = Transmitter::new();
+        let rx_out = Receiver::new();
+        let view_builder = init.view(&tx_in, &rx_out);
+        let view = view_builder.hydrate_view()?;
+
+        Ok(Gizmo::from_parts(init, tx_in, rx_out, view))
+    }
+
+
+    /// Hydrates a new [`Gizmo`] from a stateful [`Component`].
+    /// If the view cannot be hydrated then a fresh one will be created.
+    pub fn hydrate_or_fresh(init: T) -> Gizmo<T> {
+        let tx_in = Transmitter::new();
+        let rx_out = Receiver::new();
+        let view_builder = init.view(&tx_in, &rx_out);
+        let view = view_builder.hydrate_or_else_fresh_view();
 
         Gizmo::from_parts(init, tx_in, rx_out, view)
     }

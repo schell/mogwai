@@ -159,10 +159,4 @@ where
         tx: &Transmitter<Self::ModelMsg>,
         rx: &Receiver<Self::ViewMsg>,
     ) -> ViewBuilder<Self::DomNode>;
-
-    /// Convert into a Gizmo<Self>. Use this to convert a type into a Gizmo<Self>
-    /// that can be added to the DOM.
-    fn into_gizmo(self) -> Gizmo<Self> {
-        Gizmo::new(self)
-    }
 }

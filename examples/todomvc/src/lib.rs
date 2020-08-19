@@ -42,7 +42,7 @@ pub fn main() -> Result<(), JsValue> {
         .for_each(|msg| msgs.push(msg));
 
     // Create our app
-    let app = App::new().into_gizmo();
+    let app:Gizmo<App> = Gizmo::hydrate(App::new()).unwrap();
     // Send our app all the initi messages it needs
     msgs.into_iter().for_each(|msg| {
         // notice how this doesn't mutate the app object -
@@ -52,21 +52,21 @@ pub fn main() -> Result<(), JsValue> {
     // run the app, giving up ownership to the window
     app.run().unwrap_throw();
 
-
-    // The footer has no relation to the rest of the app and is simply a view
-    // attached to the body
-    view!(
-        <footer class="info">
-            <p>"Double click to edit a todo"</p>
-            <p>
-                "Written by "
-                <a href="https://github.com/schell">"Schell Scivally"</a>
-            </p>
-            <p>
-                "Part of "
-                <a href="http://todomvc.com">"TodoMVC"</a>
-            </p>
-        </footer>
-    )
-    .run()
+    let footer =
+        builder!(
+            <footer id="todo_footer" class="info">
+                <p>"Double click to edit a todo"</p>
+                <p>
+                    "Written by "
+                    <a href="https://github.com/schell">"Schell Scivally"</a>
+                </p>
+                <p>
+                    "Part of "
+                    <a href="http://todomvc.com">"TodoMVC"</a>
+                </p>
+            </footer>
+        );
+    footer
+        .hydrate_or_else_fresh_view()
+        .run()
 }
