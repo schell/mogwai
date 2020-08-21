@@ -52,8 +52,11 @@ impl<T: JsCast + 'static> ViewBuilder<T> {
     /// Attempt to convert this builder into a [`View`] hydrated from
     /// the existing DOM.
     pub fn hydrate_view(self) -> Result<View<T>, Error> {
+        log::trace!("ViewBuilder::hydrate_view");
         let hydrate = (self.hydrate_fn)();
-        View::try_from(hydrate)
+        let val = View::try_from(hydrate)?;
+        log::trace!("  hydrated ViewBuilder::hydrate_view");
+        Ok(val)
     }
 
     /// Attempt to convert this build into a [`View`] hydrated from

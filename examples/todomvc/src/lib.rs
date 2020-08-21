@@ -41,32 +41,34 @@ pub fn main() -> Result<(), JsValue> {
         .into_iter()
         .for_each(|msg| msgs.push(msg));
 
-    // Create our app
-    let app:Gizmo<App> = Gizmo::hydrate(App::new()).unwrap();
+    // Create and our app
+    let app: Gizmo<App> = match Gizmo::hydrate(App::new()) {
+        Err(err) => panic!("{}", err),
+        Ok(app) => app,
+    };
     // Send our app all the initi messages it needs
     msgs.into_iter().for_each(|msg| {
         // notice how this doesn't mutate the app object -
         // under the hood we're simply queueing these messages
         app.update(&msg);
     });
-    // run the app, giving up ownership to the window
-    app.run().unwrap_throw();
+    let Gizmo { view: app_view, .. } = app;
+    // hand the app's view ownership to the window
+    app_view.forget().unwrap_throw();
 
-    let footer =
-        builder!(
-            <footer id="todo_footer" class="info">
-                <p>"Double click to edit a todo"</p>
-                <p>
-                    "Written by "
-                    <a href="https://github.com/schell">"Schell Scivally"</a>
-                </p>
-                <p>
-                    "Part of "
-                    <a href="http://todomvc.com">"TodoMVC"</a>
-                </p>
-            </footer>
-        );
-    footer
-        .hydrate_or_else_fresh_view()
-        .run()
+    let footer = builder!(
+        <footer id="todo_footer" class="info">
+            <p>"Double click to edit a todo"</p>
+            <p>
+                "Written by "
+                <a href="https://github.com/schell">"Schell Scivally"</a>
+            </p>
+            <p>
+                "Part of "
+                <a href="http://todomvc.com">"TodoMVC"</a>
+            </p>
+        </footer>
+    );
+    //footer.hydrate_view().map_err(|e| format!("{}", e)).unwrap().run()
+    Ok(())
 }

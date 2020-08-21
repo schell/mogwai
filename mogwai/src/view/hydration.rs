@@ -1,4 +1,5 @@
 //! Types and [`TryFrom`] instances that can 're-animate' views or portions of views from the DOM.
+use log::trace;
 use snafu::{OptionExt, Snafu};
 pub use std::convert::TryFrom;
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
@@ -6,12 +7,10 @@ pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
 use web_sys::{Node, Text};
 
 use crate::{
+    prelude::{Effect, Receiver, Transmitter, View},
+    utils,
     view::interface::*,
-    prelude::{
-        Effect, Receiver, Transmitter, View
-    }
 };
-use crate::utils;
 
 
 #[derive(Debug, Snafu)]
@@ -60,10 +59,40 @@ impl HydrationKey {
                 })?
             }
             HydrationKey::IndexedChildOf { node, index } => {
+                trace!("hydrating child {} of {}", index, node.node_name());
                 let children = node.child_nodes();
-                let el = children
-                    .get(index)
-                    .with_context(|| MissingChild { node, index })?;
+                let mut non_empty_children = vec![];
+                for i in 0..children.length() {
+                    let child = children.get(i).with_context(|| MissingChild {
+                        node: node.clone(),
+                        index,
+                    })?;
+                    if child.node_type() == 3 {
+                        // This is a text node
+                        let has_text: bool = child
+                            .node_value()
+                            .map(|s| !s.trim().is_empty())
+                            .unwrap_or_else(|| false);
+                        if has_text {
+                            non_empty_children.push(child);
+                        }
+                    } else {
+                        non_empty_children.push(child);
+                    }
+                }
+                trace!(
+                    "found {} non-empty nodes in {}",
+                    non_empty_children.len(),
+                    node.node_name()
+                );
+                for child in non_empty_children.iter() {
+                    trace!("  {}::{}", child.node_name(), std::any::type_name::<T>());
+                }
+                let el = non_empty_children
+                    .get(index as usize)
+                    .with_context(|| MissingChild { node: node.clone(), index })?
+                    .clone();
+                trace!("found child node {}::{} in {}", el.node_name(), std::any::type_name::<T>(), node.node_name());
                 el.clone().dyn_into::<T>().or_else(|_| {
                     Conversion {
                         from: "Node",
@@ -279,18 +308,24 @@ impl<T: JsCast + AsRef<HtmlElement> + 'static> StyleView for HydrateView<T> {
 
 impl<T: JsCast + AsRef<EventTarget> + 'static> EventTargetView for HydrateView<T> {
     fn on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
+        trace!("adding hydration for on:{}", ev_name);
         let ev_name = ev_name.to_string();
-        self.append_update(move |v| Ok(v.on(&ev_name, tx)));
+        self.append_update(move |v: View<T>| {
+            trace!("hydrating {} on {:?}", ev_name, v.as_ref() as &EventTarget);
+            Ok(v.on(&ev_name, tx))
+        });
         self
     }
 
     fn window_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
+        trace!("adding hydration for window:{}", ev_name);
         let ev_name = ev_name.to_string();
         self.append_update(move |v| Ok(v.window_on(&ev_name, tx)));
         self
     }
 
     fn document_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
+        trace!("adding hydration for document:{}", ev_name);
         let ev_name = ev_name.to_string();
         self.append_update(move |v| Ok(v.document_on(&ev_name, tx)));
         self
@@ -307,12 +342,15 @@ where
     C: JsCast + Clone + AsRef<Node> + 'static,
 {
     fn with(mut self, mut child: HydrateView<C>) -> Self {
-        self.append_update(|v: View<P>| {
+        trace!("adding hydration for child");
+        self.append_update(|mut v: View<P>| {
+            trace!("hydrating child");
             let node = (v.as_ref() as &Node).clone();
             let index = v.children.len() as u32;
             child.create = HydrateView::from(HydrationKey::IndexedChildOf { node, index }).create;
             let child_view: View<C> = View::try_from(child)?;
-            Ok(v.with(child_view))
+            v.children.push(child_view.upcast());
+            Ok(v)
         });
         self
     }
@@ -326,9 +364,7 @@ impl<T: JsCast + Clone + 'static> PostBuildView for HydrateView<T> {
     type DomNode = T;
 
     fn post_build(mut self, tx: Transmitter<T>) -> Self {
-        self.append_update(move |v| {
-            Ok(v.post_build(tx))
-        });
+        self.append_update(move |v| Ok(v.post_build(tx)));
         self
     }
 }
