@@ -20,7 +20,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 #[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
-    console_log::init_with_level(Level::Trace).expect("could not init console_log");
+    //console_log::init_with_level(Level::Trace).expect("could not init console_log");
 
     if cfg!(debug_assertions) {
         trace!("Hello from debug mogwai-todo");
@@ -41,34 +41,25 @@ pub fn main() -> Result<(), JsValue> {
         .into_iter()
         .for_each(|msg| msgs.push(msg));
 
-    // Create and our app
+    // Create our app's view by hydrating a gizmo from an initial state
     let app: Gizmo<App> = match Gizmo::hydrate(App::new()) {
         Err(err) => panic!("{}", err),
         Ok(app) => app,
     };
-    // Send our app all the initi messages it needs
+
+    // Send our gizmo all the initial messages it needs to populate
+    // the stored todos.
     msgs.into_iter().for_each(|msg| {
-        // notice how this doesn't mutate the app object -
+        // notice how this doesn't mutate the app gizmo -
         // under the hood we're simply queueing these messages
         app.update(&msg);
     });
-    let Gizmo { view: app_view, .. } = app;
-    // hand the app's view ownership to the window
-    app_view.forget().unwrap_throw();
 
-    let footer = builder!(
-        <footer id="todo_footer" class="info">
-            <p>"Double click to edit a todo"</p>
-            <p>
-                "Written by "
-                <a href="https://github.com/schell">"Schell Scivally"</a>
-            </p>
-            <p>
-                "Part of "
-                <a href="http://todomvc.com">"TodoMVC"</a>
-            </p>
-        </footer>
-    );
-    //footer.hydrate_view().map_err(|e| format!("{}", e)).unwrap().run()
-    Ok(())
+    // Unravel the gizmo because all we need is the view -
+    // we can disregard the message terminals and the shared state
+    // (the view already has clones of these things).
+    let Gizmo { view: app_view, .. } = app;
+    // Hand the app's view ownership to the window so it never
+    // goes out of scope
+    app_view.forget()
 }
