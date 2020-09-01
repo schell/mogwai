@@ -1,4 +1,4 @@
-use log::{trace, Level};
+use log::trace;
 use mogwai::prelude::*;
 use std::panic;
 use wasm_bindgen::prelude::*;

@@ -12,17 +12,15 @@ keywords = ["ui", "dom", "app", "reactive", "frontend"]
 categories = ["gui", "wasm", "web-programming"]
 
 [dependencies]
-console_log = "0.1.2"
-futures = "0.3"
-js-sys = "0.3.27"
-log = "0.4"
+futures = "^0.3"
+js-sys = "^0.3"
 mogwai-html-macro = { path = "../crates/mogwai-html-macro", version = "^0.1" }
 snafu = "^0.6"
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
+wasm-bindgen = "^0.2"
+wasm-bindgen-futures = "^0.4"
 
 [dependencies.web-sys]
-version = "0.3.31"
+version = "^0.3"
 features = [
   "CharacterData",
   "CssStyleDeclaration",
@@ -41,12 +39,12 @@ features = [
 ]
 
 [dev-dependencies]
-doc-comment = "0.3"
+doc-comment = "^0.3"
 wasm-bindgen-test = "^0.3"
 wasm-bindgen-futures = "^0.4"
 
 [dev-dependencies.web-sys]
-version = "0.3.31"
+version = "^0.3"
 features = [
   "Request", "RequestMode", "RequestInit", "Response"
 ]

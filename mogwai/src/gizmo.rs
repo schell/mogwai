@@ -70,7 +70,6 @@ where
     /// Hydrates a new [`Gizmo`] from a stateful [`Component`].
     /// If the view cannot be hydrated an error is returned.
     pub fn hydrate(init: T) -> Result<Gizmo<T>, crate::view::hydration::Error> {
-        log::trace!("Gizmo::hydrate");
         let tx_in = Transmitter::new();
         let rx_out = Receiver::new();
         let view_builder = init.view(&tx_in, &rx_out);

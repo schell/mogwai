@@ -1,5 +1,4 @@
 //! Types and [`TryFrom`] instances that can 're-animate' views or portions of views from the DOM.
-use log::trace;
 use snafu::{OptionExt, Snafu};
 pub use std::convert::TryFrom;
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
@@ -59,7 +58,6 @@ impl HydrationKey {
                 })?
             }
             HydrationKey::IndexedChildOf { node, index } => {
-                trace!("hydrating child {} of {}", index, node.node_name());
                 let children = node.child_nodes();
                 let mut non_empty_children = vec![];
                 for i in 0..children.length() {
@@ -80,19 +78,10 @@ impl HydrationKey {
                         non_empty_children.push(child);
                     }
                 }
-                trace!(
-                    "found {} non-empty nodes in {}",
-                    non_empty_children.len(),
-                    node.node_name()
-                );
-                for child in non_empty_children.iter() {
-                    trace!("  {}::{}", child.node_name(), std::any::type_name::<T>());
-                }
                 let el = non_empty_children
                     .get(index as usize)
                     .with_context(|| MissingChild { node: node.clone(), index })?
                     .clone();
-                trace!("found child node {}::{} in {}", el.node_name(), std::any::type_name::<T>(), node.node_name());
                 el.clone().dyn_into::<T>().or_else(|_| {
                     Conversion {
                         from: "Node",
@@ -308,24 +297,20 @@ impl<T: JsCast + AsRef<HtmlElement> + 'static> StyleView for HydrateView<T> {
 
 impl<T: JsCast + AsRef<EventTarget> + 'static> EventTargetView for HydrateView<T> {
     fn on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
-        trace!("adding hydration for on:{}", ev_name);
         let ev_name = ev_name.to_string();
         self.append_update(move |v: View<T>| {
-            trace!("hydrating {} on {:?}", ev_name, v.as_ref() as &EventTarget);
             Ok(v.on(&ev_name, tx))
         });
         self
     }
 
     fn window_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
-        trace!("adding hydration for window:{}", ev_name);
         let ev_name = ev_name.to_string();
         self.append_update(move |v| Ok(v.window_on(&ev_name, tx)));
         self
     }
 
     fn document_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
-        trace!("adding hydration for document:{}", ev_name);
         let ev_name = ev_name.to_string();
         self.append_update(move |v| Ok(v.document_on(&ev_name, tx)));
         self
@@ -342,9 +327,7 @@ where
     C: JsCast + Clone + AsRef<Node> + 'static,
 {
     fn with(mut self, mut child: HydrateView<C>) -> Self {
-        trace!("adding hydration for child");
         self.append_update(|mut v: View<P>| {
-            trace!("hydrating child");
             let node = (v.as_ref() as &Node).clone();
             let index = v.children.len() as u32;
             child.create = HydrateView::from(HydrationKey::IndexedChildOf { node, index }).create;

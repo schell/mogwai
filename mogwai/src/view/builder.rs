@@ -52,10 +52,8 @@ impl<T: JsCast + 'static> ViewBuilder<T> {
     /// Attempt to convert this builder into a [`View`] hydrated from
     /// the existing DOM.
     pub fn hydrate_view(self) -> Result<View<T>, Error> {
-        log::trace!("ViewBuilder::hydrate_view");
         let hydrate = (self.hydrate_fn)();
         let val = View::try_from(hydrate)?;
-        log::trace!("  hydrated ViewBuilder::hydrate_view");
         Ok(val)
     }
 
@@ -102,6 +100,15 @@ impl From<(String, Receiver<String>)> for ViewBuilder<Text> {
 impl From<(&String, Receiver<String>)> for ViewBuilder<Text> {
     fn from((now, later): (&String, Receiver<String>)) -> Self {
         let tuple = (now.clone(), later);
+        let eff: Effect<String> = tuple.into();
+        eff.into()
+    }
+}
+
+
+impl From<Receiver<String>> for ViewBuilder<Text> {
+    fn from(later: Receiver<String>) -> Self {
+        let tuple = ("".to_string(), later);
         let eff: Effect<String> = tuple.into();
         eff.into()
     }

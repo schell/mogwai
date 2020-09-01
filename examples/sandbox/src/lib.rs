@@ -205,7 +205,7 @@ pub fn main() -> Result<(), JsValue> {
         <div>
             {h1}
             {btn}
-            {elm_button::Button { clicks: 0 }.into_gizmo()}
+            {Gizmo::from(elm_button::Button { clicks: 0 })}
             <br />
             <br />
             {req}
@@ -228,7 +228,8 @@ pub fn main() -> Result<(), JsValue> {
         body.append_child(&section).unwrap_throw();
     }
 
-    // Now we'll attempt to hydrate a view from the pre-existing DOM
+    // Now we'll attempt to hydrate a view from the pre-existing DOM and then
+    // update the inner text of the child `p` node.
     let (tx, rx) = txrx_fold(0, |count: &mut u32, _:&()| -> String {
         *count += 1;
         if *count == 1 {
@@ -238,21 +239,25 @@ pub fn main() -> Result<(), JsValue> {
         }
     });
     {
-        let mut div_view:View<HtmlElement> = View::from_element_by_id("my_div").unwrap_throw();
-        let children = (div_view.as_ref() as &HtmlElement).child_nodes();
-        let p = children.get(0).unwrap_throw();
-        let mut p_view = View::wrapping(p.clone());
-        let text = p.child_nodes().get(0).unwrap_throw().dyn_into::<web_sys::Text>().unwrap_throw();
-        let mut text_view = View::wrapping(text.clone());
-        text_view.rx_text(rx);
-        p_view.children.push(text_view.upcast());
-        div_view.children.push(p_view);
-        div_view.forget().unwrap_throw();
+        let builder = builder! {
+            <div id="my_div">
+                <p class="my_p">{("blah", rx)}</p>
+            </div>
+        };
+        builder
+            .hydrate_view()
+            .unwrap()
+            .forget()
+            .unwrap_throw()
     };
 
     tx.send(&());
     tx.send(&());
     tx.send(&());
+    utils::timeout(3000, move || {
+       tx.send(&());
+       true
+    });
 
     Ok(())
 }
