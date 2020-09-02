@@ -7,3 +7,8 @@ members = [
   "examples/todomvc",
   #"cookbook"
 ]
+
+
+[profile.release]
+lto = true
+opt-level = 3

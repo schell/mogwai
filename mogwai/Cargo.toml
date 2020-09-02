@@ -48,7 +48,3 @@ version = "^0.3"
 features = [
   "Request", "RequestMode", "RequestInit", "Response"
 ]
-
-[profile.release]
-lto = true
-opt-level = 3
