@@ -1,4 +1,4 @@
-use log::{trace, Level};
+use log::trace;
 use mogwai::prelude::*;
 use std::panic;
 use wasm_bindgen::prelude::*;
@@ -20,7 +20,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 #[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
-    console_log::init_with_level(Level::Trace).expect("could not init console_log");
+    //console_log::init_with_level(Level::Trace).expect("could not init console_log");
 
     if cfg!(debug_assertions) {
         trace!("Hello from debug mogwai-todo");
@@ -41,21 +41,25 @@ pub fn main() -> Result<(), JsValue> {
         .into_iter()
         .for_each(|msg| msgs.push(msg));
 
-    App::new().into_gizmo().run_init(msgs)?;
+    // Create our app's view by hydrating a gizmo from an initial state
+    let app: Gizmo<App> = match Gizmo::hydrate(App::new()) {
+        Err(err) => panic!("{}", err),
+        Ok(app) => app,
+    };
 
-    // The footer has no relation to the rest of the app and is simply a view
-    // attached to the body
-    dom!(
-        <footer class="info">
-            <p>"Double click to edit a todo"</p>
-            <p>
-                "Written by "
-                <a href="https://github.com/schell">"Schell Scivally"</a>
-            </p>
-            <p>
-                "Part of "
-                <a href="http://todomvc.com">"TodoMVC"</a>
-            </p>
-        </footer>
-    ).run()
+    // Send our gizmo all the initial messages it needs to populate
+    // the stored todos.
+    msgs.into_iter().for_each(|msg| {
+        // notice how this doesn't mutate the app gizmo -
+        // under the hood we're simply queueing these messages
+        app.update(&msg);
+    });
+
+    // Unravel the gizmo because all we need is the view -
+    // we can disregard the message terminals and the shared state
+    // (the view already has clones of these things).
+    let Gizmo { view: app_view, .. } = app;
+    // Hand the app's view ownership to the window so it never
+    // goes out of scope
+    app_view.forget()
 }

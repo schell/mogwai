@@ -11,14 +11,14 @@
 //! Building DOM is one of the main tasks of web development. In mogwai the
 //! quickest way to construct DOM nodes is with the [`dom`] RSX macro. RSX
 //! is a lot like React's JSX, except that it uses type checket rust expressions.
-//! The [`dom`] macro evaluates to a [`DomWrapper`] which is used as the view
+//! The [`dom`] macro evaluates to a [`View`] which is used as the view
 //! of a [`Component`] or can be used by itself:
 //!
 //! ```rust, no_run
 //! extern crate mogwai;
 //! use::mogwai::prelude::*;
 //!
-//! dom!(
+//! view!(
 //!     <div class="my-div">
 //!         <a href="http://zyghost.com">
 //!             "Schellsan's website"
@@ -38,17 +38,17 @@
 //!
 //! ### Running Gizmos and removing gizmos
 //!
-//! Note that by using the [`DomWrapper::run`] function the nod is added to the
+//! Note that by using the [`View::run`] function the nod is added to the
 //! body automatically. This `run` function is special. It hands off the
 //! callee to be *owned by the window* - otherwise the gizmo would go out of scope
-//! and be dropped. This is important - when a [`DomWrapper`] is dropped and all references
+//! and be dropped. This is important - when a [`View`] is dropped and all references
 //! to its inner DOM node are no longer in scope, that DOM node is removed from
 //! the DOM.
 //!
 //! ### Wiring DOM
 //!
-//! [`DomWrapper`]s can be static like the one above, or they can change over time.
-//! [`DomWrapper`]s get their dynamic values from the receiving end of a channel
+//! [`View`]s can be static like the one above, or they can change over time.
+//! [`View`]s get their dynamic values from the receiving end of a channel
 //! called a [`Receiver<T>`]. The transmitting end of the channel is called a
 //! [`Transmitter<T>`]. This should be somewhat familiar if you've ever used a
 //! channel in other rust libraries.
@@ -66,7 +66,7 @@
 //!
 //! let (tx, rx) = txrx();
 //!
-//! dom!(
+//! view!(
 //!     <div class="my-div">
 //!         <a href="http://zyghost.com">
 //!           {("Schellsan's website", rx)}
@@ -108,9 +108,9 @@
 //! types.
 //!
 //! [`dom`]: dom
-//! [`DomWrapper::run`]: DomWrapper::method@run
-//! [`DomWrapper`]: struct@DomWrapper
-//! [`DomWrapper`]: struct@DomWrapper
+//! [`View::run`]: View::method@run
+//! [`View`]: struct@View
+//! [`View`]: struct@View
 //! [`Transmitter<T>`]: struct@Transmitter
 //! [`Receiver<T>`]: struct@Receiver
 //! [`HtmlElement`]: struct@HtmlElement
@@ -126,8 +126,8 @@ impl Component for Unit {
     type ViewMsg = ();
     type DomNode = HtmlElement;
 
-    fn view(&self, _: Transmitter<()>, _: Receiver<()>) -> DomWrapper<HtmlElement> {
-        dom! {
+    fn view(&self, _: Transmitter<()>, _: Receiver<()>) -> View<HtmlElement> {
+        view! {
             <a href="/#">"Hello"</a>
         }
     }

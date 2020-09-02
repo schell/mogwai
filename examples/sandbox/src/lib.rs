@@ -11,7 +11,7 @@ use web_sys::{Request, RequestInit, RequestMode, Response};
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
-pub fn new_button_view(mut tx_click: Transmitter<Event>) -> DomWrapper<HtmlElement> {
+pub fn new_button_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
     // Create a receiver for our button to get its text from.
     let rx_text = Receiver::<String>::new();
 
@@ -19,7 +19,7 @@ pub fn new_button_view(mut tx_click: Transmitter<Event>) -> DomWrapper<HtmlEleme
     //
     // The button text will start out as "Click me" and then change to whatever
     // comes in on the receiver.
-    let button = dom! {
+    let button = view! {
         // The button has a style and transmits its clicks
         <button style="cursor: pointer;" on:click=tx_click.clone()>
             // The text starts with "Click me" and receives updates
@@ -51,12 +51,12 @@ pub fn new_button_view(mut tx_click: Transmitter<Event>) -> DomWrapper<HtmlEleme
 
 
 /// Creates a h1 heading that changes its color.
-pub fn new_h1_view(mut tx_click: Transmitter<Event>) -> DomWrapper<HtmlElement> {
+pub fn new_h1_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
     // Create a receiver for our heading to get its color from.
     let rx_color = Receiver::<String>::new();
 
     // Create the view for our heading, giving it the receiver.
-    let h1 = dom! {
+    let h1 = view! {
         <h1 id="header" class="my-header"
             // set style.color with an initial value and then update it whenever
             // we get a message on rx_color
@@ -119,7 +119,7 @@ async fn click_to_text() -> Option<String> {
 
 /// Creates a button that when clicked requests the time in london and sends
 /// it down a receiver.
-pub fn time_req_button_and_pre() -> DomWrapper<HtmlElement> {
+pub fn time_req_button_and_pre() -> View<HtmlElement> {
     let (req_tx, req_rx) = txrx::<Event>();
     let (resp_tx, resp_rx) = txrx::<String>();
 
@@ -148,7 +148,7 @@ pub fn time_req_button_and_pre() -> DomWrapper<HtmlElement> {
         },
     );
 
-    dom! {
+    view! {
         <div>
             <button
                 style="cursor: pointer;"
@@ -163,9 +163,9 @@ pub fn time_req_button_and_pre() -> DomWrapper<HtmlElement> {
 
 
 /// Creates a view that ticks a count upward every second.
-pub fn counter() -> DomWrapper<HtmlElement> {
+pub fn counter() -> View<HtmlElement> {
     // Create a transmitter to send ticks every second
-    let mut tx = Transmitter::<()>::new();
+    let tx = Transmitter::<()>::new();
 
     // Create a receiver for a string to accept our counter's text
     let rx = Receiver::<String>::new();
@@ -184,7 +184,7 @@ pub fn counter() -> DomWrapper<HtmlElement> {
         format!("Count: {}", *n)
     });
 
-    dom!{ <h3>{("Awaiting first count", rx)}</h3> }
+    view! { <h3>{("Awaiting first count", rx)}</h3> }
 }
 
 
@@ -201,16 +201,63 @@ pub fn main() -> Result<(), JsValue> {
     let counter = counter();
 
     // Put it all in a parent view and run it right now
-    let root = dom! {
+    let root = view! {
         <div>
             {h1}
             {btn}
-            {elm_button::Button { clicks: 0 }.into_gizmo()}
+            {Gizmo::from(elm_button::Button { clicks: 0 })}
             <br />
             <br />
             {req}
             {counter}
         </div>
     };
-    root.run()
+    root.run().unwrap_throw();
+
+    // Here we'll start a hydration-by-hand experiment.
+    let body: HtmlElement = utils::document().body().unwrap_throw();
+    {
+        // First we'll create some non-mogwai managed DOM using web_sys:
+        let section = utils::document()
+            .create_element("section")
+            .unwrap_throw()
+            .dyn_into::<HtmlElement>()
+            .unwrap_throw();
+        section.set_inner_html(r#"<div id="my_div"><p class="my_p">This is pre-existing text that will be hydrated</p></div>"#);
+
+        body.append_child(&section).unwrap_throw();
+    }
+
+    // Now we'll attempt to hydrate a view from the pre-existing DOM and then
+    // update the inner text of the child `p` node.
+    let (tx, rx) = txrx_fold(0, |count: &mut u32, _:&()| -> String {
+        *count += 1;
+        if *count == 1 {
+            "Sent 1 message".into()
+        } else {
+            format!("Sent {} messages", *count)
+        }
+    });
+    {
+        let builder = builder! {
+            <div id="my_div">
+                <p class="my_p">{("blah", rx)}</p>
+            </div>
+        };
+        builder
+            .hydrate_view()
+            .unwrap()
+            .forget()
+            .unwrap_throw()
+    };
+
+    tx.send(&());
+    tx.send(&());
+    tx.send(&());
+    utils::timeout(3000, move || {
+       tx.send(&());
+       true
+    });
+
+    Ok(())
 }

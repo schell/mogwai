@@ -33,9 +33,9 @@ impl Component for Button {
         }
     }
 
-    fn view(&self, tx: Transmitter<ButtonIn>, rx: Receiver<ButtonOut>) -> DomWrapper<HtmlElement> {
-        dom! {
-            <button on:click=tx.contra_map(|_| ButtonIn::Click)>
+    fn view(&self, tx: &Transmitter<ButtonIn>, rx: &Receiver<ButtonOut>) -> ViewBuilder<HtmlElement> {
+        builder! {
+            <button style="cursor: pointer;" on:click=tx.contra_map(|_| ButtonIn::Click)>
                 {(
                     format!("Clicked {} times", self.clicks),
                     rx.branch_map(|msg| match msg {

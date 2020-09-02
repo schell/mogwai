@@ -476,7 +476,7 @@ impl<A: 'static> Transmitter<A> {
     }
 
     /// Spawn a receiver for this transmitter.
-    pub fn spawn_recv(&mut self) -> Receiver<A> {
+    pub fn spawn_recv(&self) -> Receiver<A> {
         self.responders.clone().recv_from()
     }
 
@@ -583,7 +583,7 @@ impl<A: 'static> Transmitter<A> {
     ///
     /// The fold function returns an `Option<B>`. In the case that the value of
     /// `Option<B>` is `None`, no message will be sent to the receiver.
-    pub fn wire_filter_fold_shared<T, B, F>(&mut self, rb: &Receiver<B>, var: Rc<RefCell<T>>, f: F)
+    pub fn wire_filter_fold_shared<T, B, F>(&self, rb: &Receiver<B>, var: Rc<RefCell<T>>, f: F)
     where
         B: 'static,
         T: 'static,
@@ -599,7 +599,7 @@ impl<A: 'static> Transmitter<A> {
     ///
     /// The fold function returns an `Option<B>`. In the case that the value of
     /// `Option<B>` is `None`, no message will be sent to the receiver.
-    pub fn wire_filter_fold<T, B, X, F>(&mut self, rb: &Receiver<B>, init: X, f: F)
+    pub fn wire_filter_fold<T, B, X, F>(&self, rb: &Receiver<B>, init: X, f: F)
     where
         B: 'static,
         T: 'static,
@@ -613,7 +613,7 @@ impl<A: 'static> Transmitter<A> {
 
     /// Wires the transmitter to send to the given receiver using a stateful fold
     /// function.
-    pub fn wire_fold<T, B, X, F>(&mut self, rb: &Receiver<B>, init: X, f: F)
+    pub fn wire_fold<T, B, X, F>(&self, rb: &Receiver<B>, init: X, f: F)
     where
         B: 'static,
         T: 'static,
@@ -627,7 +627,7 @@ impl<A: 'static> Transmitter<A> {
 
     /// Wires the transmitter to send to the given receiver using a stateful fold
     /// function, where the state is a shared mutex.
-    pub fn wire_fold_shared<T, B, F>(&mut self, rb: &Receiver<B>, var: Rc<RefCell<T>>, f: F)
+    pub fn wire_fold_shared<T, B, F>(&self, rb: &Receiver<B>, var: Rc<RefCell<T>>, f: F)
     where
         B: 'static,
         T: 'static,
@@ -641,7 +641,7 @@ impl<A: 'static> Transmitter<A> {
     /// Wires the transmitter to the given receiver using a stateless map function.
     /// If the map function returns `None` for any messages those messages will
     /// *not* be sent to the given transmitter.
-    pub fn wire_filter_map<B, F>(&mut self, rb: &Receiver<B>, f: F)
+    pub fn wire_filter_map<B, F>(&self, rb: &Receiver<B>, f: F)
     where
         B: 'static,
         F: Fn(&A) -> Option<B> + 'static,
@@ -652,7 +652,7 @@ impl<A: 'static> Transmitter<A> {
     }
 
     /// Wires the transmitter to the given receiver using a stateless map function.
-    pub fn wire_map<B, F>(&mut self, rb: &Receiver<B>, f: F)
+    pub fn wire_map<B, F>(&self, rb: &Receiver<B>, f: F)
     where
         B: 'static,
         F: Fn(&A) -> B + 'static,
@@ -672,7 +672,7 @@ impl<A: 'static> Transmitter<A> {
     ///
     /// To aid in returning a viable future in your fold function, use
     /// `wrap_future`.
-    pub fn wire_filter_fold_async<T, B, X, F, H>(&mut self, rb: &Receiver<B>, init: X, f: F, h: H)
+    pub fn wire_filter_fold_async<T, B, X, F, H>(&self, rb: &Receiver<B>, init: X, f: F, h: H)
     where
         B: 'static,
         T: 'static,
@@ -742,7 +742,7 @@ impl<A> Receiver<A> {
 
     /// Removes the responder from the receiver.
     /// This drops anything owned by the responder.
-    pub fn drop_responder(&mut self) {
+    pub fn drop_responder(&self) {
         self.responders.remove(self.k);
     }
 
@@ -1032,7 +1032,7 @@ pub fn trns<A: 'static>() -> Transmitter<A> {
 
 /// Create a linked `Transmitter<A>` and `Receiver<A>` pair.
 pub fn txrx<A: 'static>() -> (Transmitter<A>, Receiver<A>) {
-    let mut trns = Transmitter::new();
+    let trns = Transmitter::new();
     let recv = trns.spawn_recv();
     (trns, recv)
 }
@@ -1215,7 +1215,7 @@ mod instant_txrx {
 
     #[test]
     fn wire_txrx() {
-        let mut tx_unit = Transmitter::<()>::new();
+        let tx_unit = Transmitter::<()>::new();
         let rx_str = Receiver::<String>::new();
         tx_unit.wire_filter_fold(&rx_str, 0, |n: &mut i32, &()| -> Option<String> {
             *n += 1;

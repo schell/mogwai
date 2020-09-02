@@ -87,22 +87,33 @@ fn combine_errors(errs: Vec<Error>) -> Option<Error> {
 }
 
 
-fn node_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
+fn tag_to_type_token_stream(tag: &str) -> proc_macro2::TokenStream {
+    match tag {
+        "input" => quote! { web_sys::HtmlInputElement },
+        _ => quote! { web_sys::HtmlElement },
+    }
+}
+
+
+fn walk_node<F>(
+    view_path: proc_macro2::TokenStream,
+    node_fn: F,
+    node: Node,
+) -> Result<proc_macro2::TokenStream, Error>
+where
+    F: Fn(Node) -> Result<proc_macro2::TokenStream, Error>,
+{
     match node.node_type {
         NodeType::Element => {
             if let Some(tag) = node.name_as_string() {
-                let type_is = match tag.as_str() {
-                    "input" => quote! { web_sys::HtmlInputElement },
-                    _ => quote! { web_sys::HtmlElement },
-                };
+                let type_is = tag_to_type_token_stream(tag.as_str());
                 let mut errs: Vec<Error> = vec![];
 
                 let (attribute_tokens, attribute_errs) =
                     partition_unzip(node.attributes, attribute_to_token_stream);
                 errs.extend(attribute_errs);
 
-                let (child_tokens, child_errs) =
-                    partition_unzip(node.children, node_to_token_stream);
+                let (child_tokens, child_errs) = partition_unzip(node.children, node_fn);
                 let child_tokens = child_tokens
                     .into_iter()
                     .map(|child| quote! { .with(#child) });
@@ -113,10 +124,10 @@ fn node_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
                     Err(error)
                 } else {
                     Ok(quote! {
-                        (mogwai::gizmo::dom::DomWrapper::element(#tag) as DomWrapper<#type_is>)
+                        (#view_path::element(#tag)
+                           as #view_path<#type_is>)
                            #(#attribute_tokens)*
                            #(#child_tokens)*
-
                     })
                 }
             } else {
@@ -125,7 +136,7 @@ fn node_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
         }
         NodeType::Text | NodeType::Block => {
             if let Some(value) = node.value {
-                Ok(quote! {#value})
+                Ok(quote! {#view_path::from(#value)})
             } else {
                 Err(Error::new(Span::call_site(), "dom child node value error"))
             }
@@ -139,31 +150,82 @@ fn node_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
 }
 
 
-#[proc_macro]
-pub fn dom(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+fn node_to_view_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
+    walk_node(
+        quote!{ mogwai::prelude::View },
+        node_to_view_token_stream,
+        node
+    )
+}
+
+
+fn node_to_hydrateview_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
+    walk_node(
+        quote!{ mogwai::prelude::HydrateView },
+        node_to_hydrateview_token_stream,
+        node,
+    )
+}
+
+
+fn node_to_builder_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
+    walk_node(
+        quote!{ mogwai::prelude::ViewBuilder },
+        node_to_builder_token_stream,
+        node,
+    )
+}
+
+
+fn walk_dom(
+    input: proc_macro::TokenStream,
+    f: impl Fn(Node) -> Result<proc_macro2::TokenStream, Error>,
+) -> proc_macro2::TokenStream {
     match syn_rsx::parse(input, None) {
         Ok(parsed) => {
-            let (tokens, errs) = partition_unzip(parsed, node_to_token_stream);
+            let (tokens, errs) = partition_unzip(parsed, f);
             if let Some(error) = combine_errors(errs) {
                 error.to_compile_error().into()
             } else {
-                proc_macro::TokenStream::from(match tokens.len() {
-                    0 => quote! { compile_error("dom! must not be empty") },
+                match tokens.len() {
+                    0 => quote! { compile_error("dom/hydrate macro must not be empty") },
                     1 => {
                         let ts = &tokens[0];
                         quote! { #ts }
                     }
                     _ => quote! { vec![#(#tokens),*] },
-                })
+                }
             }
         }
         Err(msg) => {
             let msg = format!("{}", msg);
-            proc_macro::TokenStream::from(quote! {
+            quote! {
                 compile_error!(#msg)
-            })
+            }
         }
     }
+}
+
+
+#[proc_macro]
+/// Uses an html description to construct a [`View`].
+pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    proc_macro::TokenStream::from(walk_dom(input, node_to_view_token_stream))
+}
+
+
+#[proc_macro]
+/// Uses an html description to construct a [`HydrateView`], which can then be converted
+/// into a [`View`] with [`std::convert::TryFrom`].
+pub fn hydrate(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    proc_macro::TokenStream::from(walk_dom(input, node_to_hydrateview_token_stream))
+}
+
+
+#[proc_macro]
+/// Uses an html description to construct a [`ViewBuilder`].
+pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    proc_macro::TokenStream::from(walk_dom(input, node_to_builder_token_stream))
 }
 
 

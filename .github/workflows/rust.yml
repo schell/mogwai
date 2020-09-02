@@ -1,6 +1,6 @@
 name: cicd
 
-on: [push, pull_request]
+on: push
 
 jobs:
   build:
@@ -26,9 +26,12 @@ jobs:
     - name: build
       run: scripts/build.sh
 
-    - name: release
-      if: github.ref == 'refs/heads/release'
+    - name: test
+      run: scripts/test.sh
+
+    - name: "release to crates-io"
+      if: startsWith(github.ref, 'refs/tags/')
       run: |
-        cd crates/mogwai-html-macro && cargo publish --tokon ${{ secrets.cargo_token }}
+        cd crates/mogwai-html-macro && cargo publish --token ${{ secrets.cargo_token }}
         cd ../..
         cd mogwai && cargo publish --token ${{ secrets.cargo_token }}
