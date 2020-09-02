@@ -15,3 +15,6 @@ else
     echo "Installing wasm-pack..."
     curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 fi
+
+rustup toolchain install 1.46.0
+rustup default stable
