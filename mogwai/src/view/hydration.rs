@@ -12,6 +12,7 @@ use crate::{
 };
 
 
+#[snafu(visibility = "pub(crate)")]
 #[derive(Debug, Snafu)]
 pub enum Error {
     #[snafu(display(
@@ -32,6 +33,9 @@ pub enum Error {
         to: String,
         node: Node,
     },
+
+    #[snafu(display("View cannot be hydrated"))]
+    ViewOnly
 }
 
 

@@ -809,7 +809,7 @@ impl<T: JsCast> Drop for View<T> {
 #[allow(unused_braces)]
 mod gizmo_tests {
     #[allow(unused_braces)]
-    use super::{super::super::prelude::*, *};
+    use super::{super::super::prelude::*};
     use crate as mogwai;
     use mogwai_html_macro::target_arch_is_wasm32;
     use wasm_bindgen::JsCast;

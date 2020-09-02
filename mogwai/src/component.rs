@@ -54,8 +54,8 @@
 //!     type ViewMsg = Out;
 //!     type DomNode = HtmlElement;
 //!
-//!     fn view(&self, tx: &Transmitter<In>, rx: &Receiver<Out>) -> View<HtmlElement> {
-//!         view! {
+//!     fn view(&self, tx: &Transmitter<In>, rx: &Receiver<Out>) -> ViewBuilder<HtmlElement> {
+//!         builder! {
 //!             <button on:click=tx.contra_map(|_| In::Click)>
 //!                 {(
 //!                     "clicks = 0",
@@ -81,18 +81,19 @@
 //!
 //!
 //! pub fn main() -> Result<(), JsValue> {
-//!     App{ num_clicks: 0 }
-//!         .into_gizmo()
-//!         .run()
+//!     Gizmo::from(
+//!         App{ num_clicks: 0 }
+//!     ).run()
 //! }
 //! ```
 //!
 //! As shown above, the first step is to define the incoming messages that will update the model.
 //! Next we define the outgoing messages that will update our view. The [`Component::view`]
 //! trait method uses these message types to build the view. It does this by
-//! consuming a `Transmitter<Self::ModelMsg>` and a `Receiver<Self::ViewMsg>`.
-//! These represent the inputs and the outputs of your component. Roughly,
-//! `Self::ModelMsg` comes into the `update` function and `Self::ViewMsg`s go out
+//! consuming a `Transmitter<Self::ModelMsg>` and a `Receiver<Self::ViewMsg>` and returning
+//! a [`ViewBuilder`].
+//! This channel represents the inputs and the outputs of your component. Roughly,
+//! `Self::ModelMsg` comes into the [`Component::update`] function and `Self::ViewMsg`s go out
 //! of the `update` function.
 //!
 //! ## Communicating to components
@@ -115,7 +116,6 @@ use crate::prelude::{Gizmo, ParentView, Receiver, Transmitter, View, ViewBuilder
 
 pub mod subscriber;
 use subscriber::Subscriber;
-
 
 /// Defines a component with distinct input (model update) and output
 /// (view update) messages.

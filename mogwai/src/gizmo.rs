@@ -179,15 +179,15 @@ pub type BuilderFn<T, D> = dyn Fn(&Transmitter<T>, &Receiver<T>) -> ViewBuilder<
 /// extern crate mogwai;
 /// use mogwai::prelude::*;
 ///
-/// let component = SimpleComponent::new(
-///     |tx: &Transmitter<()>, rx: &Receiver<()>| -> View<HtmlElement> {
-///         view!{
+/// let component = Gizmo::from(SimpleComponent::new(
+///     |tx: &Transmitter<()>, rx: &Receiver<()>| -> ViewBuilder<HtmlElement> {
+///         builder!{
 ///             <button style="pointer" on:click=tx.contra_map(|_| ())>
 ///                 {("Click me", rx.branch_map(|()| "Clicked!".to_string()))}
 ///             </button>
 ///         }
 ///     }
-/// ).into_gizmo();
+/// ));
 /// ```
 pub struct SimpleComponent<T, D: JsCast>(Box<BuilderFn<T, D>>);
 

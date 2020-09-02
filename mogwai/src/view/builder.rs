@@ -8,7 +8,7 @@ pub use web_sys::{Element, Event, EventTarget, HtmlInputElement, Text};
 
 use crate::{
     prelude::{Effect, Error, HydrateView, Receiver, Transmitter, TryFrom, View},
-    view::interface::*,
+    view::{interface::*, hydration::ViewOnly},
 };
 
 
@@ -135,6 +135,13 @@ impl From<String> for ViewBuilder<Text> {
     fn from(text: String) -> Self {
         let vtext = text.clone();
         ViewBuilder::new(|| View::from(vtext), || HydrateView::from(text))
+    }
+}
+
+
+impl<T: JsCast + 'static> From<View<T>> for ViewBuilder<T> {
+    fn from(view: View<T>) -> Self {
+        ViewBuilder::new(|| view, || HydrateView::from_create_fn(|| ViewOnly.fail()))
     }
 }
 
