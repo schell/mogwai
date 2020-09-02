@@ -17,4 +17,4 @@ else
 fi
 
 rustup toolchain install 1.46.0
-rustup default stable
+rustup default 1.46.0
