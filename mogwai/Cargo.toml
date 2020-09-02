@@ -14,7 +14,7 @@ categories = ["gui", "wasm", "web-programming"]
 [dependencies]
 futures = "^0.3"
 js-sys = "^0.3"
-mogwai-html-macro = { path = "../crates/mogwai-html-macro", version = "^0.1" }
+mogwai-html-macro = { path = "../crates/mogwai-html-macro", version = "^0.2" }
 snafu = "^0.6"
 wasm-bindgen = "^0.2"
 wasm-bindgen-futures = "^0.4"
