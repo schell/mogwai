@@ -244,11 +244,10 @@ pub fn main() -> Result<(), JsValue> {
                 <p class="my_p">{("blah", rx)}</p>
             </div>
         };
-        builder
-            .hydrate_view()
-            .unwrap()
-            .forget()
-            .unwrap_throw()
+        let hydrator = HydrateView::from(builder);
+        let view = View::try_from(hydrator).unwrap();
+        view.forget()
+            .unwrap_throw();
     };
 
     tx.send(&());

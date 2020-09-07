@@ -21,11 +21,14 @@ fn node_self_closing_gt_1_att() {
 
 #[test]
 fn by_hand() {
-    let _div: String = (View::element("a") as View<web_sys::HtmlElement>)
-        .attribute("href", "http://zyghost.com")
-        .attribute("class", "a_link")
-        .with(View::from("a text node"))
-        .into_html_string();
+    let mut div: View<HtmlElement> = View::element("a");
+    div.attribute("href", "http://zyghost.com");
+    div.attribute("class", "a_link");
+    div.with(View::from("a text node"));
+    assert_eq!(
+        r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#,
+        &div.into_html_string()
+    );
 }
 
 

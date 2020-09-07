@@ -1,10 +1,12 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, convert::TryFrom};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement};
 
-use crate::prelude::{txrx, Component, Receiver, Subscriber, Transmitter, View, ViewBuilder};
-use crate::utils;
+use crate::{
+    prelude::{txrx, Component, HydrateView, Receiver, Subscriber, Transmitter, View, ViewBuilder},
+    utils,
+};
 
 
 /// A widget and all of its pieces.
@@ -20,7 +22,7 @@ impl<T> Gizmo<T>
 where
     T: Component + 'static,
     T::ViewMsg: Clone,
-    T::DomNode: AsRef<Node> + Clone,
+    T::DomNode: JsCast + AsRef<Node> + Clone,
 {
     /// Create a new [`Gizmo`] from an initial state using
     /// a view and the [`Transmitter`] + [`Receiver`] used to
@@ -61,11 +63,10 @@ where
         let tx_in = Transmitter::new();
         let rx_out = Receiver::new();
         let view_builder = init.view(&tx_in, &rx_out);
-        let view = view_builder.fresh_view();
+        let view = View::from(view_builder);
 
         Gizmo::from_parts(init, tx_in, rx_out, view)
     }
-
 
     /// Hydrates a new [`Gizmo`] from a stateful [`Component`].
     /// If the view cannot be hydrated an error is returned.
@@ -73,21 +74,10 @@ where
         let tx_in = Transmitter::new();
         let rx_out = Receiver::new();
         let view_builder = init.view(&tx_in, &rx_out);
-        let view = view_builder.hydrate_view()?;
+        let hydrated = HydrateView::from(view_builder);
+        let view = View::try_from(hydrated)?;
 
         Ok(Gizmo::from_parts(init, tx_in, rx_out, view))
-    }
-
-
-    /// Hydrates a new [`Gizmo`] from a stateful [`Component`].
-    /// If the view cannot be hydrated then a fresh one will be created.
-    pub fn hydrate_or_fresh(init: T) -> Gizmo<T> {
-        let tx_in = Transmitter::new();
-        let rx_out = Receiver::new();
-        let view_builder = init.view(&tx_in, &rx_out);
-        let view = view_builder.hydrate_or_else_fresh_view();
-
-        Gizmo::from_parts(init, tx_in, rx_out, view)
     }
 
     /// A reference to the browser's DomNode.
@@ -96,7 +86,7 @@ where
     /// Only works in the browser. Panics outside of wasm32.
     pub fn dom_ref(&self) -> &T::DomNode {
         if cfg!(target_arch = "wasm32") {
-            return self.view.as_ref().unchecked_ref::<T::DomNode>();
+            return &self.view.element.unchecked_ref::<T::DomNode>();
         }
         panic!("Gizmo::dom_ref is only available on wasm32")
     }

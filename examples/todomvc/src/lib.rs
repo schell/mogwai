@@ -41,11 +41,12 @@ pub fn main() -> Result<(), JsValue> {
         .into_iter()
         .for_each(|msg| msgs.push(msg));
 
-    // Create our app's view by hydrating a gizmo from an initial state
-    let app: Gizmo<App> = match Gizmo::hydrate(App::new()) {
-        Err(err) => panic!("{}", err),
-        Ok(app) => app,
-    };
+    //// Create our app's view by hydrating a gizmo from an initial state
+    //let app: Gizmo<App> = match Gizmo::hydrate(App::new()) {
+    //    Err(err) => panic!("{}", err),
+    //    Ok(app) => app,
+    //};
+    let app: Gizmo<App> = Gizmo::from(App::new());
 
     // Send our gizmo all the initial messages it needs to populate
     // the stored todos.

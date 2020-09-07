@@ -39,9 +39,9 @@ impl<T: Clone> Clone for Effect<T> {
 }
 
 
-impl<T> Effect<T> {
-    pub fn into_some(self) -> (Option<T>, Option<Receiver<T>>) {
-        match self {
+impl<T> From<Effect<T>> for (Option<T>, Option<Receiver<T>>) {
+    fn from(eff: Effect<T>) -> Self {
+        match eff {
             Effect::OnceNow { now } => (Some(now), None),
             Effect::ManyLater { later } => (None, Some(later)),
             Effect::OnceNowAndManyLater { now, later } => (Some(now), Some(later)),
@@ -93,3 +93,10 @@ impl From<(&str, Receiver<String>)> for Effect<String> {
         }
     }
 }
+
+
+/// Marker trait that means JsCast + Clone + + 'static.
+pub trait IsDomNode: JsCast + Clone + 'static {}
+
+
+impl<T> IsDomNode for T where T: JsCast + Clone + 'static {}

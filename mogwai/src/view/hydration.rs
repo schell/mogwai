@@ -6,7 +6,7 @@ pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
 use web_sys::{Node, Text};
 
 use crate::{
-    prelude::{Effect, Receiver, Transmitter, View},
+    prelude::{Effect, Receiver, Transmitter, View, IsDomNode},
     utils,
     view::interface::*,
 };
@@ -27,15 +27,15 @@ pub enum Error {
     #[snafu(display("Child at index {} could not be found in node '{}' containing '{:?}'", index, node.node_name(), node.node_value()))]
     MissingChild { node: Node, index: u32 },
 
-    #[snafu(display("Could not convert from '{}' to '{}' for node '{}' containing '{:?}", from, to, node.node_name(), node.node_value()))]
+    #[snafu(display("Could not convert from '{}' to '{}' for value: {:#?}", from, to, node))]
     Conversion {
         from: String,
         to: String,
-        node: Node,
+        node: JsValue,
     },
 
     #[snafu(display("View cannot be hydrated"))]
-    ViewOnly
+    ViewOnly,
 }
 
 
@@ -46,7 +46,7 @@ pub enum HydrationKey {
 
 
 impl HydrationKey {
-    pub fn hydrate<T: JsCast + AsRef<Node>>(self) -> Result<View<T>, Error> {
+    pub fn hydrate<T: IsDomNode + AsRef<Node>>(self) -> Result<View<T>, Error> {
         let el: T = match self {
             HydrationKey::Id(id) => {
                 let el = utils::document()
@@ -84,7 +84,10 @@ impl HydrationKey {
                 }
                 let el = non_empty_children
                     .get(index as usize)
-                    .with_context(|| MissingChild { node: node.clone(), index })?
+                    .with_context(|| MissingChild {
+                        node: node.clone(),
+                        index,
+                    })?
                     .clone();
                 el.clone().dyn_into::<T>().or_else(|_| {
                     Conversion {
@@ -102,13 +105,13 @@ impl HydrationKey {
 }
 
 
-pub struct HydrateView<T: JsCast> {
+pub struct HydrateView<T: IsDomNode> {
     create: Box<dyn FnOnce() -> Result<View<T>, Error>>,
-    update: Option<Box<dyn FnOnce(View<T>) -> Result<View<T>, Error>>>,
+    update: Option<Box<dyn FnOnce(&mut View<T>) -> Result<(), Error>>>,
 }
 
 
-impl<T: JsCast + 'static> HydrateView<T> {
+impl<T: IsDomNode> HydrateView<T> {
     pub fn from_create_fn<F>(f: F) -> Self
     where
         F: FnOnce() -> Result<View<T>, Error> + 'static,
@@ -121,17 +124,51 @@ impl<T: JsCast + 'static> HydrateView<T> {
 
     pub fn append_update<F>(&mut self, f: F)
     where
-        F: FnOnce(View<T>) -> Result<View<T>, Error> + 'static,
+        F: FnOnce(&mut View<T>) -> Result<(), Error> + 'static,
     {
         let prev_update = self.update.take();
-        self.update = Some(Box::new(|view: View<T>| {
-            let view = if let Some(prev) = prev_update {
-                prev(view)
-            } else {
-                Ok(view)
-            }?;
+        self.update = Some(Box::new(|view: &mut View<T>| {
+            if let Some(prev) = prev_update {
+                prev(view)?
+            }
             f(view)
         }));
+    }
+
+    pub(crate) fn cast<To: IsDomNode>(self) -> HydrateView<To> {
+        let HydrateView {
+            create: prev_create,
+            update: prev_update,
+        } = self;
+
+        HydrateView {
+            create: Box::new(|| {
+                let view: View<T> = prev_create()?;
+                view.try_cast::<To>().map_err(|view| Error::Conversion {
+                    from: std::any::type_name::<T>().to_string(),
+                    to: std::any::type_name::<To>().to_string(),
+                    node: view.element.as_ref().clone(),
+                })
+            }),
+            update: match prev_update {
+                Some(prev_update) => Some(Box::new(|view: &mut View<To>| -> Result<(), Error> {
+                    if view.element.unchecked_ref::<To>().has_type::<T>() {
+                        let mut prev_view: View<T> = View::default();
+                        view.swap(&mut prev_view);
+                        prev_update(&mut prev_view)?;
+                        view.swap(&mut prev_view);
+                        Ok(())
+                    } else {
+                        Conversion {
+                            from: std::any::type_name::<T>().to_string(),
+                            to: std::any::type_name::<To>().to_string(),
+                            node: view.element.as_ref().clone(),
+                        }.fail()
+                    }
+                })),
+                _ => None,
+            },
+        }
     }
 }
 
@@ -147,17 +184,18 @@ impl From<Effect<String>> for HydrateView<Text> {
         // Text alone is not enough to hydrate a view, so we start
         // out with a HydrateView that will err if it is converted to
         // a View.
-        let (may_now, may_later) = eff.into_some();
+        let (may_now, may_later) = eff.into();
         let mut hydrate_view = HydrateView::from_create_fn(|| {
             NoHydrationOption {
                 tag: may_now.unwrap_or_else(|| "#text".to_string()),
             }
             .fail()
         });
+
         if let Some(rx) = may_later {
-            hydrate_view.append_update(|mut v: View<Text>| {
+            hydrate_view.append_update(|v: &mut View<Text>| {
                 v.rx_text(rx);
-                Ok(v)
+                Ok(())
             })
         }
 
@@ -214,23 +252,22 @@ impl From<&str> for HydrateView<Text> {
 }
 
 
-impl<T: JsCast + AsRef<Node> + 'static> From<HydrationKey> for HydrateView<T> {
+impl<T: IsDomNode + AsRef<Node>> From<HydrationKey> for HydrateView<T> {
     fn from(key: HydrationKey) -> Self {
         HydrateView::from_create_fn(move || key.hydrate::<T>())
     }
 }
 
 
-impl<T: JsCast> TryFrom<HydrateView<T>> for View<T> {
+impl<T: IsDomNode> TryFrom<HydrateView<T>> for View<T> {
     type Error = Error;
 
     fn try_from(hydrate_view: HydrateView<T>) -> Result<View<T>, Self::Error> {
-        let view = (hydrate_view.create)()?;
+        let mut view = (hydrate_view.create)()?;
         if let Some(update) = hydrate_view.update {
-            update(view)
-        } else {
-            Ok(view)
+            update(&mut view)?
         }
+        Ok(view)
     }
 }
 
@@ -238,7 +275,7 @@ impl<T: JsCast> TryFrom<HydrateView<T>> for View<T> {
 /// # ElementView
 
 
-impl<T: JsCast + AsRef<Node> + 'static> ElementView for HydrateView<T> {
+impl<T: IsDomNode + AsRef<Node>> ElementView for HydrateView<T> {
     fn element(tag: &str) -> Self {
         let tag = tag.to_owned();
         HydrateView::from_create_fn(|| NoHydrationOption { tag }.fail())
@@ -254,9 +291,9 @@ impl<T: JsCast + AsRef<Node> + 'static> ElementView for HydrateView<T> {
 /// # AttributeView
 
 
-impl<T: JsCast + AsRef<Node> + AsRef<Element> + 'static> AttributeView for HydrateView<T> {
-    fn attribute<E: Into<Effect<String>>>(mut self, name: &str, eff: E) -> Self {
-        let (may_now, may_later) = eff.into().into_some();
+impl<T: IsDomNode + AsRef<Node> + AsRef<Element> + 'static> AttributeView for HydrateView<T> {
+    fn attribute<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
+        let (may_now, may_later) = eff.into().into();
         if let Some(now) = may_now {
             if name == "id" {
                 self.create = HydrateView::from(HydrationKey::Id(now.to_string())).create;
@@ -267,17 +304,14 @@ impl<T: JsCast + AsRef<Node> + AsRef<Element> + 'static> AttributeView for Hydra
             let name = name.to_string();
             self.append_update(move |v| Ok(v.attribute(&name, later)));
         }
-        self
     }
 
-
-    fn boolean_attribute<E: Into<Effect<bool>>>(mut self, name: &str, eff: E) -> Self {
-        let (_may_now, may_later) = eff.into().into_some();
+    fn boolean_attribute<E: Into<Effect<bool>>>(&mut self, name: &str, eff: E) {
+        let (_may_now, may_later) = eff.into().into();
         if let Some(later) = may_later {
             let name = name.to_string();
             self.append_update(move |v| Ok(v.boolean_attribute(&name, later)));
         }
-        self
     }
 }
 
@@ -285,13 +319,14 @@ impl<T: JsCast + AsRef<Node> + AsRef<Element> + 'static> AttributeView for Hydra
 /// # StyleView
 
 
-impl<T: JsCast + AsRef<HtmlElement> + 'static> StyleView for HydrateView<T> {
-    fn style<E: Into<Effect<String>>>(mut self, name: &str, eff: E) -> Self {
-        if let Some(later) = eff.into().into_some().1 {
+impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for HydrateView<T> {
+    fn style<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
+        let eff: Effect<_> = eff.into();
+        let (_, may_later) = eff.into();
+        if let Some(later) = may_later {
             let name = name.to_string();
             self.append_update(move |v| Ok(v.style(&name, later)));
         }
-        self
     }
 }
 
@@ -299,25 +334,23 @@ impl<T: JsCast + AsRef<HtmlElement> + 'static> StyleView for HydrateView<T> {
 /// # EventTargetView
 
 
-impl<T: JsCast + AsRef<EventTarget> + 'static> EventTargetView for HydrateView<T> {
-    fn on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
+impl<T: IsDomNode + AsRef<EventTarget>> EventTargetView for HydrateView<T> {
+    fn on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
         let ev_name = ev_name.to_string();
-        self.append_update(move |v: View<T>| {
-            Ok(v.on(&ev_name, tx))
+        self.append_update(move |v: &mut View<T>| {
+            v.on(&ev_name, tx);
+            Ok(())
         });
-        self
     }
 
-    fn window_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
+    fn window_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
         let ev_name = ev_name.to_string();
         self.append_update(move |v| Ok(v.window_on(&ev_name, tx)));
-        self
     }
 
-    fn document_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> Self {
+    fn document_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
         let ev_name = ev_name.to_string();
         self.append_update(move |v| Ok(v.document_on(&ev_name, tx)));
-        self
     }
 }
 
@@ -327,19 +360,18 @@ impl<T: JsCast + AsRef<EventTarget> + 'static> EventTargetView for HydrateView<T
 
 impl<P, C> ParentView<HydrateView<C>> for HydrateView<P>
 where
-    P: JsCast + AsRef<Node> + 'static,
-    C: JsCast + Clone + AsRef<Node> + 'static,
+    P: IsDomNode + AsRef<Node>,
+    C: IsDomNode + AsRef<Node>,
 {
-    fn with(mut self, mut child: HydrateView<C>) -> Self {
-        self.append_update(|mut v: View<P>| {
+    fn with(&mut self, mut child: HydrateView<C>) {
+        self.append_update(|v: &mut View<P>| {
             let node = (v.as_ref() as &Node).clone();
             let index = v.children.len() as u32;
             child.create = HydrateView::from(HydrationKey::IndexedChildOf { node, index }).create;
             let child_view: View<C> = View::try_from(child)?;
             v.children.push(child_view.upcast());
-            Ok(v)
+            Ok(())
         });
-        self
     }
 }
 
@@ -350,8 +382,7 @@ where
 impl<T: JsCast + Clone + 'static> PostBuildView for HydrateView<T> {
     type DomNode = T;
 
-    fn post_build(mut self, tx: Transmitter<T>) -> Self {
+    fn post_build(&mut self, tx: Transmitter<T>) {
         self.append_update(move |v| Ok(v.post_build(tx)));
-        self
     }
 }

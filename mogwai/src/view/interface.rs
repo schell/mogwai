@@ -13,6 +13,13 @@ pub trait ElementView {
 }
 
 
+/// `TextView`s are views that represent text nodes.
+pub trait TextView {
+    /// Create a new text node view.
+    fn text<E: Into<Effect<String>>>(eff: E) -> Self;
+}
+
+
 /// `AttributeView`s can describe themselves with key value pairs.
 pub trait AttributeView {
     /// Create a named attribute on the view that may change over time as
@@ -25,11 +32,11 @@ pub trait AttributeView {
     /// use mogwai::prelude::*;
     ///
     /// let (tx, rx) = txrx::<String>();
-    /// let my_div = (View::element("div") as View<HtmlElement>)
-    ///     .attribute("id", "my_div")
-    ///     .attribute("class", ("hero_div", rx.branch_map(|class_update| {
-    ///         ["hero_div", class_update].join(" ")
-    ///     })));
+    /// let mut my_div: View<HtmlElement> = View::element("div");
+    /// my_div.attribute("id", "my_div");
+    /// my_div.attribute("class", ("hero_div", rx.branch_map(|class_update| {
+    ///     ["hero_div", class_update].join(" ")
+    /// })));
     /// ```
     ///
     /// Alternatively you can use macros to define an equivalent view in RSX:
@@ -45,14 +52,14 @@ pub trait AttributeView {
     ///     })) />
     /// };
     /// ```
-    fn attribute<E: Into<Effect<String>>>(self, name: &str, eff: E) -> Self;
+    fn attribute<E: Into<Effect<String>>>(&mut self, name: &str, eff: E);
 
     /// Create (or remove) a boolean attribute on the view that may change its
     /// value every time the given receiver receives a message
     /// If `eff` is a receiver and that receiver receives `false` it will
     /// respond by removing the attribute until it receives `true`. If `eff` is
     /// a single boolean value, either add or remove the attribute.
-    fn boolean_attribute<E: Into<Effect<bool>>>(self, name: &str, eff: E) -> Self;
+    fn boolean_attribute<E: Into<Effect<bool>>>(&mut self, name: &str, eff: E);
 }
 
 
@@ -61,7 +68,7 @@ pub trait StyleView {
     /// Set a CSS property in the style attribute of the view being built.
     /// If `eff` is a Receiver, this updates the style's value every time a
     /// message is received on the given `Receiver`.
-    fn style<E: Into<Effect<String>>>(self, name: &str, eff: E) -> Self;
+    fn style<E: Into<Effect<String>>>(&mut self, name: &str, eff: E);
 }
 
 
@@ -70,22 +77,22 @@ pub trait StyleView {
 pub trait EventTargetView {
     /// Transmit an event message on the given transmitter when the named event
     /// happens.
-    fn on(self, ev_name: &str, tx: Transmitter<Event>) -> Self;
+    fn on(&mut self, ev_name: &str, tx: Transmitter<Event>);
 
     /// Transmit an event message on the given transmitter when the named event
     /// happens on [`Window`].
-    fn window_on(self, ev_name: &str, tx: Transmitter<Event>) -> Self;
+    fn window_on(&mut self, ev_name: &str, tx: Transmitter<Event>);
 
     /// Transmit an event message into the given transmitter when the named event
     /// happens on [`Document`].
-    fn document_on(self, ev_name: &str, tx: Transmitter<Event>) -> Self;
+    fn document_on(&mut self, ev_name: &str, tx: Transmitter<Event>);
 }
 
 
 /// `ParentView`s can nest child views.
 pub trait ParentView<T> {
     /// Add a child view to this parent.
-    fn with(self, child: T) -> Self;
+    fn with(&mut self, child: T);
 }
 
 
@@ -102,5 +109,5 @@ pub trait PostBuildView {
 
     /// After the view is built, transmit its underlying DomNode on the given
     /// transmitter.
-    fn post_build(self, tx: Transmitter<Self::DomNode>) -> Self;
+    fn post_build(&mut self, tx: Transmitter<Self::DomNode>);
 }

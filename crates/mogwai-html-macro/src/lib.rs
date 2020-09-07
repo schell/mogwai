@@ -23,25 +23,25 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
         if let Some(expr) = node.value {
             match key.split(':').collect::<Vec<_>>().as_slice() {
                 ["style", name] => Ok(quote! {
-                    .style(#name, #expr)
+                    __mogwai_node.style(#name, #expr);
                 }),
                 ["on", event] => Ok(quote! {
-                    .on(#event, #expr)
+                    __mogwai_node.on(#event, #expr);
                 }),
                 ["window", event] => Ok(quote! {
-                    .window_on(#event, #expr)
+                    __mogwai_node.window_on(#event, #expr);
                 }),
                 ["document", event] => Ok(quote! {
-                    .document_on(#event, #expr)
+                    __mogwai_node.document_on(#event, #expr);
                 }),
                 ["post", "build"] => Ok(quote! {
-                    .post_build(#expr)
+                    __mogwai_node.post_build(#expr);
                 }),
                 ["boolean", name] => Ok(quote! {
-                    .boolean_attribute(#name, #expr)
+                    __mogwai_node.boolean_attribute(#name, #expr);
                 }),
                 [attribute_name] => Ok(quote! {
-                    .attribute(#attribute_name, #expr)
+                    __mogwai_node.attribute(#attribute_name, #expr);
                 }),
                 keys => Err(Error::new(
                     span,
@@ -54,7 +54,7 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
             }
         } else {
             Ok(quote! {
-                .boolean_attribute(#key, true)
+                __mogwai_node.boolean_attribute(#key, true);
             })
         }
     } else {
@@ -109,33 +109,36 @@ where
 {
     match node.node_type {
         NodeType::Element => {
-            if let Some(tag) = node.name_as_string() {
-                let type_is = tag_to_type_token_stream(tag.as_str());
-                let mut errs: Vec<Error> = vec![];
+            match node.name_as_string() {
+                Some(tag) => {
+                    let type_is = tag_to_type_token_stream(tag.as_str());
+                    let mut errs: Vec<Error> = vec![];
 
-                let (attribute_tokens, attribute_errs) =
-                    partition_unzip(node.attributes, attribute_to_token_stream);
-                errs.extend(attribute_errs);
+                    let (attribute_tokens, attribute_errs) =
+                        partition_unzip(node.attributes, attribute_to_token_stream);
+                    errs.extend(attribute_errs);
 
-                let (child_tokens, child_errs) = partition_unzip(node.children, node_fn);
-                let child_tokens = child_tokens
-                    .into_iter()
-                    .map(|child| quote! { .with(#child) });
-                errs.extend(child_errs);
+                    let (child_tokens, child_errs) = partition_unzip(node.children, node_fn);
+                    let child_tokens = child_tokens
+                        .into_iter()
+                        .map(|child| quote! { __mogwai_node.with(#child); });
+                    errs.extend(child_errs);
 
-                let may_error = combine_errors(errs);
-                if let Some(error) = may_error {
-                    Err(error)
-                } else {
-                    Ok(quote! {
-                        (#view_path::element(#tag)
-                           as #view_path<#type_is>)
-                           #(#attribute_tokens)*
-                           #(#child_tokens)*
-                    })
+                    let may_error = combine_errors(errs);
+                    if let Some(error) = may_error {
+                        Err(error)
+                    } else {
+                        Ok(quote! {
+                            {
+                                let mut __mogwai_node = (#view_path::element(#tag) as #view_path<#type_is>);
+                                #(#attribute_tokens)*
+                                #(#child_tokens)*
+                                __mogwai_node
+                            }
+                        })
+                    }
                 }
-            } else {
-                Err(Error::new(Span::call_site(), "node is missing a name"))
+                _ => Err(Error::new(Span::call_site(), "node is missing a name")),
             }
         }
         NodeType::Text | NodeType::Block => {
