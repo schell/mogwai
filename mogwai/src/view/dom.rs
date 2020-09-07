@@ -1,7 +1,5 @@
 //! Widgets for the browser.
-use std::{
-    cell::RefCell, collections::HashMap, marker::PhantomData, ops::Deref, rc::Rc,
-};
+use std::{cell::RefCell, collections::HashMap, marker::PhantomData, ops::Deref, rc::Rc};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::closure::Closure;
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
@@ -9,7 +7,7 @@ pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
 use web_sys::{Node, Text};
 
 use crate::{
-    prelude::{Component, Effect, Gizmo, Receiver, Transmitter, IsDomNode},
+    prelude::{Component, Effect, Gizmo, IsDomNode, Receiver, Transmitter},
     ssr::Node as SsrNode,
     utils,
     view::interface::*,
@@ -115,7 +113,7 @@ impl<T: IsDomNode> Default for View<T> {
                 name_or_text: NameOrText::Name(Rc::new(RefCell::new("".to_string()))),
                 attributes: vec![],
                 styles: vec![],
-            }
+            },
         }
     }
 }
@@ -202,12 +200,11 @@ impl<T: IsDomNode> View<T> {
     pub fn add_style(&mut self, name: &str, effect: Effect<String>) {
         let (may_now, may_later) = effect.into();
         if cfg!(target_arch = "wasm32") {
-            let t:T = {
-                let t:&T = &self;
+            let t: T = {
+                let t: &T = &self;
                 t.clone()
             };
             if let Ok(element) = t.dyn_into::<HtmlElement>() {
-
                 if let Some(now) = may_now {
                     element
                         .style()
@@ -253,12 +250,10 @@ impl<T: IsDomNode> View<T> {
     pub fn add_attribute(&mut self, name: &str, effect: Effect<String>) {
         let (may_now, may_later) = effect.into();
         if cfg!(target_arch = "wasm32") {
-            let t:&T = self.element.unchecked_ref();
+            let t: &T = self.element.unchecked_ref();
             if let Some(element) = t.dyn_ref::<Element>() {
                 if let Some(now) = may_now {
-                    element
-                        .set_attribute(name, &now)
-                        .unwrap_throw();
+                    element.set_attribute(name, &now).unwrap_throw();
                 }
                 if let Some(later) = may_later {
                     let rx = later;
@@ -302,12 +297,10 @@ impl<T: IsDomNode> View<T> {
     pub fn add_boolean_attribute(&mut self, name: &str, effect: Effect<bool>) {
         let (may_now, may_later) = effect.into();
         if cfg!(target_arch = "wasm32") {
-            let t:&T = self.element.unchecked_ref();
+            let t: &T = self.element.unchecked_ref();
             if let Some(element) = t.dyn_ref::<Element>() {
                 if let Some(true) = may_now {
-                    element
-                        .set_attribute(name, "")
-                        .unwrap_throw();
+                    element.set_attribute(name, "").unwrap_throw();
                 }
                 if let Some(later) = may_later {
                     let rx = later.branch();
@@ -453,7 +446,7 @@ impl<T: IsDomNode> View<T> {
             bool_rxs: std::mem::take(&mut self.bool_rxs),
             children: std::mem::take(&mut self.children),
 
-            server_node: self.server_node.clone()
+            server_node: self.server_node.clone(),
         })
     }
 
@@ -487,8 +480,7 @@ impl<T: IsDomNode> View<T> {
         }
     }
     #[cfg(not(target_arch = "wasm32"))]
-    fn clone_as<D: IsDomNode>(&self) -> View<D>
-    {
+    fn clone_as<D: IsDomNode>(&self) -> View<D> {
         View {
             phantom: PhantomData,
             element: self.element.clone(),
@@ -520,7 +512,8 @@ impl<T: IsDomNode> View<T> {
     /// Cast the given View to contain the inner DOM node of another type.
     /// That type must be dereferencable from the given View.
     pub fn upcast<D: IsDomNode>(self) -> View<D> {
-        self.try_cast::<D>().unwrap_or_else(|_| panic!(r#"can't upcast - impossible"#))
+        self.try_cast::<D>()
+            .unwrap_or_else(|_| panic!(r#"can't upcast - impossible"#))
     }
 
     /// Attempt to downcast the inner element.
@@ -867,9 +860,6 @@ impl<T: IsDomNode> PostBuildView for View<T> {
         tx.send_async(async move { t });
     }
 }
-
-
-
 
 
 /// View's Drop implementation insures that responders no longer attempt to

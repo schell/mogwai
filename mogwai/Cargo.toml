@@ -40,7 +40,7 @@ features = [
 
 [dev-dependencies]
 doc-comment = "^0.3"
-wasm-bindgen-test = "0.3.0"
+wasm-bindgen-test = "0.3.17"
 wasm-bindgen-futures = "^0.4"
 
 [dev-dependencies.web-sys]

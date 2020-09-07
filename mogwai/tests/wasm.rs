@@ -5,7 +5,9 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
 use web_sys::Element;
 
+
 wasm_bindgen_test_configure!(run_in_browser);
+
 
 #[wasm_bindgen_test]
 fn this_arch_is_wasm32() {
@@ -42,7 +44,7 @@ fn gizmo_as_child() {
         let div = view! {
             <div id="parent-div">
                 <pre>"some text"</pre>
-            </div>
+                </div>
         };
         assert!(div.first_child().is_some(), "could not add child gizmo");
         div
@@ -60,11 +62,11 @@ fn gizmo_tree() {
     let root = view! {
         <div id="root">
             <div id="branch">
-                <div id="leaf">
-                    "leaf"
-                </div>
+            <div id="leaf">
+            "leaf"
             </div>
-        </div>
+            </div>
+            </div>
     };
     if let Some(branch) = root.first_child() {
         if let Some(leaf) = branch.first_child() {
@@ -86,10 +88,10 @@ fn gizmo_texts() {
     let div = view! {
         <div>
             "here is some text "
-            // i can use comments, yay!
-            {&format!("{}", 66)}
-            " <- number"
-        </div>
+        // i can use comments, yay!
+        {&format!("{}", 66)}
+        " <- number"
+            </div>
     };
     assert_eq!(
         &div.outer_html(),
@@ -142,7 +144,7 @@ fn rx_style_jsx() {
 }
 
 #[wasm_bindgen_test]
-fn rx_text() {
+pub fn rx_text() {
     let (tx, rx) = txrx();
 
     let mut div: View<HtmlElement> = View::element("div");
@@ -216,7 +218,7 @@ fn tx_window_on_click_jsx() {
 
 #[test]
 #[wasm_bindgen_test]
-fn can_i_alter_views_on_the_server() {
+pub fn can_i_alter_views_on_the_server() {
     let (tx_text, rx_text) = txrx::<String>();
     let (tx_style, rx_style) = txrx::<String>();
     let (tx_class, rx_class) = txrx::<String>();
@@ -253,7 +255,7 @@ fn can_hydrate_view() {
     let original_view = view! {
         <div id="my_div">
             <p class="class">"inner text"</p>
-        </div>
+            </div>
     };
     let original_el: HtmlElement = (original_view.as_ref() as &HtmlElement).clone();
     original_view.run().unwrap();
@@ -263,7 +265,7 @@ fn can_hydrate_view() {
     let hydrated_view = View::try_from(hydrate! {
         <div id="my_div">
             <p class=("unused_class", rx_class)>{("unused inner text", rx_text)}</p>
-        </div>
+            </div>
     })
     .unwrap();
 
@@ -296,14 +298,14 @@ fn can_hydrate_or_view() {
         view! {
             <div id="my_div" post:build=(&tx_pb).clone()>
                 <p class=("class", rx_class.branch())>{("inner text", rx_text.branch())}</p>
-            </div>
+                </div>
         }
     };
     let hydrate_view = || {
         View::try_from(hydrate! {
             <div id="my_div" post:build=(&tx_pb).clone()>
                 <p class=("class", rx_class.branch())>{("inner text", rx_text.branch())}</p>
-            </div>
+                </div>
         })
     };
 
