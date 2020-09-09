@@ -1,10 +1,10 @@
-use std::{cell::RefCell, rc::Rc, convert::TryFrom};
+use std::{cell::RefCell, rc::Rc};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement};
 
 use crate::{
-    prelude::{txrx, Component, HydrateView, Receiver, Subscriber, Transmitter, View, ViewBuilder},
+    prelude::{txrx, Component, Receiver, Subscriber, Transmitter, View, ViewBuilder},
     utils,
 };
 
@@ -66,18 +66,6 @@ where
         let view = View::from(view_builder);
 
         Gizmo::from_parts(init, tx_in, rx_out, view)
-    }
-
-    /// Hydrates a new [`Gizmo`] from a stateful [`Component`].
-    /// If the view cannot be hydrated an error is returned.
-    pub fn hydrate(init: T) -> Result<Gizmo<T>, crate::view::hydration::Error> {
-        let tx_in = Transmitter::new();
-        let rx_out = Receiver::new();
-        let view_builder = init.view(&tx_in, &rx_out);
-        let hydrated = HydrateView::from(view_builder);
-        let view = View::try_from(hydrated)?;
-
-        Ok(Gizmo::from_parts(init, tx_in, rx_out, view))
     }
 
     /// A reference to the browser's DomNode.

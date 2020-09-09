@@ -5,16 +5,14 @@
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement, Text};
-use snafu::OptionExt;
 
 use crate::{
-    utils,
-    prelude::{Effect, HydrateView, Receiver, Transmitter, View},
-    view::{hydration, interface::*},
+    prelude::{Effect, Receiver, Transmitter, View},
+    view::interface::*,
 };
 
 
-enum AttributeCmd {
+pub enum AttributeCmd {
     Attrib {
         name: String,
         effect: Effect<String>,
@@ -26,35 +24,35 @@ enum AttributeCmd {
 }
 
 
-struct StyleCmd {
-    name: String,
-    effect: Effect<String>,
+pub struct StyleCmd {
+    pub name: String,
+    pub effect: Effect<String>,
 }
 
 
-enum EventTargetType {
+pub enum EventTargetType {
     Myself,
     Window,
     Document,
 }
 
 
-struct EventTargetCmd {
-    type_is: EventTargetType,
-    name: String,
-    transmitter: Transmitter<Event>,
+pub struct EventTargetCmd {
+    pub type_is: EventTargetType,
+    pub name: String,
+    pub transmitter: Transmitter<Event>,
 }
 
 
 pub struct ViewBuilder<T: JsCast> {
-    element: Option<String>,
-    ns: Option<String>,
-    text: Option<Effect<String>>,
-    attribs: Vec<AttributeCmd>,
-    styles: Vec<StyleCmd>,
-    events: Vec<EventTargetCmd>,
-    posts: Vec<Transmitter<T>>,
-    children: Vec<ViewBuilder<Node>>,
+    pub element: Option<String>,
+    pub ns: Option<String>,
+    pub text: Option<Effect<String>>,
+    pub attribs: Vec<AttributeCmd>,
+    pub styles: Vec<StyleCmd>,
+    pub events: Vec<EventTargetCmd>,
+    pub posts: Vec<Transmitter<T>>,
+    pub children: Vec<ViewBuilder<Node>>,
 }
 
 
@@ -95,122 +93,6 @@ impl<T: Clone + JsCast + AsRef<Node> + 'static> ViewBuilder<T> {
                 })
                 .collect(),
         }
-    }
-
-    //pub fn new<VF, HF>(view_fn: VF, hydrate_fn: HF) -> Self
-    //where
-    //    VF: FnOnce() -> View<T> + 'static,
-    //    HF: FnOnce() -> HydrateView<T> + 'static,
-    //{
-    //    let view_fn = Box::new(view_fn);
-    //    let hydrate_fn = Box::new(hydrate_fn);
-    //    ViewBuilder {
-    //        view_fn,
-    //        hydrate_fn,
-    //    }
-    //}
-
-    //pub fn append_update<VF, HF>(&mut self, view_fn: VF, hydrate_fn: HF)
-    //where
-    //    VF: FnOnce(View<T>) -> View<T> + 'static,
-    //    HF: FnOnce(HydrateView<T>) -> HydrateView<T> + 'static,
-    //{
-    //    let f = std::mem::replace(&mut self.view_fn, Box::new(|| panic!()));
-    //    self.view_fn = Box::new(move || view_fn(f()));
-
-    //    let f = std::mem::replace(&mut self.hydrate_fn, Box::new(|| panic!()));
-    //    self.hydrate_fn = Box::new(move || hydrate_fn(f()));
-    //}
-}
-
-
-/// [`ViewBuilder`] can be converted into a [`HydrateView`].
-impl<T> From<ViewBuilder<T>> for HydrateView<T>
-where
-    T: JsCast + AsRef<Node> + Clone + 'static,
-{
-    fn from(builder: ViewBuilder<T>) -> HydrateView<T> {
-        let ViewBuilder {
-            element,
-            ns,
-            attribs,
-            styles,
-            events,
-            children,
-            posts,
-            text,
-        } = builder;
-        let mut hview: HydrateView<T> = if let Some(tag) = element {
-            if let Some(ns) = ns {
-                HydrateView::element_ns(&tag, &ns)
-            } else {
-                HydrateView::element(&tag)
-            }
-        } else if let Some(effect) = text {
-            let text = HydrateView::from(effect);
-            text.cast::<T>()
-        } else {
-            panic!("not hydrating an element - impossible!")
-        };
-
-        if events.len() > 0 {
-            hview.append_update(|view: &mut View<T>| {
-                let t:T = {
-                    let t:&T = &view;
-                    t.clone()
-                };
-                let myself = t.dyn_ref::<EventTarget>().with_context(|| hydration::Conversion {
-                    from: std::any::type_name::<T>().to_string(),
-                    to: std::any::type_name::<EventTarget>().to_string(),
-                    node: view.element.as_ref().clone()
-                })?;
-                let window = utils::window();
-                let doc = utils::document();
-                for cmd in events.into_iter() {
-                    match cmd.type_is {
-                        EventTargetType::Myself => view.add_event(myself, &cmd.name, cmd.transmitter),
-                        EventTargetType::Window => view.add_event(&window, &cmd.name, cmd.transmitter),
-                        EventTargetType::Document => view.add_event(&doc, &cmd.name, cmd.transmitter),
-                    }
-                }
-                Ok(())
-            });
-        }
-        if styles.len() > 0 {
-            hview.append_update(|view: &mut View<T>| {
-                for cmd in styles.into_iter() {
-                    view.add_style(&cmd.name, cmd.effect);
-                }
-                Ok(())
-            });
-        }
-
-        if attribs.len() > 0 {
-            hview.append_update(|view: &mut View<T>| {
-                for cmd in attribs.into_iter() {
-                    match cmd {
-                        AttributeCmd::Attrib { name, effect } => {
-                            view.add_attribute(&name, effect);
-                        }
-                        AttributeCmd::Bool { name, effect } => {
-                            view.add_boolean_attribute(&name, effect);
-                        }
-                    }
-                }
-                Ok(())
-            });
-        }
-
-        for tx in posts.into_iter() {
-            hview.post_build(tx);
-        }
-
-        for child in children.into_iter() {
-            let child = HydrateView::from(child);
-            hview.with(child);
-        }
-
-        hview
     }
 }
 
@@ -253,7 +135,7 @@ where
                 match cmd.type_is {
                     EventTargetType::Myself => ev_view.on(&cmd.name, cmd.transmitter),
                     EventTargetType::Window => ev_view.window_on(&cmd.name, cmd.transmitter),
-                    EventTargetType::Document => ev_view.document_on(&cmd.name, cmd.transmitter)
+                    EventTargetType::Document => ev_view.document_on(&cmd.name, cmd.transmitter),
                 }
             }
             view.swap(&mut ev_view);
@@ -284,13 +166,13 @@ where
             view.swap(&mut att_view);
         }
 
-        for tx in posts.into_iter() {
-            view.post_build(tx);
-        }
-
         for child in children.into_iter() {
             let child = View::from(child);
             view.with(child);
+        }
+
+        for tx in posts.into_iter() {
+            view.post_build(tx);
         }
 
         view
@@ -298,7 +180,7 @@ where
 }
 
 
-/// # [`From`] instances for [`HydrateView`]
+/// # [`From`] instances for [`Hydrator`]
 ///
 /// Most of these mimic the corresponding [`From`] instances for [`View`],
 /// the rest are here for the operation of this module.

@@ -1,15 +1,14 @@
 //! Types and [`TryFrom`] instances that can 're-animate' views or portions of views from the DOM.
+use mogwai::{
+    prelude::{Component, Effect, Gizmo, IsDomNode, Receiver, Transmitter, View},
+    utils,
+    view::{builder::*, interface::*},
+};
 use snafu::{OptionExt, Snafu};
-pub use std::convert::TryFrom;
+pub use std::{ops::Deref, convert::TryFrom};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
 use web_sys::{Node, Text};
-
-use crate::{
-    prelude::{Effect, Receiver, Transmitter, View, IsDomNode},
-    utils,
-    view::interface::*,
-};
 
 
 #[snafu(visibility = "pub(crate)")]
@@ -105,18 +104,18 @@ impl HydrationKey {
 }
 
 
-pub struct HydrateView<T: IsDomNode> {
-    create: Box<dyn FnOnce() -> Result<View<T>, Error>>,
-    update: Option<Box<dyn FnOnce(&mut View<T>) -> Result<(), Error>>>,
+pub struct Hydrator<T: IsDomNode> {
+    pub(crate) create: Box<dyn FnOnce() -> Result<View<T>, Error>>,
+    pub(crate) update: Option<Box<dyn FnOnce(&mut View<T>) -> Result<(), Error>>>,
 }
 
 
-impl<T: IsDomNode> HydrateView<T> {
+impl<T: IsDomNode + AsRef<JsValue>> Hydrator<T> {
     pub fn from_create_fn<F>(f: F) -> Self
     where
         F: FnOnce() -> Result<View<T>, Error> + 'static,
     {
-        HydrateView {
+        Hydrator {
             create: Box::new(f),
             update: None,
         }
@@ -135,24 +134,24 @@ impl<T: IsDomNode> HydrateView<T> {
         }));
     }
 
-    pub(crate) fn cast<To: IsDomNode>(self) -> HydrateView<To> {
-        let HydrateView {
+    pub(crate) fn cast<To: IsDomNode>(self) -> Hydrator<To> {
+        let Hydrator {
             create: prev_create,
             update: prev_update,
         } = self;
 
-        HydrateView {
+        Hydrator {
             create: Box::new(|| {
                 let view: View<T> = prev_create()?;
                 view.try_cast::<To>().map_err(|view| Error::Conversion {
                     from: std::any::type_name::<T>().to_string(),
                     to: std::any::type_name::<To>().to_string(),
-                    node: view.element.as_ref().clone(),
+                    node: view.deref().as_ref().clone(),
                 })
             }),
             update: match prev_update {
                 Some(prev_update) => Some(Box::new(|view: &mut View<To>| -> Result<(), Error> {
-                    if view.element.unchecked_ref::<To>().has_type::<T>() {
+                    if view.deref().has_type::<T>() {
                         let mut prev_view: View<T> = View::default();
                         view.swap(&mut prev_view);
                         prev_update(&mut prev_view)?;
@@ -162,30 +161,157 @@ impl<T: IsDomNode> HydrateView<T> {
                         Conversion {
                             from: std::any::type_name::<T>().to_string(),
                             to: std::any::type_name::<To>().to_string(),
-                            node: view.element.as_ref().clone(),
-                        }.fail()
+                            node: view.deref().as_ref().clone(),
+                        }
+                        .fail()
                     }
                 })),
                 _ => None,
             },
         }
     }
+
+    /// Hydrates a new [`Gizmo`] from a stateful [`Component`].
+    /// If the view cannot be hydrated an error is returned.
+    pub fn gizmo<C: Component>(init: C) -> Result<Gizmo<C>, Error> {
+        let tx_in = Transmitter::new();
+        let rx_out = Receiver::new();
+        let view_builder = init.view(&tx_in, &rx_out);
+        let hydrated = Hydrator::from(view_builder);
+        let view = View::try_from(hydrated)?;
+
+        Ok(Gizmo::from_parts(init, tx_in, rx_out, view))
+    }
 }
 
 
-/// # [`From`] instances for [`HydrateView`]
+/// [`ViewBuilder`] can be converted into a [`Hydrator`].
+impl<T> From<ViewBuilder<T>> for Hydrator<T>
+where
+    T: JsCast + AsRef<Node> + Clone + 'static,
+{
+    fn from(builder: ViewBuilder<T>) -> Hydrator<T> {
+        let ViewBuilder {
+            element,
+            ns,
+            attribs,
+            styles,
+            events,
+            children,
+            posts,
+            text,
+        } = builder;
+        let mut hview: Hydrator<T> = if let Some(tag) = element {
+            if let Some(ns) = ns {
+                Hydrator::element_ns(&tag, &ns)
+            } else {
+                Hydrator::element(&tag)
+            }
+        } else if let Some(effect) = text {
+            let text = Hydrator::from(effect);
+            text.cast::<T>()
+        } else {
+            panic!("not hydrating an element - impossible!")
+        };
+
+        if events.len() > 0 {
+            hview.append_update(|view: &mut View<T>| {
+                let t: T = {
+                    let t: &T = &view;
+                    t.clone()
+                };
+                let myself = t.dyn_ref::<EventTarget>().with_context(|| Conversion {
+                    from: std::any::type_name::<T>().to_string(),
+                    to: std::any::type_name::<EventTarget>().to_string(),
+                    node: (view.deref().as_ref() as &JsValue).clone(),
+                })?;
+                let window = utils::window();
+                let doc = utils::document();
+                for cmd in events.into_iter() {
+                    match cmd.type_is {
+                        EventTargetType::Myself => {
+                            view.add_event(myself, &cmd.name, cmd.transmitter)
+                        }
+                        EventTargetType::Window => {
+                            view.add_event(&window, &cmd.name, cmd.transmitter)
+                        }
+                        EventTargetType::Document => {
+                            view.add_event(&doc, &cmd.name, cmd.transmitter)
+                        }
+                    }
+                }
+                Ok(())
+            });
+        }
+        if styles.len() > 0 {
+            hview.append_update(|view: &mut View<T>| {
+                for cmd in styles.into_iter() {
+                    view.add_style(&cmd.name, cmd.effect);
+                }
+                Ok(())
+            });
+        }
+
+        if attribs.len() > 0 {
+            let may_id = attribs
+                .iter()
+                .filter_map(|att| match att {
+                    AttributeCmd::Attrib { name, effect } if name.as_str() == "id" => {
+                        match effect {
+                            Effect::OnceNow { now } => Some(now),
+                            Effect::OnceNowAndManyLater { now, .. } => Some(now),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .pop();
+            if let Some(id) = may_id {
+                hview.create = Hydrator::from(HydrationKey::Id(id.to_string())).create;
+            }
+            hview.append_update(|view: &mut View<T>| {
+                for cmd in attribs.into_iter() {
+                    match cmd {
+                        AttributeCmd::Attrib { name, effect } => {
+                            view.add_attribute(&name, effect);
+                        }
+                        AttributeCmd::Bool { name, effect } => {
+                            view.add_boolean_attribute(&name, effect);
+                        }
+                    }
+                }
+                Ok(())
+            });
+        }
+
+        for child in children.into_iter() {
+            let child = Hydrator::from(child);
+            hview.with(child);
+        }
+
+        for tx in posts.into_iter() {
+            hview.post_build(tx);
+        }
+
+        hview
+    }
+}
+
+
+/// # [`From`] instances for [`Hydrator`]
 ///
 /// Most of these mimic the corresponding [`From`] instances for [`View`],
 /// the rest are here for the operation of this module.
 
 
-impl From<Effect<String>> for HydrateView<Text> {
+impl From<Effect<String>> for Hydrator<Text> {
     fn from(eff: Effect<String>) -> Self {
         // Text alone is not enough to hydrate a view, so we start
-        // out with a HydrateView that will err if it is converted to
+        // out with a Hydrator that will err if it is converted to
         // a View.
         let (may_now, may_later) = eff.into();
-        let mut hydrate_view = HydrateView::from_create_fn(|| {
+        let mut hydrate_view = Hydrator::from_create_fn(|| {
             NoHydrationOption {
                 tag: may_now.unwrap_or_else(|| "#text".to_string()),
             }
@@ -204,7 +330,24 @@ impl From<Effect<String>> for HydrateView<Text> {
 }
 
 
-impl From<(&str, Receiver<String>)> for HydrateView<Text> {
+impl From<Receiver<String>> for Hydrator<Text> {
+    fn from(later: Receiver<String>) -> Self {
+        let mut hydrate_view = Hydrator::from_create_fn(|| {
+            NoHydrationOption {
+                tag: "#text".to_string(),
+            }
+            .fail()
+        });
+        hydrate_view.append_update(|v: &mut View<Text>| {
+            v.rx_text(later);
+            Ok(())
+        });
+        hydrate_view
+    }
+}
+
+
+impl From<(&str, Receiver<String>)> for Hydrator<Text> {
     fn from(tuple: (&str, Receiver<String>)) -> Self {
         let eff: Effect<String> = tuple.into();
         eff.into()
@@ -212,7 +355,7 @@ impl From<(&str, Receiver<String>)> for HydrateView<Text> {
 }
 
 
-impl From<(String, Receiver<String>)> for HydrateView<Text> {
+impl From<(String, Receiver<String>)> for Hydrator<Text> {
     fn from(tuple: (String, Receiver<String>)) -> Self {
         let eff: Effect<String> = tuple.into();
         eff.into()
@@ -220,7 +363,7 @@ impl From<(String, Receiver<String>)> for HydrateView<Text> {
 }
 
 
-impl From<(&String, Receiver<String>)> for HydrateView<Text> {
+impl From<(&String, Receiver<String>)> for Hydrator<Text> {
     fn from((now, later): (&String, Receiver<String>)) -> Self {
         let tuple = (now.clone(), later);
         let eff: Effect<String> = tuple.into();
@@ -229,40 +372,40 @@ impl From<(&String, Receiver<String>)> for HydrateView<Text> {
 }
 
 
-impl From<&String> for HydrateView<Text> {
+impl From<&String> for Hydrator<Text> {
     fn from(text: &String) -> Self {
         let tag = text.to_owned();
-        HydrateView::from_create_fn(|| NoHydrationOption { tag }.fail())
+        Hydrator::from_create_fn(|| NoHydrationOption { tag }.fail())
     }
 }
 
 
-impl From<String> for HydrateView<Text> {
+impl From<String> for Hydrator<Text> {
     fn from(text: String) -> Self {
-        HydrateView::from_create_fn(|| NoHydrationOption { tag: text }.fail())
+        Hydrator::from_create_fn(|| NoHydrationOption { tag: text }.fail())
     }
 }
 
 
-impl From<&str> for HydrateView<Text> {
+impl From<&str> for Hydrator<Text> {
     fn from(tag_or_text: &str) -> Self {
         let tag = tag_or_text.to_owned();
-        HydrateView::from_create_fn(|| NoHydrationOption { tag }.fail())
+        Hydrator::from_create_fn(|| NoHydrationOption { tag }.fail())
     }
 }
 
 
-impl<T: IsDomNode + AsRef<Node>> From<HydrationKey> for HydrateView<T> {
+impl<T: IsDomNode + AsRef<Node>> From<HydrationKey> for Hydrator<T> {
     fn from(key: HydrationKey) -> Self {
-        HydrateView::from_create_fn(move || key.hydrate::<T>())
+        Hydrator::from_create_fn(move || key.hydrate::<T>())
     }
 }
 
 
-impl<T: IsDomNode> TryFrom<HydrateView<T>> for View<T> {
+impl<T: IsDomNode> TryFrom<Hydrator<T>> for View<T> {
     type Error = Error;
 
-    fn try_from(hydrate_view: HydrateView<T>) -> Result<View<T>, Self::Error> {
+    fn try_from(hydrate_view: Hydrator<T>) -> Result<View<T>, Self::Error> {
         let mut view = (hydrate_view.create)()?;
         if let Some(update) = hydrate_view.update {
             update(&mut view)?
@@ -275,15 +418,15 @@ impl<T: IsDomNode> TryFrom<HydrateView<T>> for View<T> {
 /// # ElementView
 
 
-impl<T: IsDomNode + AsRef<Node>> ElementView for HydrateView<T> {
+impl<T: IsDomNode + AsRef<Node>> ElementView for Hydrator<T> {
     fn element(tag: &str) -> Self {
         let tag = tag.to_owned();
-        HydrateView::from_create_fn(|| NoHydrationOption { tag }.fail())
+        Hydrator::from_create_fn(|| NoHydrationOption { tag }.fail())
     }
 
     fn element_ns(tag: &str, ns: &str) -> Self {
         let tag = format!("{}:{}", tag, ns);
-        HydrateView::from_create_fn(|| NoHydrationOption { tag }.fail())
+        Hydrator::from_create_fn(|| NoHydrationOption { tag }.fail())
     }
 }
 
@@ -291,12 +434,12 @@ impl<T: IsDomNode + AsRef<Node>> ElementView for HydrateView<T> {
 /// # AttributeView
 
 
-impl<T: IsDomNode + AsRef<Node> + AsRef<Element> + 'static> AttributeView for HydrateView<T> {
+impl<T: IsDomNode + AsRef<Node> + AsRef<Element> + 'static> AttributeView for Hydrator<T> {
     fn attribute<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
         let (may_now, may_later) = eff.into().into();
         if let Some(now) = may_now {
             if name == "id" {
-                self.create = HydrateView::from(HydrationKey::Id(now.to_string())).create;
+                self.create = Hydrator::from(HydrationKey::Id(now.to_string())).create;
             }
         }
 
@@ -319,7 +462,7 @@ impl<T: IsDomNode + AsRef<Node> + AsRef<Element> + 'static> AttributeView for Hy
 /// # StyleView
 
 
-impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for HydrateView<T> {
+impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for Hydrator<T> {
     fn style<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
         let eff: Effect<_> = eff.into();
         let (_, may_later) = eff.into();
@@ -334,7 +477,7 @@ impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for HydrateView<T> {
 /// # EventTargetView
 
 
-impl<T: IsDomNode + AsRef<EventTarget>> EventTargetView for HydrateView<T> {
+impl<T: IsDomNode + AsRef<EventTarget>> EventTargetView for Hydrator<T> {
     fn on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
         let ev_name = ev_name.to_string();
         self.append_update(move |v: &mut View<T>| {
@@ -358,16 +501,16 @@ impl<T: IsDomNode + AsRef<EventTarget>> EventTargetView for HydrateView<T> {
 /// # ParentView
 
 
-impl<P, C> ParentView<HydrateView<C>> for HydrateView<P>
+impl<P, C> ParentView<Hydrator<C>> for Hydrator<P>
 where
     P: IsDomNode + AsRef<Node>,
     C: IsDomNode + AsRef<Node>,
 {
-    fn with(&mut self, mut child: HydrateView<C>) {
+    fn with(&mut self, mut child: Hydrator<C>) {
         self.append_update(|v: &mut View<P>| {
             let node = (v.as_ref() as &Node).clone();
             let index = v.children.len() as u32;
-            child.create = HydrateView::from(HydrationKey::IndexedChildOf { node, index }).create;
+            child.create = Hydrator::from(HydrationKey::IndexedChildOf { node, index }).create;
             let child_view: View<C> = View::try_from(child)?;
             v.children.push(child_view.upcast());
             Ok(())
@@ -379,7 +522,7 @@ where
 /// # PostBuildView
 
 
-impl<T: JsCast + Clone + 'static> PostBuildView for HydrateView<T> {
+impl<T: JsCast + Clone + 'static> PostBuildView for Hydrator<T> {
     type DomNode = T;
 
     fn post_build(&mut self, tx: Transmitter<T>) {

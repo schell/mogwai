@@ -6,7 +6,6 @@ use crate::prelude::Receiver;
 
 pub mod builder;
 pub mod dom;
-pub mod hydration;
 pub mod interface;
 
 

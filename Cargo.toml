@@ -3,6 +3,7 @@
 members = [
   "mogwai",
   "crates/mogwai-html-macro",
+  "crates/mogwai-hydrator",
   "examples/sandbox",
   "examples/todomvc",
   #"cookbook"
@@ -11,4 +12,4 @@ members = [
 
 [profile.release]
 lto = true
-opt-level = 3
+opt-level = 'z'

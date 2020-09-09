@@ -6,9 +6,10 @@ pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
 use web_sys::{Node, Text};
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::ssr::Node as SsrNode;
 use crate::{
     prelude::{Component, Effect, Gizmo, IsDomNode, Receiver, Transmitter},
-    ssr::Node as SsrNode,
     utils,
     view::interface::*,
 };
@@ -134,11 +135,6 @@ impl<T: IsDomNode> View<T> {
         F: FnOnce(&mut ServerNode),
     {
         f(&mut self.server_node);
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn to_ssr_node(self) -> SsrNode {
-        panic!("View::to_ssr_node is only available outside of wasm32")
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -347,22 +343,22 @@ impl<T: IsDomNode> View<T> {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
     pub fn into_html_string(self) -> String {
-        if cfg!(target_arch = "wasm32") {
-            let t: &JsValue = self.element.as_ref();
+        let t: &JsValue = self.element.as_ref();
 
-            if let Some(element) = t.dyn_ref::<Element>() {
-                return element.outer_html();
-            }
-
-            if let Some(text) = t.dyn_ref::<Text>() {
-                return text.data();
-            }
-            panic!("Dom reference {:#?} could not be turned into a string", t);
-        } else {
-            let node = self.to_ssr_node();
-            return String::from(node);
+        if let Some(element) = t.dyn_ref::<Element>() {
+            return element.outer_html();
         }
+
+        if let Some(text) = t.dyn_ref::<Text>() {
+            return text.data();
+        }
+        panic!("Dom reference {:#?} could not be turned into a string", t);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn into_html_string(self) -> String {
+        String::from(self.to_ssr_node());
     }
 
     /// Create a new `View` wrapping a `T` that can be dereferenced to a `Node`.
@@ -389,8 +385,11 @@ impl<T: IsDomNode> View<T> {
     }
 
     /// Swap all data with another view.
+    /// BEWARE: This function is for internal library use and for the use of
+    /// helper libraries. Using this function without care may result in
+    /// JavaScript errors.
     #[cfg(target_arch = "wasm32")]
-    pub(crate) fn swap<To: IsDomNode>(&mut self, other: &mut View<To>) {
+    pub fn swap<To: IsDomNode>(&mut self, other: &mut View<To>) {
         std::mem::swap(&mut self.element, &mut other.element);
         std::mem::swap(&mut self.callbacks, &mut other.callbacks);
         std::mem::swap(&mut self.window_callbacks, &mut other.window_callbacks);
@@ -401,7 +400,7 @@ impl<T: IsDomNode> View<T> {
         std::mem::swap(&mut self.children, &mut other.children);
     }
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn swap<To: IsDomNode>(&mut self, other: &mut View<To>) {
+    pub fn swap<To: IsDomNode>(&mut self, other: &mut View<To>) {
         std::mem::swap(&mut self.element, &mut other.element);
         std::mem::swap(&mut self.callbacks, &mut other.callbacks);
         std::mem::swap(&mut self.window_callbacks, &mut other.window_callbacks);
@@ -414,40 +413,20 @@ impl<T: IsDomNode> View<T> {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub(crate) fn try_cast<To: IsDomNode>(mut self) -> Result<View<To>, Self> {
+    pub fn try_cast<To: IsDomNode>(mut self) -> Result<View<To>, Self> {
         if self.element.has_type::<To>() {
-            Ok(View {
-                phantom: PhantomData,
-                element: std::mem::replace(&mut self.element, Rc::new(JsValue::NULL)),
-
-                callbacks: std::mem::take(&mut self.callbacks),
-                window_callbacks: std::mem::take(&mut self.window_callbacks),
-                document_callbacks: std::mem::take(&mut self.document_callbacks),
-                string_rxs: std::mem::take(&mut self.string_rxs),
-                opt_string_rxs: std::mem::take(&mut self.opt_string_rxs),
-                bool_rxs: std::mem::take(&mut self.bool_rxs),
-                children: std::mem::take(&mut self.children),
-            })
+            let mut view: View<To> = View::default();
+            self.swap(&mut view);
+            Ok(view)
         } else {
             Err(self)
         }
     }
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn try_cast<To: IsDomNode>(mut self) -> Result<View<To>, Self> {
-        Ok(View {
-            phantom: PhantomData,
-            element: std::mem::replace(&mut self.element, Rc::new(JsValue::NULL)),
-
-            callbacks: std::mem::take(&mut self.callbacks),
-            window_callbacks: std::mem::take(&mut self.window_callbacks),
-            document_callbacks: std::mem::take(&mut self.document_callbacks),
-            string_rxs: std::mem::take(&mut self.string_rxs),
-            opt_string_rxs: std::mem::take(&mut self.opt_string_rxs),
-            bool_rxs: std::mem::take(&mut self.bool_rxs),
-            children: std::mem::take(&mut self.children),
-
-            server_node: self.server_node.clone(),
-        })
+    pub fn try_cast<To: IsDomNode>(mut self) -> Result<View<To>, Self> {
+        let mut view: View<To> = View::default();
+        self.swap(&mut view);
+        Ok(view)
     }
 
     /// Creates a new gizmo with data cloned from the first.
@@ -511,9 +490,14 @@ impl<T: IsDomNode> View<T> {
 
     /// Cast the given View to contain the inner DOM node of another type.
     /// That type must be dereferencable from the given View.
-    pub fn upcast<D: IsDomNode>(self) -> View<D> {
-        self.try_cast::<D>()
-            .unwrap_or_else(|_| panic!(r#"can't upcast - impossible"#))
+    pub fn upcast<To: IsDomNode>(mut self) -> View<To>
+    where
+        T: AsRef<To>,
+        To: IsDomNode,
+    {
+        let mut to: View<To> = View::default();
+        self.swap(&mut to);
+        to
     }
 
     /// Attempt to downcast the inner element.
@@ -868,10 +852,11 @@ impl<T: IsDomNode> PostBuildView for View<T> {
 impl<T: IsDomNode> Drop for View<T> {
     fn drop(&mut self) {
         let count = Rc::strong_count(&self.element);
-        let node = self.element.unchecked_ref::<Node>().clone();
         if count <= 1 {
-            if let Some(parent) = node.parent_node() {
-                let _ = parent.remove_child(&node);
+            if let Some(node) = self.element.dyn_ref::<Node>() {
+                if let Some(parent) = node.parent_node() {
+                    let _ = parent.remove_child(&node);
+                }
             }
             self.string_rxs
                 .iter_mut()

@@ -394,6 +394,7 @@ use std::{
     future::Future,
     pin::Pin,
     rc::Rc,
+    task::{Context, Poll, Waker},
 };
 use wasm_bindgen_futures::spawn_local;
 
@@ -683,6 +684,30 @@ impl<A: 'static> Transmitter<A> {
         let tb = rb.new_trns();
         let ra = self.spawn_recv();
         ra.forward_filter_fold_async(&tb, init, f, h);
+    }
+}
+
+
+// A message received by a [`Receiver`] at some point in the future.
+struct MessageFuture<A> {
+    var: Rc<RefCell<Option<A>>>,
+    waker: Rc<RefCell<Option<Waker>>>,
+}
+
+
+impl<A> Future for MessageFuture<A> {
+    type Output = A;
+
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        let future: &mut MessageFuture<A> = self.get_mut();
+        let var: Option<A> = future.var.as_ref().borrow_mut().take();
+        match var {
+            Some(msg) => Poll::Ready(msg),
+            None => {
+                *future.waker.borrow_mut() = Some(ctx.waker().clone());
+                Poll::Pending
+            }
+        }
     }
 }
 
@@ -1014,6 +1039,27 @@ impl<A> Receiver<A> {
             });
         });
         rx
+    }
+
+    /// Create a future to await the next message received by this `Receiver`.
+    pub fn message(&self) -> impl Future<Output = A>
+    where
+        A: Clone + 'static,
+    {
+        let var = Rc::new(RefCell::new(None));
+        let var2 = var.clone();
+        let waker: Rc<RefCell<Option<Waker>>> = Rc::new(RefCell::new(None));
+        let waker2 = waker.clone();
+        self.branch().respond(move |msg| {
+            *var2.borrow_mut() = Some(msg.clone());
+            waker2
+                .borrow_mut()
+                .take()
+                .into_iter()
+                .for_each(|waker| waker.wake());
+        });
+
+        MessageFuture { var, waker }
     }
 }
 

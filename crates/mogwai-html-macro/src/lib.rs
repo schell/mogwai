@@ -168,7 +168,7 @@ fn node_to_view_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
 
 fn node_to_hydrateview_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
-        quote!{ mogwai::prelude::HydrateView },
+        quote!{ mogwai::prelude::Hydrator },
         node_to_hydrateview_token_stream,
         node,
     )
@@ -222,7 +222,7 @@ pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 
 #[proc_macro]
-/// Uses an html description to construct a [`HydrateView`], which can then be converted
+/// Uses an html description to construct a [`Hydrator`], which can then be converted
 /// into a [`View`] with [`std::convert::TryFrom`].
 pub fn hydrate(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(walk_dom(input, node_to_hydrateview_token_stream))
