@@ -17,7 +17,44 @@ pub fn main() -> Result<(), JsValue> {
 fn game() -> View<HtmlElement> {
     view! {
         <div class="game">
-           "Hello"
+           <div class="game-board">
+               { board() }
+           </div>
+           <div class="game-info">
+              <div> </div>
+              <ol> </ol>
+           </div>
         </div>
+    }
+}
+
+fn board() -> View<HtmlElement> {
+    view! {
+        <div>
+            <div class="status"> "Next player: X" </div>
+            <div class="board-row">
+                { square(0) }
+                { square(1) }
+                { square(2) }
+            </div>
+            <div class="board-row">
+                { square(3) }
+                { square(4) }
+                { square(5) }
+            </div>
+            <div class="board-row">
+                { square(6) }
+                { square(7) }
+                { square(8) }
+            </div>
+        </div>
+    }
+}
+
+fn square(_i: u8) -> View<HtmlElement> {
+    view! {
+        <button class="square">
+            "X"
+        </button>
     }
 }
