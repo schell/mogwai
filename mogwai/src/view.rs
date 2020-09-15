@@ -64,6 +64,13 @@ impl From<&str> for Effect<String> {
 }
 
 
+impl From<&String> for Effect<String> {
+    fn from(s: &String) -> Effect<String> {
+        Effect::OnceNow { now: s.clone() }
+    }
+}
+
+
 impl<T> From<Receiver<T>> for Effect<T> {
     fn from(later: Receiver<T>) -> Effect<T> {
         Effect::ManyLater { later }

@@ -146,6 +146,13 @@ impl<T: JsCast + 'static> From<View<T>> for ViewBuilder<T> {
 }
 
 
+impl<T: JsCast + 'static> From<HydrateView<T>> for ViewBuilder<T> {
+    fn from(hview: HydrateView<T>) -> Self {
+        ViewBuilder::new(|| panic!("could not create a fresh view - hydrate only"), || hview)
+    }
+}
+
+
 /// # ElementView
 
 

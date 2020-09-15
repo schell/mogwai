@@ -37,6 +37,9 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
                 ["post", "build"] => Ok(quote! {
                     .post_build(#expr)
                 }),
+                ["boolean", name] => Ok(quote! {
+                    .boolean_attribute(#name, #expr)
+                }),
                 [attribute_name] => Ok(quote! {
                     .attribute(#attribute_name, #expr)
                 }),
@@ -90,6 +93,7 @@ fn combine_errors(errs: Vec<Error>) -> Option<Error> {
 fn tag_to_type_token_stream(tag: &str) -> proc_macro2::TokenStream {
     match tag {
         "input" => quote! { web_sys::HtmlInputElement },
+        "iframe" => quote! { web_sys::HtmlIFrameElement },
         _ => quote! { web_sys::HtmlElement },
     }
 }

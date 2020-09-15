@@ -265,7 +265,7 @@ impl Component for App {
             _ => None,
         });
 
-        builder! {
+        let hydrated_view = hydrate! {
             <section id="todo_main" class="todoapp">
                 <header class="header">
                     <h1>"todos"</h1>
@@ -353,6 +353,8 @@ impl Component for App {
                     </button>
                 </footer>
             </section>
-        }
+        };
+
+        ViewBuilder::from(hydrated_view)
     }
 }
