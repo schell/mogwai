@@ -5,6 +5,7 @@ members = [
   "crates/mogwai-html-macro",
   "examples/sandbox",
   "examples/todomvc",
+  "examples/tictactoe",
   #"cookbook"
 ]
 
