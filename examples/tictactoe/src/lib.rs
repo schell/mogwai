@@ -54,7 +54,7 @@ fn board() -> View<HtmlElement> {
 fn square(_i: u8) -> View<HtmlElement> {
     view! {
         <button class="square">
-            "X"
+            { format!("{}", _i) }
         </button>
     }
 }
