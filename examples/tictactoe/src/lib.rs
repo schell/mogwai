@@ -52,9 +52,11 @@ fn board() -> View<HtmlElement> {
 }
 
 fn square(_i: u8) -> View<HtmlElement> {
+    let (tx, rx) = txrx_map(|_| "X");
+
     view! {
-        <button class="square">
-            { format!("{}", _i) }
+        <button class="square" on:click=tx>
+            { ("", rx) }
         </button>
     }
 }
