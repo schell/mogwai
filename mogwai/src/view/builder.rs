@@ -128,7 +128,8 @@ where
             },
         };
 
-        if events.len() > 0 && view.has_type::<EventTarget>() {
+        let has_event_target = cfg!(not(target_arch = "wasm32")) || view.has_type::<EventTarget>();
+        if events.len() > 0 && has_event_target {
             let mut ev_view: View<EventTarget> = View::default();
             view.swap(&mut ev_view);
             for cmd in events.into_iter() {
@@ -141,7 +142,8 @@ where
             view.swap(&mut ev_view);
         }
 
-        if styles.len() > 0 && view.has_type::<HtmlElement>() {
+        let has_html_element = cfg!(not(target_arch = "wasm32")) || view.has_type::<HtmlElement>();
+        if styles.len() > 0 && has_html_element {
             let mut style_view: View<HtmlElement> = View::default();
             view.swap(&mut style_view);
             for cmd in styles.into_iter() {
@@ -150,7 +152,8 @@ where
             view.swap(&mut style_view);
         }
 
-        if attribs.len() > 0 && view.has_type::<Element>() {
+        let has_element = cfg!(not(target_arch = "wasm32")) || view.has_type::<Element>();
+        if attribs.len() > 0 && has_element {
             let mut att_view: View<Element> = View::default();
             view.swap(&mut att_view);
             for cmd in attribs.into_iter() {

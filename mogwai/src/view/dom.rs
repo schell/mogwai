@@ -358,7 +358,7 @@ impl<T: IsDomNode> View<T> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     pub fn into_html_string(self) -> String {
-        String::from(self.to_ssr_node());
+        String::from(self.to_ssr_node())
     }
 
     /// Create a new `View` wrapping a `T` that can be dereferenced to a `Node`.

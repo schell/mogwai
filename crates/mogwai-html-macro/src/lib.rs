@@ -168,7 +168,7 @@ fn node_to_view_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
 
 fn node_to_hydrateview_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
-        quote!{ mogwai::prelude::Hydrator },
+        quote!{ mogwai_hydrator::Hydrator },
         node_to_hydrateview_token_stream,
         node,
     )

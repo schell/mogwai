@@ -19,5 +19,5 @@ pub mod txrx;
 pub mod utils;
 pub mod view;
 
-//#[cfg(doctest)]
-//doc_comment::doctest!("../../README.md");
+#[cfg(doctest)]
+doc_comment::doctest!("../../README.md");

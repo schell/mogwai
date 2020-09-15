@@ -39,6 +39,7 @@ features = [
 
 [dev-dependencies]
 doc-comment = "^0.3"
+mogwai-hydrator = { path = "../crates/mogwai-hydrator", version = "^0.1" }
 wasm-bindgen-test = "0.3.17"
 wasm-bindgen-futures = "^0.4"
 

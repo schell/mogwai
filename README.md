@@ -21,8 +21,8 @@ master: ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch
 
 
 `mogwai` is a frontend DOM library for creating web applications.
-It is written in Rust and runs in your browser. It is an alternative
-to React, Backbone, Ember, Elm, Purescript, etc.
+It is written in Rust and runs in your browser and has enough functionality server-side
+to do rendering. It is an alternative to React, Backbone, Ember, Elm, Purescript, etc.
 
 ## goals
 
@@ -35,10 +35,34 @@ If mogwai achieves these goals, which I think it does, then maintaining
 application state, composing widgets and reasoning about your program will be
 easy. Furthermore, your users will be happy because their UI is snappy!
 
-## example
-Here is an example of a button that counts its own clicks.
+## concepts
+The main concepts behind `mogwai` are
 
-```rust, no_run
+* **channels instead of callbacks** - view events like clicks, blurs, etc are transmitted
+  into a channel instead of invoking a callback. Receiving ends of channels can be branched
+  and may have their output messages be mapped, filtered and folded. `mogwai`'s channels are
+  many-producer, many-consumer and are immediate - they do not perform buffering and do not
+  require polling.
+
+* **views are dumb** - a `View` is just a bit of DOM that receives and transmits messages.
+  When a `View` goes out of scope and is dropped in Rust, it is also dropped from the DOM.
+  `Views` may be constructed and nested using plain Rust functions or an RSX macro.
+
+* **widgets are folds over input messages** - a `Gizmo` is `mogwai`'s widget. `Gizmo`s
+  contain a view, a state variable and a `Transmitter`+`Receiver` pair. The `Gizmo`'s
+  update function is a fold over input messages sent on the `Transmitter` that mutate
+  the state variable and send output messages to the `View`, which update the DOM. After
+  a `Gizmo` has been constructed it may be broken down into its constituent parts - only
+  the `View` must remain in scope in order to function.
+
+* **communication between gizmos is up to you** - communication between `Gizmo`s or `View`s
+  can happen by transmitting messages or by sharing variables, or anything else that's
+  allowed by the type system and the borrow checker.
+
+## example
+Here is an example of a "dumb view" button that counts its own clicks.
+
+```rust
 extern crate mogwai;
 use mogwai::prelude::*;
 
@@ -55,11 +79,15 @@ let (tx, rx) =
     }
   );
 
-view!(
+let view = view!(
     <button on:click=tx>
         {("Clicked 0 times", rx)}
     </button>
-).run().unwrap_throw()
+);
+
+if cfg!(target_arch = "wasm32") {
+  view.run().unwrap_throw()
+}
 ```
 
 Here's that same example using the elm-like `Component` trait:
@@ -78,7 +106,7 @@ pub enum ButtonIn {
 
 #[derive(Clone)]
 pub enum ButtonOut {
-    Clicks(i32)
+    Clicks(String)
 }
 
 impl Component for Button {
@@ -95,7 +123,12 @@ impl Component for Button {
         match msg {
             ButtonIn::Click => {
                 self.clicks += 1;
-                tx_view.send(&ButtonOut::Clicks(self.clicks))
+                let text = if self.clicks == 1 {
+                    "Clicked 1 time".to_string()
+                } else {
+                    format!("Clicked {} times", self.clicks)
+                };
+                tx_view.send(&ButtonOut::Clicks(text))
             }
         }
     }
@@ -104,13 +137,11 @@ impl Component for Button {
         &self,
         tx: &Transmitter<ButtonIn>,
         rx: &Receiver<ButtonOut>
-    ) -> View<HtmlElement> {
-        let rx_text = rx.branch_map(|msg| match msg {
-            ButtonOut::Clicks(n) => format!("Clicked {} times", n)
-        });
+    ) -> ViewBuilder<HtmlElement> {
         let tx_event = tx.contra_map(|_:&Event| ButtonIn::Click);
+        let rx_text = rx.branch_map(|ButtonOut::Clicks(text)| text.clone());
 
-        view!(
+        builder!(
             <button on:click=tx_event>
                 {("Clicked 0 times", rx_text)}
             </button>
@@ -118,7 +149,7 @@ impl Component for Button {
     }
 }
 
-let mut gizmo = Button{ clicks: 0 }.into_gizmo();
+let mut gizmo = Gizmo::from(Button{ clicks: 0 });
 
 // Pass some messages in to update the view, as if the button had been
 // clicked.
@@ -128,8 +159,8 @@ gizmo.update(&ButtonIn::Click);
 assert_eq!(&gizmo.view_ref().clone().into_html_string(), "<button>Clicked 2 times</button>");
 
 if cfg!(target_arch = "wasm32") {
-    // running a gizmo or a view only works in the browser, as ownership
-    // of is passed to the window
+    // running a gizmo adds its DOM to document.body and ownership is passed to the window
+    // this only works in the browser
     gizmo.run().unwrap_throw()
 }
 ```
@@ -145,10 +176,8 @@ has performance to spare this step can cause unwanted slowness.
 
 `mogwai` lives in a happy space just above "bare metal". It does this by
 providing the tools needed to declare exactly which parts of the DOM change and
-when.
-
-These same tools encourage functional progamming patterns like encapsulation over
-inheritance (or traits, in this case).
+when. These same tools encourage functional progamming patterns like encapsulation over
+inheritance.
 
 Channel-like primitives and a declarative view are used to define
 components and then wire them together. Once the interface is defined and built,
@@ -157,6 +186,9 @@ no performance overhead from vdom, shadow dom, polling or patching. So if you
 prefer a functional style of programming with lots of maps and folds - or if
 you're looking to go _vroom!_ then maybe `mogwai` is right for you and your
 team :)
+
+Please do keep in mind that `mogwai` is still in alpha and the API is actively
+changing.
 
 ### made for rustaceans, by a rustacean
 Another benefit of `mogwai` is that it is Rust-first. There is no requirement
