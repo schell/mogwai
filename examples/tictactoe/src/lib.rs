@@ -2,7 +2,7 @@ use mogwai::prelude::*;
 
 use wasm_bindgen::prelude::*;
 
-use log::Level;
+use log::*;
 use std::panic;
 
 #[wasm_bindgen(start)]
@@ -28,31 +28,45 @@ fn game() -> View<HtmlElement> {
     }
 }
 
+type Board = [&'static str; 9];
+
 fn board() -> View<HtmlElement> {
+
+    let board = [""; 9];
+    let shared_board = new_shared(board);
+
+    let (tx, rx) = txrx();
+    rx.respond_shared(shared_board.clone(), |b: &mut Board, s: &u8| {
+        info!("mark {}", s);
+        b[*s as usize] = "X";
+        info!("{:?}", b)
+    });
+
     view! {
         <div>
             <div class="status"> "Next player: X" </div>
             <div class="board-row">
-                { square(0) }
-                { square(1) }
-                { square(2) }
+                { square(0, tx.clone()) }
+                { square(1, tx.clone()) }
+                { square(2, tx.clone()) }
             </div>
             <div class="board-row">
-                { square(3) }
-                { square(4) }
-                { square(5) }
+                { square(3, tx.clone()) }
+                { square(4, tx.clone()) }
+                { square(5, tx.clone()) }
             </div>
             <div class="board-row">
-                { square(6) }
-                { square(7) }
-                { square(8) }
+                { square(6, tx.clone()) }
+                { square(7, tx.clone()) }
+                { square(8, tx.clone()) }
             </div>
         </div>
     }
 }
 
-fn square(_i: u8) -> View<HtmlElement> {
-    let (tx, rx) = txrx_map(|_| "X");
+fn square(i: u8, board_tx: Transmitter<u8>) -> View<HtmlElement> {
+    let (tx, rx) = txrx_map(move |_| "X".to_string());
+    rx.branch().forward_map(&board_tx, move |_| i);
 
     view! {
         <button class="square" on:click=tx>
