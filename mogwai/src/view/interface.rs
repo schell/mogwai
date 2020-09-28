@@ -1,7 +1,8 @@
 //! Interfaces for constructing declarative views.
 pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
 
-use crate::prelude::{Effect, Transmitter};
+use crate::prelude::{Effect, Receiver, Transmitter};
+
 
 /// `ElementView`s are views that represent DOM elements.
 pub trait ElementView {
@@ -56,7 +57,7 @@ pub trait AttributeView {
 
     /// Create (or remove) a boolean attribute on the view that may change its
     /// value every time the given receiver receives a message
-    /// If `eff` is a receiver and that receiver receives `false` it will
+    /// If `eff` contains a receiver and that receiver receives `false` it will
     /// respond by removing the attribute until it receives `true`. If `eff` is
     /// a single boolean value, either add or remove the attribute.
     fn boolean_attribute<E: Into<Effect<bool>>>(&mut self, name: &str, eff: E);
@@ -66,8 +67,8 @@ pub trait AttributeView {
 /// `StyleView`s can describe themselves using CSS style key value pairs.
 pub trait StyleView {
     /// Set a CSS property in the style attribute of the view being built.
-    /// If `eff` is a Receiver, this updates the style's value every time a
-    /// message is received on the given `Receiver`.
+    /// If `eff` contains a Receiver, messages received will updated the style's
+    /// value.
     fn style<E: Into<Effect<String>>>(&mut self, name: &str, eff: E);
 }
 
@@ -89,25 +90,60 @@ pub trait EventTargetView {
 }
 
 
-/// `ParentView`s can nest child views.
-pub trait ParentView<T> {
-    /// Add a child view to this parent.
-    fn with(&mut self, child: T);
-}
-
-
 /// `PostBuildView`s can send their underlying browser DOM node as a message on
 /// a Transmitter once they've been built.
 ///
-/// This allows you to construct component behaviors that operate on the constructed
+/// `PostBuildView` allows you to construct component behaviors that operate on the constructed
 /// node directly, while still keeping the definition in its place within your view
 /// builder function. For example, you may want to use `input.focus()` within the
 /// `update` function of your component. This method allows you to store the
-/// input `HtmlInputElement` once it is built.
+/// input `HtmlInputElement` once it is built, allowing you to use it as you see fit
+/// within your [`Component::update`] function.
 pub trait PostBuildView {
     type DomNode;
 
     /// After the view is built, transmit its underlying DomNode on the given
     /// transmitter.
     fn post_build(&mut self, tx: Transmitter<Self::DomNode>);
+}
+
+
+/// `ParentView`s can nest child views.
+pub trait ParentView<T> {
+    /// Add a child to this parent.
+    fn with(&mut self, view_now: T);
+}
+
+
+/// `ReplaceView`s can entirely replace themselves with views sent to a
+/// [`Receiver`].
+pub trait ReplaceView<T> {
+    fn this_later(&mut self, rx: Receiver<T>);
+}
+
+
+/// An enumeration of commands used to update the children of a [`PatchView`].
+#[derive(Clone, Debug)]
+pub enum Patch<T> {
+    Insert {
+        index: usize,
+        value: T
+    },
+    Remove {
+        index: usize
+    },
+    PushFront {
+        value: T
+    },
+    PushBack {
+        value: T
+    },
+    PopFront,
+    PopBack
+}
+
+
+/// `PatchView`s' children can be manipulated using patch commands sent on a [`Receiver`].
+pub trait PatchView<T> {
+    fn patch(&mut self, rx: Receiver<Patch<T>>);
 }

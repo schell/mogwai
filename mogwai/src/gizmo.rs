@@ -1,11 +1,15 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::{Ref, RefCell},
+    rc::Rc,
+};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement};
 
 use crate::{
-    prelude::{txrx, Component, Receiver, Subscriber, Transmitter, View, ViewBuilder},
+    prelude::{txrx, Component, Receiver, Subscriber, Transmitter, View, ViewBuilder, IsDomNode},
     utils,
+    view::dom::ViewInternals,
 };
 
 
@@ -72,9 +76,12 @@ where
     ///
     /// # Panics
     /// Only works in the browser. Panics outside of wasm32.
-    pub fn dom_ref(&self) -> &T::DomNode {
+    pub fn dom_ref(&self) -> Ref<T::DomNode> {
         if cfg!(target_arch = "wasm32") {
-            return &self.view.element.unchecked_ref::<T::DomNode>();
+            let internals: Ref<ViewInternals> = self.view.internals.as_ref().borrow();
+            let el_ref: Ref<T::DomNode> =
+                Ref::map(internals, |i| i.element.unchecked_ref::<T::DomNode>());
+            return el_ref;
         }
         panic!("Gizmo::dom_ref is only available on wasm32")
     }
@@ -167,10 +174,10 @@ pub type BuilderFn<T, D> = dyn Fn(&Transmitter<T>, &Receiver<T>) -> ViewBuilder<
 ///     }
 /// ));
 /// ```
-pub struct SimpleComponent<T, D: JsCast>(Box<BuilderFn<T, D>>);
+pub struct SimpleComponent<T, D: IsDomNode>(Box<BuilderFn<T, D>>);
 
 
-impl<T, D: JsCast> SimpleComponent<T, D> {
+impl<T, D: IsDomNode> SimpleComponent<T, D> {
     pub fn new<F>(f: F) -> Self
     where
         F: Fn(&Transmitter<T>, &Receiver<T>) -> ViewBuilder<D> + 'static,

@@ -3,14 +3,16 @@ name = "cookbook"
 version = "0.1.0"
 authors = ["Schell <efsubenovex@gmail.com>"]
 edition = "2018"
-build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 
-[build-dependencies]
-skeptic = "0.13"
-
 [dev-dependencies]
-skeptic = "0.13"
+doc-comment = "^0.3"
+mogwai = { path = "../mogwai", version = "^0.3" }
+
+[dev-dependencies.web-sys]
+version = "^0.3"
+features = [
+]

@@ -156,7 +156,7 @@ let mut gizmo = Gizmo::from(Button{ clicks: 0 });
 gizmo.update(&ButtonIn::Click);
 gizmo.update(&ButtonIn::Click);
 
-assert_eq!(&gizmo.view_ref().clone().into_html_string(), "<button>Clicked 2 times</button>");
+assert_eq!(&gizmo.view_ref().clone().html_string(), "<button>Clicked 2 times</button>");
 
 if cfg!(target_arch = "wasm32") {
     // running a gizmo adds its DOM to document.body and ownership is passed to the window

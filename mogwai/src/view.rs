@@ -1,4 +1,5 @@
 //! Views
+use std::{cell::RefCell, rc::Rc};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement};
 
@@ -79,6 +80,14 @@ impl<T> From<Receiver<T>> for Effect<T> {
 
 impl<T> From<(T, Receiver<T>)> for Effect<T> {
     fn from((now, later): (T, Receiver<T>)) -> Effect<T> {
+        Effect::OnceNowAndManyLater { now, later }
+    }
+}
+
+
+impl<T> From<(Option<T>, Receiver<Rc<RefCell<Option<T>>>>)> for Effect<Rc<RefCell<Option<T>>>> {
+    fn from((now, later): (Option<T>, Receiver<Rc<RefCell<Option<T>>>>)) -> Self {
+        let now = Rc::new(RefCell::new(now));
         Effect::OnceNowAndManyLater { now, later }
     }
 }

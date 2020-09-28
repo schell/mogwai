@@ -7,14 +7,14 @@ fn node_self_closing() {
     let div: String = view! {
         <a href="http://zyghost.com" />
     }
-    .into_html_string();
+    .html_string();
     assert_eq!(&div, r#"<a href="http://zyghost.com" />"#);
 }
 
 
 #[test]
 fn node_self_closing_gt_1_att() {
-    let div: String = view! {<a href="http://zyghost.com" class="blah"/>}.into_html_string();
+    let div: String = view! {<a href="http://zyghost.com" class="blah"/>}.html_string();
     assert_eq!(&div, r#"<a href="http://zyghost.com" class="blah" />"#);
 }
 
@@ -27,7 +27,7 @@ fn by_hand() {
     div.with(View::from("a text node"));
     assert_eq!(
         r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#,
-        &div.into_html_string()
+        &div.html_string()
     );
 }
 
@@ -37,7 +37,7 @@ fn node() {
     let div: String = view! {
         <a href="http://zyghost.com" class = "a_link">"a text node"</a>
     }
-    .into_html_string();
+    .html_string();
     assert_eq!(
         &div,
         r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#
@@ -51,7 +51,7 @@ fn block_in_text() {
     let s: String = view! {
         <pre>"just a string with the number" {&format!("{}", x)} "<- blah blah"</pre>
     }
-    .into_html_string();
+    .html_string();
 
     assert_eq!(
         s,
@@ -66,7 +66,7 @@ fn block_at_end_of_text() {
     let s: String = view! {
         <pre>"just a string with the number" {&format!("{}", x)}</pre>
     }
-    .into_html_string();
+    .html_string();
 
     assert_eq!(&s, "<pre>just a string with the number 66</pre>");
 }
@@ -77,7 +77,7 @@ fn lt_in_text() {
     let s: String = view! {
         <pre>"this is text <- text"</pre>
     }
-    .into_html_string();
+    .html_string();
 
     assert_eq!(s, "<pre>this is text &lt;- text</pre>");
 }
@@ -93,5 +93,5 @@ fn allow_attributes_on_next_line() {
             "A string"
         </div>
     }
-    .into_html_string();
+    .html_string();
 }

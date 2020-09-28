@@ -4,8 +4,9 @@ use mogwai::{
     utils,
     view::{builder::*, interface::*},
 };
-use snafu::{OptionExt, Snafu};
-pub use std::{ops::Deref, convert::TryFrom};
+use snafu::{OptionExt, ResultExt, Snafu};
+use std::{cell::RefCell, rc::Rc};
+pub use std::{convert::TryFrom, ops::Deref};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
 use web_sys::{Node, Text};
@@ -146,24 +147,23 @@ impl<T: IsDomNode + AsRef<JsValue>> Hydrator<T> {
                 view.try_cast::<To>().map_err(|view| Error::Conversion {
                     from: std::any::type_name::<T>().to_string(),
                     to: std::any::type_name::<To>().to_string(),
-                    node: view.deref().as_ref().clone(),
+                    node: view.dom_ref().as_ref().clone(),
                 })
             }),
             update: match prev_update {
                 Some(prev_update) => Some(Box::new(|view: &mut View<To>| -> Result<(), Error> {
-                    if view.deref().has_type::<T>() {
-                        let mut prev_view: View<T> = View::default();
-                        view.swap(&mut prev_view);
-                        prev_update(&mut prev_view)?;
-                        view.swap(&mut prev_view);
-                        Ok(())
-                    } else {
-                        Conversion {
+                    let view = view.clone();
+                    match view.try_cast::<T>() {
+                        Ok(mut prev_view) => {
+                            prev_update(&mut prev_view);
+                            Ok(())
+                        }
+                        Err(view) => Conversion {
                             from: std::any::type_name::<T>().to_string(),
                             to: std::any::type_name::<To>().to_string(),
-                            node: view.deref().as_ref().clone(),
+                            node: view.dom_ref().as_ref().clone(),
                         }
-                        .fail()
+                        .fail(),
                     }
                 })),
                 _ => None,
@@ -198,6 +198,7 @@ where
             styles,
             events,
             children,
+            replaces,
             posts,
             text,
         } = builder;
@@ -216,28 +217,20 @@ where
 
         if events.len() > 0 {
             hview.append_update(|view: &mut View<T>| {
-                let t: T = {
-                    let t: &T = &view;
-                    t.clone()
-                };
-                let myself = t.dyn_ref::<EventTarget>().with_context(|| Conversion {
-                    from: std::any::type_name::<T>().to_string(),
-                    to: std::any::type_name::<EventTarget>().to_string(),
-                    node: (view.deref().as_ref() as &JsValue).clone(),
-                })?;
-                let window = utils::window();
-                let doc = utils::document();
+                let t: T = view.dom_ref().clone();
+                let mut view: View<EventTarget> = view
+                    .clone()
+                    .try_cast::<EventTarget>()
+                    .map_err(|_| Error::Conversion {
+                        from: std::any::type_name::<T>().to_string(),
+                        to: std::any::type_name::<EventTarget>().to_string(),
+                        node: t.unchecked_into(),
+                    })?;
                 for cmd in events.into_iter() {
                     match cmd.type_is {
-                        EventTargetType::Myself => {
-                            view.add_event(myself, &cmd.name, cmd.transmitter)
-                        }
-                        EventTargetType::Window => {
-                            view.add_event(&window, &cmd.name, cmd.transmitter)
-                        }
-                        EventTargetType::Document => {
-                            view.add_event(&doc, &cmd.name, cmd.transmitter)
-                        }
+                        EventTargetType::Myself => view.on(&cmd.name, cmd.transmitter),
+                        EventTargetType::Window => view.window_on(&cmd.name, cmd.transmitter),
+                        EventTargetType::Document => view.document_on(&cmd.name, cmd.transmitter),
                     }
                 }
                 Ok(())
@@ -245,8 +238,18 @@ where
         }
         if styles.len() > 0 {
             hview.append_update(|view: &mut View<T>| {
+                let t: T = view.dom_ref().clone();
+                let mut view: View<HtmlElement> = view
+                    .clone()
+                    .try_cast::<HtmlElement>()
+                    .map_err(|_| Error::Conversion {
+                        from: std::any::type_name::<T>().to_string(),
+                        to: std::any::type_name::<HtmlElement>().to_string(),
+                        node: t.unchecked_into(),
+                    })?;
+
                 for cmd in styles.into_iter() {
-                    view.add_style(&cmd.name, cmd.effect);
+                    view.style(&cmd.name, cmd.effect);
                 }
                 Ok(())
             });
@@ -271,13 +274,23 @@ where
                 hview.create = Hydrator::from(HydrationKey::Id(id.to_string())).create;
             }
             hview.append_update(|view: &mut View<T>| {
+                let t: T = view.dom_ref().clone();
+                let mut view: View<Element> = view
+                    .clone()
+                    .try_cast::<Element>()
+                    .map_err(|_| Error::Conversion {
+                        from: std::any::type_name::<T>().to_string(),
+                        to: std::any::type_name::<Element>().to_string(),
+                        node: t.unchecked_into(),
+                    })?;
+
                 for cmd in attribs.into_iter() {
                     match cmd {
                         AttributeCmd::Attrib { name, effect } => {
-                            view.add_attribute(&name, effect);
+                            view.attribute(&name, effect);
                         }
                         AttributeCmd::Bool { name, effect } => {
-                            view.add_boolean_attribute(&name, effect);
+                            view.boolean_attribute(&name, effect);
                         }
                     }
                 }
@@ -288,6 +301,13 @@ where
         for child in children.into_iter() {
             let child = Hydrator::from(child);
             hview.with(child);
+        }
+
+        for update in replaces.into_iter() {
+            hview.append_update(|view: &mut View<T>| {
+                view.this_later(update);
+                Ok(())
+            });
         }
 
         for tx in posts.into_iter() {
@@ -508,13 +528,24 @@ where
 {
     fn with(&mut self, mut child: Hydrator<C>) {
         self.append_update(|v: &mut View<P>| {
-            let node = (v.as_ref() as &Node).clone();
-            let index = v.children.len() as u32;
+            let node: Node = (v.dom_ref().as_ref() as &Node).clone();
+            let index = v.stored_views_len() as u32;
             child.create = Hydrator::from(HydrationKey::IndexedChildOf { node, index }).create;
             let child_view: View<C> = View::try_from(child)?;
-            v.children.push(child_view.upcast());
+            v.store_view(child_view.upcast());
             Ok(())
         });
+    }
+}
+
+
+impl<P, C> ParentView<(Hydrator<C>, Receiver<View<C>>)> for Hydrator<P>
+where
+    P: IsDomNode + AsRef<Node>,
+    C: IsDomNode + AsRef<Node>,
+{
+    fn with(&mut self, (child, rx): (Hydrator<C>, Receiver<View<C>>)) {
+        todo!()
     }
 }
 

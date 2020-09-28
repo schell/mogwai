@@ -1,7 +1,11 @@
 use std::{
+    future::Future,
     cell::{Cell, RefCell},
     collections::VecDeque,
+    pin::Pin,
     rc::Rc,
+    task::{Context, Poll, Waker},
+    time::{Duration, Instant},
 };
 use wasm_bindgen::{closure::Closure, JsCast, JsValue, UnwrapThrowExt};
 use web_sys;
@@ -146,5 +150,59 @@ pub fn add_event(
 ) -> MogwaiCallback {
     MogwaiCallback {
         callback: Rc::new(Box::new(|_| {})),
+    }
+}
+
+
+struct WaitFuture {
+    start: f64,
+    millis: f64,
+    waker: Rc<RefCell<Option<Waker>>>,
+}
+
+
+impl Future for WaitFuture {
+    type Output = f64;
+
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        let future: &mut WaitFuture = self.get_mut();
+        let now =
+            window()
+            .performance()
+            .expect("no performance object")
+            .now();
+        let elapsed = now - future.start;
+        if elapsed >= future.millis {
+            Poll::Ready(elapsed)
+        } else {
+            *future.waker.borrow_mut() = Some(ctx.waker().clone());
+            Poll::Pending
+        }
+    }
+}
+
+
+/// Wait approximately the given number of milliseconds.
+/// Returns a [`Future`] that yields the actual number of milliseconds waited.
+pub fn wait_approximately(millis: f64) -> impl Future<Output = f64> {
+    let waker: Rc<RefCell<Option<Waker>>> = Rc::new(RefCell::new(None));
+    let waker2 = waker.clone();
+    let start =
+        window()
+        .performance()
+        .expect("no performance object")
+        .now();
+    timeout(millis as i32, move || {
+        waker2
+            .borrow_mut()
+            .take()
+            .into_iter()
+            .for_each(|waker| waker.wake());
+        false
+    });
+    WaitFuture {
+        start,
+        waker,
+        millis
     }
 }

@@ -1,6 +1,10 @@
 #![allow(unused_braces)]
 use mogwai::prelude::*;
 use mogwai_html_macro::target_arch_is_wasm32;
+use std::{
+    cell::{Ref, RefCell},
+    rc::Rc,
+};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
 use web_sys::Element;
@@ -40,16 +44,16 @@ fn gizmo_ref_as_child() {
     let div = {
         let pre = view! { <pre>"this has text"</pre> };
         let div = view! { <div id="parent"></div> };
-        (div.as_ref() as &Node).append_child(pre.as_ref()).unwrap();
+        div.dom_ref().append_child(&pre.dom_ref()).unwrap();
         assert!(
-            div.first_child().is_some(),
+            div.dom_ref().first_child().is_some(),
             "parent does not contain in-scope child"
         );
         //console::log_1(&"dropping pre".into());
         div
     };
     assert!(
-        div.first_child().is_none(),
+        div.dom_ref().first_child().is_none(),
         "parent does not maintain out-of-scope child"
     );
     //console::log_1(&"dropping parent".into());
@@ -66,14 +70,21 @@ fn gizmo_as_child() {
                 <pre>"some text"</pre>
                 </div>
         };
-        assert!(div.first_child().is_some(), "could not add child gizmo");
+        assert!(
+            div.dom_ref().first_child().is_some(),
+            "could not add child gizmo"
+        );
         div
     };
     assert!(
-        div.first_child().is_some(),
+        div.dom_ref().first_child().is_some(),
         "could not keep hold of child gizmo"
     );
-    assert_eq!(div.children.len(), 1, "parent is missing static_gizmo");
+    assert_eq!(
+        div.dom_ref().child_nodes().length(),
+        1,
+        "parent is missing static_gizmo"
+    );
     //console::log_1(&"dropping div and pre".into());
 }
 
@@ -89,7 +100,8 @@ fn gizmo_tree() {
             </div>
             </div>
     };
-    if let Some(branch) = root.first_child() {
+    let el = root.dom_ref();
+    if let Some(branch) = el.first_child() {
         if let Some(leaf) = branch.first_child() {
             if let Some(leaf) = leaf.dyn_ref::<Element>() {
                 assert_eq!(leaf.id(), "leaf");
@@ -116,7 +128,7 @@ fn gizmo_texts() {
             </div>
     };
     assert_eq!(
-        &div.outer_html(),
+        &div.dom_ref().outer_html(),
         "<div>here is some text 66 &lt;- number</div>"
     );
 }
@@ -128,7 +140,7 @@ fn rx_attribute_jsx() {
     let div = view! {
         <div class=("now", rx) />
     };
-    let div_el: &HtmlElement = div.as_ref();
+    let div_el: Ref<HtmlElement> = div.dom_ref();
     assert_eq!(div_el.outer_html(), r#"<div class="now"></div>"#);
 
     tx.send(&"later".to_string());
@@ -143,7 +155,7 @@ fn rx_style_plain() {
     let mut div: View<HtmlElement> = View::element("div");
     div.style("display", ("block", rx));
 
-    let div_el: &HtmlElement = div.as_ref();
+    let div_el: Ref<HtmlElement> = div.dom_ref();
     assert_eq!(
         div_el.outer_html(),
         r#"<div style="display: block;"></div>"#
@@ -158,7 +170,7 @@ fn rx_style_plain() {
 fn rx_style_jsx() {
     let (tx, rx) = txrx::<String>();
     let div = view! { <div style:display=("block", rx) /> };
-    let div_el: &HtmlElement = div.as_ref();
+    let div_el: Ref<HtmlElement> = div.dom_ref();
     assert_eq!(
         div_el.outer_html(),
         r#"<div style="display: block;"></div>"#
@@ -171,12 +183,12 @@ fn rx_style_jsx() {
 
 #[wasm_bindgen_test]
 pub fn rx_text() {
-    let (tx, rx) = txrx();
+    let (tx, rx) = txrx::<String>();
 
     let mut div: View<HtmlElement> = View::element("div");
-    div.with(("initial", rx).into());
+    div.with(View::from(("initial", rx)));
 
-    let el: &HtmlElement = div.as_ref();
+    let el: Ref<HtmlElement> = div.dom_ref();
     assert_eq!(el.inner_text().as_str(), "initial");
     tx.send(&"after".into());
     assert_eq!(el.inner_text(), "after");
@@ -195,10 +207,10 @@ fn tx_on_click_plain() {
     });
 
     let mut button: View<HtmlElement> = View::element("button");
-    button.with(("Clicked 0 times", rx).into());
+    button.with(View::from(("Clicked 0 times", rx)));
     button.on("click", tx);
 
-    let el: &HtmlElement = button.as_ref();
+    let el: Ref<HtmlElement> = button.dom_ref();
     assert_eq!(el.inner_html(), "Clicked 0 times");
     el.click();
     assert_eq!(el.inner_html(), "Clicked 1 time");
@@ -217,7 +229,7 @@ fn tx_on_click_jsx() {
     });
 
     let button = view! { <button on:click=tx>{("Clicked 0 times", rx)}</button> };
-    let el: &HtmlElement = button.as_ref();
+    let el: Ref<HtmlElement> = button.dom_ref();
 
     assert_eq!(el.inner_html(), "Clicked 0 times");
     el.click();
@@ -255,25 +267,25 @@ pub fn can_i_alter_views_on_the_server() {
         <div style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
     };
     assert_eq!(
-        &view.clone().into_html_string(),
+        &view.clone().html_string(),
         r#"<div style="float: left;"><p class="p_class">here</p></div>"#
     );
 
     tx_text.send(&"there".to_string());
     assert_eq!(
-        &view.clone().into_html_string(),
+        &view.clone().html_string(),
         r#"<div style="float: left;"><p class="p_class">there</p></div>"#
     );
 
     tx_style.send(&"right".to_string());
     assert_eq!(
-        &view.clone().into_html_string(),
+        &view.clone().html_string(),
         r#"<div style="float: right;"><p class="p_class">there</p></div>"#
     );
 
     tx_class.send(&"my_p_class".to_string());
     assert_eq!(
-        &view.clone().into_html_string(),
+        &view.clone().html_string(),
         r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#
     );
 }
@@ -284,8 +296,7 @@ fn can_hydrate_view() {
     let container = view! {
         <div id="hydrator1"></div>
     };
-    let container_el: &HtmlElement = &container;
-    let container_el = container_el.clone();
+    let container_el: HtmlElement = container.dom_ref().clone();
     container.run().unwrap();
     container_el.set_inner_html(r#"<div id="my_div"><p>inner text</p></div>"#);
     assert_eq!(
@@ -349,7 +360,7 @@ async fn can_hydrate_or_view() {
     let pb_count = rx_pb.message().await;
     assert_eq!(pb_count, 1, "no post-build sent after fresh view");
 
-    let original_el: HtmlElement = (view.as_ref() as &HtmlElement).clone();
+    let original_el: HtmlElement = (view.dom_ref().as_ref() as &HtmlElement).clone();
     view.run().unwrap();
 
     let _hydrated_view = hydrate_view().unwrap();
@@ -366,4 +377,57 @@ async fn can_hydrate_or_view() {
     // responses from the post build receiver.
     let pb_count = rx_pb.message().await;
     assert_eq!(pb_count, 2);
+}
+
+
+#[wasm_bindgen_test]
+async fn can_wait_approximately() {
+    let millis_waited = utils::wait_approximately(22.0).await;
+    log::trace!("21 !>= {}", millis_waited);
+    assert!(millis_waited >= 21.0);
+}
+
+
+#[wasm_bindgen_test]
+async fn can_rx_views() {
+    console_log::init_with_level(log::Level::Trace);
+    log::trace!("can_rx_views");
+
+    let (tx, rx) = txrx::<View<HtmlElement>>();
+    let parent = view! {
+        <div id="main">
+            <slot this:later=rx></slot>
+        </div>
+    };
+    let node: HtmlElement = parent.dom_ref().clone();
+    parent.run().unwrap();
+
+    assert_eq!(
+        node.outer_html().as_str(),
+        r#"<div id="main"><slot></slot></div>"#
+    );
+
+    let view = view! {
+        <div>"hello"</div>
+    };
+
+    tx.send(&view);
+    utils::wait_approximately(10.0).await;
+    log::trace!("done waiting for hello");
+    assert_eq!(
+        node.outer_html().as_str(),
+        r#"<div id="main"><div>hello</div></div>"#
+    );
+
+    let view = view! {
+        <div>"goodbye"</div>
+    };
+
+    tx.send(&view);
+    utils::wait_approximately(10.0).await;
+    log::trace!("done waiting for goodbye");
+    assert_eq!(
+        node.outer_html().as_str(),
+        r#"<div id="main"><div>goodbye</div></div>"#
+    );
 }

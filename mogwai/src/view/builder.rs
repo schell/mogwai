@@ -7,11 +7,12 @@ use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement, Text};
 
 use crate::{
-    prelude::{Effect, Receiver, Transmitter, View},
+    prelude::{Effect, Receiver, Transmitter, View, IsDomNode},
     view::interface::*,
 };
 
 
+#[derive(Clone)]
 pub enum AttributeCmd {
     Attrib {
         name: String,
@@ -24,12 +25,14 @@ pub enum AttributeCmd {
 }
 
 
+#[derive(Clone)]
 pub struct StyleCmd {
     pub name: String,
     pub effect: Effect<String>,
 }
 
 
+#[derive(Clone)]
 pub enum EventTargetType {
     Myself,
     Window,
@@ -37,6 +40,7 @@ pub enum EventTargetType {
 }
 
 
+#[derive(Clone)]
 pub struct EventTargetCmd {
     pub type_is: EventTargetType,
     pub name: String,
@@ -44,7 +48,7 @@ pub struct EventTargetCmd {
 }
 
 
-pub struct ViewBuilder<T: JsCast> {
+pub struct ViewBuilder<T: IsDomNode> {
     pub element: Option<String>,
     pub ns: Option<String>,
     pub text: Option<Effect<String>>,
@@ -52,11 +56,33 @@ pub struct ViewBuilder<T: JsCast> {
     pub styles: Vec<StyleCmd>,
     pub events: Vec<EventTargetCmd>,
     pub posts: Vec<Transmitter<T>>,
+    pub replaces: Vec<Receiver<View<T>>>,
     pub children: Vec<ViewBuilder<Node>>,
 }
 
 
-impl<T: JsCast> Default for ViewBuilder<T> {
+impl<T: IsDomNode> Clone for ViewBuilder<T> {
+    fn clone(&self) -> Self {
+        ViewBuilder {
+            element: self.element.clone(),
+            ns: self.ns.clone(),
+            text: self.text.clone(),
+            attribs: self.attribs.clone(),
+            styles: self.styles.clone(),
+            events: self.events.clone(),
+            posts: self.posts.clone(),
+            children: self.children.clone(),
+            replaces: self
+                .replaces
+                .iter()
+                .map(Receiver::branch)
+                .collect(),
+        }
+    }
+}
+
+
+impl<T: IsDomNode> Default for ViewBuilder<T> {
     fn default() -> Self {
         ViewBuilder {
             element: None,
@@ -66,13 +92,14 @@ impl<T: JsCast> Default for ViewBuilder<T> {
             styles: vec![],
             events: vec![],
             posts: vec![],
+            replaces: vec![],
             children: vec![],
         }
     }
 }
 
 
-impl<T: Clone + JsCast + AsRef<Node> + 'static> ViewBuilder<T> {
+impl<T: IsDomNode + AsRef<Node>> ViewBuilder<T> {
     fn to_node(self) -> ViewBuilder<Node> {
         ViewBuilder {
             element: self.element,
@@ -82,6 +109,13 @@ impl<T: Clone + JsCast + AsRef<Node> + 'static> ViewBuilder<T> {
             styles: self.styles,
             events: self.events,
             children: self.children,
+            replaces: self
+                .replaces
+                .into_iter()
+                .map(|update| update.branch_map(|builder| {
+                    View::from(builder.clone()).upcast::<Node>()
+                }))
+                .collect(),
             posts: self
                 .posts
                 .into_iter()
@@ -98,10 +132,7 @@ impl<T: Clone + JsCast + AsRef<Node> + 'static> ViewBuilder<T> {
 
 
 /// [`ViewBuilder`] can be converted into a fresh [`View`].
-impl<T> From<ViewBuilder<T>> for View<T>
-where
-    T: JsCast + Clone + AsRef<Node> + 'static,
-{
+impl<T: IsDomNode + AsRef<Node>> From<ViewBuilder<T>> for View<T> {
     fn from(builder: ViewBuilder<T>) -> View<T> {
         let ViewBuilder {
             element,
@@ -109,6 +140,7 @@ where
             attribs,
             styles,
             events,
+            replaces,
             children,
             posts,
             text,
@@ -128,50 +160,52 @@ where
             },
         };
 
-        let has_event_target = cfg!(not(target_arch = "wasm32")) || view.has_type::<EventTarget>();
-        if events.len() > 0 && has_event_target {
-            let mut ev_view: View<EventTarget> = View::default();
-            view.swap(&mut ev_view);
-            for cmd in events.into_iter() {
-                match cmd.type_is {
-                    EventTargetType::Myself => ev_view.on(&cmd.name, cmd.transmitter),
-                    EventTargetType::Window => ev_view.window_on(&cmd.name, cmd.transmitter),
-                    EventTargetType::Document => ev_view.document_on(&cmd.name, cmd.transmitter),
-                }
-            }
-            view.swap(&mut ev_view);
-        }
+        {
+            let mut internals = view.internals.borrow_mut();
 
-        let has_html_element = cfg!(not(target_arch = "wasm32")) || view.has_type::<HtmlElement>();
-        if styles.len() > 0 && has_html_element {
-            let mut style_view: View<HtmlElement> = View::default();
-            view.swap(&mut style_view);
-            for cmd in styles.into_iter() {
-                style_view.style(&cmd.name, cmd.effect);
-            }
-            view.swap(&mut style_view);
-        }
-
-        let has_element = cfg!(not(target_arch = "wasm32")) || view.has_type::<Element>();
-        if attribs.len() > 0 && has_element {
-            let mut att_view: View<Element> = View::default();
-            view.swap(&mut att_view);
-            for cmd in attribs.into_iter() {
-                match cmd {
-                    AttributeCmd::Attrib { name, effect } => {
-                        att_view.attribute(&name, effect);
-                    }
-                    AttributeCmd::Bool { name, effect } => {
-                        att_view.boolean_attribute(&name, effect);
+            if events.len() > 0 && internals.element.has_type::<EventTarget>() {
+                for cmd in events.into_iter() {
+                    match cmd.type_is {
+                        EventTargetType::Myself => {
+                            internals.add_event_on_this(&cmd.name, cmd.transmitter);
+                        }
+                        EventTargetType::Window => {
+                            internals.add_event_on_window(&cmd.name, cmd.transmitter);
+                        }
+                        EventTargetType::Document => {
+                            internals.add_event_on_document(&cmd.name, cmd.transmitter);
+                        }
                     }
                 }
             }
-            view.swap(&mut att_view);
+
+            if styles.len() > 0 && internals.element.has_type::<HtmlElement>() {
+                for cmd in styles.into_iter() {
+                    internals.add_style(&cmd.name, cmd.effect);
+                }
+            }
+
+            if attribs.len() > 0 && internals.element.has_type::<Element>() {
+                for cmd in attribs.into_iter() {
+                    match cmd {
+                        AttributeCmd::Attrib { name, effect } => {
+                            internals.add_attribute(&name, effect);
+                        }
+                        AttributeCmd::Bool { name, effect } => {
+                            internals.add_boolean_attribute(&name, effect);
+                        }
+                    }
+                }
+            }
         }
 
-        for child in children.into_iter() {
-            let child = View::from(child);
+        for builder in children.into_iter() {
+            let child: View<Node> = View::from(builder);
             view.with(child);
+        }
+
+        for update in replaces.into_iter() {
+            view.this_later(update);
         }
 
         for tx in posts.into_iter() {
@@ -259,7 +293,7 @@ impl From<String> for ViewBuilder<Text> {
 /// # ElementView
 
 
-impl<T: JsCast + AsRef<Node> + 'static> ElementView for ViewBuilder<T> {
+impl<T: IsDomNode + AsRef<Node> + 'static> ElementView for ViewBuilder<T> {
     fn element(tag: &str) -> Self {
         let mut builder = ViewBuilder::default();
         builder.element = Some(tag.into());
@@ -278,7 +312,7 @@ impl<T: JsCast + AsRef<Node> + 'static> ElementView for ViewBuilder<T> {
 /// # AttributeView
 
 
-impl<T: JsCast + AsRef<Node> + AsRef<Element> + 'static> AttributeView for ViewBuilder<T> {
+impl<T: IsDomNode + AsRef<Node> + AsRef<Element> + 'static> AttributeView for ViewBuilder<T> {
     fn attribute<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
         let effect = eff.into();
         self.attribs.push(AttributeCmd::Attrib {
@@ -300,7 +334,7 @@ impl<T: JsCast + AsRef<Node> + AsRef<Element> + 'static> AttributeView for ViewB
 /// # StyleView
 
 
-impl<T: JsCast + AsRef<HtmlElement> + 'static> StyleView for ViewBuilder<T> {
+impl<T: IsDomNode + AsRef<HtmlElement> + 'static> StyleView for ViewBuilder<T> {
     fn style<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
         let effect = eff.into();
         self.styles.push(StyleCmd {
@@ -314,7 +348,7 @@ impl<T: JsCast + AsRef<HtmlElement> + 'static> StyleView for ViewBuilder<T> {
 /// # EventTargetView
 
 
-impl<T: JsCast + AsRef<EventTarget> + 'static> EventTargetView for ViewBuilder<T> {
+impl<T: IsDomNode + AsRef<EventTarget> + 'static> EventTargetView for ViewBuilder<T> {
     fn on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
         self.events.push(EventTargetCmd {
             type_is: EventTargetType::Myself,
@@ -346,12 +380,11 @@ impl<T: JsCast + AsRef<EventTarget> + 'static> EventTargetView for ViewBuilder<T
 
 impl<P, C> ParentView<ViewBuilder<C>> for ViewBuilder<P>
 where
-    P: JsCast + AsRef<Node> + 'static,
-    C: JsCast + Clone + AsRef<Node> + 'static,
+    P: IsDomNode + AsRef<Node>,
+    C: IsDomNode + AsRef<Node>,
 {
     fn with(&mut self, child: ViewBuilder<C>) {
-        let child: ViewBuilder<Node> = child.to_node();
-        self.children.push(child);
+        self.children.push(child.to_node());
     }
 }
 
@@ -359,7 +392,7 @@ where
 /// # PostBuildView
 
 
-impl<T: JsCast + Clone + 'static> PostBuildView for ViewBuilder<T> {
+impl<T: IsDomNode + Clone + 'static> PostBuildView for ViewBuilder<T> {
     type DomNode = T;
 
     fn post_build(&mut self, transmitter: Transmitter<T>) {

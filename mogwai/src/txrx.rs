@@ -258,8 +258,6 @@
 //! * [Transmitter::wire_fold_shared]
 //! * [Transmitter::wire_map]
 //!
-//! Note that they all mutate the [Transmitter] they are called on.
-//!
 //! Conversely, if you would like to forward messages from a receiver into a
 //! transmitter of a different type you can "forward" messages from the receiver
 //! to the transmitter:
@@ -397,6 +395,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 use wasm_bindgen_futures::spawn_local;
+
 
 pub type RecvFuture<A> = Pin<Box<dyn Future<Output = Option<A>>>>;
 
@@ -754,7 +753,7 @@ impl<A> Receiver<A> {
     /// Set the response this receiver has to messages. Upon receiving a message
     /// the response will run immediately.
     ///
-    /// Folds mutably over a shared Rc<RefCell<T>>.
+    /// Folds mutably over a Rc<RefCell<T>>.
     pub fn respond_shared<T: 'static, F>(self, val: Rc<RefCell<T>>, f: F)
     where
         F: Fn(&mut T, &A) + 'static,
@@ -1046,8 +1045,8 @@ impl<A> Receiver<A> {
     where
         A: Clone + 'static,
     {
-        let var = Rc::new(RefCell::new(None));
-        let var2 = var.clone();
+        let var: Rc<RefCell<Option<A>>> = Rc::new(RefCell::new(None));
+        let var2: Rc<RefCell<Option<A>>> = var.clone();
         let waker: Rc<RefCell<Option<Waker>>> = Rc::new(RefCell::new(None));
         let waker2 = waker.clone();
         self.branch().respond(move |msg| {

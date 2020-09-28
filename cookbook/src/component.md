@@ -1,8 +1,13 @@
-# Creating a component
+# Components
+A [Component][component] is a fold function (logic), a state variable and a [View][view]
+all wrapped up in one, for your convenience!
+
+## Creating a Component
 A mogwai component can be created by implementing the [Component][component]
-trait for a type. Use `into_component()` to turn your type into a
-[GizmoComponent][gizmo_component], which can be `run` or added to a [Gizmo][gizmo] hierarchy
-using `with`.
+trait for any type. That type is the state. Its [Component::update][update] function
+is the logic. The [Component::view][view] function becomes the view. Use
+[Gizmo::from][gizmo_from] to turn your type into a [Gizmo][gizmo], which can be
+`run` or used however you like.
 
 If your component is the top-level gizmo in your application, or if it simply
 is the top-level of its gizmo hierarchy, you can run it with `run()`.
@@ -10,7 +15,6 @@ is the top-level of its gizmo hierarchy, you can run it with `run()`.
 In the following example we assume it is the top-level gizmo in the program.
 
 ```rust
-extern crate mogwai;
 use mogwai::prelude::*;
 
 #[derive(Clone)]
@@ -32,16 +36,21 @@ impl Component for App {
   type ViewMsg = Out;
   type DomNode = HtmlElement;
 
-  fn view(&self, tx: Transmitter<In>, rx:Receiver<Out>) -> Gizmo<HtmlElement> {
-    button()
-      .tx_on("click", tx.contra_map(|_| In::Click))
-      .rx_text("clicks = 0", rx.branch_map(|msg| {
-        match msg {
-          Out::DrawClicks(n) => {
-            format!("clicks = {}", n)
-          }
-        }
-      }))
+  fn view(&self, tx: &Transmitter<In>, rx: &Receiver<Out>) -> ViewBuilder<HtmlElement> {
+      builder!{
+          <button on:click=tx.contra_map(|_| In::Click)>
+          {(
+              "clicks = 0",
+              rx.branch_map(|msg| {
+                  match msg {
+                      Out::DrawClicks(n) => {
+                          format!("clicks = {}", n)
+                      }
+                  }
+              })
+          )}
+          </button>
+      }
   }
 
   fn update(&mut self, msg: &In, tx_view: &Transmitter<Out>, _sub: &Subscriber<In>) {
@@ -56,9 +65,12 @@ impl Component for App {
 
 
 pub fn main() -> Result<(), JsValue> {
-  App{ num_clicks: 0 }
-  .into_component()
-  .run()
+    let gizmo: Gizmo<App> = Gizmo::from(App{ num_clicks: 0 });
+    if cfg!(target_arch = "wasm32") {
+        gizmo.run()
+    } else {
+        Ok(())
+    }
 }
 ```
 

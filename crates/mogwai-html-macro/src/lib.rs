@@ -40,6 +40,9 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
                 ["boolean", name] => Ok(quote! {
                     __mogwai_node.boolean_attribute(#name, #expr);
                 }),
+                ["this", "later"] => Ok(quote! {
+                    __mogwai_node.this_later(#expr);
+                }),
                 [attribute_name] => Ok(quote! {
                     __mogwai_node.attribute(#attribute_name, #expr);
                 }),
