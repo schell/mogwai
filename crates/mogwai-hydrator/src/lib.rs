@@ -4,8 +4,7 @@ use mogwai::{
     utils,
     view::{builder::*, interface::*},
 };
-use snafu::{OptionExt, ResultExt, Snafu};
-use std::{cell::RefCell, rc::Rc};
+use snafu::{OptionExt, Snafu};
 pub use std::{convert::TryFrom, ops::Deref};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
@@ -155,7 +154,7 @@ impl<T: IsDomNode + AsRef<JsValue>> Hydrator<T> {
                     let view = view.clone();
                     match view.try_cast::<T>() {
                         Ok(mut prev_view) => {
-                            prev_update(&mut prev_view);
+                            prev_update(&mut prev_view)?;
                             Ok(())
                         }
                         Err(view) => Conversion {
@@ -535,17 +534,6 @@ where
             v.store_view(child_view.upcast());
             Ok(())
         });
-    }
-}
-
-
-impl<P, C> ParentView<(Hydrator<C>, Receiver<View<C>>)> for Hydrator<P>
-where
-    P: IsDomNode + AsRef<Node>,
-    C: IsDomNode + AsRef<Node>,
-{
-    fn with(&mut self, (child, rx): (Hydrator<C>, Receiver<View<C>>)) {
-        todo!()
     }
 }
 

@@ -174,16 +174,6 @@ impl Default for ViewInternals {
 
 
 impl ViewInternals {
-    fn all_replace_rxs(&self) -> Vec<Receiver<View<Node>>> {
-        self.rxs
-            .iter()
-            .filter_map(|srx| match srx {
-                StoredRx::View(rx) => Some(crate::txrx::hand_clone(rx)),
-                _ => None,
-            })
-            .collect()
-    }
-
     #[cfg(target_arch = "wasm32")]
     fn with_node<F>(&mut self, _: F)
     where
@@ -201,7 +191,7 @@ impl ViewInternals {
     }
 
     /// Adds a View as a child node by storing the View and adding its element to the DOM.
-    pub fn add_child<E: JsCast + AsRef<Node> + Clone + 'static>(&mut self, child: View<E>) {
+    pub fn add_child<E: IsDomNode + AsRef<Node>>(&mut self, child: View<E>) {
         if cfg!(target_arch = "wasm32") {
             let node: &Node = self.element.unchecked_ref();
             let child_internals: Ref<ViewInternals> = child.internals.as_ref().borrow();
@@ -215,19 +205,38 @@ impl ViewInternals {
     /// Adds a View as a child node at a certain index by storing the View and adding its element to the DOM.
     /// If the index given is greater than the number of children, the given child is appended to the end of
     /// the node list.
-    pub fn add_child_at<E: JsCast + AsRef<Node> + Clone + 'static>(
-        &mut self,
-        index: usize,
-        child: View<E>,
-    ) {
+    pub fn add_child_at<E: IsDomNode + AsRef<Node>>(&mut self, index: usize, child: View<E>) {
+        if index >= self.slots.len() {
+            return self.add_child(child);
+        }
+
         if cfg!(target_arch = "wasm32") {
             let node: &Node = self.element.unchecked_ref();
-            let child_internals: Ref<ViewInternals> = child.internals.as_ref().borrow();
-            node.append_child(&child_internals.element.as_ref().unchecked_ref())
-                .expect("Could not add text node to View");
+            self.slots
+                .get(index)
+                .into_iter()
+                .for_each(|view_after: &View<Node>| {
+                    node.insert_before(child.dom_ref().as_ref(), Some(&view_after.dom_ref()))
+                        .unwrap_throw();
+                });
         }
-        let child = child.upcast();
-        self.slots.push(child);
+
+        self.slots.insert(index, child.upcast());
+    }
+
+    /// Removes a child View node from a certain index.
+    /// If the index given is greater than the number of children the result is `None`.
+    pub fn remove_child_at(&mut self, index: usize) -> Option<View<Node>> {
+        if index >= self.slots.len() {
+            return None;
+        }
+
+        let child: View<Node> = self.slots.remove(index);
+        if cfg!(target_arch = "wasm32") {
+            let node: &Node = self.element.unchecked_ref();
+            node.remove_child(&child.dom_ref()).unwrap_throw();
+        }
+        Some(child)
     }
 
     /// Adds an event on this view's element that will be stored by this view.
@@ -910,7 +919,8 @@ impl<T: IsDomNode + AsRef<Node>> ReplaceView<View<T>> for View<T> {
                         old_dom,
                         new_dom
                     );
-                    parent.replace_child(new_dom.as_ref(), old_dom.as_ref());
+                    parent.replace_child(new_dom.as_ref(), old_dom.as_ref())
+                        .unwrap_throw();
                 }
             }
 
@@ -982,18 +992,29 @@ impl<T: IsDomNode + AsRef<Node>, C: IsDomNode + AsRef<Node>> PatchView<View<C>> 
                 .rxs
                 .push(StoredRx::Patch(crate::txrx::hand_clone(&rx)));
         }
+
         let internals = self.internals.clone();
         rx.respond(move |patch| match patch {
             Patch::Insert { index, value } => {
-                if let Some(child) = internals.borrow().slots.get(*index) {
-
-                }
+                internals.borrow_mut().add_child_at(*index, value.clone());
             }
-            Patch::Remove { index } => {}
-            Patch::PushFront{ value } => {}
-            Patch::PushBack{ value } => {}
-            Patch::PopFront => {}
-            Patch::PopBack => {}
+            Patch::Remove { index } => {
+                internals.borrow_mut().remove_child_at(*index);
+            }
+            Patch::PushFront { value } => {
+                internals.borrow_mut().add_child_at(0, value.clone());
+            }
+            Patch::PushBack { value } => {
+                internals.borrow_mut().add_child(value.clone());
+            }
+            Patch::PopFront => {
+                let _ = internals.borrow_mut().remove_child_at(0);
+            }
+            Patch::PopBack => {
+                let mut i = internals.borrow_mut();
+                let len = i.slots.len();
+                let _ = i.remove_child_at(len - 1);
+            }
         });
     }
 }

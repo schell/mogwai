@@ -5,7 +5,6 @@ use std::{
     pin::Pin,
     rc::Rc,
     task::{Context, Poll, Waker},
-    time::{Duration, Instant},
 };
 use wasm_bindgen::{closure::Closure, JsCast, JsValue, UnwrapThrowExt};
 use web_sys;

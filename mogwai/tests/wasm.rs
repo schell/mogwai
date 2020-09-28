@@ -2,8 +2,7 @@
 use mogwai::prelude::*;
 use mogwai_html_macro::target_arch_is_wasm32;
 use std::{
-    cell::{Ref, RefCell},
-    rc::Rc,
+    cell::Ref,
 };
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
@@ -390,7 +389,7 @@ async fn can_wait_approximately() {
 
 #[wasm_bindgen_test]
 async fn can_rx_views() {
-    console_log::init_with_level(log::Level::Trace);
+    console_log::init_with_level(log::Level::Trace).unwrap_throw();
     log::trace!("can_rx_views");
 
     let (tx, rx) = txrx::<View<HtmlElement>>();
@@ -429,5 +428,65 @@ async fn can_rx_views() {
     assert_eq!(
         node.outer_html().as_str(),
         r#"<div id="main"><div>goodbye</div></div>"#
+    );
+}
+
+
+#[wasm_bindgen_test]
+async fn can_patch_children() {
+    let (tx, rx) = txrx::<Patch<View<HtmlElement>>>();
+    let view = view!{
+        <ol id="main" patch:children=rx>
+            <li>"Zero"</li>
+            <li>"One"</li>
+        </ol>
+    };
+
+    let dom: HtmlElement = view.dom_ref().clone();
+    view.run().unwrap();
+
+    assert_eq!(
+        dom.outer_html().as_str(),
+        r#"<ol id="main"><li>Zero</li><li>One</li></ol>"#
+    );
+
+    let two = view! {
+        <li>"Two"</li>
+    };
+
+    tx.send(&Patch::PushBack{ value: two });
+    assert_eq!(
+        dom.outer_html().as_str(),
+        r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
+    );
+
+    tx.send(&Patch::PopFront);
+    assert_eq!(
+        dom.outer_html().as_str(),
+        r#"<ol id="main"><li>One</li><li>Two</li></ol>"#
+    );
+
+    tx.send(&Patch::Insert{ index: 0, value: view!{<li>"Zero"</li>} });
+    assert_eq!(
+        dom.outer_html().as_str(),
+        r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
+    );
+
+    tx.send(&Patch::Remove{ index: 2 });
+    assert_eq!(
+        dom.outer_html().as_str(),
+        r#"<ol id="main"><li>Zero</li><li>One</li></ol>"#
+    );
+
+    tx.send(&Patch::PushFront{ value: view!{<li>"Negative One"</li>}});
+    assert_eq!(
+        dom.outer_html().as_str(),
+        r#"<ol id="main"><li>Negative One</li><li>Zero</li><li>One</li></ol>"#
+    );
+
+    tx.send(&Patch::PopBack);
+    assert_eq!(
+        dom.outer_html().as_str(),
+        r#"<ol id="main"><li>Negative One</li><li>Zero</li></ol>"#
     );
 }
