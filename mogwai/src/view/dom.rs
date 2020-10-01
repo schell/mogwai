@@ -1,6 +1,6 @@
 //! Widgets for the browser.
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Ref, RefCell},
     marker::PhantomData,
     rc::Rc,
 };
@@ -67,41 +67,6 @@ pub(crate) struct ServerNode {
 }
 
 
-enum StoredRx {
-    String(Receiver<String>),
-    OptionString(Receiver<Option<String>>),
-    Bool(Receiver<bool>),
-    View(Receiver<View<Node>>),
-    Patch(Receiver<Patch<View<Node>>>),
-}
-
-
-impl StoredRx {
-    fn drop_responder(&self) {
-        match self {
-            StoredRx::String(rx) => rx.drop_responder(),
-            StoredRx::OptionString(rx) => rx.drop_responder(),
-            StoredRx::Bool(rx) => rx.drop_responder(),
-            StoredRx::View(rx) => rx.drop_responder(),
-            StoredRx::Patch(rx) => rx.drop_responder(),
-        }
-    }
-}
-
-
-impl Clone for StoredRx {
-    fn clone(&self) -> Self {
-        match self {
-            StoredRx::String(rx) => StoredRx::String(crate::txrx::hand_clone(rx)),
-            StoredRx::OptionString(rx) => StoredRx::OptionString(crate::txrx::hand_clone(rx)),
-            StoredRx::Bool(rx) => StoredRx::Bool(crate::txrx::hand_clone(rx)),
-            StoredRx::View(rx) => StoredRx::View(crate::txrx::hand_clone(rx)),
-            StoredRx::Patch(rx) => StoredRx::Patch(crate::txrx::hand_clone(rx)),
-        }
-    }
-}
-
-
 #[derive(Clone)]
 enum StoredCb {
     This(String, MogwaiCallback),
@@ -115,14 +80,13 @@ pub(crate) struct ViewInternals {
     pub(crate) slots: Vec<View<Node>>,
     pub(crate) element: Rc<JsValue>,
     callbacks: Vec<StoredCb>,
-    rxs: Vec<StoredRx>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) server_node: ServerNode,
 }
 
 
-/// ViewInternal's Drop implementation insures that responders no longer attempt to
-/// update the gizmo. It also removes its element from the DOM.
+/// ViewInternal's Drop implementation removes any javascript callbacks being managed by this
+/// view and also removes its element from the DOM if it is not referenced by any other view.
 #[cfg(target_arch = "wasm32")]
 impl Drop for ViewInternals {
     fn drop(&mut self) {
@@ -137,10 +101,25 @@ impl Drop for ViewInternals {
                     let _ = parent.remove_child(&node);
                 }
             }
-            // TODO: Investigate whether we can drop rx responders before the element Rc
-            // count drops to 1
-            self.rxs.iter().for_each(|rx| rx.drop_responder());
-            // TODO: Remove callbacks on drop
+        }
+
+        let may_targets = if cfg!(target_arch = "wasm32") {
+            self.element
+                .dyn_ref::<EventTarget>()
+                .cloned()
+                .map(|target| (target, utils::window(), utils::document()))
+        } else {
+            None
+        };
+
+        if let Some((this, window, document)) = may_targets {
+            for callback in self.callbacks.iter() {
+                match callback {
+                    StoredCb::This(event, mcb) => utils::remove_event(event, &this, mcb),
+                    StoredCb::Window(event, mcb) => utils::remove_event(event, &window, mcb),
+                    StoredCb::Document(event, mcb) => utils::remove_event(event, &document, mcb),
+                }
+            }
         }
     }
 }
@@ -152,7 +131,6 @@ impl Default for ViewInternals {
         ViewInternals {
             element: Rc::new(JsValue::NULL),
             callbacks: vec![],
-            rxs: vec![],
             slots: vec![],
         }
     }
@@ -161,7 +139,6 @@ impl Default for ViewInternals {
         ViewInternals {
             element: Rc::new(JsValue::NULL),
             callbacks: vec![],
-            rxs: vec![],
             slots: vec![],
             server_node: ServerNode {
                 name_or_text: NameOrText::Name(Rc::new(RefCell::new("".to_string()))),
@@ -239,12 +216,40 @@ impl ViewInternals {
         Some(child)
     }
 
+    pub fn remove_all_children(&mut self) -> Vec<View<Node>> {
+        let children: Vec<View<Node>> = std::mem::replace(&mut self.slots, vec![]);
+        if cfg!(target_arch = "wasm32") {
+            let node: &Node = self.element.unchecked_ref();
+            for child in children.iter() {
+                node.remove_child(&child.dom_ref()).unwrap_throw();
+            }
+        }
+        children
+    }
+
+    /// Removes a child View node from a certain index and replaces it with another. Returns
+    /// the child view that was replaced.
+    /// If the index given is greater than the number of children the result is `None`.
+    pub fn replace_child_at(&mut self, index: usize, new_child: View<Node>) -> Option<View<Node>> {
+        if index >= self.slots.len() {
+            return None;
+        }
+
+        let old_child: &View<Node> = self.slots.get(index).unwrap_throw();
+        if cfg!(target_arch = "wasm32") {
+            let node: &Node = self.element.unchecked_ref();
+            node.replace_child(&new_child.dom_ref(), &old_child.dom_ref())
+                .unwrap_throw();
+        }
+        old_child.internals.swap(&new_child.internals);
+        // Hand back the new_child that now contains the internals of the old child.
+        Some(new_child)
+    }
+
     /// Adds an event on this view's element that will be stored by this view.
     pub fn add_event_on_this(&mut self, ev_name: &str, tx: Transmitter<Event>) {
-        if let Some(target) = self.element.dyn_ref::<EventTarget>() {
-            let cb = utils::add_event(ev_name, &target, tx);
-            self.callbacks.push(StoredCb::This(ev_name.to_string(), cb));
-        }
+        let cb = utils::add_event(ev_name, self.element.as_ref().unchecked_ref(), tx);
+        self.callbacks.push(StoredCb::This(ev_name.to_string(), cb));
     }
 
     /// Adds an event on the window that will be stored by this view.
@@ -276,15 +281,9 @@ impl ViewInternals {
                         .unwrap_throw();
                 }
                 if let Some(later) = may_later {
-                    let rx = later;
-                    // Save a clone so we can drop_responder if this gizmo goes out of scope
-                    self.rxs
-                        .push(StoredRx::String(crate::txrx::hand_clone(&rx)));
-
                     let style = element.style();
                     let name = name.to_string();
-
-                    rx.respond(move |s| {
+                    later.respond(move |s| {
                         style.set_property(&name, s).expect("Could not set style");
                     });
                 }
@@ -298,13 +297,7 @@ impl ViewInternals {
                 });
             }
             if let Some(later) = may_later {
-                let rx = later;
-
-                // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.rxs
-                    .push(StoredRx::String(crate::txrx::hand_clone(&rx)));
-
-                rx.respond(move |s| {
+                later.respond(move |s| {
                     *var.borrow_mut() = s.to_string();
                 })
             }
@@ -321,16 +314,9 @@ impl ViewInternals {
                     element.set_attribute(name, &now).unwrap_throw();
                 }
                 if let Some(later) = may_later {
-                    let rx = later;
-
-                    // Save a clone so we can drop_responder if this gizmo goes out of scope
-                    self.rxs
-                        .push(StoredRx::String(crate::txrx::hand_clone(&rx)));
-
                     let element = element.clone();
                     let name = name.to_string();
-
-                    rx.respond(move |s| {
+                    later.respond(move |s| {
                         element
                             .set_attribute(&name, s)
                             .expect("Could not set attribute");
@@ -347,11 +333,6 @@ impl ViewInternals {
             }
             if let Some(later) = may_later {
                 let rx = later.branch_map(|s| Some(s.to_string()));
-
-                // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.rxs
-                    .push(StoredRx::OptionString(crate::txrx::hand_clone(&rx)));
-
                 rx.respond(move |may_s: &Option<String>| {
                     *var.borrow_mut() = may_s.clone();
                 });
@@ -369,14 +350,9 @@ impl ViewInternals {
                     element.set_attribute(name, "").unwrap_throw();
                 }
                 if let Some(later) = may_later {
-                    let rx = later.branch();
-                    // Save a clone so we can drop_responder if this gizmo goes out of scope
-                    self.rxs.push(StoredRx::Bool(crate::txrx::hand_clone(&rx)));
-
                     let element = element.clone();
                     let name = name.to_string();
-
-                    rx.respond(move |b| {
+                    later.respond(move |b| {
                         if *b {
                             element
                                 .set_attribute(&name, "")
@@ -398,11 +374,7 @@ impl ViewInternals {
                 *var.borrow_mut() = Some("".to_string());
             }
             if let Some(later) = may_later {
-                let rx = later.branch();
-                // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.rxs.push(StoredRx::Bool(crate::txrx::hand_clone(&rx)));
-
-                rx.respond(move |is_present| {
+                later.respond(move |is_present| {
                     *var.borrow_mut() = if *is_present {
                         Some("".to_string())
                     } else {
@@ -418,10 +390,20 @@ impl ViewInternals {
 /// A widget that may contain a bundled network of html elements, callback
 /// closures and receivers. This wraps a Javascript DOM node and maintains lists
 /// and maps needed to orchestrate user interaction.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct View<T: IsDomNode> {
     pub(crate) phantom: PhantomData<*const T>,
     pub(crate) internals: Rc<RefCell<ViewInternals>>,
+}
+
+
+impl<T: IsDomNode> Default for View<T> {
+    fn default() -> Self {
+        View {
+            phantom: PhantomData,
+            internals: Rc::new(RefCell::new(ViewInternals::default())),
+        }
+    }
 }
 
 
@@ -448,24 +430,24 @@ impl<T: IsDomNode> View<T> {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn as_ssr_node(&self) -> SsrNode {
-        let View {
-            server_node, slots, ..
-        } = self;
-        match &server_node.name_or_text {
+        let internals = self.internals.borrow();
+        match &internals.server_node.name_or_text {
             NameOrText::Name(name) => SsrNode::Container {
                 name: name.borrow().clone(),
                 attributes: {
                     // TODO: Merge attribute style with explicit styles
-                    let mut attributes = server_node
+                    let mut attributes = internals
+                        .server_node
                         .attributes
                         .iter()
                         .map(|(k, var)| (k.clone(), var.borrow().clone()))
                         .collect::<Vec<_>>();
-                    if !server_node.styles.is_empty() {
+                    if !internals.server_node.styles.is_empty() {
                         attributes.push((
                             "style".to_string(),
                             Some(
-                                server_node
+                                internals
+                                    .server_node
                                     .styles
                                     .iter()
                                     .map(|(k, v)| format!("{}: {};", k, v.borrow()))
@@ -476,9 +458,10 @@ impl<T: IsDomNode> View<T> {
                     }
                     attributes
                 },
-                children: slots
-                    .into_iter()
-                    .map(|rc_ref_view| rc_ref_view.as_ref().borrow().as_ssr_node())
+                children: internals
+                    .slots
+                    .iter()
+                    .map(|rc_ref_view| rc_ref_view.as_ssr_node())
                     .collect(),
             },
             NameOrText::Text(text) => SsrNode::Text(text.borrow().clone()),
@@ -543,9 +526,9 @@ impl<T: IsDomNode> View<T> {
         }
     }
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn try_cast<To: IsDomNode>(mut self) -> Result<View<To>, Self> {
+    pub fn try_cast<To: IsDomNode>(self) -> Result<View<To>, Self> {
         let mut view: View<To> = View::default();
-        self.swap(&mut view);
+        view.internals = self.internals;
         Ok(view)
     }
 
@@ -635,10 +618,6 @@ impl View<Text> {
     }
 
     pub fn rx_text(&mut self, rx: Receiver<String>) {
-        self.internals
-            .borrow_mut()
-            .rxs
-            .push(StoredRx::String(crate::txrx::hand_clone(&rx)));
         if cfg!(target_arch = "wasm32") {
             let text: Text = self.dom_ref().clone();
             rx.respond(move |s| text.set_data(s));
@@ -752,25 +731,13 @@ where
 impl<T: IsDomNode> ElementView for View<T> {
     #[cfg(not(target_arch = "wasm32"))]
     fn element(name: &str) -> Self {
-        View {
-            element: Rc::new(JsValue::NULL),
-            phantom: std::marker::PhantomData,
-            server_node: ServerNode {
-                name_or_text: NameOrText::Name(Rc::new(RefCell::new(name.into()))),
-                attributes: vec![],
-                styles: vec![],
-            },
-            slots: vec![],
-
-            callbacks: HashMap::default(),
-            window_callbacks: HashMap::default(),
-            document_callbacks: HashMap::default(),
-
-            string_rxs: vec![],
-            opt_string_rxs: vec![],
-            bool_rxs: vec![],
-            self_rxs: vec![],
-        }
+        let view = View::default();
+        view.internals.borrow_mut().server_node = ServerNode {
+            name_or_text: NameOrText::Name(Rc::new(RefCell::new(name.into()))),
+            attributes: vec![],
+            styles: vec![],
+        };
+        view
     }
     #[cfg(target_arch = "wasm32")]
     fn element(name: &str) -> Self {
@@ -784,25 +751,10 @@ impl<T: IsDomNode> ElementView for View<T> {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn element_ns(tag: &str, ns: &str) -> Self {
-        View {
-            element: Rc::new(JsValue::NULL),
-            phantom: std::marker::PhantomData,
-            server_node: ServerNode {
-                name_or_text: NameOrText::Name(Rc::new(RefCell::new(tag.into()))),
-                attributes: vec![("xmlns".into(), Rc::new(RefCell::new(Some(ns.into()))))],
-                styles: vec![],
-            },
-            slots: vec![],
-
-            callbacks: HashMap::default(),
-            window_callbacks: HashMap::default(),
-            document_callbacks: HashMap::default(),
-
-            string_rxs: vec![],
-            opt_string_rxs: vec![],
-            bool_rxs: vec![],
-            self_rxs: vec![],
-        }
+        let view = View::element(tag);
+        view.internals.borrow_mut().server_node.attributes =
+            vec![("xmlns".into(), Rc::new(RefCell::new(Some(ns.into()))))];
+        view
     }
     #[cfg(target_arch = "wasm32")]
     fn element_ns(tag: &str, ns: &str) -> Self {
@@ -897,69 +849,24 @@ impl<T: IsDomNode> PostBuildView for View<T> {
 
 impl<T: IsDomNode + AsRef<Node>> ReplaceView<View<T>> for View<T> {
     fn this_later(&mut self, rx: Receiver<View<T>>) {
-        let rx = rx.branch_map(|view| view.clone().upcast::<Node>());
         let internals: Rc<RefCell<ViewInternals>> = self.internals.clone();
-        {
-            let mut rxs: RefMut<Vec<StoredRx>> =
-                RefMut::map(internals.borrow_mut(), |i| &mut i.rxs);
-            rxs.push(StoredRx::View(crate::txrx::hand_clone(&rx)));
-        }
+        let rx = rx.branch_map(|view| view.clone().upcast::<Node>());
         rx.respond(move |new_view| {
             {
-                log::trace!("responded to new view: {}", new_view.html_string());
-
                 let old_dom: Ref<Node> =
                     Ref::map(internals.borrow(), |i| i.element.unchecked_ref::<Node>());
                 let new_dom: Ref<Node> = new_view.dom_ref();
-                log::trace!("have old {:#?} and new {:#?}", old_dom, new_dom);
                 if let Some(parent) = (old_dom.as_ref() as &Node).parent_node() {
-                    log::trace!(
-                        "  {:#?} is replacing {:#?} with {:#?}",
-                        parent,
-                        old_dom,
-                        new_dom
-                    );
-                    parent.replace_child(new_dom.as_ref(), old_dom.as_ref())
+                    parent
+                        .replace_child(new_dom.as_ref(), old_dom.as_ref())
                         .unwrap_throw();
                 }
             }
 
-            // take out all the self view replacement rxs and put them into the new view's stored rxs
-            //{
-            //    let old_rxs: Vec<StoredRx> = {
-            //        let mut old_rxs_ref: RefMut<Vec<_>> =
-            //            RefMut::map(internals.borrow_mut(), |i| &mut i.rxs);
-            //        std::mem::replace(&mut old_rxs_ref, vec![])
-            //    };
-            //    let mut old_rxs_ref: RefMut<Vec<_>> =
-            //        RefMut::map(internals.borrow_mut(), |i| &mut i.rxs);
-            //    let mut new_rxs_ref: RefMut<Vec<_>> =
-            //        RefMut::map(new_view.internals.borrow_mut(), |i| &mut i.rxs);
-            //    for srx in old_rxs.into_iter() {
-            //        match srx {
-            //            StoredRx::View(rx) => {
-            //                new_rxs_ref.push(StoredRx::View(rx));
-            //            }
-            //            _ => old_rxs_ref.push(srx),
-            //        }
-            //    }
-            //}
-
             // swap the internals
-            {
-                let old_internals: &RefCell<ViewInternals> = internals.as_ref();
-                let new_internals: &RefCell<ViewInternals> = new_view.internals.as_ref();
-                old_internals.swap(new_internals);
-            }
-
-            log::trace!(
-                "view is now: {}",
-                internals
-                    .borrow()
-                    .element
-                    .unchecked_ref::<HtmlElement>()
-                    .outer_html()
-            );
+            let old_internals: &RefCell<ViewInternals> = internals.as_ref();
+            let new_internals: &RefCell<ViewInternals> = new_view.internals.as_ref();
+            old_internals.swap(new_internals);
         });
     }
 }
@@ -975,7 +882,12 @@ impl<T: IsDomNode + AsRef<Node>, C: IsDomNode + AsRef<Node>> PatchView<View<C>> 
                 index: *index,
                 value: value.clone().upcast::<Node>(),
             },
+            Patch::Replace { index, value } => Patch::Replace {
+                index: *index,
+                value: value.clone().upcast::<Node>(),
+            },
             Patch::Remove { index } => Patch::Remove { index: *index },
+            Patch::RemoveAll => Patch::RemoveAll,
             Patch::PushFront { value } => Patch::PushFront {
                 value: value.clone().upcast::<Node>(),
             },
@@ -986,20 +898,21 @@ impl<T: IsDomNode + AsRef<Node>, C: IsDomNode + AsRef<Node>> PatchView<View<C>> 
             Patch::PopBack => Patch::PopBack,
         });
 
-        {
-            let mut internals = self.internals.borrow_mut();
-            internals
-                .rxs
-                .push(StoredRx::Patch(crate::txrx::hand_clone(&rx)));
-        }
-
         let internals = self.internals.clone();
         rx.respond(move |patch| match patch {
             Patch::Insert { index, value } => {
                 internals.borrow_mut().add_child_at(*index, value.clone());
             }
+            Patch::Replace { index, value } => {
+                internals
+                    .borrow_mut()
+                    .replace_child_at(*index, value.clone());
+            }
             Patch::Remove { index } => {
                 internals.borrow_mut().remove_child_at(*index);
+            }
+            Patch::RemoveAll => {
+                internals.borrow_mut().remove_all_children();
             }
             Patch::PushFront { value } => {
                 internals.borrow_mut().add_child_at(0, value.clone());

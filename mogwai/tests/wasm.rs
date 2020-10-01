@@ -489,4 +489,16 @@ async fn can_patch_children() {
         dom.outer_html().as_str(),
         r#"<ol id="main"><li>Negative One</li><li>Zero</li></ol>"#
     );
+
+    tx.send(&Patch::Replace{ index: 1, value: view!{<li>"One"</li>}});
+    assert_eq!(
+        dom.outer_html().as_str(),
+        r#"<ol id="main"><li>Negative One</li><li>One</li></ol>"#
+    );
+
+    tx.send(&Patch::RemoveAll);
+    assert_eq!(
+        dom.outer_html().as_str(),
+        r#"<ol id="main"></ol>"#
+    );
 }

@@ -1,7 +1,9 @@
+#[cfg(target_arch = "wasm32")]
+use js_sys::Function;
 use std::{
-    future::Future,
     cell::{Cell, RefCell},
     collections::VecDeque,
+    future::Future,
     pin::Pin,
     rc::Rc,
     task::{Context, Poll, Waker},
@@ -153,6 +155,22 @@ pub fn add_event(
 }
 
 
+#[cfg(target_arch = "wasm32")]
+pub fn remove_event(ev_name: &str, target: &web_sys::EventTarget, cb: &MogwaiCallback) {
+    let function: &Function = cb.callback.as_ref().as_ref().unchecked_ref();
+    target
+        .remove_event_listener_with_callback(ev_name, function)
+        .unwrap_throw();
+}
+#[cfg(not(target_arch = "wasm32"))]
+pub fn remove_event(
+    _ev_name: &str,
+    _target: &web_sys::EventTarget,
+    _cb: &MogwaiCallback,
+) {
+}
+
+
 struct WaitFuture {
     start: f64,
     millis: f64,
@@ -165,11 +183,7 @@ impl Future for WaitFuture {
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         let future: &mut WaitFuture = self.get_mut();
-        let now =
-            window()
-            .performance()
-            .expect("no performance object")
-            .now();
+        let now = window().performance().expect("no performance object").now();
         let elapsed = now - future.start;
         if elapsed >= future.millis {
             Poll::Ready(elapsed)
@@ -186,11 +200,7 @@ impl Future for WaitFuture {
 pub fn wait_approximately(millis: f64) -> impl Future<Output = f64> {
     let waker: Rc<RefCell<Option<Waker>>> = Rc::new(RefCell::new(None));
     let waker2 = waker.clone();
-    let start =
-        window()
-        .performance()
-        .expect("no performance object")
-        .now();
+    let start = window().performance().expect("no performance object").now();
     timeout(millis as i32, move || {
         waker2
             .borrow_mut()
@@ -202,6 +212,6 @@ pub fn wait_approximately(millis: f64) -> impl Future<Output = f64> {
     WaitFuture {
         start,
         waker,
-        millis
+        millis,
     }
 }

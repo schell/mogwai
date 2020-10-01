@@ -129,9 +129,14 @@ pub enum Patch<T> {
         index: usize,
         value: T
     },
+    Replace {
+        index: usize,
+        value: T
+    },
     Remove {
         index: usize
     },
+    RemoveAll,
     PushFront {
         value: T
     },

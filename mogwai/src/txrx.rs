@@ -718,20 +718,9 @@ pub struct Receiver<A> {
 }
 
 
-/// Clone a receiver.
-///
-/// # Warning!
-/// Be careful with this function. Because of magic, calling
-/// [Receiver::respond] on a clone of a receiver sets the responder for both of
-/// those receivers. **Under the hood they are the same responder**. This is why
-/// [Receiver] has no [Clone] trait implementation.
-///
-/// Instead of cloning, if you need a new receiver that receives from the same
-/// transmitter you should use [Receiver::branch], which comes in many flavors.
-pub(crate) fn hand_clone<A>(rx: &Receiver<A>) -> Receiver<A> {
-    Receiver {
-        k: rx.k,
-        responders: rx.responders.clone(),
+impl<A> Clone for Receiver<A> {
+    fn clone(&self) -> Self {
+        self.responders.clone().recv_from()
     }
 }
 

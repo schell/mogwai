@@ -161,9 +161,17 @@ impl<T: IsDomNode + AsRef<Node>> From<ViewBuilder<T>> for View<T> {
         };
 
         {
+            fn has_type<X: IsDomNode>(val: &JsValue) -> bool {
+                if cfg!(target_arch = "wasm32") {
+                    val.has_type::<X>()
+                } else {
+                    true
+                }
+            }
+
             let mut internals = view.internals.borrow_mut();
 
-            if events.len() > 0 && internals.element.has_type::<EventTarget>() {
+            if events.len() > 0 && has_type::<EventTarget>(&internals.element) {
                 for cmd in events.into_iter() {
                     match cmd.type_is {
                         EventTargetType::Myself => {
@@ -179,13 +187,13 @@ impl<T: IsDomNode + AsRef<Node>> From<ViewBuilder<T>> for View<T> {
                 }
             }
 
-            if styles.len() > 0 && internals.element.has_type::<HtmlElement>() {
+            if styles.len() > 0 && has_type::<HtmlElement>(&internals.element) {
                 for cmd in styles.into_iter() {
                     internals.add_style(&cmd.name, cmd.effect);
                 }
             }
 
-            if attribs.len() > 0 && internals.element.has_type::<Element>() {
+            if attribs.len() > 0 && has_type::<Element>(&internals.element) {
                 for cmd in attribs.into_iter() {
                     match cmd {
                         AttributeCmd::Attrib { name, effect } => {
