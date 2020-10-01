@@ -6,6 +6,7 @@ members = [
   "crates/mogwai-hydrator",
   "examples/sandbox",
   "examples/todomvc",
+  "examples/multipage",
   "cookbook"
 ]
 
