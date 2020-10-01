@@ -118,7 +118,7 @@ pub trait ParentView<T> {
 /// `ReplaceView`s can entirely replace themselves with views sent to a
 /// [`Receiver`].
 pub trait ReplaceView<T> {
-    fn this_later(&mut self, rx: Receiver<T>);
+    fn this_later<S:Clone + Into<T>>(&mut self, rx: Receiver<S>);
 }
 
 
@@ -150,5 +150,5 @@ pub enum Patch<T> {
 
 /// `PatchView`s' children can be manipulated using patch commands sent on a [`Receiver`].
 pub trait PatchView<T> {
-    fn patch(&mut self, rx: Receiver<Patch<T>>);
+    fn patch<S:Clone + Into<T>>(&mut self, rx: Receiver<Patch<S>>);
 }

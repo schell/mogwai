@@ -847,10 +847,17 @@ impl<T: IsDomNode> PostBuildView for View<T> {
 /// # ReplaceView
 
 
+fn to_child_node<T: IsDomNode + AsRef<Node>, S: Clone + Into<View<T>>>(value: &S) -> View<Node> {
+    let s: S = value.clone();
+    let v: View<T> = s.into();
+    v.upcast::<Node>()
+}
+
+
 impl<T: IsDomNode + AsRef<Node>> ReplaceView<View<T>> for View<T> {
-    fn this_later(&mut self, rx: Receiver<View<T>>) {
+    fn this_later<S: Clone + Into<View<T>>>(&mut self, rx: Receiver<S>) {
         let internals: Rc<RefCell<ViewInternals>> = self.internals.clone();
-        let rx = rx.branch_map(|view| view.clone().upcast::<Node>());
+        let rx = rx.branch_map(|s| to_child_node(s));
         rx.respond(move |new_view| {
             {
                 let old_dom: Ref<Node> =
@@ -875,24 +882,28 @@ impl<T: IsDomNode + AsRef<Node>> ReplaceView<View<T>> for View<T> {
 /// # PatchView
 
 
-impl<T: IsDomNode + AsRef<Node>, C: IsDomNode + AsRef<Node>> PatchView<View<C>> for View<T> {
-    fn patch(&mut self, rx: Receiver<Patch<View<C>>>) {
+impl<T, C> PatchView<View<C>> for View<T>
+where
+    T: IsDomNode + AsRef<Node>,
+    C: IsDomNode + AsRef<Node>,
+{
+    fn patch<S: Clone + Into<View<C>>>(&mut self, rx: Receiver<Patch<S>>) {
         let rx = rx.branch_map(|patch| match patch {
             Patch::Insert { index, value } => Patch::Insert {
                 index: *index,
-                value: value.clone().upcast::<Node>(),
+                value: to_child_node(value),
             },
             Patch::Replace { index, value } => Patch::Replace {
                 index: *index,
-                value: value.clone().upcast::<Node>(),
+                value: (value.clone().into() as View<C>).upcast::<Node>(),
             },
             Patch::Remove { index } => Patch::Remove { index: *index },
             Patch::RemoveAll => Patch::RemoveAll,
             Patch::PushFront { value } => Patch::PushFront {
-                value: value.clone().upcast::<Node>(),
+                value: (value.clone().into() as View<C>).upcast::<Node>(),
             },
             Patch::PushBack { value } => Patch::PushBack {
-                value: value.clone().upcast::<Node>(),
+                value: (value.clone().into() as View<C>).upcast::<Node>(),
             },
             Patch::PopFront => Patch::PopFront,
             Patch::PopBack => Patch::PopBack,
