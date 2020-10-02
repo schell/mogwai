@@ -62,13 +62,16 @@ impl Component for App {
     }
 
     fn view(&self, tx: &Transmitter<Route>, rx: &Receiver<Out>) -> ViewBuilder<HtmlElement> {
-        log::trace!("{:?}", &self);
-        let rx_text = rx.branch_filter_map(|msg| match msg {
-            Out::RenderClicks(count) => Some(format!("{} times", count)),
-            _ => None,
+        rx.branch().respond(|msg| log::info!("rx({:?})", msg));
+        let rx_text = rx.branch_filter_map(|msg| {
+            log::info!("rx_text({:?})", msg);
+            match msg {
+                Out::RenderClicks(count) => Some(format!("{} times", count)),
+                _ => None,
+            }
         });
         let rx_main = rx.branch_filter_map(|msg| {
-            log::trace!("rx_main({:?})", msg);
+            log::info!("rx_main({:?})", msg);
             match msg {
                 Out::Render(route) => Some(App::render(*route)),
                 _ => None,
