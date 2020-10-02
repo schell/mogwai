@@ -502,3 +502,33 @@ async fn can_patch_children() {
         r#"<ol id="main"></ol>"#
     );
 }
+
+#[wasm_bindgen_test]
+fn can_patch_children_into() {
+    let (tx, rx) = txrx::<Patch<String>>();
+    let view = view!{
+        <p id="main" patch:children=rx>
+            "Zero ""One"
+        </p>
+    };
+
+    let dom: HtmlElement = view.dom_ref().clone();
+    view.run().unwrap();
+
+    assert_eq!(
+        dom.outer_html().as_str(),
+        r#"<p id="main">Zero One</p>"#
+    );
+
+    tx.send(&Patch::PushFront{ value: "First ".to_string() });
+    assert_eq!(
+        dom.outer_html().as_str(),
+        r#"<p id="main">First Zero One</p>"#
+    );
+
+    tx.send(&Patch::RemoveAll);
+    assert_eq!(
+        dom.outer_html().as_str(),
+        r#"<p id="main"></p>"#
+    );
+}
