@@ -92,10 +92,6 @@ impl Drop for ViewInternals {
     fn drop(&mut self) {
         let count = Rc::strong_count(&self.element);
         if count <= 1 {
-            if let Some(el) = self.element.dyn_ref::<HtmlElement>() {
-                log::trace!("dropping {}", el.outer_html());
-            }
-
             if let Some(node) = self.element.dyn_ref::<Node>() {
                 if let Some(parent) = node.parent_node() {
                     let _ = parent.remove_child(&node);
@@ -888,26 +884,7 @@ where
     C: IsDomNode + AsRef<Node>,
 {
     fn patch<S: Clone + Into<View<C>>>(&mut self, rx: Receiver<Patch<S>>) {
-        let rx = rx.branch_map(|patch| match patch {
-            Patch::Insert { index, value } => Patch::Insert {
-                index: *index,
-                value: to_child_node(value),
-            },
-            Patch::Replace { index, value } => Patch::Replace {
-                index: *index,
-                value: (value.clone().into() as View<C>).upcast::<Node>(),
-            },
-            Patch::Remove { index } => Patch::Remove { index: *index },
-            Patch::RemoveAll => Patch::RemoveAll,
-            Patch::PushFront { value } => Patch::PushFront {
-                value: (value.clone().into() as View<C>).upcast::<Node>(),
-            },
-            Patch::PushBack { value } => Patch::PushBack {
-                value: (value.clone().into() as View<C>).upcast::<Node>(),
-            },
-            Patch::PopFront => Patch::PopFront,
-            Patch::PopBack => Patch::PopBack,
-        });
+        let rx = rx.branch_map(|patch| patch.branch_map(to_child_node));
 
         let internals = self.internals.clone();
         rx.respond(move |patch| match patch {

@@ -20,11 +20,11 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 fn fresh_app(msgs: Vec<In>) -> Result<(), JsValue> {
     let app: Gizmo<App> = Gizmo::from(App::new());
     msgs.into_iter().for_each(|msg| {
-        app.update(&msg);
+        app.send(&msg);
     });
 
-    let Gizmo { view: app_view, .. } = app;
-    app_view.run()
+    let Gizmo { view, .. } = app;
+    view.run()
 }
 
 

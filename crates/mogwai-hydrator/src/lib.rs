@@ -198,6 +198,7 @@ where
             events,
             children,
             replaces,
+            patches,
             posts,
             text,
         } = builder;
@@ -217,14 +218,14 @@ where
         if events.len() > 0 {
             hview.append_update(|view: &mut View<T>| {
                 let t: T = view.dom_ref().clone();
-                let mut view: View<EventTarget> = view
-                    .clone()
-                    .try_cast::<EventTarget>()
-                    .map_err(|_| Error::Conversion {
-                        from: std::any::type_name::<T>().to_string(),
-                        to: std::any::type_name::<EventTarget>().to_string(),
-                        node: t.unchecked_into(),
-                    })?;
+                let mut view: View<EventTarget> =
+                    view.clone()
+                        .try_cast::<EventTarget>()
+                        .map_err(|_| Error::Conversion {
+                            from: std::any::type_name::<T>().to_string(),
+                            to: std::any::type_name::<EventTarget>().to_string(),
+                            node: t.unchecked_into(),
+                        })?;
                 for cmd in events.into_iter() {
                     match cmd.type_is {
                         EventTargetType::Myself => view.on(&cmd.name, cmd.transmitter),
@@ -238,14 +239,14 @@ where
         if styles.len() > 0 {
             hview.append_update(|view: &mut View<T>| {
                 let t: T = view.dom_ref().clone();
-                let mut view: View<HtmlElement> = view
-                    .clone()
-                    .try_cast::<HtmlElement>()
-                    .map_err(|_| Error::Conversion {
-                        from: std::any::type_name::<T>().to_string(),
-                        to: std::any::type_name::<HtmlElement>().to_string(),
-                        node: t.unchecked_into(),
-                    })?;
+                let mut view: View<HtmlElement> =
+                    view.clone()
+                        .try_cast::<HtmlElement>()
+                        .map_err(|_| Error::Conversion {
+                            from: std::any::type_name::<T>().to_string(),
+                            to: std::any::type_name::<HtmlElement>().to_string(),
+                            node: t.unchecked_into(),
+                        })?;
 
                 for cmd in styles.into_iter() {
                     view.style(&cmd.name, cmd.effect);
@@ -274,14 +275,14 @@ where
             }
             hview.append_update(|view: &mut View<T>| {
                 let t: T = view.dom_ref().clone();
-                let mut view: View<Element> = view
-                    .clone()
-                    .try_cast::<Element>()
-                    .map_err(|_| Error::Conversion {
-                        from: std::any::type_name::<T>().to_string(),
-                        to: std::any::type_name::<Element>().to_string(),
-                        node: t.unchecked_into(),
-                    })?;
+                let mut view: View<Element> =
+                    view.clone()
+                        .try_cast::<Element>()
+                        .map_err(|_| Error::Conversion {
+                            from: std::any::type_name::<T>().to_string(),
+                            to: std::any::type_name::<Element>().to_string(),
+                            node: t.unchecked_into(),
+                        })?;
 
                 for cmd in attribs.into_iter() {
                     match cmd {
@@ -307,6 +308,10 @@ where
                 view.this_later(update);
                 Ok(())
             });
+        }
+
+        for patch in patches.into_iter() {
+            hview.append_update(|view| Ok(view.patch(patch)));
         }
 
         for tx in posts.into_iter() {
@@ -541,10 +546,34 @@ where
 /// # PostBuildView
 
 
-impl<T: JsCast + Clone + 'static> PostBuildView for Hydrator<T> {
+impl<T: IsDomNode> PostBuildView for Hydrator<T> {
     type DomNode = T;
 
     fn post_build(&mut self, tx: Transmitter<T>) {
         self.append_update(move |v| Ok(v.post_build(tx)));
+    }
+}
+
+
+/// # ReplaceView
+
+
+impl<T: IsDomNode + AsRef<Node>> ReplaceView<View<T>> for Hydrator<T> {
+    fn this_later<S: Clone + Into<View<T>> + 'static>(&mut self, rx: Receiver<S>) {
+        self.append_update(move |v| Ok(v.this_later(rx)));
+    }
+}
+
+
+/// # PatchView
+
+
+impl<T, C> PatchView<View<C>> for Hydrator<T>
+where
+    T: IsDomNode + AsRef<Node>,
+    C: IsDomNode + AsRef<Node>,
+{
+    fn patch<S: Clone + Into<View<C>> + 'static>(&mut self, rx: Receiver<Patch<S>>) {
+        self.append_update(move |v| Ok(v.patch(rx)));
     }
 }

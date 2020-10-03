@@ -23,7 +23,6 @@ pub enum In {
     CompletionToggleInput(HtmlInputElement),
     ChangedCompletion(usize, bool),
     ToggleCompleteAll,
-    TodoListUl(HtmlElement),
     Remove(usize),
     RemoveCompleted,
 }
@@ -35,15 +34,15 @@ pub enum Out {
     NumItems(usize),
     ShouldShowCompleteButton(bool),
     SelectedFilter(FilterShow),
+    PatchTodos(Patch<View<HtmlElement>>),
 }
 
 
 pub struct App {
     next_index: usize,
-    todos: Vec<Gizmo<Todo>>,
+    todos: Vec<Gremlin<Todo>>,
     todo_input: Option<HtmlInputElement>,
     todo_toggle_input: Option<HtmlInputElement>,
-    todo_list_ul: Option<HtmlElement>,
     has_completed: bool,
 }
 
@@ -55,7 +54,6 @@ impl App {
             todos: vec![],
             todo_input: None,
             todo_toggle_input: None,
-            todo_list_ul: None,
             has_completed: false,
         }
     }
@@ -142,8 +140,9 @@ impl Component for App {
         match msg {
             In::NewTodo(name, complete) => {
                 let index = self.next_index;
-                // Turn the new todo into a gizmo.
-                let component = Gizmo::new(Todo::new(index, name.to_string()));
+                // Turn the new todo into a gizmo and split that into a view and the remaining
+                // component (a "Gremlin").
+                let (view, component) = Gizmo::new(Todo::new(index, name.to_string())).split_view();
                 // Subscribe to some of its view messages
                 sub.subscribe_filter_map(&component.recv, move |todo_out_msg| match todo_out_msg {
                     TodoOut::UpdateEditComplete(_, is_complete) => {
@@ -153,12 +152,15 @@ impl Component for App {
                     _ => None,
                 });
                 if *complete {
-                    component.update(&TodoIn::SetCompletion(true));
+                    component.send(&TodoIn::SetCompletion(true));
                 }
-                // If we have a ul, add the component to it.
-                if let Some(ul) = self.todo_list_ul.as_ref() {
-                    let _ = ul.append_child(component.dom_ref());
-                }
+
+                // Add the gizmo's view to the app's view
+                tx_view.send(&Out::PatchTodos(Patch::PushBack {
+                    value: view,
+                }));
+
+                // Store the gizmo so we can update it later
                 self.todos.push(component);
                 self.next_index += 1;
 
@@ -177,12 +179,12 @@ impl Component for App {
                 });
             }
             In::Filter(show) => {
-                self.todos.iter_mut().for_each(|component| {
+                self.todos.iter().for_each(|component| {
                     let is_done = component.with_state(|t| t.is_done);
                     let is_visible = *show == FilterShow::All
                         || (*show == FilterShow::Completed && is_done)
                         || (*show == FilterShow::Active && !is_done);
-                    component.update(&TodoIn::SetVisible(is_visible));
+                    component.send(&TodoIn::SetVisible(is_visible));
                 });
                 tx_view.send(&Out::SelectedFilter(show.clone()));
             }
@@ -203,30 +205,24 @@ impl Component for App {
 
                 let should_complete = input.checked();
                 for todo in self.todos.iter_mut() {
-                    todo.update(&TodoIn::SetCompletion(should_complete));
+                    todo.send(&TodoIn::SetCompletion(should_complete));
                 }
             }
-            In::TodoListUl(ul) => {
-                self.todo_list_ul = Some(ul.clone());
-                // If we have todos already created (from local storage), add them to
-                // the ul.
-                self.todos.iter().for_each(|component| {
-                    let _ = ul.append_child(component.dom_ref());
-                });
-            }
             In::Remove(index) => {
-                // Removing the gizmo drops its shared state, transmitters and receivers.
-                // This causes its Drop implementation to run, which removes its
-                // html_element from the parent.
-                self.todos.retain(|todo| {
-                    let keep = todo.with_state(|t| t.index != *index);
-                    if !keep {
-                        if let Some(parent) = todo.dom_ref().parent_element() {
-                            let _ = parent.remove_child(todo.dom_ref());
-                        }
+                let mut may_found_index = None;
+                'remove_todo: for (todo, i) in self.todos.iter().zip(0..) {
+                    let todo_index = todo.with_state(|t| t.index);
+                    if todo_index == *index {
+                        // Send a patch to the view to remove the todo
+                        tx_view.send(&Out::PatchTodos(Patch::Remove { index: i }));
+                        may_found_index = Some(i);
+                        break 'remove_todo;
                     }
-                    keep
-                });
+                }
+
+                if let Some(i) = may_found_index {
+                    let _ = self.todos.remove(i);
+                }
 
                 if self.todos.len() == 0 {
                     // Update the toggle input checked state by hand
@@ -240,7 +236,23 @@ impl Component for App {
             }
             In::RemoveCompleted => {
                 let num_items_before = self.todos.len();
-                self.todos.retain(|todo| todo.with_state(|t| !t.is_done));
+                let to_remove = self
+                    .todos
+                    .iter()
+                    .zip(0..self.todos.len())
+                    .rev()
+                    .filter_map(|(todo, i)| {
+                        if todo.with_state(|t| t.is_done) {
+                            Some(i)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                to_remove.into_iter().for_each(|i| {
+                    let _ = self.todos.remove(i);
+                    tx_view.send(&Out::PatchTodos(Patch::Remove { index: i }));
+                });
                 self.todo_toggle_input
                     .iter()
                     .for_each(|input| input.set_checked(!self.are_all_complete()));
@@ -300,7 +312,11 @@ impl Component for App {
                     <label for="toggle-all">"Mark all as complete"</label>
                     <ul class="todo-list"
                         style:display=("none", rx_display.branch())
-                        post:build=tx.contra_map(|el: &HtmlElement| In::TodoListUl(el.clone()))>
+                        //post:build=tx.contra_map(|el: &HtmlElement| In::TodoListUl(el.clone()))>
+                        patch:children=rx.branch_filter_map(|msg| match msg {
+                            Out::PatchTodos(p) => Some(p.clone()),
+                            _ => None
+                        })>
                     </ul>
                 </section>
                 <footer class="footer" style:display=("none", rx_display)>

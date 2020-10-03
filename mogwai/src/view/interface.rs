@@ -118,7 +118,7 @@ pub trait ParentView<T> {
 /// `ReplaceView`s can entirely replace themselves with views sent to a
 /// [`Receiver`].
 pub trait ReplaceView<T> {
-    fn this_later<S:Clone + Into<T>>(&mut self, rx: Receiver<S>);
+    fn this_later<S:Clone + Into<T> + 'static>(&mut self, rx: Receiver<S>);
 }
 
 
@@ -148,7 +148,36 @@ pub enum Patch<T> {
 }
 
 
+impl<T> Patch<T> {
+    pub(crate) fn branch_map<F, X>(&self, f:F) -> Patch<X>
+    where
+        F: FnOnce(&T) -> X
+    {
+        match self {
+            Patch::Insert { index, value } => Patch::Insert {
+                index: *index,
+                value: f(value),
+            },
+            Patch::Replace { index, value } => Patch::Replace {
+                index: *index,
+                value: f(value),
+            },
+            Patch::Remove { index } => Patch::Remove { index: *index },
+            Patch::RemoveAll => Patch::RemoveAll,
+            Patch::PushFront { value } => Patch::PushFront {
+                value: f(value),
+            },
+            Patch::PushBack { value } => Patch::PushBack {
+                value: f(value),
+            },
+            Patch::PopFront => Patch::PopFront,
+            Patch::PopBack => Patch::PopBack,
+        }
+    }
+}
+
+
 /// `PatchView`s' children can be manipulated using patch commands sent on a [`Receiver`].
 pub trait PatchView<T> {
-    fn patch<S:Clone + Into<T>>(&mut self, rx: Receiver<Patch<S>>);
+    fn patch<S:Clone + Into<T> + 'static>(&mut self, rx: Receiver<Patch<S>>);
 }

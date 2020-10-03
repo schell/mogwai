@@ -7,7 +7,7 @@ use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement, Text};
 
 use crate::{
-    prelude::{Effect, Receiver, Transmitter, View, IsDomNode},
+    prelude::{Effect, IsDomNode, Receiver, Transmitter, View},
     view::interface::*,
 };
 
@@ -48,6 +48,7 @@ pub struct EventTargetCmd {
 }
 
 
+#[derive(Clone)]
 pub struct ViewBuilder<T: IsDomNode> {
     pub element: Option<String>,
     pub ns: Option<String>,
@@ -57,28 +58,8 @@ pub struct ViewBuilder<T: IsDomNode> {
     pub events: Vec<EventTargetCmd>,
     pub posts: Vec<Transmitter<T>>,
     pub replaces: Vec<Receiver<View<T>>>,
+    pub patches: Vec<Receiver<Patch<View<Node>>>>,
     pub children: Vec<ViewBuilder<Node>>,
-}
-
-
-impl<T: IsDomNode> Clone for ViewBuilder<T> {
-    fn clone(&self) -> Self {
-        ViewBuilder {
-            element: self.element.clone(),
-            ns: self.ns.clone(),
-            text: self.text.clone(),
-            attribs: self.attribs.clone(),
-            styles: self.styles.clone(),
-            events: self.events.clone(),
-            posts: self.posts.clone(),
-            children: self.children.clone(),
-            replaces: self
-                .replaces
-                .iter()
-                .map(Receiver::branch)
-                .collect(),
-        }
-    }
 }
 
 
@@ -93,6 +74,7 @@ impl<T: IsDomNode> Default for ViewBuilder<T> {
             events: vec![],
             posts: vec![],
             replaces: vec![],
+            patches: vec![],
             children: vec![],
         }
     }
@@ -109,12 +91,17 @@ impl<T: IsDomNode + AsRef<Node>> ViewBuilder<T> {
             styles: self.styles,
             events: self.events,
             children: self.children,
+            patches: self
+                .patches
+                .into_iter()
+                .map(|rx| rx.branch_map(|patch| patch.branch_map(|v| v.clone().upcast::<Node>())))
+                .collect(),
             replaces: self
                 .replaces
                 .into_iter()
-                .map(|update| update.branch_map(|builder| {
-                    View::from(builder.clone()).upcast::<Node>()
-                }))
+                .map(|update| {
+                    update.branch_map(|builder| View::from(builder.clone()).upcast::<Node>())
+                })
                 .collect(),
             posts: self
                 .posts
@@ -141,6 +128,7 @@ impl<T: IsDomNode + AsRef<Node>> From<ViewBuilder<T>> for View<T> {
             styles,
             events,
             replaces,
+            patches,
             children,
             posts,
             text,
@@ -214,6 +202,10 @@ impl<T: IsDomNode + AsRef<Node>> From<ViewBuilder<T>> for View<T> {
 
         for update in replaces.into_iter() {
             view.this_later(update);
+        }
+
+        for patch in patches.into_iter() {
+            view.patch(patch);
         }
 
         for tx in posts.into_iter() {
@@ -342,7 +334,7 @@ impl<T: IsDomNode + AsRef<Node> + AsRef<Element> + 'static> AttributeView for Vi
 /// # StyleView
 
 
-impl<T: IsDomNode + AsRef<HtmlElement> + 'static> StyleView for ViewBuilder<T> {
+impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for ViewBuilder<T> {
     fn style<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
         let effect = eff.into();
         self.styles.push(StyleCmd {
@@ -356,7 +348,7 @@ impl<T: IsDomNode + AsRef<HtmlElement> + 'static> StyleView for ViewBuilder<T> {
 /// # EventTargetView
 
 
-impl<T: IsDomNode + AsRef<EventTarget> + 'static> EventTargetView for ViewBuilder<T> {
+impl<T: IsDomNode + AsRef<EventTarget>> EventTargetView for ViewBuilder<T> {
     fn on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
         self.events.push(EventTargetCmd {
             type_is: EventTargetType::Myself,
@@ -400,10 +392,35 @@ where
 /// # PostBuildView
 
 
-impl<T: IsDomNode + Clone + 'static> PostBuildView for ViewBuilder<T> {
+impl<T: IsDomNode + Clone> PostBuildView for ViewBuilder<T> {
     type DomNode = T;
 
     fn post_build(&mut self, transmitter: Transmitter<T>) {
         self.posts.push(transmitter);
+    }
+}
+
+
+/// # ReplaceView
+
+
+impl<T: IsDomNode + AsRef<Node>> ReplaceView<View<T>> for ViewBuilder<T> {
+    fn this_later<S: Clone + Into<View<T>>>(&mut self, rx: Receiver<S>) {
+        self.replaces.push(rx.branch_map(|s| s.clone().into()));
+    }
+}
+
+
+/// # PatchView
+
+
+impl<T, C> PatchView<View<C>> for ViewBuilder<T>
+where
+    T: IsDomNode + AsRef<Node>,
+    C: IsDomNode + AsRef<Node>,
+{
+    fn patch<S: Clone + Into<View<C>>>(&mut self, rx: Receiver<Patch<S>>) {
+        let rx = rx.branch_map(|patch| patch.branch_map(|s| s.clone().into().upcast()));
+        self.patches.push(rx);
     }
 }

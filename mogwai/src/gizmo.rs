@@ -7,10 +7,34 @@ use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement};
 
 use crate::{
-    prelude::{txrx, Component, Receiver, Subscriber, Transmitter, View, ViewBuilder, IsDomNode},
+    prelude::{txrx, Component, IsDomNode, Receiver, Subscriber, Transmitter, View, ViewBuilder},
     utils,
     view::dom::ViewInternals,
 };
+
+
+/// Provides simple state query and update functions.
+///
+/// Both [`Gizmo`]s and [`Gremlin`]s implement `MogwaiState`.
+pub trait MogwaiState<T: Component> {
+    /// Update the component with the given message.
+    /// This how a parent component communicates down to its child components.
+    /// Using `send` runs the [`<T as Component>::update`] function to update
+    /// internal state and send messages to the [`View`], wherever it may be.
+    fn send(&self, msg: &T::ModelMsg);
+
+    /// Access the underlying state without modifying it or retaining a reference
+    /// to it.
+    fn with_state<F, N>(&self, f: F) -> N
+    where
+        F: Fn(&T) -> N;
+
+    /// Set the state.
+    ///
+    /// This silently updates the state and doesn't trigger any messages
+    /// and does *not* update the view.
+    fn set_state(&mut self, t: T);
+}
 
 
 /// A widget and all of its pieces.
@@ -90,22 +114,6 @@ where
         &self.view
     }
 
-    /// Send model messages into this component from a `Receiver<T::ModelMsg>`.
-    /// This is helpful for sending messages to this component from
-    /// a parent component.
-    pub fn rx_from(self, rx: Receiver<T::ModelMsg>) -> Gizmo<T> {
-        rx.forward_map(&self.trns, |msg| msg.clone());
-        self
-    }
-
-    /// Send view messages from this component into a `Transmitter<T::ViewMsg>`.
-    /// This is helpful for sending messages to this component from
-    /// a parent component.
-    pub fn tx_into(self, tx: &Transmitter<T::ViewMsg>) -> Gizmo<T> {
-        self.recv.branch().forward_map(&tx, |msg| msg.clone());
-        self
-    }
-
     /// Run this component forever, handing ownership over to the browser window.
     ///
     /// # Panics
@@ -118,14 +126,30 @@ where
         panic!("Gizmo::run is only available on wasm32")
     }
 
+    /// Split the Gizmo into a [`View<T::DomNode>`] and a [`Gremlin<T>`].
+    /// This allows you to send the view somewhere while still maintaining
+    /// the ability to update the component.
+    pub fn split_view(self) -> (View<T::DomNode>, Gremlin<T>) {
+        let Gizmo {
+            view,
+            trns,
+            recv,
+            state,
+        } = self;
+        (view, Gremlin { trns, recv, state })
+    }
+}
+
+
+impl<T: Component> MogwaiState<T> for Gizmo<T> {
     /// Update the component with the given message.
     /// This how a parent component communicates down to its child components.
-    pub fn update(&self, msg: &T::ModelMsg) {
+    fn send(&self, msg: &T::ModelMsg) {
         self.trns.send(msg);
     }
 
     /// Access the underlying state.
-    pub fn with_state<F, N>(&self, f: F) -> N
+    fn with_state<F, N>(&self, f: F) -> N
     where
         F: Fn(&T) -> N,
     {
@@ -137,7 +161,7 @@ where
     ///
     /// This silently updates the state and doesn't trigger any messages
     /// and does *not* update the view.
-    pub fn set_state(&mut self, t: T) {
+    fn set_state(&mut self, t: T) {
         *self.state.borrow_mut() = t;
     }
 }
@@ -146,6 +170,45 @@ where
 impl<T: Component> From<T> for Gizmo<T> {
     fn from(component: T) -> Gizmo<T> {
         Gizmo::new(component)
+    }
+}
+
+
+/// A gizmo without a view.
+///
+/// More specifically a `Gremlin` is a [`Gizmo`] that has been split from its
+/// [`View`]. This exists to allow a [`Gizmo`]'s view to be added to a parent
+/// view while still being able to be updated at the callsite where the [`Gizmo`]
+/// was created.
+pub struct Gremlin<T: Component> {
+    pub trns: Transmitter<T::ModelMsg>,
+    pub recv: Receiver<T::ViewMsg>,
+    pub state: Rc<RefCell<T>>,
+}
+
+
+impl<T: Component> MogwaiState<T> for Gremlin<T> {
+    /// Update the component with the given message.
+    /// This how a parent component communicates down to its child components.
+    fn send(&self, msg: &T::ModelMsg) {
+        self.trns.send(msg);
+    }
+
+    /// Access the underlying state.
+    fn with_state<F, N>(&self, f: F) -> N
+    where
+        F: Fn(&T) -> N,
+    {
+        let t = self.state.borrow();
+        f(&t)
+    }
+
+    /// Set this gizmo's state.
+    ///
+    /// This silently updates the state and doesn't trigger any messages
+    /// and does *not* update the view.
+    fn set_state(&mut self, t: T) {
+        *self.state.borrow_mut() = t;
     }
 }
 
