@@ -2,7 +2,8 @@ use mogwai::prelude::*;
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
-fn new_button_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
+#[allow(unused_braces)]
+fn new_button_view(tx_click: Transmitter<Event>) -> ViewBuilder<HtmlElement> {
     // Create a receiver for our button to get its text from.
     let rx_text = Receiver::<String>::new();
 
@@ -10,7 +11,7 @@ fn new_button_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
     //
     // The button text will start out as "Click me" and then change to whatever
     // comes in on the receiver.
-    let button = view! {
+    let button = builder! {
         // The button has a style and transmits its clicks
         <button style="cursor: pointer;" on:click=tx_click.clone()>
             // The text starts with "Click me" and receives updates
@@ -40,18 +41,19 @@ fn new_button_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
     button
 }
 
-pub fn home() -> View<HtmlElement> {
+#[allow(unused_braces)]
+pub fn home() -> ViewBuilder<HtmlElement> {
     // Create a transmitter to send button clicks into.
     let tx_click = Transmitter::new();
-    view! {
+    builder! {
         <main>
             {new_button_view(tx_click)}
         </main>
     }
 }
 
-pub fn not_found() -> View<HtmlElement> {
-    view! {
+pub fn not_found() -> ViewBuilder<HtmlElement> {
+    builder! {
         <h1>"Not Found"</h1>
     }
 }

@@ -9,10 +9,14 @@ pub enum Route {
 
 impl From<Route> for View<HtmlElement> {
     fn from(route: Route) -> Self {
+        ViewBuilder::from(route).into()
+    }
+}
+
+impl From<Route> for ViewBuilder<HtmlElement> {
+    fn from(route: Route) -> Self {
         match route {
-            // pub fn home() -> View<HtmlElement>
             Route::Home => routes::home(),
-            // pub fn not_found() -> View<HtmlElement>
             Route::NotFound => routes::not_found(),
         }
     }
@@ -53,6 +57,7 @@ impl Component for App {
         tx_view.send(&Out::RenderClicks(self.click_count));
     }
 
+    #[allow(unused_braces)]
     fn view(&self, tx: &Transmitter<Route>, rx: &Receiver<Out>) -> ViewBuilder<HtmlElement> {
         let rx_text = rx.branch_filter_map(|msg| match msg {
             Out::RenderClicks(count) if count == &1 => Some(format!("{} time", count)),
@@ -63,11 +68,8 @@ impl Component for App {
             Out::Render(route) => Some(View::<HtmlElement>::from(*route)),
             _ => None,
         });
-        let contents = ViewBuilder {
-            element: Some("main".into()),
-            replaces: vec![rx_main],
-            ..ViewBuilder::default()
-        };
+        let mut contents = ViewBuilder::from(self.current_route);
+        contents.replaces = vec![rx_main];
         builder! {
             <div class="root">
                 <nav>
