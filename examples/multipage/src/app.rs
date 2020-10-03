@@ -11,7 +11,6 @@ pub enum Route {
 pub enum Out {
     Render(Route),
     RenderClicks(i32),
-    SkipRender,
 }
 
 #[derive(Debug)]
@@ -51,9 +50,7 @@ impl Component for App {
 
     fn update(&mut self, msg: &Route, tx_view: &Transmitter<Out>, _sub: &Subscriber<Route>) {
         log::trace!("#update(msg: {:?}, current: {:?})", msg, self.current_route);
-        if self.current_route == *msg {
-            tx_view.send(&Out::SkipRender);
-        } else {
+        if self.current_route != *msg {
             self.current_route = msg.clone();
             tx_view.send(&Out::Render(self.current_route));
         }
