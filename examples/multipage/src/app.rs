@@ -7,6 +7,17 @@ pub enum Route {
     NotFound,
 }
 
+impl From<Route> for View<HtmlElement> {
+    fn from(route: Route) -> Self {
+        match route {
+            // pub fn home() -> View<HtmlElement>
+            Route::Home => routes::home(),
+            // pub fn not_found() -> View<HtmlElement>
+            Route::NotFound => routes::not_found(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Out {
     Render(Route),
@@ -24,20 +35,6 @@ impl App {
         App {
             click_count: 0,
             current_route: Route::Home,
-        }
-    }
-
-    fn render(route: Route) -> View<HtmlElement> {
-        let content = match route {
-            // pub fn home() -> View<HtmlElement>
-            Route::Home => routes::home(),
-            // pub fn not_found() -> View<HtmlElement>
-            Route::NotFound => routes::not_found(),
-        };
-        view! {
-            <main>
-                {content}
-            </main>
         }
     }
 }
@@ -58,11 +55,12 @@ impl Component for App {
 
     fn view(&self, tx: &Transmitter<Route>, rx: &Receiver<Out>) -> ViewBuilder<HtmlElement> {
         let rx_text = rx.branch_filter_map(|msg| match msg {
+            Out::RenderClicks(count) if count == &1 => Some(format!("{} time", count)),
             Out::RenderClicks(count) => Some(format!("{} times", count)),
             _ => None,
         });
         let rx_main = rx.branch_filter_map(|msg| match msg {
-            Out::Render(route) => Some(App::render(*route)),
+            Out::Render(route) => Some(View::<HtmlElement>::from(*route)),
             _ => None,
         });
         let contents = ViewBuilder {

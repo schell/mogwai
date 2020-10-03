@@ -43,7 +43,11 @@ fn new_button_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
 pub fn home() -> View<HtmlElement> {
     // Create a transmitter to send button clicks into.
     let tx_click = Transmitter::new();
-    new_button_view(tx_click)
+    view! {
+        <main>
+            {new_button_view(tx_click)}
+        </main>
+    }
 }
 
 pub fn not_found() -> View<HtmlElement> {
