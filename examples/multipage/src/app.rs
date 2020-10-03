@@ -28,7 +28,6 @@ impl App {
     }
 
     fn render(route: Route) -> View<HtmlElement> {
-        log::trace!("#render({:?})", &route);
         let content = match route {
             // pub fn home() -> View<HtmlElement>
             Route::Home => routes::home(),
@@ -49,7 +48,6 @@ impl Component for App {
     type DomNode = HtmlElement;
 
     fn update(&mut self, msg: &Route, tx_view: &Transmitter<Out>, _sub: &Subscriber<Route>) {
-        log::trace!("#update(msg: {:?}, current: {:?})", msg, self.current_route);
         if self.current_route != *msg {
             self.current_route = msg.clone();
             tx_view.send(&Out::Render(self.current_route));
@@ -59,20 +57,13 @@ impl Component for App {
     }
 
     fn view(&self, tx: &Transmitter<Route>, rx: &Receiver<Out>) -> ViewBuilder<HtmlElement> {
-        rx.branch().respond(|msg| log::info!("rx({:?})", msg));
-        let rx_text = rx.branch_filter_map(|msg| {
-            log::info!("rx_text({:?})", msg);
-            match msg {
-                Out::RenderClicks(count) => Some(format!("{} times", count)),
-                _ => None,
-            }
+        let rx_text = rx.branch_filter_map(|msg| match msg {
+            Out::RenderClicks(count) => Some(format!("{} times", count)),
+            _ => None,
         });
-        let rx_main = rx.branch_filter_map(|msg| {
-            log::info!("rx_main({:?})", msg);
-            match msg {
-                Out::Render(route) => Some(App::render(*route)),
-                _ => None,
-            }
+        let rx_main = rx.branch_filter_map(|msg| match msg {
+            Out::Render(route) => Some(App::render(*route)),
+            _ => None,
         });
         let contents = ViewBuilder {
             element: Some("main".into()),
