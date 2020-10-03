@@ -133,6 +133,8 @@ impl Component for Button {
         }
     }
 
+    // Notice that the `Component::view` function returns a `ViewBuilder<T>` and not
+    // a `View<T`.
     fn view(
         &self,
         tx: &Transmitter<ButtonIn>,
@@ -151,10 +153,9 @@ impl Component for Button {
 
 let mut gizmo = Gizmo::from(Button{ clicks: 0 });
 
-// Pass some messages in to update the view, as if the button had been
-// clicked.
-gizmo.update(&ButtonIn::Click);
-gizmo.update(&ButtonIn::Click);
+// Pass some messages into the component, as if the button had been clicked:
+gizmo.send(&ButtonIn::Click);
+gizmo.send(&ButtonIn::Click);
 
 assert_eq!(&gizmo.view_ref().clone().html_string(), "<button>Clicked 2 times</button>");
 
