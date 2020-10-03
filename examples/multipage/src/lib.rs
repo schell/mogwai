@@ -1,6 +1,7 @@
 mod app;
 mod routes;
 
+use crate::app::App;
 use log::{trace, Level};
 use mogwai::prelude::*;
 use std::panic;
@@ -24,11 +25,12 @@ pub fn main() -> Result<(), JsValue> {
     }
 
     // Create our app's view by hydrating a gizmo from an initial state
-    let app: Gizmo<app::App> = Gizmo::new(app::App::new());
+    let root = App::new();
+    let root_app: Gizmo<App> = Gizmo::new(root);
 
     // Hand the app's view ownership to the window so it never
     // goes out of scope
-    View::from(app).run()
+    View::from(root_app).run()
 }
 
 #[cfg(test)]

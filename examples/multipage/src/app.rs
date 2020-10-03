@@ -72,6 +72,7 @@ impl Component for App {
         contents.replaces = vec![rx_main];
         builder! {
             <div class="root">
+                <p>{("0 times", rx_text)}</p>
                 <nav>
                     <button on:click=tx.contra_map(|_| Route::Home)>
                         "Home"
@@ -80,7 +81,6 @@ impl Component for App {
                         "Not Found"
                     </button>
                 </nav>
-                <p>{("0 times", rx_text)}</p>
                 {contents}
             </div>
         }

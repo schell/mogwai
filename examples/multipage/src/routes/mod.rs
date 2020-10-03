@@ -41,13 +41,46 @@ fn new_button_view(tx_click: Transmitter<Event>) -> ViewBuilder<HtmlElement> {
     button
 }
 
+fn stars() -> ViewBuilder<HtmlElement> {
+    builder! {
+        <div className="three-stars">
+            <span>"★"</span>
+            <span>"★"</span>
+            <span>"★"</span>
+        </div>
+    }
+}
+
+#[allow(unused_braces)]
+fn star_title(rx_org: Receiver<String>) -> ViewBuilder<HtmlElement> {
+    let org_name = rx_org.branch_map(|org| format!("from {}?", org));
+    builder! {
+        <div class="title-component uppercase">
+            {stars()}
+            <div class="title-component__description">
+                <span class="strike-preamble">"Did contributions come"</span>
+                <span class="strike-out">{("from you?", org_name)}</span>
+            </div>
+        </div>
+    }
+}
+
 #[allow(unused_braces)]
 pub fn home() -> ViewBuilder<HtmlElement> {
     // Create a transmitter to send button clicks into.
     let tx_click = Transmitter::new();
+    let rx_org = Receiver::new();
     builder! {
-        <main>
-            {new_button_view(tx_click)}
+        <main class="container">
+            <div class="overlay">
+                "This site is only supported in portrait mode."
+            </div>
+            <div class="page-one">
+                <div class="section-block">
+                    {star_title(rx_org)}
+                    {new_button_view(tx_click)}
+                </div>
+            </div>
         </main>
     }
 }
