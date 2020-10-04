@@ -5,5 +5,6 @@ ROOT="$(git rev-parse --show-toplevel)"
 
 cargo test || exit 1
 cargo doc || exit 1
+wasm-pack test --firefox --headless mogwai
 
 echo "Done testing on ref ${GITHUB_REF}"
