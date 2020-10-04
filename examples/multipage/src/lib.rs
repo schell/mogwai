@@ -1,4 +1,5 @@
 mod app;
+mod components;
 mod routes;
 
 use crate::app::App;
