@@ -34,26 +34,26 @@ fn game() -> View<HtmlElement> {
 }
 
 #[derive(Clone)]
-pub enum BoardAction {
+pub enum BoardEvent {
     Click(u8),
 }
 
 #[derive(Clone)]
-pub enum BoardUpdate {
+pub enum BoardRefresh {
     Mark(String),
 }
 
 impl Component for Board {
-    type ModelMsg = BoardAction;
-    type ViewMsg = BoardUpdate;
+    type ModelMsg = BoardEvent;
+    type ViewMsg = BoardRefresh;
     type DomNode = HtmlElement;
 
-    fn update(&mut self, msg: &BoardAction, tx_view: &Transmitter<BoardUpdate>, _sub: &Subscriber<BoardAction>) {
+    fn update(&mut self, msg: &BoardEvent, tx_view: &Transmitter<BoardRefresh>, _sub: &Subscriber<BoardEvent>) {
         unimplemented!()
     }
 
-    fn view(&self, tx: &Transmitter<BoardAction>, rx: &Receiver<BoardUpdate>) -> ViewBuilder<HtmlElement> {
-        let result = view! {
+    fn view(&self, tx: &Transmitter<BoardEvent>, rx: &Receiver<BoardRefresh>) -> ViewBuilder<HtmlElement> {
+        builder! {
             <div>
                 <div class="status"> "Next player: X" </div>
                 <div class="board-row">
@@ -72,8 +72,7 @@ impl Component for Board {
                     { Gizmo::from(Square { id: SquareID::new(8) }) }
                 </div>
             </div>
-        };
-        result.into()
+        }
     }
 }
 
@@ -82,35 +81,35 @@ struct Square {
 }
 
 #[derive(Clone)]
-enum SquareEvents {
+enum SquareEvent {
     Click(SquareID)
 }
 
 #[derive(Clone)]
-enum SquareUpdates {
+enum SquareRefresh {
     Draw(String)
 }
 
 impl Component for Square {
-    type ModelMsg = SquareEvents;
-    type ViewMsg = SquareUpdates;
+    type ModelMsg = SquareEvent;
+    type ViewMsg = SquareRefresh;
     type DomNode = HtmlElement;
 
-    fn update(&mut self, msg: &SquareEvents, tx_view: &Transmitter<SquareUpdates>, _sub: &Subscriber<SquareEvents>) {
-        match *msg {
-            SquareEvents::Click(sq) => {
-                tx_view.send(&SquareUpdates::Draw("X".to_string()))
-            }
-        }
+    fn update(&mut self, msg: &SquareEvent, tx_view: &Transmitter<SquareRefresh>, _sub: &Subscriber<SquareEvent>) {
+        // match *msg {
+        //     SquareEvent::Click(sq) => {
+        //         tx_view.send(&SquareRefresh::Draw("X".to_string()))
+        //     }
+        // };
     }
 
-    fn view(&self, tx: &Transmitter<SquareEvents>, rx: &Receiver<SquareUpdates>) -> ViewBuilder<HtmlElement> {
+    fn view(&self, tx: &Transmitter<SquareEvent>, rx: &Receiver<SquareRefresh>) -> ViewBuilder<HtmlElement> {
         let id = self.id;
         let result = view! {
-            <button class="square" on:click=tx.contra_map(move |_| SquareEvents::Click(id))>
+            <button class="square" on:click=tx.contra_map(move |_| SquareEvent::Click(id))>
                 {("",
                     rx.branch_map(|update| match update {
-                        Updates::Draw(s) => String::from(s)
+                        SquareRefresh::Draw(s) => String::from(s)
                     })
                 )}
             </button>
