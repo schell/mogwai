@@ -1,18 +1,25 @@
 # Components
-A [Component][component] is a fold function (logic), a state variable and a [View][view]
+A [Component][component] is a fold function (logic), a state variable and a [ViewBuilder][builder]
 all wrapped up in one, for your convenience!
 
 ## Creating a Component
 A mogwai component can be created by implementing the [Component][component]
 trait for any type. That type is the state. Its [Component::update][update] function
-is the logic. The [Component::view][view] function becomes the view. Use
-[Gizmo::from][gizmo_from] to turn your type into a [Gizmo][gizmo], which can be
-`run` or used however you like.
+is the logic. The [Component::view][view] function returns a builder that becomes the view
+(or views). There are a couple steps to set up the model-view-controller scenario:
 
-If your component is the top-level gizmo in your application, or if it simply
-is the top-level of its gizmo hierarchy, you can run it with `run()`.
+  1. Use [Gizmo::from][gizmo_from] to turn your state type into a [Gizmo][gizmo]
+     `let gizmo = Gizmo::from(my_data);`
+  2. Create a view using a builder from the gizmo
+     `let view = View::from(gizmo.view_builder());`
+  3. Run the view and communicate with it using the gizmo
+     ```rust,ignore
+     view.run().unwrap_throw();
+     gizmo.send(&MyMessage);
+     ```
 
-In the following example we assume it is the top-level gizmo in the program.
+Alternatively, if you don't have a need to communicate with your view you can create a view
+directly from the gizmo with `let view = View::from(gizmo);`.
 
 ```rust
 extern crate mogwai;
@@ -69,8 +76,9 @@ impl Component for App {
 
 pub fn main() -> Result<(), JsValue> {
     let gizmo: Gizmo<App> = Gizmo::from(App{ num_clicks: 0 });
+    let view = View::from(gizmo);
     if cfg!(target_arch = "wasm32") {
-        gizmo.run()
+        view.run()
     } else {
         Ok(())
     }

@@ -28,7 +28,7 @@ pub fn main() -> Result<(), JsValue> {
 
     // Hand the app's view ownership to the window so it never
     // goes out of scope
-    app.run()
+    View::from(app).run()
 }
 
 #[cfg(test)]

@@ -716,7 +716,7 @@ where
     <T as Component>::DomNode: JsCast + AsRef<Node>,
 {
     fn from(gizmo: Gizmo<T>) -> Self {
-        gizmo.view
+        View::from(gizmo.view_builder())
     }
 }
 

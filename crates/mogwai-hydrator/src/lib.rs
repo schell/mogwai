@@ -1,6 +1,6 @@
 //! Types and [`TryFrom`] instances that can 're-animate' views or portions of views from the DOM.
 use mogwai::{
-    prelude::{Component, Effect, Gizmo, IsDomNode, Receiver, Transmitter, View},
+    prelude::{Effect, IsDomNode, Receiver, Transmitter, View},
     utils,
     view::{builder::*, interface::*},
 };
@@ -168,18 +168,6 @@ impl<T: IsDomNode + AsRef<JsValue>> Hydrator<T> {
                 _ => None,
             },
         }
-    }
-
-    /// Hydrates a new [`Gizmo`] from a stateful [`Component`].
-    /// If the view cannot be hydrated an error is returned.
-    pub fn gizmo<C: Component>(init: C) -> Result<Gizmo<C>, Error> {
-        let tx_in = Transmitter::new();
-        let rx_out = Receiver::new();
-        let view_builder = init.view(&tx_in, &rx_out);
-        let hydrated = Hydrator::from(view_builder);
-        let view = View::try_from(hydrated)?;
-
-        Ok(Gizmo::from_parts(init, tx_in, rx_out, view))
     }
 }
 

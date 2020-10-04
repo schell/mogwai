@@ -81,9 +81,8 @@
 //!
 //!
 //! pub fn main() -> Result<(), JsValue> {
-//!     Gizmo::from(
-//!         App{ num_clicks: 0 }
-//!     ).run()
+//!     let app = Gizmo::from(App{ num_clicks: 0 });
+//!     View::from(app).run()
 //! }
 //! ```
 //!

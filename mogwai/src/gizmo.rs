@@ -1,5 +1,5 @@
 use std::{
-    cell::{Ref, RefCell},
+    cell::RefCell,
     rc::Rc,
 };
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
@@ -7,41 +7,15 @@ use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement};
 
 use crate::{
-    prelude::{txrx, Component, IsDomNode, Receiver, Subscriber, Transmitter, View, ViewBuilder},
+    prelude::{txrx, Component, IsDomNode, Receiver, Subscriber, Transmitter, ViewBuilder},
     utils,
-    view::dom::ViewInternals,
 };
-
-
-/// Provides simple state query and update functions.
-///
-/// Both [`Gizmo`]s and [`Gremlin`]s implement `MogwaiState`.
-pub trait MogwaiState<T: Component> {
-    /// Update the component with the given message.
-    /// This how a parent component communicates down to its child components.
-    /// Using `send` runs the [`<T as Component>::update`] function to update
-    /// internal state and send messages to the [`View`], wherever it may be.
-    fn send(&self, msg: &T::ModelMsg);
-
-    /// Access the underlying state without modifying it or retaining a reference
-    /// to it.
-    fn with_state<F, N>(&self, f: F) -> N
-    where
-        F: Fn(&T) -> N;
-
-    /// Set the state.
-    ///
-    /// This silently updates the state and doesn't trigger any messages
-    /// and does *not* update the view.
-    fn set_state(&mut self, t: T);
-}
 
 
 /// A widget and all of its pieces.
 pub struct Gizmo<T: Component> {
     pub trns: Transmitter<T::ModelMsg>,
     pub recv: Receiver<T::ViewMsg>,
-    pub view: View<T::DomNode>,
     pub state: Rc<RefCell<T>>,
 }
 
@@ -59,7 +33,6 @@ where
         init: T,
         tx_in: Transmitter<T::ModelMsg>,
         rx_out: Receiver<T::ViewMsg>,
-        view: View<T::DomNode>,
     ) -> Self {
         let state = Rc::new(RefCell::new(init));
         let tx_out = rx_out.new_trns();
@@ -80,7 +53,6 @@ where
         Gizmo {
             trns: tx_in,
             recv: rx_out,
-            view,
             state,
         }
     }
@@ -90,66 +62,25 @@ where
     pub fn new(init: T) -> Gizmo<T> {
         let tx_in = Transmitter::new();
         let rx_out = Receiver::new();
-        let view_builder = init.view(&tx_in, &rx_out);
-        let view = View::from(view_builder);
 
-        Gizmo::from_parts(init, tx_in, rx_out, view)
+        Gizmo::from_parts(init, tx_in, rx_out)
     }
 
-    /// A reference to the browser's DomNode.
-    ///
-    /// # Panics
-    /// Only works in the browser. Panics outside of wasm32.
-    pub fn dom_ref(&self) -> Ref<T::DomNode> {
-        if cfg!(target_arch = "wasm32") {
-            let internals: Ref<ViewInternals> = self.view.internals.as_ref().borrow();
-            let el_ref: Ref<T::DomNode> =
-                Ref::map(internals, |i| i.element.unchecked_ref::<T::DomNode>());
-            return el_ref;
-        }
-        panic!("Gizmo::dom_ref is only available on wasm32")
+    /// Use the Gizmo to spawn a [`ViewBuilder<T::DomNode>`].
+    /// This allows you to send the builder (or subsequent view) somewhere else while still
+    /// maintaining the ability to update the view from afar.
+    pub fn view_builder(&self) -> ViewBuilder<T::DomNode> {
+        self.state.as_ref().borrow().view(&self.trns, &self.recv)
     }
 
-    pub fn view_ref(&self) -> &View<T::DomNode> {
-        &self.view
-    }
-
-    /// Run this component forever, handing ownership over to the browser window.
-    ///
-    /// # Panics
-    /// Only works in the browser. Panics on compilation targets that are not
-    /// wasm32.
-    pub fn run(self) -> Result<(), JsValue> {
-        if cfg!(target_arch = "wasm32") {
-            return self.view.run();
-        }
-        panic!("Gizmo::run is only available on wasm32")
-    }
-
-    /// Split the Gizmo into a [`View<T::DomNode>`] and a [`Gremlin<T>`].
-    /// This allows you to send the view somewhere while still maintaining
-    /// the ability to update the component.
-    pub fn split_view(self) -> (View<T::DomNode>, Gremlin<T>) {
-        let Gizmo {
-            view,
-            trns,
-            recv,
-            state,
-        } = self;
-        (view, Gremlin { trns, recv, state })
-    }
-}
-
-
-impl<T: Component> MogwaiState<T> for Gizmo<T> {
     /// Update the component with the given message.
     /// This how a parent component communicates down to its child components.
-    fn send(&self, msg: &T::ModelMsg) {
+    pub fn send(&self, msg: &T::ModelMsg) {
         self.trns.send(msg);
     }
 
     /// Access the underlying state.
-    fn with_state<F, N>(&self, f: F) -> N
+    pub fn with_state<F, N>(&self, f: F) -> N
     where
         F: Fn(&T) -> N,
     {
@@ -161,7 +92,7 @@ impl<T: Component> MogwaiState<T> for Gizmo<T> {
     ///
     /// This silently updates the state and doesn't trigger any messages
     /// and does *not* update the view.
-    fn set_state(&mut self, t: T) {
+    pub fn set_state(&mut self, t: T) {
         *self.state.borrow_mut() = t;
     }
 }
@@ -170,45 +101,6 @@ impl<T: Component> MogwaiState<T> for Gizmo<T> {
 impl<T: Component> From<T> for Gizmo<T> {
     fn from(component: T) -> Gizmo<T> {
         Gizmo::new(component)
-    }
-}
-
-
-/// A gizmo without a view.
-///
-/// More specifically a `Gremlin` is a [`Gizmo`] that has been split from its
-/// [`View`]. This exists to allow a [`Gizmo`]'s view to be added to a parent
-/// view while still being able to be updated at the callsite where the [`Gizmo`]
-/// was created.
-pub struct Gremlin<T: Component> {
-    pub trns: Transmitter<T::ModelMsg>,
-    pub recv: Receiver<T::ViewMsg>,
-    pub state: Rc<RefCell<T>>,
-}
-
-
-impl<T: Component> MogwaiState<T> for Gremlin<T> {
-    /// Update the component with the given message.
-    /// This how a parent component communicates down to its child components.
-    fn send(&self, msg: &T::ModelMsg) {
-        self.trns.send(msg);
-    }
-
-    /// Access the underlying state.
-    fn with_state<F, N>(&self, f: F) -> N
-    where
-        F: Fn(&T) -> N,
-    {
-        let t = self.state.borrow();
-        f(&t)
-    }
-
-    /// Set this gizmo's state.
-    ///
-    /// This silently updates the state and doesn't trigger any messages
-    /// and does *not* update the view.
-    fn set_state(&mut self, t: T) {
-        *self.state.borrow_mut() = t;
     }
 }
 

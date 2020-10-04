@@ -40,7 +40,7 @@ pub enum Out {
 
 pub struct App {
     next_index: usize,
-    todos: Vec<Gremlin<Todo>>,
+    todos: Vec<Gizmo<Todo>>,
     todo_input: Option<HtmlInputElement>,
     todo_toggle_input: Option<HtmlInputElement>,
     has_completed: bool,
@@ -140,9 +140,9 @@ impl Component for App {
         match msg {
             In::NewTodo(name, complete) => {
                 let index = self.next_index;
-                // Turn the new todo into a gizmo and split that into a view and the remaining
-                // component (a "Gremlin").
-                let (view, component) = Gizmo::new(Todo::new(index, name.to_string())).split_view();
+                // Turn the new todo into a gizmo, wire it up and spawn a viewbuilder, turning it into a view
+                // and sending to patch our todo list
+                let component = Gizmo::new(Todo::new(index, name.to_string()));
                 // Subscribe to some of its view messages
                 sub.subscribe_filter_map(&component.recv, move |todo_out_msg| match todo_out_msg {
                     TodoOut::UpdateEditComplete(_, is_complete) => {
@@ -157,7 +157,7 @@ impl Component for App {
 
                 // Add the gizmo's view to the app's view
                 tx_view.send(&Out::PatchTodos(Patch::PushBack {
-                    value: view,
+                    value: View::from(component.view_builder()),
                 }));
 
                 // Store the gizmo so we can update it later

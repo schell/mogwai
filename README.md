@@ -48,16 +48,13 @@ The main concepts behind `mogwai` are
   When a `View` goes out of scope and is dropped in Rust, it is also dropped from the DOM.
   `Views` may be constructed and nested using plain Rust functions or an RSX macro.
 
-* **widgets are folds over input messages** - a `Gizmo` is `mogwai`'s widget. `Gizmo`s
-  contain a view, a state variable and a `Transmitter`+`Receiver` pair. The `Gizmo`'s
-  update function is a fold over input messages sent on the `Transmitter` that mutate
-  the state variable and send output messages to the `View`, which update the DOM. After
-  a `Gizmo` has been constructed it may be broken down into its constituent parts - only
-  the `View` must remain in scope in order to function.
+* **widgets are folds over input messages** - a `Gizmo` is `mogwai`'s controller. `Gizmo`s
+  maintain state and communicate messages to views. The `Gizmo`'s update function is a fold
+  over messages sent on its `Transmitter` that mutate the state variable and send output
+  messages to the `View`, which in turn update the DOM.
 
-* **communication between gizmos is up to you** - communication between `Gizmo`s or `View`s
-  can happen by transmitting messages or by sharing variables, or anything else that's
-  allowed by the type system and the borrow checker.
+* **communication is easy** - just `gizmo.send(&my_message)` to send a message into a gizmo
+  and the gizmo will update its view accordingly.
 
 ## example
 Here is an example of a "dumb view" button that counts its own clicks.
@@ -151,19 +148,22 @@ impl Component for Button {
     }
 }
 
-let mut gizmo = Gizmo::from(Button{ clicks: 0 });
-
-// Pass some messages into the component, as if the button had been clicked:
+let gizmo = Gizmo::from(Button{ clicks: 0 });
+let view = View::from(gizmo.view_builder());
+// Queue some messages for the component, as if the button had been clicked:
 gizmo.send(&ButtonIn::Click);
 gizmo.send(&ButtonIn::Click);
 
-assert_eq!(&gizmo.view_ref().clone().html_string(), "<button>Clicked 2 times</button>");
+assert_eq!(&view.html_string(), "<button>Clicked 2 times</button>");
 
 if cfg!(target_arch = "wasm32") {
-    // running a gizmo adds its DOM to document.body and ownership is passed to the window
+    // running a view adds its DOM to document.body and ownership is passed to the window
     // this only works in the browser
-    gizmo.run().unwrap_throw()
+    view.run().unwrap_throw()
 }
+
+// After handing off the view the gizmo itself may fall out of scope and be dropped. The
+// view is all that is needed for your app to run.
 ```
 
 ## introduction

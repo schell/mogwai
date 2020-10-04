@@ -23,8 +23,7 @@ fn fresh_app(msgs: Vec<In>) -> Result<(), JsValue> {
         app.send(&msg);
     });
 
-    let Gizmo { view, .. } = app;
-    view.run()
+    View::from(app).run()
 }
 
 
