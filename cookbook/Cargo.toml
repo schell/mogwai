@@ -13,3 +13,6 @@ mogwai = { path = "../mogwai", version = "^0.3" }
 version = "^0.3"
 features = [
 ]
+
+[dev-dependencies]
+doc-comment = "^0.3"
