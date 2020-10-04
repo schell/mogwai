@@ -1,15 +1,12 @@
-name: cicd
+name: "on pull request"
 
 on: pull_request
 
 jobs:
-  build:
-
+- mogwai:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v1
-
     # caching
     - name: Cache .cargo
       uses: actions/cache@v2
@@ -18,21 +15,37 @@ jobs:
           ~/.cargo
           /usr/share/rust/.cargo/bin
           target
-          cookbook_target
         key: ${{ runner.os }}-cargo-all-${{ github.ref }}
         restore-keys: |
           ${{ runner.os }}-cargo-all-refs/heads/master
           ${{ runner.os }}-cargo-all-
-
     - name: build
       run: scripts/build.sh
-
     - name: test
       run: scripts/test.sh
-
     - name: "release to crates-io"
       if: startsWith(github.ref, 'refs/tags/v')
       run: |
         cd crates/mogwai-html-macro && cargo publish --token ${{ secrets.cargo_token }}
         cd ../..
         cd mogwai && cargo publish --token ${{ secrets.cargo_token }}
+
+- cookbook:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    # caching
+    - name: Cache .cargo
+      uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo
+          /usr/share/rust/.cargo/bin
+          target
+        key: ${{ runner.os }}-cargo-all-${{ github.ref }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-cookbook-refs/heads/master
+          ${{ runner.os }}-cargo-cookbook-
+          ${{ runner.os }}-cargo-all-
+    - name: test
+      run: scripts/test_cookbook.sh
