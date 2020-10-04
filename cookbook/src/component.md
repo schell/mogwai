@@ -15,6 +15,9 @@ is the top-level of its gizmo hierarchy, you can run it with `run()`.
 In the following example we assume it is the top-level gizmo in the program.
 
 ```rust
+extern crate mogwai;
+extern crate web_sys;
+
 use mogwai::prelude::*;
 
 #[derive(Clone)]
