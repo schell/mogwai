@@ -1,3 +1,4 @@
+use crate::components::game::{board, CellInteract, Update};
 use mogwai::prelude::*;
 
 /// Defines a button that changes its text every time it is clicked.
@@ -62,6 +63,29 @@ fn star_title(rx_org: Receiver<String>) -> ViewBuilder<HtmlElement> {
                 <span class="strike-out">{("from you?", org_name)}</span>
             </div>
         </div>
+    }
+}
+
+#[allow(unused_braces)]
+pub fn game(id: String) -> ViewBuilder<HtmlElement> {
+    // Create a transmitter to send button clicks into.
+    let tx_cells: Transmitter<CellInteract> = Transmitter::new();
+    let rx_cell_updates = Receiver::new();
+    tx_cells.wire_map(&rx_cell_updates, |e| Update::Cell {
+        column: e.column,
+        row: e.row,
+        value: "x".into(),
+    });
+    let initial_board = vec![vec![" ", " "], vec![" ", " "]];
+    builder! {
+        <main class="container">
+            <div class="overlay">
+                "This site is only supported in portrait mode."
+            </div>
+            <div class="game-board" data-game-id=id>
+                {board(initial_board, tx_cells, rx_cell_updates)}
+            </div>
+        </main>
     }
 }
 

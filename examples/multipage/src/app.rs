@@ -3,6 +3,7 @@ use mogwai::prelude::*;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Route {
+    Game,
     Home,
     NotFound,
 }
@@ -16,6 +17,7 @@ impl From<Route> for View<HtmlElement> {
 impl From<Route> for ViewBuilder<HtmlElement> {
     fn from(route: Route) -> Self {
         match route {
+            Route::Game => routes::game("foo".into()),
             Route::Home => routes::home(),
             Route::NotFound => routes::not_found(),
         }
@@ -74,12 +76,36 @@ impl Component for App {
             <div class="root">
                 <p>{("0 times", rx_text)}</p>
                 <nav>
-                    <button on:click=tx.contra_map(|_| Route::Home)>
+                    <a
+                        href="/"
+                        style="margin-right: 15px;"
+                        on:click=tx.contra_map(|e: &Event| {
+                            e.prevent_default();
+                            Route::Home
+                        })
+                    >
                         "Home"
-                    </button>
-                    <button on:click=tx.contra_map(|_| Route::NotFound)>
+                    </a>
+                    <a
+                        href="/game"
+                        style="margin-right: 15px;"
+                        on:click=tx.contra_map(|e: &Event| {
+                            e.prevent_default();
+                            Route::Game
+                        })
+                    >
+                        "Game"
+                    </a>
+                    <a
+                        href="/404"
+                        style="margin-right: 15px;"
+                        on:click=tx.contra_map(|e: &Event| {
+                            e.prevent_default();
+                            Route::NotFound
+                        })
+                    >
                         "Not Found"
-                    </button>
+                    </a>
                 </nav>
                 {contents}
             </div>
