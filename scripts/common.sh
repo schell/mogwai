@@ -16,5 +16,12 @@ else
     curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 fi
 
+if hash mdbook 2>/dev/null; then
+    echo "Have mdbook, skipping installation..."
+else
+    echo "Installing mdbook..."
+    cargo install mdbook
+fi
+
 rustup toolchain install 1.46.0
 rustup default 1.46.0

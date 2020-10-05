@@ -258,8 +258,6 @@
 //! * [Transmitter::wire_fold_shared]
 //! * [Transmitter::wire_map]
 //!
-//! Note that they all mutate the [Transmitter] they are called on.
-//!
 //! Conversely, if you would like to forward messages from a receiver into a
 //! transmitter of a different type you can "forward" messages from the receiver
 //! to the transmitter:
@@ -394,8 +392,10 @@ use std::{
     future::Future,
     pin::Pin,
     rc::Rc,
+    task::{Context, Poll, Waker},
 };
 use wasm_bindgen_futures::spawn_local;
+
 
 pub type RecvFuture<A> = Pin<Box<dyn Future<Output = Option<A>>>>;
 
@@ -687,6 +687,30 @@ impl<A: 'static> Transmitter<A> {
 }
 
 
+// A message received by a [`Receiver`] at some point in the future.
+struct MessageFuture<A> {
+    var: Rc<RefCell<Option<A>>>,
+    waker: Rc<RefCell<Option<Waker>>>,
+}
+
+
+impl<A> Future for MessageFuture<A> {
+    type Output = A;
+
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        let future: &mut MessageFuture<A> = self.get_mut();
+        let var: Option<A> = future.var.as_ref().borrow_mut().take();
+        match var {
+            Some(msg) => Poll::Ready(msg),
+            None => {
+                *future.waker.borrow_mut() = Some(ctx.waker().clone());
+                Poll::Pending
+            }
+        }
+    }
+}
+
+
 /// Receive messages instantly.
 pub struct Receiver<A> {
     k: usize,
@@ -694,20 +718,9 @@ pub struct Receiver<A> {
 }
 
 
-/// Clone a receiver.
-///
-/// # Warning!
-/// Be careful with this function. Because of magic, calling
-/// [Receiver::respond] on a clone of a receiver sets the responder for both of
-/// those receivers. **Under the hood they are the same responder**. This is why
-/// [Receiver] has no [Clone] trait implementation.
-///
-/// Instead of cloning, if you need a new receiver that receives from the same
-/// transmitter you should use [Receiver::branch], which comes in many flavors.
-pub(crate) fn hand_clone<A>(rx: &Receiver<A>) -> Receiver<A> {
-    Receiver {
-        k: rx.k,
-        responders: rx.responders.clone(),
+impl<A> Clone for Receiver<A> {
+    fn clone(&self) -> Self {
+        self.responders.clone().recv_from()
     }
 }
 
@@ -729,7 +742,7 @@ impl<A> Receiver<A> {
     /// Set the response this receiver has to messages. Upon receiving a message
     /// the response will run immediately.
     ///
-    /// Folds mutably over a shared Rc<RefCell<T>>.
+    /// Folds mutably over a Rc<RefCell<T>>.
     pub fn respond_shared<T: 'static, F>(self, val: Rc<RefCell<T>>, f: F)
     where
         F: Fn(&mut T, &A) + 'static,
@@ -1014,6 +1027,27 @@ impl<A> Receiver<A> {
             });
         });
         rx
+    }
+
+    /// Create a future to await the next message received by this `Receiver`.
+    pub fn message(&self) -> impl Future<Output = A>
+    where
+        A: Clone + 'static,
+    {
+        let var: Rc<RefCell<Option<A>>> = Rc::new(RefCell::new(None));
+        let var2: Rc<RefCell<Option<A>>> = var.clone();
+        let waker: Rc<RefCell<Option<Waker>>> = Rc::new(RefCell::new(None));
+        let waker2 = waker.clone();
+        self.branch().respond(move |msg| {
+            *var2.borrow_mut() = Some(msg.clone());
+            waker2
+                .borrow_mut()
+                .take()
+                .into_iter()
+                .for_each(|waker| waker.wake());
+        });
+
+        MessageFuture { var, waker }
     }
 }
 

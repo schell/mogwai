@@ -1,3 +1,4 @@
+#![allow(unused_braces)]
 //! An introduction to the minimal, obvious, graphical web application interface.
 //!
 //! # Welcome!
@@ -121,13 +122,14 @@ use crate as mogwai;
 
 struct Unit {}
 
+
 impl Component for Unit {
     type ModelMsg = ();
     type ViewMsg = ();
     type DomNode = HtmlElement;
 
-    fn view(&self, _: Transmitter<()>, _: Receiver<()>) -> View<HtmlElement> {
-        view! {
+    fn view(&self, _: &Transmitter<()>, _: &Receiver<()>) -> ViewBuilder<HtmlElement> {
+        builder! {
             <a href="/#">"Hello"</a>
         }
     }

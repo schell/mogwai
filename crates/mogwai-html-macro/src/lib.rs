@@ -23,25 +23,31 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
         if let Some(expr) = node.value {
             match key.split(':').collect::<Vec<_>>().as_slice() {
                 ["style", name] => Ok(quote! {
-                    .style(#name, #expr)
+                    __mogwai_node.style(#name, #expr);
                 }),
                 ["on", event] => Ok(quote! {
-                    .on(#event, #expr)
+                    __mogwai_node.on(#event, #expr);
                 }),
                 ["window", event] => Ok(quote! {
-                    .window_on(#event, #expr)
+                    __mogwai_node.window_on(#event, #expr);
                 }),
                 ["document", event] => Ok(quote! {
-                    .document_on(#event, #expr)
+                    __mogwai_node.document_on(#event, #expr);
                 }),
                 ["post", "build"] => Ok(quote! {
-                    .post_build(#expr)
+                    __mogwai_node.post_build(#expr);
                 }),
                 ["boolean", name] => Ok(quote! {
-                    .boolean_attribute(#name, #expr)
+                    __mogwai_node.boolean_attribute(#name, #expr);
+                }),
+                ["this", "later"] => Ok(quote! {
+                    __mogwai_node.this_later(#expr);
+                }),
+                ["patch", "children"] => Ok(quote! {
+                    __mogwai_node.patch(#expr);
                 }),
                 [attribute_name] => Ok(quote! {
-                    .attribute(#attribute_name, #expr)
+                    __mogwai_node.attribute(#attribute_name, #expr);
                 }),
                 keys => Err(Error::new(
                     span,
@@ -54,7 +60,7 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
             }
         } else {
             Ok(quote! {
-                .boolean_attribute(#key, true)
+                __mogwai_node.boolean_attribute(#key, true);
             })
         }
     } else {
@@ -108,8 +114,8 @@ where
     F: Fn(Node) -> Result<proc_macro2::TokenStream, Error>,
 {
     match node.node_type {
-        NodeType::Element => {
-            if let Some(tag) = node.name_as_string() {
+        NodeType::Element => match node.name_as_string() {
+            Some(tag) => {
                 let type_is = tag_to_type_token_stream(tag.as_str());
                 let mut errs: Vec<Error> = vec![];
 
@@ -120,7 +126,7 @@ where
                 let (child_tokens, child_errs) = partition_unzip(node.children, node_fn);
                 let child_tokens = child_tokens
                     .into_iter()
-                    .map(|child| quote! { .with(#child) });
+                    .map(|child| quote! { __mogwai_node.with(#child); });
                 errs.extend(child_errs);
 
                 let may_error = combine_errors(errs);
@@ -128,16 +134,17 @@ where
                     Err(error)
                 } else {
                     Ok(quote! {
-                        (#view_path::element(#tag)
-                           as #view_path<#type_is>)
-                           #(#attribute_tokens)*
-                           #(#child_tokens)*
+                        {
+                            let mut __mogwai_node = (#view_path::element(#tag) as #view_path<#type_is>);
+                            #(#attribute_tokens)*
+                            #(#child_tokens)*
+                            __mogwai_node
+                        }
                     })
                 }
-            } else {
-                Err(Error::new(Span::call_site(), "node is missing a name"))
             }
-        }
+            _ => Err(Error::new(Span::call_site(), "node is missing a name")),
+        },
         NodeType::Text | NodeType::Block => {
             if let Some(value) = node.value {
                 Ok(quote! {#view_path::from(#value)})
@@ -156,16 +163,16 @@ where
 
 fn node_to_view_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
-        quote!{ mogwai::prelude::View },
+        quote! { mogwai::prelude::View },
         node_to_view_token_stream,
-        node
+        node,
     )
 }
 
 
 fn node_to_hydrateview_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
-        quote!{ mogwai::prelude::HydrateView },
+        quote! { mogwai_hydrator::Hydrator },
         node_to_hydrateview_token_stream,
         node,
     )
@@ -174,7 +181,7 @@ fn node_to_hydrateview_token_stream(node: Node) -> Result<proc_macro2::TokenStre
 
 fn node_to_builder_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
-        quote!{ mogwai::prelude::ViewBuilder },
+        quote! { mogwai::prelude::ViewBuilder },
         node_to_builder_token_stream,
         node,
     )
@@ -219,7 +226,7 @@ pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 
 #[proc_macro]
-/// Uses an html description to construct a [`HydrateView`], which can then be converted
+/// Uses an html description to construct a [`Hydrator`], which can then be converted
 /// into a [`View`] with [`std::convert::TryFrom`].
 pub fn hydrate(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(walk_dom(input, node_to_hydrateview_token_stream))

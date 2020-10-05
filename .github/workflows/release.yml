@@ -1,0 +1,28 @@
+name: "on release"
+
+on:
+  push:
+    tags: v*.*.*
+
+jobs:
+  mogwai:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    # caching
+    - name: Cache .cargo
+      uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo
+          /usr/share/rust/.cargo/bin
+          target
+        key: ${{ runner.os }}-cargo-all-${{ github.ref }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-all-refs/heads/master
+          ${{ runner.os }}-cargo-all-
+    - name: "release to crates-io"
+      run: |
+        cd crates/mogwai-html-macro && cargo publish --token ${{ secrets.cargo_token }}
+        cd ../../mogwai && cargo publish --token ${{ secrets.cargo_token }}
+        cd ../crates/mogwai-hydrator && cargo publish --token ${{ secrets.cargo_token }}

@@ -4,6 +4,7 @@ mod elm_button;
 
 use log::Level;
 use mogwai::prelude::*;
+use mogwai_hydrator::Hydrator;
 use std::panic;
 use wasm_bindgen::prelude::*;
 use web_sys::{Request, RequestInit, RequestMode, Response};
@@ -244,11 +245,10 @@ pub fn main() -> Result<(), JsValue> {
                 <p class="my_p">{("blah", rx)}</p>
             </div>
         };
-        builder
-            .hydrate_view()
-            .unwrap()
-            .forget()
-            .unwrap_throw()
+        let hydrator = Hydrator::from(builder);
+        let view = View::try_from(hydrator).unwrap();
+        view.forget()
+            .unwrap_throw();
     };
 
     tx.send(&());

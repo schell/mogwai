@@ -1,17 +1,21 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement};
 
-use crate::prelude::{txrx, Component, Receiver, Subscriber, Transmitter, View, ViewBuilder};
-use crate::utils;
+use crate::{
+    prelude::{txrx, Component, IsDomNode, Receiver, Subscriber, Transmitter, ViewBuilder},
+    utils,
+};
 
 
 /// A widget and all of its pieces.
 pub struct Gizmo<T: Component> {
     pub trns: Transmitter<T::ModelMsg>,
     pub recv: Receiver<T::ViewMsg>,
-    pub view: View<T::DomNode>,
     pub state: Rc<RefCell<T>>,
 }
 
@@ -20,7 +24,7 @@ impl<T> Gizmo<T>
 where
     T: Component + 'static,
     T::ViewMsg: Clone,
-    T::DomNode: AsRef<Node> + Clone,
+    T::DomNode: JsCast + AsRef<Node> + Clone,
 {
     /// Create a new [`Gizmo`] from an initial state using
     /// a view and the [`Transmitter`] + [`Receiver`] used to
@@ -29,7 +33,6 @@ where
         init: T,
         tx_in: Transmitter<T::ModelMsg>,
         rx_out: Receiver<T::ViewMsg>,
-        view: View<T::DomNode>,
     ) -> Self {
         let state = Rc::new(RefCell::new(init));
         let tx_out = rx_out.new_trns();
@@ -50,7 +53,6 @@ where
         Gizmo {
             trns: tx_in,
             recv: rx_out,
-            view,
             state,
         }
     }
@@ -60,82 +62,20 @@ where
     pub fn new(init: T) -> Gizmo<T> {
         let tx_in = Transmitter::new();
         let rx_out = Receiver::new();
-        let view_builder = init.view(&tx_in, &rx_out);
-        let view = view_builder.fresh_view();
 
-        Gizmo::from_parts(init, tx_in, rx_out, view)
+        Gizmo::from_parts(init, tx_in, rx_out)
     }
 
-
-    /// Hydrates a new [`Gizmo`] from a stateful [`Component`].
-    /// If the view cannot be hydrated an error is returned.
-    pub fn hydrate(init: T) -> Result<Gizmo<T>, crate::view::hydration::Error> {
-        let tx_in = Transmitter::new();
-        let rx_out = Receiver::new();
-        let view_builder = init.view(&tx_in, &rx_out);
-        let view = view_builder.hydrate_view()?;
-
-        Ok(Gizmo::from_parts(init, tx_in, rx_out, view))
-    }
-
-
-    /// Hydrates a new [`Gizmo`] from a stateful [`Component`].
-    /// If the view cannot be hydrated then a fresh one will be created.
-    pub fn hydrate_or_fresh(init: T) -> Gizmo<T> {
-        let tx_in = Transmitter::new();
-        let rx_out = Receiver::new();
-        let view_builder = init.view(&tx_in, &rx_out);
-        let view = view_builder.hydrate_or_else_fresh_view();
-
-        Gizmo::from_parts(init, tx_in, rx_out, view)
-    }
-
-    /// A reference to the browser's DomNode.
-    ///
-    /// # Panics
-    /// Only works in the browser. Panics outside of wasm32.
-    pub fn dom_ref(&self) -> &T::DomNode {
-        if cfg!(target_arch = "wasm32") {
-            return self.view.as_ref().unchecked_ref::<T::DomNode>();
-        }
-        panic!("Gizmo::dom_ref is only available on wasm32")
-    }
-
-    pub fn view_ref(&self) -> &View<T::DomNode> {
-        &self.view
-    }
-
-    /// Send model messages into this component from a `Receiver<T::ModelMsg>`.
-    /// This is helpful for sending messages to this component from
-    /// a parent component.
-    pub fn rx_from(self, rx: Receiver<T::ModelMsg>) -> Gizmo<T> {
-        rx.forward_map(&self.trns, |msg| msg.clone());
-        self
-    }
-
-    /// Send view messages from this component into a `Transmitter<T::ViewMsg>`.
-    /// This is helpful for sending messages to this component from
-    /// a parent component.
-    pub fn tx_into(self, tx: &Transmitter<T::ViewMsg>) -> Gizmo<T> {
-        self.recv.branch().forward_map(&tx, |msg| msg.clone());
-        self
-    }
-
-    /// Run this component forever, handing ownership over to the browser window.
-    ///
-    /// # Panics
-    /// Only works in the browser. Panics on compilation targets that are not
-    /// wasm32.
-    pub fn run(self) -> Result<(), JsValue> {
-        if cfg!(target_arch = "wasm32") {
-            return self.view.run();
-        }
-        panic!("Gizmo::run is only available on wasm32")
+    /// Use the Gizmo to spawn a [`ViewBuilder<T::DomNode>`].
+    /// This allows you to send the builder (or subsequent view) somewhere else while still
+    /// maintaining the ability to update the view from afar.
+    pub fn view_builder(&self) -> ViewBuilder<T::DomNode> {
+        self.state.as_ref().borrow().view(&self.trns, &self.recv)
     }
 
     /// Update the component with the given message.
     /// This how a parent component communicates down to its child components.
-    pub fn update(&self, msg: &T::ModelMsg) {
+    pub fn send(&self, msg: &T::ModelMsg) {
         self.trns.send(msg);
     }
 
@@ -189,10 +129,10 @@ pub type BuilderFn<T, D> = dyn Fn(&Transmitter<T>, &Receiver<T>) -> ViewBuilder<
 ///     }
 /// ));
 /// ```
-pub struct SimpleComponent<T, D: JsCast>(Box<BuilderFn<T, D>>);
+pub struct SimpleComponent<T, D: IsDomNode>(Box<BuilderFn<T, D>>);
 
 
-impl<T, D: JsCast> SimpleComponent<T, D> {
+impl<T, D: IsDomNode> SimpleComponent<T, D> {
     pub fn new<F>(f: F) -> Self
     where
         F: Fn(&Transmitter<T>, &Receiver<T>) -> ViewBuilder<D> + 'static,

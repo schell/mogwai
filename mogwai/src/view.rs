@@ -1,4 +1,5 @@
 //! Views
+use std::{cell::RefCell, rc::Rc};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget, HtmlInputElement};
 
@@ -6,7 +7,6 @@ use crate::prelude::Receiver;
 
 pub mod builder;
 pub mod dom;
-pub mod hydration;
 pub mod interface;
 
 
@@ -39,9 +39,9 @@ impl<T: Clone> Clone for Effect<T> {
 }
 
 
-impl<T> Effect<T> {
-    pub fn into_some(self) -> (Option<T>, Option<Receiver<T>>) {
-        match self {
+impl<T> From<Effect<T>> for (Option<T>, Option<Receiver<T>>) {
+    fn from(eff: Effect<T>) -> Self {
+        match eff {
             Effect::OnceNow { now } => (Some(now), None),
             Effect::ManyLater { later } => (None, Some(later)),
             Effect::OnceNowAndManyLater { now, later } => (Some(now), Some(later)),
@@ -85,6 +85,14 @@ impl<T> From<(T, Receiver<T>)> for Effect<T> {
 }
 
 
+impl<T> From<(Option<T>, Receiver<Rc<RefCell<Option<T>>>>)> for Effect<Rc<RefCell<Option<T>>>> {
+    fn from((now, later): (Option<T>, Receiver<Rc<RefCell<Option<T>>>>)) -> Self {
+        let now = Rc::new(RefCell::new(now));
+        Effect::OnceNowAndManyLater { now, later }
+    }
+}
+
+
 impl From<(&str, Receiver<String>)> for Effect<String> {
     fn from((now, later): (&str, Receiver<String>)) -> Effect<String> {
         Effect::OnceNowAndManyLater {
@@ -93,3 +101,10 @@ impl From<(&str, Receiver<String>)> for Effect<String> {
         }
     }
 }
+
+
+/// Marker trait that means JsCast + Clone + + 'static.
+pub trait IsDomNode: JsCast + Clone + 'static {}
+
+
+impl<T> IsDomNode for T where T: JsCast + Clone + 'static {}

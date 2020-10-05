@@ -1,0 +1,28 @@
+[package]
+name = "mogwai-hydrator"
+version = "0.1.0"
+authors = ["Schell Scivally <efsubenovex@gmail.com>"]
+edition = "2018"
+description = "View hydration for the mogwai library"
+repository = "https://github.com/schell/mogwai"
+readme = "../../README.md"
+keywords = ["ui", "dom", "app", "reactive", "frontend"]
+categories = ["gui", "wasm", "web-programming"]
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+mogwai = { path = "../../mogwai", version = "^0.3" }
+snafu = "^0.6"
+wasm-bindgen = "^0.2"
+
+[dependencies.web-sys]
+version = "^0.3"
+features = [
+  "Element",
+  "EventTarget",
+  "HtmlElement",
+  "Node",
+  "Text",
+]

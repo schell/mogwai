@@ -1,16 +1,21 @@
 //! Widgets for the browser.
-use std::{cell::RefCell, collections::HashMap, marker::PhantomData, ops::Deref, rc::Rc};
+use std::{
+    cell::{Ref, RefCell},
+    marker::PhantomData,
+    rc::Rc,
+};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::closure::Closure;
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
 use web_sys::{Node, Text};
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::ssr::Node as SsrNode;
 use crate::{
+    prelude::{Component, Effect, Gizmo, IsDomNode, Patch, Receiver, Transmitter},
     utils,
     view::interface::*,
-    prelude::{Component, Effect, Gizmo, Receiver, Transmitter},
-    ssr::Node as SsrNode,
 };
 
 
@@ -62,27 +67,86 @@ pub(crate) struct ServerNode {
 }
 
 
-/// A widget that may contain a bundled network of html elements, callback
-/// closures and receivers. This wraps a Javascript DOM node and maintains lists
-/// and maps needed to orchestrate user interaction.
-pub struct View<T: JsCast> {
-    pub children: Vec<View<Node>>,
+#[derive(Clone)]
+enum StoredCb {
+    This(String, MogwaiCallback),
+    Window(String, MogwaiCallback),
+    Document(String, MogwaiCallback),
+}
 
-    pub(crate) phantom: PhantomData<T>,
+
+#[derive(Clone)]
+pub(crate) struct ViewInternals {
+    pub(crate) slots: Vec<View<Node>>,
     pub(crate) element: Rc<JsValue>,
-    pub(crate) callbacks: HashMap<String, MogwaiCallback>,
-    pub(crate) window_callbacks: HashMap<String, MogwaiCallback>,
-    pub(crate) document_callbacks: HashMap<String, MogwaiCallback>,
-    pub(crate) string_rxs: Vec<Receiver<String>>,
-    pub(crate) opt_string_rxs: Vec<Receiver<Option<String>>>,
-    pub(crate) bool_rxs: Vec<Receiver<bool>>,
-
+    callbacks: Vec<StoredCb>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) server_node: ServerNode,
 }
 
 
-impl<T: JsCast> View<T> {
+/// ViewInternal's Drop implementation removes any javascript callbacks being managed by this
+/// view and also removes its element from the DOM if it is not referenced by any other view.
+#[cfg(target_arch = "wasm32")]
+impl Drop for ViewInternals {
+    fn drop(&mut self) {
+        let count = Rc::strong_count(&self.element);
+        if count <= 1 {
+            if let Some(node) = self.element.dyn_ref::<Node>() {
+                if let Some(parent) = node.parent_node() {
+                    let _ = parent.remove_child(&node);
+                }
+            }
+        }
+
+        let may_targets = if cfg!(target_arch = "wasm32") {
+            self.element
+                .dyn_ref::<EventTarget>()
+                .cloned()
+                .map(|target| (target, utils::window(), utils::document()))
+        } else {
+            None
+        };
+
+        if let Some((this, window, document)) = may_targets {
+            for callback in self.callbacks.iter() {
+                match callback {
+                    StoredCb::This(event, mcb) => utils::remove_event(event, &this, mcb),
+                    StoredCb::Window(event, mcb) => utils::remove_event(event, &window, mcb),
+                    StoredCb::Document(event, mcb) => utils::remove_event(event, &document, mcb),
+                }
+            }
+        }
+    }
+}
+
+
+impl Default for ViewInternals {
+    #[cfg(target_arch = "wasm32")]
+    fn default() -> Self {
+        ViewInternals {
+            element: Rc::new(JsValue::NULL),
+            callbacks: vec![],
+            slots: vec![],
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn default() -> Self {
+        ViewInternals {
+            element: Rc::new(JsValue::NULL),
+            callbacks: vec![],
+            slots: vec![],
+            server_node: ServerNode {
+                name_or_text: NameOrText::Name(Rc::new(RefCell::new("".to_string()))),
+                attributes: vec![],
+                styles: vec![],
+            },
+        }
+    }
+}
+
+
+impl ViewInternals {
     #[cfg(target_arch = "wasm32")]
     fn with_node<F>(&mut self, _: F)
     where
@@ -99,35 +163,289 @@ impl<T: JsCast> View<T> {
         f(&mut self.server_node);
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub fn to_ssr_node(self) -> SsrNode {
-        panic!("View::to_ssr_node is only available outside of wasm32")
+    /// Adds a View as a child node by storing the View and adding its element to the DOM.
+    pub fn add_child<E: IsDomNode + AsRef<Node>>(&mut self, child: View<E>) {
+        if cfg!(target_arch = "wasm32") {
+            let node: &Node = self.element.unchecked_ref();
+            let child_internals: Ref<ViewInternals> = child.internals.as_ref().borrow();
+            node.append_child(&child_internals.element.as_ref().unchecked_ref())
+                .expect("Could not add text node to View");
+        }
+        let child = child.upcast();
+        self.slots.push(child);
+    }
+
+    /// Adds a View as a child node at a certain index by storing the View and adding its element to the DOM.
+    /// If the index given is greater than the number of children, the given child is appended to the end of
+    /// the node list.
+    pub fn add_child_at<E: IsDomNode + AsRef<Node>>(&mut self, index: usize, child: View<E>) {
+        if index >= self.slots.len() {
+            return self.add_child(child);
+        }
+
+        if cfg!(target_arch = "wasm32") {
+            let node: &Node = self.element.unchecked_ref();
+            self.slots
+                .get(index)
+                .into_iter()
+                .for_each(|view_after: &View<Node>| {
+                    node.insert_before(child.dom_ref().as_ref(), Some(&view_after.dom_ref()))
+                        .unwrap_throw();
+                });
+        }
+
+        self.slots.insert(index, child.upcast());
+    }
+
+    /// Removes a child View node from a certain index.
+    /// If the index given is greater than the number of children the result is `None`.
+    pub fn remove_child_at(&mut self, index: usize) -> Option<View<Node>> {
+        if index >= self.slots.len() {
+            return None;
+        }
+
+        let child: View<Node> = self.slots.remove(index);
+        if cfg!(target_arch = "wasm32") {
+            let node: &Node = self.element.unchecked_ref();
+            node.remove_child(&child.dom_ref()).unwrap_throw();
+        }
+        Some(child)
+    }
+
+    pub fn remove_all_children(&mut self) -> Vec<View<Node>> {
+        let children: Vec<View<Node>> = std::mem::replace(&mut self.slots, vec![]);
+        if cfg!(target_arch = "wasm32") {
+            let node: &Node = self.element.unchecked_ref();
+            for child in children.iter() {
+                node.remove_child(&child.dom_ref()).unwrap_throw();
+            }
+        }
+        children
+    }
+
+    /// Removes a child View node from a certain index and replaces it with another. Returns
+    /// the child view that was replaced.
+    /// If the index given is greater than the number of children the result is `None`.
+    pub fn replace_child_at(&mut self, index: usize, new_child: View<Node>) -> Option<View<Node>> {
+        if index >= self.slots.len() {
+            return None;
+        }
+
+        let old_child: &View<Node> = self.slots.get(index).unwrap_throw();
+        if cfg!(target_arch = "wasm32") {
+            let node: &Node = self.element.unchecked_ref();
+            node.replace_child(&new_child.dom_ref(), &old_child.dom_ref())
+                .unwrap_throw();
+        }
+        old_child.internals.swap(&new_child.internals);
+        // Hand back the new_child that now contains the internals of the old child.
+        Some(new_child)
+    }
+
+    /// Adds an event on this view's element that will be stored by this view.
+    pub fn add_event_on_this(&mut self, ev_name: &str, tx: Transmitter<Event>) {
+        let cb = utils::add_event(ev_name, self.element.as_ref().unchecked_ref(), tx);
+        self.callbacks.push(StoredCb::This(ev_name.to_string(), cb));
+    }
+
+    /// Adds an event on the window that will be stored by this view.
+    pub fn add_event_on_window(&mut self, ev_name: &str, tx: Transmitter<Event>) {
+        let target = utils::window();
+        let cb = utils::add_event(ev_name, &target, tx);
+        self.callbacks
+            .push(StoredCb::Window(ev_name.to_string(), cb));
+    }
+
+    /// Adds an event on the window that will be stored by this view.
+    pub fn add_event_on_document(&mut self, ev_name: &str, tx: Transmitter<Event>) {
+        let target = utils::document();
+        let cb = utils::add_event(ev_name, &target, tx);
+        self.callbacks
+            .push(StoredCb::Document(ev_name.to_string(), cb));
+    }
+
+    /// Attempt to add a style to this view. If the underlying DOM type `T` does not
+    /// implement [`AsRef<HtmlElement>`] then this function is a noop.
+    pub fn add_style(&mut self, name: &str, effect: Effect<String>) {
+        let (may_now, may_later) = effect.into();
+        if cfg!(target_arch = "wasm32") {
+            if let Some(element) = self.element.dyn_ref::<HtmlElement>() {
+                if let Some(now) = may_now {
+                    element
+                        .style()
+                        .set_property(name, now.as_str())
+                        .unwrap_throw();
+                }
+                if let Some(later) = may_later {
+                    let style = element.style();
+                    let name = name.to_string();
+                    later.respond(move |s| {
+                        style.set_property(&name, s).expect("Could not set style");
+                    });
+                }
+            }
+        } else {
+            let var = Rc::new(RefCell::new("".to_string()));
+            if let Some(now) = may_now {
+                *var.borrow_mut() = now.to_string();
+                self.with_node(|node| {
+                    node.styles.push((name.into(), var.clone()));
+                });
+            }
+            if let Some(later) = may_later {
+                later.respond(move |s| {
+                    *var.borrow_mut() = s.to_string();
+                })
+            }
+        }
+    }
+
+    /// Attempts to add an attribute to this view. If the underlying DOM type `T` does not
+    /// implement [`AsRef<Element>`] then this function is a noop.
+    pub fn add_attribute(&mut self, name: &str, effect: Effect<String>) {
+        let (may_now, may_later) = effect.into();
+        if cfg!(target_arch = "wasm32") {
+            if let Some(element) = self.element.dyn_ref::<Element>() {
+                if let Some(now) = may_now {
+                    element.set_attribute(name, &now).unwrap_throw();
+                }
+                if let Some(later) = may_later {
+                    let element = element.clone();
+                    let name = name.to_string();
+                    later.respond(move |s| {
+                        element
+                            .set_attribute(&name, s)
+                            .expect("Could not set attribute");
+                    });
+                }
+            }
+        } else {
+            let var = Rc::new(RefCell::new(None));
+            self.with_node(|node| {
+                node.attributes.push((name.into(), var.clone()));
+            });
+            if let Some(now) = may_now {
+                *var.borrow_mut() = Some(now.to_string());
+            }
+            if let Some(later) = may_later {
+                let rx = later.branch_map(|s| Some(s.to_string()));
+                rx.respond(move |may_s: &Option<String>| {
+                    *var.borrow_mut() = may_s.clone();
+                });
+            }
+        }
+    }
+
+    /// Attempts to add a boolean attribute to this view. If the underlying DOM type `T`
+    /// does not implement [`AsRef<Element>`] then this function is a noop.
+    pub fn add_boolean_attribute(&mut self, name: &str, effect: Effect<bool>) {
+        let (may_now, may_later) = effect.into();
+        if cfg!(target_arch = "wasm32") {
+            if let Some(element) = self.element.dyn_ref::<Element>() {
+                if let Some(true) = may_now {
+                    element.set_attribute(name, "").unwrap_throw();
+                }
+                if let Some(later) = may_later {
+                    let element = element.clone();
+                    let name = name.to_string();
+                    later.respond(move |b| {
+                        if *b {
+                            element
+                                .set_attribute(&name, "")
+                                .expect("Could not set boolean attribute");
+                        } else {
+                            element
+                                .remove_attribute(&name)
+                                .expect("Could not remove boolean attribute")
+                        }
+                    });
+                }
+            }
+        } else {
+            let var = Rc::new(RefCell::new(None));
+            self.with_node(|node| {
+                node.attributes.push((name.into(), var.clone()));
+            });
+            if let Some(true) = may_now {
+                *var.borrow_mut() = Some("".to_string());
+            }
+            if let Some(later) = may_later {
+                later.respond(move |is_present| {
+                    *var.borrow_mut() = if *is_present {
+                        Some("".to_string())
+                    } else {
+                        None
+                    };
+                });
+            }
+        }
+    }
+}
+
+
+/// A widget that may contain a bundled network of html elements, callback
+/// closures and receivers. This wraps a Javascript DOM node and maintains lists
+/// and maps needed to orchestrate user interaction.
+#[derive(Clone)]
+pub struct View<T: IsDomNode> {
+    pub(crate) phantom: PhantomData<*const T>,
+    pub(crate) internals: Rc<RefCell<ViewInternals>>,
+}
+
+
+impl<T: IsDomNode> Default for View<T> {
+    fn default() -> Self {
+        View {
+            phantom: PhantomData,
+            internals: Rc::new(RefCell::new(ViewInternals::default())),
+        }
+    }
+}
+
+
+impl<T: IsDomNode> View<T> {
+    /// Return a reference to the underlying DOM element.
+    pub fn dom_ref(&self) -> Ref<T> {
+        Ref::map(self.internals.borrow(), |internals| {
+            internals.element.unchecked_ref::<T>()
+        })
+    }
+
+    /// Stores a View without adding its element to the DOM.
+    ///
+    /// ## NOTE: This is for use by helper libraries like `mogwai-hydrator` and is not
+    /// intended to be called by downsteam users.
+    pub fn store_view(&mut self, child: View<Node>) {
+        self.internals.borrow_mut().slots.push(child);
+    }
+
+    /// Returns the number of views being stored in this view.
+    pub fn stored_views_len(&self) -> usize {
+        self.internals.borrow().slots.len()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn to_ssr_node(self) -> SsrNode {
-        let View {
-            server_node,
-            children,
-            ..
-        } = self;
-        match server_node.name_or_text {
+    pub fn as_ssr_node(&self) -> SsrNode {
+        let internals = self.internals.borrow();
+        match &internals.server_node.name_or_text {
             NameOrText::Name(name) => SsrNode::Container {
                 name: name.borrow().clone(),
                 attributes: {
                     // TODO: Merge attribute style with explicit styles
-                    let mut attributes = server_node
+                    let mut attributes = internals
+                        .server_node
                         .attributes
-                        .into_iter()
-                        .map(|(k, var)| (k, var.borrow().clone()))
+                        .iter()
+                        .map(|(k, var)| (k.clone(), var.borrow().clone()))
                         .collect::<Vec<_>>();
-                    if !server_node.styles.is_empty() {
+                    if !internals.server_node.styles.is_empty() {
                         attributes.push((
-                            "style".into(),
+                            "style".to_string(),
                             Some(
-                                server_node
+                                internals
+                                    .server_node
                                     .styles
-                                    .into_iter()
+                                    .iter()
                                     .map(|(k, v)| format!("{}: {};", k, v.borrow()))
                                     .collect::<Vec<_>>()
                                     .join(" "),
@@ -136,37 +454,136 @@ impl<T: JsCast> View<T> {
                     }
                     attributes
                 },
-                children: children.into_iter().map(|g| g.to_ssr_node()).collect(),
+                children: internals
+                    .slots
+                    .iter()
+                    .map(|rc_ref_view| rc_ref_view.as_ssr_node())
+                    .collect(),
             },
             NameOrText::Text(text) => SsrNode::Text(text.borrow().clone()),
         }
     }
 
-    /// Adds a View as a child node.
-    pub fn add_child<E: JsCast + AsRef<Node> + Clone>(&mut self, child: View<E>) {
-        if cfg!(target_arch = "wasm32") {
-            let node: &Node = self.as_ref().unchecked_ref();
-            node.append_child(&child.element.as_ref().unchecked_ref())
-                .expect("Could not add text node to View");
+    #[cfg(target_arch = "wasm32")]
+    pub fn html_string(&self) -> String {
+        let value: Ref<JsValue> = Ref::map(self.internals.borrow(), |internals| {
+            internals.element.as_ref()
+        });
+
+        if let Some(element) = value.dyn_ref::<Element>() {
+            return element.outer_html();
         }
-        self.children.push(child.upcast());
+
+        if let Some(text) = value.dyn_ref::<Text>() {
+            return text.data();
+        }
+        panic!(
+            "Dom reference {:#?} could not be turned into a string",
+            value
+        );
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn html_string(&self) -> String {
+        String::from(self.as_ssr_node())
     }
 
-    pub fn into_html_string(self) -> String {
-        if cfg!(target_arch = "wasm32") {
-            let t: &JsValue = self.element.as_ref();
+    /// Create a new `View` wrapping a `T` that can be dereferenced to a `Node`.
+    ///
+    /// # Panics
+    /// Panics if used outside of a wasm32 target.
+    #[cfg(target_arch = "wasm32")]
+    pub fn wrapping(element: T) -> View<T> {
+        let mut internals = ViewInternals::default();
+        internals.element = Rc::new(element.unchecked_into());
 
-            if let Some(element) = t.dyn_ref::<Element>() {
-                return element.outer_html();
-            }
+        View {
+            phantom: PhantomData,
+            internals: Rc::new(RefCell::new(internals)),
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn wrapping(_element: T) -> View<T> {
+        panic!("View::wrapping is only available on wasm32")
+    }
 
-            if let Some(text) = t.dyn_ref::<Text>() {
-                return text.data();
-            }
-            panic!("Dom reference {:#?} could not be turned into a string", t);
+    /// # Note
+    /// On wasm32 this performs a check on the inner element to determine if the
+    /// element can be downcast to the desired type. On other compilation targets
+    /// this function always returns Ok.
+    #[cfg(target_arch = "wasm32")]
+    pub fn try_cast<To: IsDomNode>(self) -> Result<View<To>, Self> {
+        if self.internals.borrow().element.has_type::<To>() {
+            Ok(View {
+                phantom: PhantomData,
+                internals: self.internals,
+            })
         } else {
-            let node = self.to_ssr_node();
-            return String::from(node);
+            Err(self)
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn try_cast<To: IsDomNode>(self) -> Result<View<To>, Self> {
+        let mut view: View<To> = View::default();
+        view.internals = self.internals;
+        Ok(view)
+    }
+
+    /// Cast the given View to contain the inner DOM node of another type.
+    /// That type must be dereferencable from the given View.
+    pub fn upcast<To: IsDomNode>(self) -> View<To>
+    where
+        T: AsRef<To>,
+        To: IsDomNode,
+    {
+        View {
+            phantom: PhantomData,
+            internals: self.internals,
+        }
+    }
+
+    /// Attempt to downcast the inner element.
+    ///
+    /// # Note
+    /// On wasm32 this performs a check on the inner element to determine if the
+    /// element can be downcast to the desired type. On other compilation targets
+    /// this function always returns Ok.
+    pub fn downcast<To: IsDomNode + AsRef<Node>>(self) -> Result<View<To>, View<T>> {
+        self.try_cast()
+    }
+
+    /// Run this gizmo forever without appending it to anything.
+    pub fn forget(self) -> Result<(), JsValue> {
+        if cfg!(target_arch = "wasm32") {
+            let gizmo_var = RefCell::new(self);
+            utils::timeout(1000, move || {
+                gizmo_var.borrow_mut();
+                true
+            });
+            Ok(())
+        } else {
+            Err("forgetting and running a gizmo is only supported on wasm".into())
+        }
+    }
+}
+
+
+impl<T: IsDomNode + AsRef<Node>> View<T> {
+    /// Run this gizmo in a parent container forever, never dropping it.
+    pub fn run_in_container(self, container: &Node) -> Result<(), JsValue> {
+        if cfg!(target_arch = "wasm32") {
+            let _ = container.append_child(self.dom_ref().as_ref());
+            self.forget()
+        } else {
+            Err("running gizmos is only supported on wasm".into())
+        }
+    }
+
+    /// Run this gizmo in the document body forever, never dropping it.
+    pub fn run(self) -> Result<(), JsValue> {
+        if cfg!(target_arch = "wasm32") {
+            self.run_in_container(&utils::body())
+        } else {
+            Err("running gizmos is only supported on wasm".into())
         }
     }
 }
@@ -179,92 +596,57 @@ impl View<Text> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     pub fn text(text: &str) -> View<Text> {
+        let mut internals = ViewInternals::default();
+        internals.server_node = ServerNode {
+            name_or_text: NameOrText::Text(Rc::new(RefCell::new(
+                text.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .into(),
+            ))),
+            attributes: vec![],
+            styles: vec![],
+        };
         View {
-            element: Rc::new(JsValue::NULL),
-            phantom: std::marker::PhantomData,
-            server_node: ServerNode {
-                name_or_text: NameOrText::Text(Rc::new(RefCell::new(
-                    text.replace("&", "&amp;")
-                        .replace("<", "&lt;")
-                        .replace(">", "&gt;")
-                        .into(),
-                ))),
-                attributes: vec![],
-                styles: vec![],
-            },
-            children: vec![],
-
-            callbacks: HashMap::default(),
-            window_callbacks: HashMap::default(),
-            document_callbacks: HashMap::default(),
-
-            string_rxs: vec![],
-            opt_string_rxs: vec![],
-            bool_rxs: vec![],
+            phantom: PhantomData,
+            internals: Rc::new(RefCell::new(internals)),
         }
     }
 
     pub fn rx_text(&mut self, rx: Receiver<String>) {
-        self.string_rxs.push(crate::txrx::hand_clone(&rx));
         if cfg!(target_arch = "wasm32") {
-            let text: Text = (self.as_ref() as &Text).clone();
+            let text: Text = self.dom_ref().clone();
             rx.respond(move |s| text.set_data(s));
         } else {
-            self.with_node(|node| {
+            self.internals.borrow_mut().with_node(|node| {
                 let text = node.name_or_text.clone();
                 rx.respond(move |s| match &text {
                     NameOrText::Text(var) => {
                         *var.borrow_mut() = s.into();
                     }
                     _ => {}
-                })
+                });
             });
         }
     }
 }
 
 
-impl<T: JsCast + Clone> Clone for View<T> {
-    fn clone(&self) -> Self {
-        self.clone_as()
-    }
-}
-
-
-impl<T, S> AsRef<S> for View<T>
-where
-    T: JsCast + AsRef<S>,
-    S: JsCast,
-{
-    fn as_ref(&self) -> &S {
-        self.element.unchecked_ref::<S>()
-    }
-}
-
-
-impl<T: JsCast> Deref for View<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        self.element.unchecked_ref::<T>()
-    }
-}
-
-
 /// # From instances for [`View`]
 ///
-/// * String, str etc get converted into [`View<Text>`] - text nodes,
+/// * String, str etc get converted into [`View<Text>`] - ie text nodes,
 ///   with their initial inner text set to the input string.
 /// * Receiver<String> get converted into [`View<Text>`] with their
 ///   inner text set by the receiver.
 /// * Effect<String> gets converted into [`View<Text>`] with possibly
 ///   an initial string and updates through the receiver.
+/// * Any raw DOM element `T` gets wrapped by a view to make [`View<T>`]
 /// * [`Gizmo<C>`] returns its view, a [`View<<C::as Component>::DomNode>`].
 
 
 impl From<Effect<String>> for View<Text> {
     fn from(eff: Effect<String>) -> Self {
-        let (may_now, may_later) = eff.into_some();
+        let (may_now, may_later) = eff.into();
         let now = may_now.unwrap_or("".into());
         let mut text = View::text(&now);
         if let Some(rx) = may_later {
@@ -321,13 +703,20 @@ impl From<String> for View<Text> {
 }
 
 
+impl<T: IsDomNode + AsRef<Node>> From<T> for View<T> {
+    fn from(el: T) -> View<T> {
+        View::wrapping(el)
+    }
+}
+
+
 impl<T> From<Gizmo<T>> for View<<T as Component>::DomNode>
 where
     T: Component,
     <T as Component>::DomNode: JsCast + AsRef<Node>,
 {
     fn from(gizmo: Gizmo<T>) -> Self {
-        gizmo.view
+        View::from(gizmo.view_builder())
     }
 }
 
@@ -335,27 +724,16 @@ where
 /// # ElementView
 
 
-impl<T: JsCast> ElementView for View<T> {
+impl<T: IsDomNode> ElementView for View<T> {
     #[cfg(not(target_arch = "wasm32"))]
     fn element(name: &str) -> Self {
-        View {
-            element: Rc::new(JsValue::NULL),
-            phantom: std::marker::PhantomData,
-            server_node: ServerNode {
-                name_or_text: NameOrText::Name(Rc::new(RefCell::new(name.into()))),
-                attributes: vec![],
-                styles: vec![],
-            },
-            children: vec![],
-
-            callbacks: HashMap::default(),
-            window_callbacks: HashMap::default(),
-            document_callbacks: HashMap::default(),
-
-            string_rxs: vec![],
-            opt_string_rxs: vec![],
-            bool_rxs: vec![],
-        }
+        let view = View::default();
+        view.internals.borrow_mut().server_node = ServerNode {
+            name_or_text: NameOrText::Name(Rc::new(RefCell::new(name.into()))),
+            attributes: vec![],
+            styles: vec![],
+        };
+        view
     }
     #[cfg(target_arch = "wasm32")]
     fn element(name: &str) -> Self {
@@ -369,24 +747,10 @@ impl<T: JsCast> ElementView for View<T> {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn element_ns(tag: &str, ns: &str) -> Self {
-        View {
-            element: Rc::new(JsValue::NULL),
-            phantom: std::marker::PhantomData,
-            server_node: ServerNode {
-                name_or_text: NameOrText::Name(Rc::new(RefCell::new(tag.into()))),
-                attributes: vec![("xmlns".into(), Rc::new(RefCell::new(Some(ns.into()))))],
-                styles: vec![],
-            },
-            children: vec![],
-
-            callbacks: HashMap::default(),
-            window_callbacks: HashMap::default(),
-            document_callbacks: HashMap::default(),
-
-            string_rxs: vec![],
-            opt_string_rxs: vec![],
-            bool_rxs: vec![],
-        }
+        let view = View::element(tag);
+        view.internals.borrow_mut().server_node.attributes =
+            vec![("xmlns".into(), Rc::new(RefCell::new(Some(ns.into()))))];
+        view
     }
     #[cfg(target_arch = "wasm32")]
     fn element_ns(tag: &str, ns: &str) -> Self {
@@ -399,39 +763,24 @@ impl<T: JsCast> ElementView for View<T> {
 }
 
 
-impl<T: JsCast + AsRef<EventTarget>> EventTargetView for View<T> {
-    fn on(mut self, ev_name: &str, tx: Transmitter<Event>) -> View<T> {
+impl<T: IsDomNode + AsRef<EventTarget>> EventTargetView for View<T> {
+    fn on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
         if cfg!(target_arch = "wasm32") {
-            let target: &EventTarget = self.as_ref();
-            let cb = utils::add_event(ev_name, target, tx);
-            self.callbacks.insert(ev_name.to_string(), cb);
-            self
-        } else {
-            self
+            self.internals.borrow_mut().add_event_on_this(ev_name, tx);
         }
     }
 
-    fn window_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> View<T> {
+    fn window_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
         if cfg!(target_arch = "wasm32") {
-            let window = utils::window();
-            let target: &EventTarget = window.as_ref();
-            let cb = utils::add_event(ev_name, &target, tx);
-            self.window_callbacks.insert(ev_name.to_string(), cb);
-            self
-        } else {
-            self
+            self.internals.borrow_mut().add_event_on_window(ev_name, tx);
         }
     }
 
-    fn document_on(mut self, ev_name: &str, tx: Transmitter<Event>) -> View<T> {
+    fn document_on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
         if cfg!(target_arch = "wasm32") {
-            let doc = utils::document();
-            let target: &EventTarget = doc.as_ref();
-            let cb = utils::add_event(ev_name, target, tx);
-            self.document_callbacks.insert(ev_name.to_string(), cb);
-            self
-        } else {
-            self
+            self.internals
+                .borrow_mut()
+                .add_event_on_document(ev_name, tx);
         }
     }
 }
@@ -439,107 +788,17 @@ impl<T: JsCast + AsRef<EventTarget>> EventTargetView for View<T> {
 
 /// # AttributeView
 
-impl<T: JsCast + AsRef<Element>> AttributeView for View<T> {
-    fn attribute<E: Into<Effect<String>>>(mut self, name: &str, eff: E) -> View<T> {
-        let (may_now, may_later) = eff.into().into_some();
-        if cfg!(target_arch = "wasm32") {
-            if let Some(now) = may_now {
-                (self.as_ref() as &Element)
-                    .set_attribute(name, &now)
-                    .unwrap_throw();
-            }
-            if let Some(later) = may_later {
-                let rx = later;
-
-                // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.string_rxs.push(crate::txrx::hand_clone(&rx));
-
-                let element: &Element = self.as_ref();
-                let element = element.clone();
-                let name = name.to_string();
-
-                rx.respond(move |s| {
-                    element
-                        .set_attribute(&name, s)
-                        .expect("Could not set attribute");
-                });
-            }
-        } else {
-            let var = Rc::new(RefCell::new(None));
-            self.with_node(|node| {
-                node.attributes.push((name.into(), var.clone()));
-            });
-            if let Some(now) = may_now {
-                *var.borrow_mut() = Some(now.to_string());
-            }
-            if let Some(later) = may_later {
-                let rx = later.branch_map(|s| Some(s.to_string()));
-
-                // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.opt_string_rxs.push(crate::txrx::hand_clone(&rx));
-
-                rx.respond(move |may_s: &Option<String>| {
-                    *var.borrow_mut() = may_s.clone();
-                });
-            }
-        }
-
-        self
+impl<T: IsDomNode + AsRef<Element>> AttributeView for View<T> {
+    fn attribute<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
+        let effect = eff.into();
+        self.internals.borrow_mut().add_attribute(name, effect);
     }
 
-    fn boolean_attribute<E: Into<Effect<bool>>>(mut self, name: &str, eff: E) -> View<T> {
-        let (may_now, may_later) = eff.into().into_some();
-        if cfg!(target_arch = "wasm32") {
-            if let Some(true) = may_now {
-                (self.as_ref() as &Element)
-                    .set_attribute(name, "")
-                    .unwrap_throw();
-            }
-            if let Some(later) = may_later {
-                let rx = later.branch();
-                // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.bool_rxs.push(crate::txrx::hand_clone(&rx));
-
-                let element: &Element = self.as_ref();
-                let element = element.clone();
-                let name = name.to_string();
-
-                rx.respond(move |b| {
-                    if *b {
-                        element
-                            .set_attribute(&name, "")
-                            .expect("Could not set boolean attribute");
-                    } else {
-                        element
-                            .remove_attribute(&name)
-                            .expect("Could not remove boolean attribute")
-                    }
-                });
-            }
-        } else {
-            let var = Rc::new(RefCell::new(None));
-            self.with_node(|node| {
-                node.attributes.push((name.into(), var.clone()));
-            });
-            if let Some(true) = may_now {
-                *var.borrow_mut() = Some("".to_string());
-            }
-            if let Some(later) = may_later {
-                let rx = later.branch();
-                // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.bool_rxs.push(crate::txrx::hand_clone(&rx));
-
-                rx.respond(move |is_present| {
-                    *var.borrow_mut() = if *is_present {
-                        Some("".to_string())
-                    } else {
-                        None
-                    };
-                });
-            }
-        }
-
-        self
+    fn boolean_attribute<E: Into<Effect<bool>>>(&mut self, name: &str, eff: E) {
+        let effect = eff.into();
+        self.internals
+            .borrow_mut()
+            .add_boolean_attribute(name, effect);
     }
 }
 
@@ -547,10 +806,9 @@ impl<T: JsCast + AsRef<Element>> AttributeView for View<T> {
 /// # ParentView
 
 
-impl<S: JsCast + AsRef<Node> + Clone, T: JsCast + AsRef<Node>> ParentView<View<S>> for View<T> {
-    fn with(mut self, view: View<S>) -> Self {
-        self.add_child(view);
-        self
+impl<S: IsDomNode + AsRef<Node>, T: IsDomNode + AsRef<Node>> ParentView<View<S>> for View<T> {
+    fn with(&mut self, view: View<S>) {
+        self.internals.borrow_mut().add_child(view);
     }
 }
 
@@ -558,576 +816,106 @@ impl<S: JsCast + AsRef<Node> + Clone, T: JsCast + AsRef<Node>> ParentView<View<S
 /// # StyleView
 
 
-impl<T: JsCast + AsRef<HtmlElement>> StyleView for View<T> {
-    fn style<E: Into<Effect<String>>>(mut self, name: &str, eff: E) -> Self {
-        let (may_now, may_later) = eff.into().into_some();
-        if cfg!(target_arch = "wasm32") {
-            if let Some(now) = may_now {
-                (self.as_ref() as &HtmlElement)
-                    .style()
-                    .set_property(name, now.as_str())
-                    .unwrap_throw();
-            }
-            if let Some(later) = may_later {
-                let rx = later;
-                // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.string_rxs.push(crate::txrx::hand_clone(&rx));
-
-                let element: &HtmlElement = self.as_ref();
-                let style = element.style();
-                let name = name.to_string();
-
-                rx.respond(move |s| {
-                    style.set_property(&name, s).expect("Could not set style");
-                });
-            }
-        } else {
-            let var = Rc::new(RefCell::new("".to_string()));
-            if let Some(now) = may_now {
-                *var.borrow_mut() = now.to_string();
-                self.with_node(|node| {
-                    node.styles.push((name.into(), var.clone()));
-                });
-            }
-            if let Some(later) = may_later {
-                let rx = later;
-
-                // Save a clone so we can drop_responder if this gizmo goes out of scope
-                self.string_rxs.push(crate::txrx::hand_clone(&rx));
-
-                rx.respond(move |s| {
-                    *var.borrow_mut() = s.to_string();
-                })
-            }
-        }
-
-        self
+impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for View<T> {
+    fn style<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
+        let effect = eff.into().into();
+        self.internals.borrow_mut().add_style(name, effect);
     }
 }
 
 
 /// # PostBuildView
 
-impl<T: JsCast + Clone + 'static> PostBuildView for View<T> {
+
+impl<T: IsDomNode> PostBuildView for View<T> {
     type DomNode = T;
 
-    fn post_build(self, tx: Transmitter<T>) -> Self {
-        let t: &T = self.element.unchecked_ref();
+    fn post_build(&mut self, tx: Transmitter<T>) {
+        let t: Ref<T> = Ref::map(self.internals.borrow(), |internals| {
+            internals.element.unchecked_ref()
+        });
         let t: T = t.clone();
         tx.send_async(async move { t });
-        self
     }
 }
 
 
-impl<T: JsCast> View<T> {
-    /// Create a new `View` wrapping a `T` that can be dereferenced to a `Node`.
-    ///
-    /// # Panics
-    /// Panics if used outside of a wasm32 target.
-    #[cfg(target_arch = "wasm32")]
-    pub fn wrapping(element: T) -> View<T> {
-        View {
-            element: Rc::new(element.into()),
-            phantom: PhantomData,
-            callbacks: HashMap::new(),
-            window_callbacks: HashMap::new(),
-            document_callbacks: HashMap::new(),
-            string_rxs: vec![],
-            opt_string_rxs: vec![],
-            bool_rxs: vec![],
-            children: vec![],
-        }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn wrapping(_element: T) -> View<T> {
-        panic!("View::wrapping is only available on wasm32")
-    }
+/// # ReplaceView
+
+
+fn to_child_node<T: IsDomNode + AsRef<Node>, S: Clone + Into<View<T>>>(value: &S) -> View<Node> {
+    let s: S = value.clone();
+    let v: View<T> = s.into();
+    v.upcast::<Node>()
 }
 
 
-impl<T: JsCast + Clone> View<T> {
-    /// Creates a new gizmo with data cloned from the first.
-    #[cfg(target_arch = "wasm32")]
-    fn clone_as<D>(&self) -> View<D>
-    where
-        D: JsCast,
-    {
-        View {
-            phantom: PhantomData,
-            element: self.element.clone(),
-
-            callbacks: self.callbacks.clone(),
-            window_callbacks: self.window_callbacks.clone(),
-            document_callbacks: self.document_callbacks.clone(),
-            string_rxs: self
-                .string_rxs
-                .iter()
-                .map(|rx| crate::txrx::hand_clone(rx))
-                .collect(),
-            opt_string_rxs: self
-                .opt_string_rxs
-                .iter()
-                .map(|rx| crate::txrx::hand_clone(rx))
-                .collect(),
-            bool_rxs: self
-                .bool_rxs
-                .iter()
-                .map(|rx| crate::txrx::hand_clone(rx))
-                .collect(),
-
-            children: self.children.clone(),
-        }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    fn clone_as<D>(&self) -> View<D>
-    where
-        D: JsCast,
-    {
-        View {
-            phantom: PhantomData,
-            element: self.element.clone(),
-
-            callbacks: self.callbacks.clone(),
-            window_callbacks: self.window_callbacks.clone(),
-            document_callbacks: self.document_callbacks.clone(),
-            string_rxs: self
-                .string_rxs
-                .iter()
-                .map(|rx| crate::txrx::hand_clone(rx))
-                .collect(),
-            opt_string_rxs: self
-                .opt_string_rxs
-                .iter()
-                .map(|rx| crate::txrx::hand_clone(rx))
-                .collect(),
-            bool_rxs: self
-                .bool_rxs
-                .iter()
-                .map(|rx| crate::txrx::hand_clone(rx))
-                .collect(),
-
-            server_node: self.server_node.clone(),
-            children: self.children.clone(),
-        }
-    }
-
-    /// Cast the given View to contain the inner DOM node of another type.
-    /// That type must be dereferencable from the given View.
-    pub fn upcast<D>(self) -> View<D>
-    where
-        T: AsRef<D>,
-        D: JsCast,
-    {
-        self.clone_as()
-    }
-
-    /// Attempt to downcast the inner element.
-    ///
-    /// # Note
-    /// On wasm32 this performs a check on the inner element to determine if the
-    /// element can be downcast to the desired type. On other compilation targets
-    /// this function always returns Ok.
-    #[cfg(target_arch = "wasm32")]
-    pub fn downcast<To: JsCast + AsRef<Node>>(self) -> Result<View<To>, View<T>> {
-        if self.element.has_type::<To>() {
-            Ok(self.clone_as())
-        } else {
-            Err(self)
-        }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn downcast<To: JsCast + AsRef<Node>>(self) -> Result<View<To>, View<T>> {
-        Ok(self.clone_as())
-    }
-}
-
-
-impl<T: JsCast + 'static> View<T> {
-    /// Run this gizmo forever without appending it to anything.
-    pub fn forget(self) -> Result<(), JsValue> {
-        if cfg!(target_arch = "wasm32") {
-            let gizmo_var = RefCell::new(self);
-            utils::timeout(1000, move || {
-                gizmo_var.borrow_mut();
-                true
-            });
-            Ok(())
-        } else {
-            Err("forgetting and running a gizmo is only supported on wasm".into())
-        }
-    }
-}
-
-
-impl<T: JsCast + AsRef<Node> + Clone + 'static> View<T> {
-    /// Run this gizmo in a parent container forever, never dropping it.
-    pub fn run_in_container(self, container: &Node) -> Result<(), JsValue> {
-        if cfg!(target_arch = "wasm32") {
-            let _ = container.append_child(&self.as_ref());
-            self.forget()
-        } else {
-            Err("running gizmos is only supported on wasm".into())
-        }
-    }
-
-    /// Run this gizmo in the document body forever, never dropping it.
-    pub fn run(self) -> Result<(), JsValue> {
-        if cfg!(target_arch = "wasm32") {
-            self.run_in_container(&utils::body())
-        } else {
-            Err("running gizmos is only supported on wasm".into())
-        }
-    }
-}
-
-
-/// View's Drop implementation insures that responders no longer attempt to
-/// update the gizmo. It also removes its element from the DOM.
-#[cfg(target_arch = "wasm32")]
-impl<T: JsCast> Drop for View<T> {
-    fn drop(&mut self) {
-        let count = Rc::strong_count(&self.element);
-        let node = self.element.unchecked_ref::<Node>().clone();
-        if count <= 1 {
-            if let Some(parent) = node.parent_node() {
-                let _ = parent.remove_child(&node);
-            }
-            self.string_rxs
-                .iter_mut()
-                .for_each(|rx| rx.drop_responder());
-            self.opt_string_rxs
-                .iter_mut()
-                .for_each(|rx| rx.drop_responder());
-            self.bool_rxs.iter_mut().for_each(|rx| rx.drop_responder());
-        }
-    }
-}
-
-
-#[cfg(test)]
-#[allow(unused_braces)]
-mod gizmo_tests {
-    #[allow(unused_braces)]
-    use super::{super::super::prelude::*};
-    use crate as mogwai;
-    use mogwai_html_macro::target_arch_is_wasm32;
-    use wasm_bindgen::JsCast;
-    use wasm_bindgen_test::*;
-    use web_sys::Element;
-
-    wasm_bindgen_test_configure!(run_in_browser);
-
-    #[wasm_bindgen_test]
-    fn this_arch_is_wasm32() {
-        assert!(target_arch_is_wasm32! {});
-    }
-
-    #[wasm_bindgen_test]
-    fn gizmo_ref_as_child() {
-        // Since the pre tag is dropped after the scope block the last assert should
-        // show that the div tag has no children.
-        let div = {
-            let pre = view! { <pre>"this has text"</pre> };
-            let div = view! { <div id="parent"></div> };
-            (div.as_ref() as &Node).append_child(pre.as_ref()).unwrap();
-            assert!(
-                div.first_child().is_some(),
-                "parent does not contain in-scope child"
-            );
-            //console::log_1(&"dropping pre".into());
-            div
-        };
-        assert!(
-            div.first_child().is_none(),
-            "parent does not maintain out-of-scope child"
-        );
-        //console::log_1(&"dropping parent".into());
-    }
-
-    #[wasm_bindgen_test]
-    fn gizmo_as_child() {
-        // Since the pre tag is *not* dropped after the scope block the last assert
-        // should show that the div tag has a child.
-        let div = {
-            let div = view! {
-                <div id="parent-div">
-                    <pre>"some text"</pre>
-                </div>
-            };
-            assert!(div.first_child().is_some(), "could not add child gizmo");
-            div
-        };
-        assert!(
-            div.first_child().is_some(),
-            "could not keep hold of child gizmo"
-        );
-        assert_eq!(div.children.len(), 1, "parent is missing static_gizmo");
-        //console::log_1(&"dropping div and pre".into());
-    }
-
-    #[wasm_bindgen_test]
-    fn gizmo_tree() {
-        let root = view! {
-            <div id="root">
-                <div id="branch">
-                    <div id="leaf">
-                        "leaf"
-                    </div>
-                </div>
-            </div>
-        };
-        if let Some(branch) = root.first_child() {
-            if let Some(leaf) = branch.first_child() {
-                if let Some(leaf) = leaf.dyn_ref::<Element>() {
-                    assert_eq!(leaf.id(), "leaf");
-                } else {
-                    panic!("leaf is not an Element");
+impl<T: IsDomNode + AsRef<Node>> ReplaceView<View<T>> for View<T> {
+    fn this_later<S: Clone + Into<View<T>>>(&mut self, rx: Receiver<S>) {
+        let internals: Rc<RefCell<ViewInternals>> = self.internals.clone();
+        let rx = rx.branch_map(|s| to_child_node(s));
+        rx.respond(move |new_view| {
+            {
+                let old_dom: Ref<Node> =
+                    Ref::map(internals.borrow(), |i| i.element.unchecked_ref::<Node>());
+                let new_dom: Ref<Node> = new_view.dom_ref();
+                if let Some(parent) = (old_dom.as_ref() as &Node).parent_node() {
+                    parent
+                        .replace_child(new_dom.as_ref(), old_dom.as_ref())
+                        .unwrap_throw();
                 }
-            } else {
-                panic!("branch has no leaf");
             }
-        } else {
-            panic!("root has no branch");
-        }
+
+            // swap the internals
+            let old_internals: &RefCell<ViewInternals> = internals.as_ref();
+            let new_internals: &RefCell<ViewInternals> = new_view.internals.as_ref();
+            old_internals.swap(new_internals);
+        });
     }
+}
 
-    #[wasm_bindgen_test]
-    fn gizmo_texts() {
-        let div = view! {
-            <div>
-                "here is some text "
-                // i can use comments, yay!
-                {&format!("{}", 66)}
-                " <- number"
-            </div>
-        };
-        assert_eq!(
-            &div.outer_html(),
-            "<div>here is some text 66 &lt;- number</div>"
-        );
-    }
 
-    #[wasm_bindgen_test]
-    fn rx_attribute_jsx() {
-        let (tx, rx) = txrx::<String>();
-        let div = view! {
-            <div class=("now", rx) />
-        };
-        let div_el: &HtmlElement = div.as_ref();
-        assert_eq!(div_el.outer_html(), r#"<div class="now"></div>"#);
+/// # PatchView
 
-        tx.send(&"later".to_string());
-        assert_eq!(div_el.outer_html(), r#"<div class="later"></div>"#);
-    }
 
-    #[wasm_bindgen_test]
-    fn rx_style_plain() {
-        let (tx, rx) = txrx::<String>();
-        let div = (View::element("div") as View<HtmlElement>).style("display", ("block", rx));
-        let div_el: &HtmlElement = div.as_ref();
-        assert_eq!(
-            div_el.outer_html(),
-            r#"<div style="display: block;"></div>"#
-        );
+impl<T, C> PatchView<View<C>> for View<T>
+where
+    T: IsDomNode + AsRef<Node>,
+    C: IsDomNode + AsRef<Node>,
+{
+    fn patch<S: Clone + Into<View<C>>>(&mut self, rx: Receiver<Patch<S>>) {
+        let rx = rx.branch_map(|patch| patch.branch_map(to_child_node));
 
-        tx.send(&"none".to_string());
-        assert_eq!(div_el.outer_html(), r#"<div style="display: none;"></div>"#);
-    }
-
-    #[wasm_bindgen_test]
-    fn rx_style_jsx() {
-        let (tx, rx) = txrx::<String>();
-        let div = view! { <div style:display=("block", rx) /> };
-        let div_el: &HtmlElement = div.as_ref();
-        assert_eq!(
-            div_el.outer_html(),
-            r#"<div style="display: block;"></div>"#
-        );
-
-        tx.send(&"none".to_string());
-        assert_eq!(div_el.outer_html(), r#"<div style="display: none;"></div>"#);
-    }
-
-    #[wasm_bindgen_test]
-    fn rx_text() {
-        let (tx, rx) = txrx();
-        let div = (View::element("div") as View<HtmlElement>).with(("initial", rx).into());
-        let el: &HtmlElement = div.as_ref();
-        assert_eq!(el.inner_text().as_str(), "initial");
-        tx.send(&"after".into());
-        assert_eq!(el.inner_text(), "after");
-    }
-
-    #[wasm_bindgen_test]
-    fn tx_on_click_plain() {
-        let (tx, rx) = txrx_fold(0, |n: &mut i32, _: &Event| -> String {
-            *n += 1;
-            if *n == 1 {
-                "Clicked 1 time".to_string()
-            } else {
-                format!("Clicked {} times", *n)
+        let internals = self.internals.clone();
+        rx.respond(move |patch| match patch {
+            Patch::Insert { index, value } => {
+                internals.borrow_mut().add_child_at(*index, value.clone());
+            }
+            Patch::Replace { index, value } => {
+                internals
+                    .borrow_mut()
+                    .replace_child_at(*index, value.clone());
+            }
+            Patch::Remove { index } => {
+                internals.borrow_mut().remove_child_at(*index);
+            }
+            Patch::RemoveAll => {
+                internals.borrow_mut().remove_all_children();
+            }
+            Patch::PushFront { value } => {
+                internals.borrow_mut().add_child_at(0, value.clone());
+            }
+            Patch::PushBack { value } => {
+                internals.borrow_mut().add_child(value.clone());
+            }
+            Patch::PopFront => {
+                let _ = internals.borrow_mut().remove_child_at(0);
+            }
+            Patch::PopBack => {
+                let mut i = internals.borrow_mut();
+                let len = i.slots.len();
+                let _ = i.remove_child_at(len - 1);
             }
         });
-
-        let button = (View::element("button") as View<HtmlElement>)
-            .with(("Clicked 0 times", rx).into())
-            .on("click", tx);
-        let el: &HtmlElement = button.as_ref();
-
-        assert_eq!(el.inner_html(), "Clicked 0 times");
-        el.click();
-        assert_eq!(el.inner_html(), "Clicked 1 time");
-    }
-
-    #[wasm_bindgen_test]
-    fn tx_on_click_jsx() {
-        let (tx, rx) = txrx_fold(0, |n: &mut i32, _: &Event| -> String {
-            *n += 1;
-            if *n == 1 {
-                "Clicked 1 time".to_string()
-            } else {
-                format!("Clicked {} times", *n)
-            }
-        });
-
-        let button = view! { <button on:click=tx>{("Clicked 0 times", rx)}</button> };
-        let el: &HtmlElement = button.as_ref();
-
-        assert_eq!(el.inner_html(), "Clicked 0 times");
-        el.click();
-        assert_eq!(el.inner_html(), "Clicked 1 time");
-    }
-
-
-    #[wasm_bindgen_test]
-    fn tx_window_on_click_jsx() {
-        let (tx, rx) = txrx();
-        let _button = view! {
-            <button window:load=tx>
-            {(
-                "Waiting...",
-                rx.branch_map(|_| "Loaded!".into())
-            )}
-            </button>
-        };
-    }
-
-    //fn nice_compiler_error() {
-    //    let _div = view! {
-    //        <div unknown:colon:thing="not ok" />
-    //    };
-    //}
-
-    #[test]
-    #[wasm_bindgen_test]
-    fn can_i_alter_views_on_the_server() {
-        let (tx_text, rx_text) = txrx::<String>();
-        let (tx_style, rx_style) = txrx::<String>();
-        let (tx_class, rx_class) = txrx::<String>();
-        let view = view! {
-            <div style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
-        };
-        assert_eq!(
-            &view.clone().into_html_string(),
-            r#"<div style="float: left;"><p class="p_class">here</p></div>"#
-        );
-
-        tx_text.send(&"there".to_string());
-        assert_eq!(
-            &view.clone().into_html_string(),
-            r#"<div style="float: left;"><p class="p_class">there</p></div>"#
-        );
-
-        tx_style.send(&"right".to_string());
-        assert_eq!(
-            &view.clone().into_html_string(),
-            r#"<div style="float: right;"><p class="p_class">there</p></div>"#
-        );
-
-        tx_class.send(&"my_p_class".to_string());
-        assert_eq!(
-            &view.clone().into_html_string(),
-            r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#
-        );
-    }
-
-
-    #[wasm_bindgen_test]
-    fn can_hydrate_view() {
-        let original_view = view! {
-            <div id="my_div">
-                <p class="class">"inner text"</p>
-            </div>
-        };
-        let original_el: HtmlElement = (original_view.as_ref() as &HtmlElement).clone();
-        original_view.run().unwrap();
-
-        let (tx_class, rx_class) = txrx::<String>();
-        let (tx_text, rx_text) = txrx::<String>();
-        let hydrated_view = View::try_from(hydrate! {
-            <div id="my_div">
-                <p class=("unused_class", rx_class)>{("unused inner text", rx_text)}</p>
-            </div>
-        })
-        .unwrap();
-
-        hydrated_view.forget().unwrap();
-
-        tx_class.send(&"new_class".to_string());
-        tx_text.send(&"different inner text".to_string());
-
-        assert_eq!(
-            original_el.outer_html().as_str(),
-            r#"<div id="my_div"><p class="new_class">different inner text</p></div>"#
-        );
-    }
-
-
-    #[wasm_bindgen_test]
-    fn can_hydrate_or_view() {
-        let (tx_class, rx_class) = txrx::<String>();
-        let (tx_text, rx_text) = txrx::<String>();
-        let count = txrx::new_shared(0 as u32);
-        let (tx_pb, rx_pb) =
-            txrx_fold_shared(count.clone(), |count: &mut u32, _: &HtmlElement| -> () {
-                *count += 1;
-                ()
-            });
-
-        rx_pb.respond(|_| println!("post build"));
-
-        let fresh_view = || {
-            view! {
-                <div id="my_div" post:build=(&tx_pb).clone()>
-                    <p class=("class", rx_class.branch())>{("inner text", rx_text.branch())}</p>
-                </div>
-            }
-        };
-        let hydrate_view = || {
-            View::try_from(hydrate! {
-                <div id="my_div" post:build=(&tx_pb).clone()>
-                    <p class=("class", rx_class.branch())>{("inner text", rx_text.branch())}</p>
-                </div>
-            })
-        };
-
-        let view = fresh_view();
-
-        let original_el: HtmlElement = (view.as_ref() as &HtmlElement).clone();
-        view.run().unwrap();
-
-        let hydrated_view = hydrate_view().unwrap();
-        hydrated_view.forget().unwrap();
-
-        tx_class.send(&"new_class".to_string());
-        tx_text.send(&"different inner text".to_string());
-
-        assert_eq!(
-            original_el.outer_html().as_str(),
-            r#"<div id="my_div"><p class="new_class">different inner text</p></div>"#
-        );
-
-        assert_eq!(*count.borrow(), 2);
     }
 }

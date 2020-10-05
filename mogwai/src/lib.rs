@@ -9,14 +9,15 @@
 //!
 //! ## Learn more
 //! If you're new to Mogwai, check out the [introduction](an_introduction) module.
-//pub mod an_introduction;
+pub mod an_introduction;
 pub mod component;
 pub mod gizmo;
 pub mod prelude;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod ssr;
 pub mod txrx;
 pub mod utils;
 pub mod view;
 
-//#[cfg(doctest)]
-//doc_comment::doctest!("../../README.md");
+#[cfg(doctest)]
+doc_comment::doctest!("../../README.md");

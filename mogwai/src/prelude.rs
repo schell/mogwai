@@ -7,7 +7,7 @@ pub use super::{
         txrx_fold_shared, txrx_map, wrap_future, Receiver, Transmitter,
     },
     utils::*,
-    view::{builder::*, dom::*, hydration::*, interface::*, *},
+    view::{builder::*, dom::*, interface::*, *},
     *,
 };
 pub use std::convert::TryFrom;
