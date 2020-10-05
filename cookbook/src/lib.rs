@@ -4,7 +4,7 @@
 doc_comment::doctest!("component.md", component_md);
 
 #[cfg(doctest)]
-doc_comment::doctest!("nest_component.md", component_md);
+doc_comment::doctest!("nest_component.md", nest_component_md);
 
 /// A cookbook
 pub fn cookbook() {

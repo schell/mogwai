@@ -41,7 +41,6 @@ jobs:
         path: |
           ~/.cargo
           /usr/share/rust/.cargo/bin
-          target
         key: ${{ runner.os }}-cargo-cookbook-${{ github.ref }}
         restore-keys: |
           ${{ runner.os }}-cargo-cookbook-refs/heads/master
