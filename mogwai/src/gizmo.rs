@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{Ref, RefCell},
     rc::Rc,
 };
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
@@ -94,6 +94,11 @@ where
     /// and does *not* update the view.
     pub fn set_state(&mut self, t: T) {
         *self.state.borrow_mut() = t;
+    }
+
+    /// Borrow a reference to the inner state.
+    pub fn state_ref(&self) -> Ref<T> {
+        self.state.borrow()
     }
 }
 
