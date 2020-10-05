@@ -3,7 +3,7 @@ name: "on pull request"
 on: pull_request
 
 jobs:
-- mogwai:
+  mogwai:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
@@ -30,7 +30,7 @@ jobs:
         cd ../..
         cd mogwai && cargo publish --token ${{ secrets.cargo_token }}
 
-- cookbook:
+  cookbook:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
