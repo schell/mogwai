@@ -1,28 +1,28 @@
 use mogwai::prelude::*;
-use std::convert::TryInto;
+use web_sys::MouseEvent;
 
 pub enum Update {
     Cell {
-        row: u16,
-        column: u16,
+        row: usize,
+        column: usize,
         value: String,
     },
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct CellInteract {
-    pub row: u16,
-    pub column: u16,
+    pub row: usize,
+    pub column: usize,
     pub flag: bool,
 }
 
-fn panicky_u16(value: usize) -> u16 {
-    value.try_into().unwrap()
-}
 
+/// Create a `<td>` representing a single game cell. `coords` are expected to be `(column, row)` or
+/// `(x, y)` in the grid. Interactions are transmitted to `tx` and new text to display is received
+/// by `rx`.
 #[allow(unused_braces)]
 fn board_cell(
-    coords: (u16, u16),
+    coords: (usize, usize),
     tx: Transmitter<CellInteract>,
     rx: Receiver<Update>,
 ) -> ViewBuilder<HtmlElement> {
@@ -53,16 +53,18 @@ fn board_cell(
     }
 }
 
-fn board_row<'b>(
-    row: u16,
-    cells: Vec<&'b str>,
+/// Create a `<tr>` representing a row of game cells. Interactions are transmitted to `tx` and new
+/// text to display is received by `rx`.
+fn board_row<'a>(
+    row: usize,
+    initial_cells: Vec<&'a str>,
     tx: Transmitter<CellInteract>,
     rx: Receiver<Update>,
 ) -> ViewBuilder<HtmlElement> {
-    let children = cells
+    let children = initial_cells
         .into_iter()
         .enumerate()
-        .map(|(col, _)| board_cell((panicky_u16(col), row), tx.clone(), rx.branch()));
+        .map(|(col, _)| board_cell((col, row), tx.clone(), rx.branch()));
     let mut tr = ViewBuilder {
         element: Some("tr".to_owned()),
         ..ViewBuilder::default()
@@ -75,14 +77,14 @@ fn board_row<'b>(
 
 #[allow(unused_braces)]
 pub fn board<'a>(
-    cells: Vec<Vec<&'a str>>,
+    initial_cells: Vec<Vec<&'a str>>,
     tx: Transmitter<CellInteract>,
     rx: Receiver<Update>,
 ) -> ViewBuilder<HtmlElement> {
-    let children = cells
+    let children = initial_cells
         .into_iter()
         .enumerate()
-        .map(|(row, cells)| board_row(panicky_u16(row), cells, tx.clone(), rx.branch()));
+        .map(|(row, cells)| board_row(row, cells, tx.clone(), rx.branch()));
     let mut tbody: ViewBuilder<HtmlElement> = ViewBuilder {
         element: Some("tbody".to_owned()),
         ..ViewBuilder::default()
