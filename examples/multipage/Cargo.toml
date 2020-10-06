@@ -1,6 +1,8 @@
 [package]
 name = "multipage"
+description = "A multipage SPA, maybe with SSR?"
 license = "MIT"
+repository = "https://github.com/schell/mogwai"
 version = "0.1.0"
 authors = ["Bryan Swift <bryan@bryanjswift.com>"]
 edition = "2018"
