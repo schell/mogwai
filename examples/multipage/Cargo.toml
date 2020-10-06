@@ -41,9 +41,9 @@ version = "^0.3"
 features = [
   "HashChangeEvent",
   "HtmlInputElement",
-  "KeyboardEvent",
   "Location",
-  "Storage"
+  "MouseEvent",
+  "Storage",
 ]
 
 [dev-dependencies]
