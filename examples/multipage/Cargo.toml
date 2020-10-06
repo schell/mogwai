@@ -18,7 +18,7 @@ console_log = "^0.1"
 log = "^0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-wasm-bindgen = "^0.2"
+wasm-bindgen-futures = "^0.4"
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`. This is great for development, but requires
@@ -36,14 +36,26 @@ wee_alloc = { version = "0.4.2", optional = true }
 [dependencies.mogwai]
 path = "../../mogwai"
 
+[dependencies.wasm-bindgen]
+version = "^0.2"
+features = [
+  "serde-serialize",
+]
+
 [dependencies.web-sys]
 version = "^0.3"
 features = [
   "HashChangeEvent",
+  "Headers",
   "HtmlInputElement",
   "Location",
   "MouseEvent",
+  "Request",
+  "RequestInit",
+  "RequestMode",
+  "Response",
   "Storage",
+  "Window",
 ]
 
 [dev-dependencies]
