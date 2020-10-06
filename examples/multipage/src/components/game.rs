@@ -1,8 +1,11 @@
 use mogwai::prelude::*;
 use web_sys::MouseEvent;
 
-pub enum Update {
-    Cell {
+pub enum CellUpdate {
+    All {
+        cells: Vec<Vec<String>>,
+    },
+    Single {
         row: usize,
         column: usize,
         value: String,
@@ -16,19 +19,35 @@ pub struct CellInteract {
     pub flag: bool,
 }
 
+impl CellInteract {
+    fn new(coords: (usize, usize), event: &Event) -> Self {
+        let (column, row) = coords;
+        let event: Option<&MouseEvent> = event.dyn_ref();
+        CellInteract {
+            row,
+            column,
+            flag: event.map(|e| e.alt_key() || e.ctrl_key()).unwrap_or(false),
+        }
+    }
+}
 
 /// Create a `<td>` representing a single game cell. `coords` are expected to be `(column, row)` or
 /// `(x, y)` in the grid. Interactions are transmitted to `tx` and new text to display is received
 /// by `rx`.
 #[allow(unused_braces)]
-fn board_cell(
-    coords: (usize, usize),
+fn board_cell<'a>(
+    coords: (usize, usize, &'a str),
     tx: Transmitter<CellInteract>,
-    rx: Receiver<Update>,
+    rx: Receiver<CellUpdate>,
 ) -> ViewBuilder<HtmlElement> {
-    let (col, row) = coords;
+    let (col, row, initial_value) = coords;
     let rx_text = rx.branch_filter_map(move |update| match update {
-        Update::Cell {
+        CellUpdate::All { cells } => cells
+            .get(row)
+            .map(|r| r.get(col))
+            .flatten()
+            .map(|s| s.to_owned()),
+        CellUpdate::Single {
             row: y,
             column: x,
             value,
@@ -40,15 +59,10 @@ fn board_cell(
             valign="middle"
             align="center"
             style="height: 50px; width: 50px; border: 1px solid black;"
-            on:click=tx.contra_map(move |event: &Event| CellInteract {
-                row,
-                column: col,
-                // TODO: Check if `MouseEvent` has modifier keys held (alt, ctrl)
-                flag: event.bubbles(),
-            })
+            on:click=tx.contra_map(move |event: &Event| CellInteract::new((col, row), event))
         >
             // Cells initialize to empty but may update if revealed or clicked
-            {(" ", rx_text)}
+            {(initial_value, rx_text)}
         </td>
     }
 }
@@ -59,12 +73,12 @@ fn board_row<'a>(
     row: usize,
     initial_cells: Vec<&'a str>,
     tx: Transmitter<CellInteract>,
-    rx: Receiver<Update>,
+    rx: Receiver<CellUpdate>,
 ) -> ViewBuilder<HtmlElement> {
     let children = initial_cells
         .into_iter()
         .enumerate()
-        .map(|(col, _)| board_cell((col, row), tx.clone(), rx.branch()));
+        .map(|(col, value)| board_cell((col, row, value), tx.clone(), rx.branch()));
     let mut tr = ViewBuilder {
         element: Some("tr".to_owned()),
         ..ViewBuilder::default()
@@ -79,7 +93,7 @@ fn board_row<'a>(
 pub fn board<'a>(
     initial_cells: Vec<Vec<&'a str>>,
     tx: Transmitter<CellInteract>,
-    rx: Receiver<Update>,
+    rx: Receiver<CellUpdate>,
 ) -> ViewBuilder<HtmlElement> {
     let children = initial_cells
         .into_iter()
