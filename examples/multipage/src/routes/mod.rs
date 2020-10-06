@@ -1,3 +1,4 @@
+use crate::api;
 use crate::components::game::{board, CellInteract, CellUpdate};
 use mogwai::prelude::*;
 
@@ -69,6 +70,7 @@ fn star_title(rx_org: Receiver<String>) -> ViewBuilder<HtmlElement> {
 #[allow(unused_braces)]
 pub fn game(game_id: String) -> ViewBuilder<HtmlElement> {
     // Create a transmitter to send button clicks into.
+    let tx_game: Transmitter<api::model::GameState> = Transmitter::new();
     let tx_cells: Transmitter<CellInteract> = Transmitter::new();
     let rx_cell_updates = Receiver::new();
     tx_cells.wire_map(&rx_cell_updates, |interaction| CellUpdate::Single {
@@ -79,6 +81,14 @@ pub fn game(game_id: String) -> ViewBuilder<HtmlElement> {
             _ => "x".into(),
         },
     });
+    let game_state = api::get_game(game_id.clone());
+    let tx = tx_game.contra_filter_map(
+        |r: &Result<api::model::GameState, api::model::GetGameError>| r.clone().ok(),
+    );
+    tx_game.wire_map(&rx_cell_updates, |game_state| CellUpdate::All {
+        cells: game_state.board.clone(),
+    });
+    tx.send_async(game_state);
     let initial_board = vec![
         vec![" ", " ", " "],
         vec![" ", " ", " "],
