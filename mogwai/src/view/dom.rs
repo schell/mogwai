@@ -1,5 +1,6 @@
 //! Widgets for the browser.
 use std::{
+    convert::TryFrom,
     cell::{Ref, RefCell},
     marker::PhantomData,
     rc::Rc,
@@ -628,6 +629,15 @@ impl View<Text> {
                 });
             });
         }
+    }
+}
+
+
+impl<T: IsDomNode + AsRef<Node>> TryFrom<Option<View<T>>> for View<T> {
+    type Error = ();
+
+    fn try_from(o_view: Option<View<T>>) -> Result<View<T>, ()> {
+        o_view.ok_or_else(|| ())
     }
 }
 

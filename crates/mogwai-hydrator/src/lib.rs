@@ -311,6 +311,15 @@ where
 }
 
 
+impl<T: IsDomNode + AsRef<Node>> TryFrom<Option<Hydrator<T>>> for Hydrator<T> {
+    type Error = ();
+
+    fn try_from(o_view: Option<Hydrator<T>>) -> Result<Hydrator<T>, ()> {
+        o_view.ok_or_else(|| ())
+    }
+}
+
+
 /// # [`From`] instances for [`Hydrator`]
 ///
 /// Most of these mimic the corresponding [`From`] instances for [`View`],
