@@ -1,5 +1,5 @@
 use mogwai::prelude::*;
-use web_sys::HashChangeEvent;
+use web_sys::{HashChangeEvent, HtmlInputElement};
 
 use super::{store, store::Item, utils};
 
@@ -281,7 +281,7 @@ impl Component for App {
             <section id="todo_main" class="todoapp">
                 <header class="header">
                     <h1>"todos"</h1>
-                    <input
+                    <input cast:type=web_sys::HtmlInputElement
                         class="new-todo" id="new-todo" placeholder="What needs to be done?"
                         on:change=
                             tx.contra_filter_map(|ev: &Event| {
@@ -299,7 +299,7 @@ impl Component for App {
                 </header>
                 <section class="main" style:display=("none", rx_display.branch())>
                     // This is the "check all as complete" toggle
-                    <input
+                    <input cast:type=web_sys::HtmlInputElement
                         id="toggle-all"
                         type="checkbox"
                         class="toggle-all"

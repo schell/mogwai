@@ -1,5 +1,5 @@
 use mogwai::prelude::*;
-use web_sys::KeyboardEvent;
+use web_sys::{HtmlInputElement, KeyboardEvent};
 
 use super::utils;
 
@@ -157,6 +157,7 @@ impl Component for Todo {
                 )>
                 <div class="view">
                     <input class="toggle" type="checkbox" style:cursor="pointer"
+                        cast:type=web_sys::HtmlInputElement
                         post:build=tx.contra_map(|el: &HtmlInputElement| {
                             TodoIn::CompletionToggleInput(el.clone())
                         })
@@ -178,6 +179,7 @@ impl Component for Todo {
                 </div>
                 <input
                     class="edit"
+                    cast:type=web_sys::HtmlInputElement
                     post:build=tx.contra_map(|el: &HtmlInputElement| TodoIn::EditInput(el.clone()))
                     on:blur=tx.contra_map(|_: &Event| TodoIn::StopEditing(None))
                     on:keyup=tx.contra_map(|ev: &Event| TodoIn::StopEditing(Some(ev.clone()))) />

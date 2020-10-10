@@ -158,4 +158,12 @@ where
         tx: &Transmitter<Self::ModelMsg>,
         rx: &Receiver<Self::ViewMsg>,
     ) -> ViewBuilder<Self::DomNode>;
+
+    /// Perform a one time binding from any child `Gizmo`s to this component's subscriber.
+    ///
+    /// This should be used to bind sub-component view messages into this parent component's
+    /// model messages in order to receive updates from child components. The default implementation
+    /// is a noop.
+    #[allow(unused_variables)]
+    fn bind(&self, sub: &Subscriber<Self::ModelMsg>) {}
 }

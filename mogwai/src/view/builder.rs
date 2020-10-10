@@ -4,13 +4,12 @@
 //! Here we attempt to have our cake and eat it too.
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Node;
-pub use web_sys::{Element, Event, EventTarget, HtmlInputElement, Text};
+pub use web_sys::{Element, Event, EventTarget, Text};
 
 use crate::{
     prelude::{Effect, IsDomNode, Receiver, Transmitter, View},
     view::interface::*,
 };
-
 
 #[derive(Clone)]
 pub enum AttributeCmd {
@@ -24,13 +23,11 @@ pub enum AttributeCmd {
     },
 }
 
-
 #[derive(Clone)]
 pub struct StyleCmd {
     pub name: String,
     pub effect: Effect<String>,
 }
-
 
 #[derive(Clone)]
 pub enum EventTargetType {
@@ -39,7 +36,6 @@ pub enum EventTargetType {
     Document,
 }
 
-
 #[derive(Clone)]
 pub struct EventTargetCmd {
     pub type_is: EventTargetType,
@@ -47,7 +43,7 @@ pub struct EventTargetCmd {
     pub transmitter: Transmitter<Event>,
 }
 
-
+/// An un-built mogwai view.
 #[derive(Clone)]
 pub struct ViewBuilder<T: IsDomNode> {
     pub element: Option<String>,
@@ -61,7 +57,6 @@ pub struct ViewBuilder<T: IsDomNode> {
     pub patches: Vec<Receiver<Patch<View<Node>>>>,
     pub children: Vec<ViewBuilder<Node>>,
 }
-
 
 impl<T: IsDomNode> Default for ViewBuilder<T> {
     fn default() -> Self {
@@ -79,7 +74,6 @@ impl<T: IsDomNode> Default for ViewBuilder<T> {
         }
     }
 }
-
 
 impl<T: IsDomNode + AsRef<Node>> ViewBuilder<T> {
     fn to_node(self) -> ViewBuilder<Node> {
@@ -116,7 +110,6 @@ impl<T: IsDomNode + AsRef<Node>> ViewBuilder<T> {
         }
     }
 }
-
 
 /// [`ViewBuilder`] can be converted into a fresh [`View`].
 impl<T: IsDomNode + AsRef<Node>> From<ViewBuilder<T>> for View<T> {
@@ -216,12 +209,10 @@ impl<T: IsDomNode + AsRef<Node>> From<ViewBuilder<T>> for View<T> {
     }
 }
 
-
 /// # [`From`] instances for [`Hydrator`]
 ///
 /// Most of these mimic the corresponding [`From`] instances for [`View`],
 /// the rest are here for the operation of this module.
-
 
 impl From<Effect<String>> for ViewBuilder<Text> {
     fn from(effect: Effect<String>) -> Self {
@@ -231,7 +222,6 @@ impl From<Effect<String>> for ViewBuilder<Text> {
     }
 }
 
-
 impl From<(&str, Receiver<String>)> for ViewBuilder<Text> {
     fn from(tuple: (&str, Receiver<String>)) -> Self {
         let eff: Effect<String> = tuple.into();
@@ -239,14 +229,12 @@ impl From<(&str, Receiver<String>)> for ViewBuilder<Text> {
     }
 }
 
-
 impl From<(String, Receiver<String>)> for ViewBuilder<Text> {
     fn from(tuple: (String, Receiver<String>)) -> Self {
         let eff: Effect<String> = tuple.into();
         eff.into()
     }
 }
-
 
 impl From<(&String, Receiver<String>)> for ViewBuilder<Text> {
     fn from((now, later): (&String, Receiver<String>)) -> Self {
@@ -256,7 +244,6 @@ impl From<(&String, Receiver<String>)> for ViewBuilder<Text> {
     }
 }
 
-
 impl From<Receiver<String>> for ViewBuilder<Text> {
     fn from(later: Receiver<String>) -> Self {
         let tuple = ("".to_string(), later);
@@ -265,14 +252,12 @@ impl From<Receiver<String>> for ViewBuilder<Text> {
     }
 }
 
-
 impl From<&String> for ViewBuilder<Text> {
     fn from(text: &String) -> Self {
         let text = text.to_owned();
         ViewBuilder::from(text)
     }
 }
-
 
 impl From<&str> for ViewBuilder<Text> {
     fn from(tag_or_text: &str) -> Self {
@@ -281,7 +266,6 @@ impl From<&str> for ViewBuilder<Text> {
     }
 }
 
-
 impl From<String> for ViewBuilder<Text> {
     fn from(text: String) -> Self {
         let effect = Effect::OnceNow { now: text };
@@ -289,9 +273,7 @@ impl From<String> for ViewBuilder<Text> {
     }
 }
 
-
 /// # ElementView
-
 
 impl<T: IsDomNode + AsRef<Node> + 'static> ElementView for ViewBuilder<T> {
     fn element(tag: &str) -> Self {
@@ -308,9 +290,7 @@ impl<T: IsDomNode + AsRef<Node> + 'static> ElementView for ViewBuilder<T> {
     }
 }
 
-
 /// # AttributeView
-
 
 impl<T: IsDomNode + AsRef<Node> + AsRef<Element> + 'static> AttributeView for ViewBuilder<T> {
     fn attribute<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
@@ -330,9 +310,7 @@ impl<T: IsDomNode + AsRef<Node> + AsRef<Element> + 'static> AttributeView for Vi
     }
 }
 
-
 /// # StyleView
-
 
 impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for ViewBuilder<T> {
     fn style<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
@@ -344,9 +322,7 @@ impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for ViewBuilder<T> {
     }
 }
 
-
 /// # EventTargetView
-
 
 impl<T: IsDomNode + AsRef<EventTarget>> EventTargetView for ViewBuilder<T> {
     fn on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
@@ -374,9 +350,7 @@ impl<T: IsDomNode + AsRef<EventTarget>> EventTargetView for ViewBuilder<T> {
     }
 }
 
-
 /// # ParentView
-
 
 impl<P, C> ParentView<ViewBuilder<C>> for ViewBuilder<P>
 where
@@ -388,9 +362,19 @@ where
     }
 }
 
+impl<P, C> ParentView<Option<ViewBuilder<C>>> for ViewBuilder<P>
+where
+    P: IsDomNode + AsRef<Node>,
+    C: IsDomNode + AsRef<Node>,
+{
+    fn with(&mut self, o_child: Option<ViewBuilder<C>>) {
+        if let Some(child) = o_child {
+            self.children.push(child.to_node());
+        }
+    }
+}
 
 /// # PostBuildView
-
 
 impl<T: IsDomNode + Clone> PostBuildView for ViewBuilder<T> {
     type DomNode = T;
@@ -400,9 +384,7 @@ impl<T: IsDomNode + Clone> PostBuildView for ViewBuilder<T> {
     }
 }
 
-
 /// # ReplaceView
-
 
 impl<T: IsDomNode + AsRef<Node>> ReplaceView<View<T>> for ViewBuilder<T> {
     fn this_later<S: Clone + Into<View<T>>>(&mut self, rx: Receiver<S>) {
@@ -410,9 +392,7 @@ impl<T: IsDomNode + AsRef<Node>> ReplaceView<View<T>> for ViewBuilder<T> {
     }
 }
 
-
 /// # PatchView
-
 
 impl<T, C> PatchView<View<C>> for ViewBuilder<T>
 where

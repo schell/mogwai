@@ -7,7 +7,7 @@ use mogwai::{
 use snafu::{OptionExt, Snafu};
 pub use std::{convert::TryFrom, ops::Deref};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
-pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
+pub use web_sys::{Element, Event, EventTarget, HtmlElement};
 use web_sys::{Node, Text};
 
 
@@ -527,6 +527,19 @@ where
             v.store_view(child_view.upcast());
             Ok(())
         });
+    }
+}
+
+
+impl<P, C> ParentView<Option<Hydrator<C>>> for Hydrator<P>
+where
+    P: IsDomNode + AsRef<Node>,
+    C: IsDomNode + AsRef<Node>,
+{
+    fn with(&mut self, o_view: Option<Hydrator<C>>) {
+        if let Some(view) = o_view {
+            self.with(view);
+        }
     }
 }
 
