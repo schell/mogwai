@@ -3,7 +3,6 @@ use quote::quote;
 use syn::{spanned::Spanned, Error};
 use syn_rsx::{Node, NodeName, NodeType};
 
-
 fn node_name_span(name: &NodeName) -> Span {
     match name {
         NodeName::Path(expr_path) => expr_path.span(),
@@ -12,6 +11,14 @@ fn node_name_span(name: &NodeName) -> Span {
     }
 }
 
+fn cast_type_attribute(node: &Node) -> Option<proc_macro2::TokenStream> {
+    let key = node.name_as_string()?;
+    let expr = node.value.as_ref()?;
+    match key.split(':').collect::<Vec<_>>().as_slice() {
+        ["cast", "type"] => Some(quote! {#expr}),
+        _ => None,
+    }
+}
 
 fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     let span: Span = node
@@ -46,14 +53,14 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
                 ["patch", "children"] => Ok(quote! {
                     __mogwai_node.patch(#expr);
                 }),
+                ["cast", "type"] => Ok(quote! {}),
                 [attribute_name] => Ok(quote! {
                     __mogwai_node.attribute(#attribute_name, #expr);
                 }),
                 keys => Err(Error::new(
                     span,
                     format!(
-                        "expected `style:*`, `on:*`, `window:*`, `document:*`, `post:build` or \
-                         other valid attribute key/value pair. Got `{}`",
+                        "expected a valid attribute key/value pair. Got `{}`",
                         keys.join(":")
                     ),
                 )),
@@ -68,7 +75,6 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
     }
 }
 
-
 fn partition_unzip<T, F>(items: Vec<T>, f: F) -> (Vec<proc_macro2::TokenStream>, Vec<Error>)
 where
     F: Fn(T) -> Result<proc_macro2::TokenStream, Error>,
@@ -82,7 +88,6 @@ where
     (tokens, errs)
 }
 
-
 fn combine_errors(errs: Vec<Error>) -> Option<Error> {
     errs.into_iter()
         .fold(None, |may_prev_error: Option<Error>, err| {
@@ -95,16 +100,6 @@ fn combine_errors(errs: Vec<Error>) -> Option<Error> {
         })
 }
 
-
-fn tag_to_type_token_stream(tag: &str) -> proc_macro2::TokenStream {
-    match tag {
-        "input" => quote! { web_sys::HtmlInputElement },
-        "iframe" => quote! { web_sys::HtmlIFrameElement },
-        _ => quote! { web_sys::HtmlElement },
-    }
-}
-
-
 fn walk_node<F>(
     view_path: proc_macro2::TokenStream,
     node_fn: F,
@@ -116,7 +111,14 @@ where
     match node.node_type {
         NodeType::Element => match node.name_as_string() {
             Some(tag) => {
-                let type_is = tag_to_type_token_stream(tag.as_str());
+                let mut type_is = quote! { web_sys::HtmlElement };
+                'find_type: for att_node in node.attributes.iter() {
+                    if let Some(cast_type) = cast_type_attribute(att_node) {
+                        type_is = cast_type;
+                        break 'find_type;
+                    }
+                }
+
                 let mut errs: Vec<Error> = vec![];
 
                 let (attribute_tokens, attribute_errs) =
@@ -160,7 +162,6 @@ where
     }
 }
 
-
 fn node_to_view_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
         quote! { mogwai::prelude::View },
@@ -168,7 +169,6 @@ fn node_to_view_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
         node,
     )
 }
-
 
 fn node_to_hydrateview_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
@@ -178,7 +178,6 @@ fn node_to_hydrateview_token_stream(node: Node) -> Result<proc_macro2::TokenStre
     )
 }
 
-
 fn node_to_builder_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
         quote! { mogwai::prelude::ViewBuilder },
@@ -186,7 +185,6 @@ fn node_to_builder_token_stream(node: Node) -> Result<proc_macro2::TokenStream, 
         node,
     )
 }
-
 
 fn walk_dom(
     input: proc_macro::TokenStream,
@@ -217,13 +215,11 @@ fn walk_dom(
     }
 }
 
-
 #[proc_macro]
 /// Uses an html description to construct a [`View`].
 pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(walk_dom(input, node_to_view_token_stream))
 }
-
 
 #[proc_macro]
 /// Uses an html description to construct a [`Hydrator`], which can then be converted
@@ -232,13 +228,11 @@ pub fn hydrate(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(walk_dom(input, node_to_hydrateview_token_stream))
 }
 
-
 #[proc_macro]
 /// Uses an html description to construct a [`ViewBuilder`].
 pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(walk_dom(input, node_to_builder_token_stream))
 }
-
 
 #[proc_macro]
 pub fn target_arch_is_wasm32(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -246,7 +240,6 @@ pub fn target_arch_is_wasm32(_: proc_macro::TokenStream) -> proc_macro::TokenStr
         cfg!(target_arch = "wasm32")
     })
 }
-
 
 #[cfg(test)]
 mod ssr_tests {

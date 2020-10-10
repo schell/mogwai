@@ -1,7 +1,7 @@
 //! Views
 use std::{cell::RefCell, rc::Rc};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
-pub use web_sys::{Element, Event, EventTarget, HtmlInputElement};
+pub use web_sys::{Element, Event, EventTarget};
 
 use crate::prelude::Receiver;
 

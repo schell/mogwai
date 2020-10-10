@@ -2,7 +2,6 @@
 use super::super::txrx::{Receiver, Transmitter};
 use std::future::Future;
 
-
 /// A subscriber allows a component to subscribe to other components' messages
 /// without having explicit access to both Transmitter and Receiver. This allows
 /// the parent component to map child component messages into its own updates
@@ -14,7 +13,6 @@ use std::future::Future;
 pub struct Subscriber<Msg> {
     tx: Transmitter<Msg>,
 }
-
 
 impl<Msg: Clone + 'static> Subscriber<Msg> {
     pub fn new(tx: &Transmitter<Msg>) -> Subscriber<Msg> {

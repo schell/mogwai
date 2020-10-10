@@ -1,10 +1,10 @@
 use std::{
-    cell::RefCell,
+    cell::{Ref, RefCell},
     rc::Rc,
 };
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Node;
-pub use web_sys::{Element, Event, EventTarget, HtmlInputElement};
+pub use web_sys::{Element, Event, EventTarget};
 
 use crate::{
     prelude::{txrx, Component, IsDomNode, Receiver, Subscriber, Transmitter, ViewBuilder},
@@ -34,14 +34,15 @@ where
         tx_in: Transmitter<T::ModelMsg>,
         rx_out: Receiver<T::ViewMsg>,
     ) -> Self {
+        let subscriber = Subscriber::new(&tx_in);
+        init.bind(&subscriber);
         let state = Rc::new(RefCell::new(init));
         let tx_out = rx_out.new_trns();
         let rx_in = tx_in.spawn_recv();
-        let subscriber = Subscriber::new(&tx_in);
 
         let (tx_view, rx_view) = txrx();
         rx_in.respond_shared(state.clone(), move |t: &mut T, msg: &T::ModelMsg| {
-            T::update(t, msg, &tx_view, &subscriber);
+            t.update(msg, &tx_view, &subscriber);
         });
 
         rx_view.respond(move |msg: &T::ViewMsg| {
@@ -94,6 +95,11 @@ where
     /// and does *not* update the view.
     pub fn set_state(&mut self, t: T) {
         *self.state.borrow_mut() = t;
+    }
+
+    /// Borrow a reference to the inner state.
+    pub fn state_ref(&self) -> Ref<T> {
+        self.state.borrow()
     }
 }
 

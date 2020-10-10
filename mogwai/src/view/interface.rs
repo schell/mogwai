@@ -1,5 +1,5 @@
 //! Interfaces for constructing declarative views.
-pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
+pub use web_sys::{Element, Event, EventTarget, HtmlElement};
 
 use crate::prelude::{Effect, Receiver, Transmitter};
 

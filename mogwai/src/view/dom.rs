@@ -7,7 +7,7 @@ use std::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::closure::Closure;
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
-pub use web_sys::{Element, Event, EventTarget, HtmlElement, HtmlInputElement};
+pub use web_sys::{Element, Event, EventTarget, HtmlElement};
 use web_sys::{Node, Text};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -809,6 +809,15 @@ impl<T: IsDomNode + AsRef<Element>> AttributeView for View<T> {
 impl<S: IsDomNode + AsRef<Node>, T: IsDomNode + AsRef<Node>> ParentView<View<S>> for View<T> {
     fn with(&mut self, view: View<S>) {
         self.internals.borrow_mut().add_child(view);
+    }
+}
+
+
+impl<S: IsDomNode + AsRef<Node>, T: IsDomNode + AsRef<Node>> ParentView<Option<View<S>>> for View<T> {
+    fn with(&mut self, o_view: Option<View<S>>) {
+        if let Some(view) = o_view {
+            self.internals.borrow_mut().add_child(view);
+        }
     }
 }
 
