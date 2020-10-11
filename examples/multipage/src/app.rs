@@ -1,9 +1,10 @@
 use crate::routes;
 use mogwai::prelude::*;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Route {
-    Game,
+    Game { game_id: String },
+    GameList,
     Home,
     NotFound,
 }
@@ -17,16 +18,20 @@ impl From<Route> for View<HtmlElement> {
 impl From<Route> for ViewBuilder<HtmlElement> {
     fn from(route: Route) -> Self {
         match route {
-            Route::Game => routes::game("foo".into()),
+            Route::Game { game_id } => routes::game(game_id),
+            Route::GameList => Gizmo::from(routes::GameList::default()).view_builder(),
             Route::Home => routes::home(),
             Route::NotFound => routes::not_found(),
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone)]
 pub enum Out {
-    Render(Route),
+    Render {
+        route: Route,
+        view_builder: ViewBuilder<HtmlElement>,
+    },
     RenderClicks(i32),
 }
 
@@ -53,7 +58,10 @@ impl Component for App {
     fn update(&mut self, msg: &Route, tx_view: &Transmitter<Out>, _sub: &Subscriber<Route>) {
         if self.current_route != *msg {
             self.current_route = msg.clone();
-            tx_view.send(&Out::Render(self.current_route));
+            tx_view.send(&Out::Render {
+                route: self.current_route.clone(),
+                view_builder: ViewBuilder::from(self.current_route.clone()),
+            });
         }
         self.click_count += 1;
         tx_view.send(&Out::RenderClicks(self.click_count));
@@ -67,10 +75,13 @@ impl Component for App {
             _ => None,
         });
         let rx_main = rx.branch_filter_map(|msg| match msg {
-            Out::Render(route) => Some(View::<HtmlElement>::from(*route)),
+            Out::Render {
+                route: _,
+                view_builder,
+            } => Some(View::from(view_builder.clone())),
             _ => None,
         });
-        let mut contents = ViewBuilder::from(self.current_route);
+        let mut contents = ViewBuilder::from(self.current_route.clone());
         contents.replaces = vec![rx_main];
         builder! {
             <div class="root">
@@ -91,10 +102,10 @@ impl Component for App {
                         style="margin-right: 15px;"
                         on:click=tx.contra_map(|e: &Event| {
                             e.prevent_default();
-                            Route::Game
+                            Route::GameList
                         })
                     >
-                        "Game"
+                        "Games"
                     </a>
                     <a
                         href="/404"
