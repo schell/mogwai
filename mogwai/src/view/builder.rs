@@ -2,6 +2,7 @@
 //! hydration from the DOM or by creating a fresh view from scratch.
 //!
 //! Here we attempt to have our cake and eat it too.
+use std::convert::TryFrom;
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget, Text};
@@ -108,6 +109,14 @@ impl<T: IsDomNode + AsRef<Node>> ViewBuilder<T> {
                 })
                 .collect(),
         }
+    }
+}
+
+impl<T: IsDomNode + AsRef<Node>> TryFrom<Option<ViewBuilder<T>>> for ViewBuilder<T> {
+    type Error = ();
+
+    fn try_from(o_builder: Option<ViewBuilder<T>>) -> Result<ViewBuilder<T>, ()> {
+        o_builder.ok_or_else(|| ())
     }
 }
 
