@@ -100,7 +100,7 @@ pub fn game(game_id: String) -> ViewBuilder<HtmlElement> {
                 "This site is only supported in portrait mode."
             </div>
             <div class="game-board" data-game-id=&game_id>
-                {board(initial_board, tx_cells, rx_cell_updates)}
+                {board(initial_board, &tx_cells, &rx_cell_updates)}
             </div>
         </main>
     }
