@@ -1,6 +1,10 @@
+mod game_list;
+
 use crate::api;
 use crate::components::game::{board, CellInteract, CellUpdate};
 use mogwai::prelude::*;
+
+pub use game_list::GameList;
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
