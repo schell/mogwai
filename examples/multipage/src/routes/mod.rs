@@ -87,7 +87,7 @@ pub fn game(game_id: String) -> ViewBuilder<HtmlElement> {
     });
     let game_state = api::get_game(game_id.clone());
     let tx = tx_game.contra_filter_map(
-        |r: &Result<api::model::GameState, api::model::GetGameError>| r.clone().ok(),
+        |r: &Result<api::model::GameState, api::model::FetchError>| r.clone().ok(),
     );
     tx_game.wire_map(&rx_cell_updates, |game_state| CellUpdate::All {
         cells: game_state.board.clone(),

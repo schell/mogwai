@@ -16,7 +16,7 @@ pub mod model {
     }
 
     #[derive(Clone, Copy, Debug)]
-    pub enum GetGameError {
+    pub enum FetchError {
         FetchError,
         ParseError,
         RequestCreateError,
@@ -35,8 +35,8 @@ pub mod model {
     }
 }
 
-use model::*;
-pub async fn get_game(game_id: String) -> Result<GameState, GetGameError> {
+pub use model::*;
+pub async fn get_game(game_id: String) -> Result<GameState, FetchError> {
     let mut opts = RequestInit::new();
     opts.method("GET");
     opts.mode(RequestMode::Cors);
@@ -44,26 +44,26 @@ pub async fn get_game(game_id: String) -> Result<GameState, GetGameError> {
     let url = format!("{}/game/{}", API_URL, game_id);
 
     let request = Request::new_with_str_and_init(&url, &opts)
-        .map_err(|_| GetGameError::RequestCreateError)?;
+        .map_err(|_| FetchError::RequestCreateError)?;
 
     request
         .headers()
         .set("Accept", "application/json")
-        .map_err(|_| GetGameError::RequestHeaderSetError)?;
+        .map_err(|_| FetchError::RequestHeaderSetError)?;
 
     let window = utils::window();
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
-        .map_err(|_| GetGameError::FetchError)?;
+        .map_err(|_| FetchError::FetchError)?;
 
     // `resp_value` is a `Response` object.
     let resp: Response = resp_value.dyn_into().unwrap();
 
     // Convert this other `Promise` into a rust `Future`.
-    let json = JsFuture::from(resp.json().map_err(|_| GetGameError::FetchError)?)
+    let json = JsFuture::from(resp.json().map_err(|_| FetchError::FetchError)?)
         .await
-        .map_err(|_| GetGameError::FetchError)?;
+        .map_err(|_| FetchError::FetchError)?;
 
     // Use serde to parse the JSON into a struct.
-    json.into_serde().map_err(|_| GetGameError::ParseError)
+    json.into_serde().map_err(|_| FetchError::ParseError)
 }
