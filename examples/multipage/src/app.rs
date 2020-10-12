@@ -1,30 +1,5 @@
-use crate::routes;
+use crate::{Route, RouteDispatcher};
 use mogwai::prelude::*;
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Route {
-    Game { game_id: String },
-    GameList,
-    Home,
-    NotFound,
-}
-
-impl From<Route> for View<HtmlElement> {
-    fn from(route: Route) -> Self {
-        ViewBuilder::from(route).into()
-    }
-}
-
-impl From<Route> for ViewBuilder<HtmlElement> {
-    fn from(route: Route) -> Self {
-        match route {
-            Route::Game { game_id } => routes::game(game_id),
-            Route::GameList => Gizmo::from(routes::GameList::default()).view_builder(),
-            Route::Home => routes::home(),
-            Route::NotFound => routes::not_found(),
-        }
-    }
-}
 
 #[derive(Clone)]
 pub enum Out {
@@ -36,14 +11,19 @@ pub enum Out {
 pub struct App {
     click_count: i32,
     current_route: Route,
+    dispatch: RouteDispatcher,
 }
 
 impl App {
-    pub fn new() -> Self {
-        App {
+    pub fn gizmo() -> Gizmo<Self> {
+        let tx_model = Transmitter::new();
+        let rx_view = Receiver::new();
+        let app = App {
             click_count: 0,
             current_route: Route::Home,
-        }
+            dispatch: RouteDispatcher::new(tx_model.clone()),
+        };
+        Gizmo::from_parts(app, tx_model, rx_view)
     }
 }
 
@@ -70,14 +50,15 @@ impl Component for App {
             Out::RenderClicks(count) => Some(format!("{} times", count)),
             _ => None,
         });
-        let rx_main = rx.branch_filter_map(|msg| match msg {
+        let dispatch = self.dispatch.clone();
+        let rx_main = rx.branch_filter_map(move |msg| match msg {
             Out::Render { route } => Some(Patch::Replace {
                 index: 0,
-                value: ViewBuilder::from(route.clone()),
+                value: dispatch.view_builder(route.clone()),
             }),
             _ => None,
         });
-        let contents = ViewBuilder::from(self.current_route.clone());
+        let contents = self.dispatch.view_builder(self.current_route.clone());
         builder! {
             <div class="root">
                 <p>{("0 times", rx_text)}</p>

@@ -1,4 +1,6 @@
+use crate::Route;
 use mogwai::prelude::*;
+use std::rc::Rc;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Out {}
@@ -6,23 +8,27 @@ pub enum Out {}
 type GameId = String;
 
 pub struct GameList {
-    game_ids: Vec<String>,
+    dispatch: Rc<Transmitter<Route>>,
+    game_ids: Rc<Vec<String>>,
 }
 
 #[derive(Clone, Debug)]
 pub enum GameListModel {
     Navigate { game_id: GameId },
-    ReplaceList { game_ids: Vec<String> },
+    ReplaceList { game_ids: Rc<Vec<String>> },
 }
 
 #[derive(Clone, Debug)]
 pub struct GameListView {
-    game_ids: Vec<String>,
+    game_ids: Rc<Vec<String>>,
 }
 
 impl GameList {
-    pub fn new(game_ids: Vec<String>) -> Self {
-        Self { game_ids }
+    pub fn new(dispatch: Rc<Transmitter<Route>>, game_ids: Vec<String>) -> Self {
+        Self {
+            dispatch,
+            game_ids: Rc::new(game_ids),
+        }
     }
 
     fn game_ul(
@@ -43,20 +49,17 @@ impl GameList {
     fn game_li(tx: &Transmitter<GameListModel>, game_id: &String) -> ViewBuilder<HtmlElement> {
         let game_href = format!("/game/{}", game_id);
         let id = game_id.clone();
-        let handler: Transmitter<Event> = tx.contra_map(move |_| GameListModel::Navigate {
-            game_id: id.clone(),
+        let handler: Transmitter<Event> = tx.contra_map(move |e: &Event| {
+            e.prevent_default();
+            GameListModel::Navigate {
+                game_id: id.clone(),
+            }
         });
         builder! {
             <li>
                 <a href=game_href on:click=handler>{game_id}</a>
             </li>
         }
-    }
-}
-
-impl Default for GameList {
-    fn default() -> Self {
-        Self::new(Vec::new())
     }
 }
 
@@ -71,11 +74,18 @@ impl Component for GameList {
         tx: &Transmitter<GameListView>,
         _sub: &Subscriber<GameListModel>,
     ) {
-        if let GameListModel::ReplaceList { game_ids } = msg {
-            self.game_ids = game_ids.clone();
-            tx.send(&GameListView {
-                game_ids: self.game_ids.clone(),
-            });
+        match msg {
+            GameListModel::ReplaceList { game_ids } => {
+                self.game_ids = game_ids.clone();
+                tx.send(&GameListView {
+                    game_ids: self.game_ids.clone(),
+                });
+            }
+            GameListModel::Navigate { game_id } => {
+                self.dispatch.send(&Route::Game {
+                    game_id: game_id.clone(),
+                });
+            }
         }
     }
 
@@ -87,7 +97,7 @@ impl Component for GameList {
         let tx_fetch = tx.contra_filter_map(
             |result: &Result<Vec<String>, crate::api::FetchError>| match result {
                 Ok(ids) => Some(GameListModel::ReplaceList {
-                    game_ids: ids.clone(),
+                    game_ids: Rc::new(ids.clone()),
                 }),
                 Err(_) => None,
             },
