@@ -28,10 +28,7 @@ impl From<Route> for ViewBuilder<HtmlElement> {
 
 #[derive(Clone)]
 pub enum Out {
-    Render {
-        route: Route,
-        view_builder: ViewBuilder<HtmlElement>,
-    },
+    Render { route: Route },
     RenderClicks(i32),
 }
 
@@ -60,7 +57,6 @@ impl Component for App {
             self.current_route = msg.clone();
             tx_view.send(&Out::Render {
                 route: self.current_route.clone(),
-                view_builder: ViewBuilder::from(self.current_route.clone()),
             });
         }
         self.click_count += 1;
@@ -75,14 +71,13 @@ impl Component for App {
             _ => None,
         });
         let rx_main = rx.branch_filter_map(|msg| match msg {
-            Out::Render {
-                route: _,
-                view_builder,
-            } => Some(View::from(view_builder.clone())),
+            Out::Render { route } => Some(Patch::Replace {
+                index: 0,
+                value: ViewBuilder::from(route.clone()),
+            }),
             _ => None,
         });
-        let mut contents = ViewBuilder::from(self.current_route.clone());
-        contents.replaces = vec![rx_main];
+        let contents = ViewBuilder::from(self.current_route.clone());
         builder! {
             <div class="root">
                 <p>{("0 times", rx_text)}</p>
@@ -118,7 +113,9 @@ impl Component for App {
                         "Not Found"
                     </a>
                 </nav>
-                {contents}
+                <slot patch:children=rx_main>
+                    {contents}
+                </slot>
             </div>
         }
     }

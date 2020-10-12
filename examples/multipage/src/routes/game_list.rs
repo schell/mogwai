@@ -25,11 +25,14 @@ impl GameList {
         Self { game_ids }
     }
 
-    fn game_ul(tx: &Transmitter<GameListModel>, game_ids: Vec<String>) -> ViewBuilder<HtmlElement> {
+    fn game_ul(
+        tx: &Transmitter<GameListModel>,
+        game_ids: &Vec<String>,
+    ) -> ViewBuilder<HtmlElement> {
         let mut game_ul = builder! { <ul /> };
         let game_links = game_ids
             .iter()
-            .map(|game_id| GameList::game_li(tx, game_id));
+            .map(|game_id| GameList::game_li(&tx, game_id));
         for game_li in game_links {
             game_ul.with(game_li);
         }
@@ -69,7 +72,6 @@ impl Component for GameList {
         _sub: &Subscriber<GameListModel>,
     ) {
         if let GameListModel::ReplaceList { game_ids } = msg {
-            log::info!("GameList::update {:?}", game_ids);
             self.game_ids = game_ids.clone();
             tx.send(&GameListView {
                 game_ids: self.game_ids.clone(),
@@ -77,7 +79,6 @@ impl Component for GameList {
         }
     }
 
-    #[allow(unused_braces)]
     fn view(
         &self,
         tx: &Transmitter<GameListModel>,
@@ -93,17 +94,15 @@ impl Component for GameList {
         );
         tx_fetch.send_async(crate::api::get_game_list());
         let tx_cloned = tx.clone();
-        let rx_patch: Receiver<Patch<View<HtmlElement>>> = rx.branch_map(move |msg| {
-            let builder = GameList::game_ul(&tx_cloned, msg.game_ids.clone());
-            let view = View::from(builder);
-            log::info!("Receive {:?}", view.html_string());
-            Patch::Insert {
-                index: 0,
-                value: view,
-            }
+        let rx_patch = rx.branch_map(move |msg| Patch::Replace {
+            index: 0,
+            value: GameList::game_ul(&tx_cloned, &msg.game_ids),
         });
         builder! {
-            <main class="game-list" patch:children=rx_patch>
+            <main class="game-list">
+                <slot patch:children=rx_patch>
+                    <ul />
+                </slot>
             </main>
         }
     }
