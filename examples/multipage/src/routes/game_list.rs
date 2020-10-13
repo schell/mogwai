@@ -1,30 +1,25 @@
-use crate::Route;
+use crate::{api, Route};
 use mogwai::prelude::*;
 use std::rc::Rc;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Out {}
-
-type GameId = String;
-
 pub struct GameList {
     dispatch: Rc<Transmitter<Route>>,
-    game_ids: Rc<Vec<String>>,
+    game_ids: Rc<Vec<api::GameId>>,
 }
 
 #[derive(Clone, Debug)]
 pub enum GameListModel {
-    Navigate { game_id: GameId },
-    ReplaceList { game_ids: Rc<Vec<String>> },
+    Navigate { game_id: api::GameId },
+    ReplaceList { game_ids: Rc<Vec<api::GameId>> },
 }
 
 #[derive(Clone, Debug)]
 pub struct GameListView {
-    game_ids: Rc<Vec<String>>,
+    game_ids: Rc<Vec<api::GameId>>,
 }
 
 impl GameList {
-    pub fn new(dispatch: Rc<Transmitter<Route>>, game_ids: Vec<String>) -> Self {
+    pub fn new(dispatch: Rc<Transmitter<Route>>, game_ids: Vec<api::GameId>) -> Self {
         Self {
             dispatch,
             game_ids: Rc::new(game_ids),
@@ -33,7 +28,7 @@ impl GameList {
 
     fn game_ul(
         tx: &Transmitter<GameListModel>,
-        game_ids: &Vec<String>,
+        game_ids: &Vec<api::GameId>,
     ) -> ViewBuilder<HtmlElement> {
         let mut game_ul = builder! { <ul /> };
         let game_links = game_ids
@@ -46,18 +41,16 @@ impl GameList {
     }
 
     #[allow(unused_braces)]
-    fn game_li(tx: &Transmitter<GameListModel>, game_id: &String) -> ViewBuilder<HtmlElement> {
+    fn game_li(tx: &Transmitter<GameListModel>, game_id: &api::GameId) -> ViewBuilder<HtmlElement> {
         let game_href = format!("/game/{}", game_id);
-        let id = game_id.clone();
+        let game_id = *game_id;
         let handler: Transmitter<Event> = tx.contra_map(move |e: &Event| {
             e.prevent_default();
-            GameListModel::Navigate {
-                game_id: id.clone(),
-            }
+            GameListModel::Navigate { game_id }
         });
         builder! {
             <li>
-                <a href=game_href on:click=handler>{game_id}</a>
+                <a href=game_href on:click=handler>{game_id.to_hyphenated().to_string()}</a>
             </li>
         }
     }
@@ -95,7 +88,7 @@ impl Component for GameList {
         rx: &Receiver<GameListView>,
     ) -> ViewBuilder<HtmlElement> {
         let tx_fetch = tx.contra_filter_map(
-            |result: &Result<Vec<String>, crate::api::FetchError>| match result {
+            |result: &Result<Vec<api::GameId>, crate::api::FetchError>| match result {
                 Ok(ids) => Some(GameListModel::ReplaceList {
                     game_ids: Rc::new(ids.clone()),
                 }),

@@ -13,9 +13,9 @@ use wasm_bindgen::prelude::*;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Route {
-    Game { game_id: String },
+    Game { game_id: api::GameId },
     GameList,
     Home,
     NotFound,

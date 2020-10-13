@@ -1,7 +1,7 @@
 use crate::{Route, RouteDispatcher};
 use mogwai::prelude::*;
 
-#[derive(Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum Out {
     Render { route: Route },
     RenderClicks(i32),
@@ -34,9 +34,9 @@ impl Component for App {
 
     fn update(&mut self, msg: &Route, tx_view: &Transmitter<Out>, _sub: &Subscriber<Route>) {
         if self.current_route != *msg {
-            self.current_route = msg.clone();
+            self.current_route = *msg;
             tx_view.send(&Out::Render {
-                route: self.current_route.clone(),
+                route: self.current_route,
             });
         }
         self.click_count += 1;
@@ -54,11 +54,11 @@ impl Component for App {
         let rx_main = rx.branch_filter_map(move |msg| match msg {
             Out::Render { route } => Some(Patch::Replace {
                 index: 0,
-                value: dispatch.view_builder(route.clone()),
+                value: dispatch.view_builder(*route),
             }),
             _ => None,
         });
-        let contents = self.dispatch.view_builder(self.current_route.clone());
+        let contents = self.dispatch.view_builder(self.current_route);
         builder! {
             <div class="root">
                 <p>{("0 times", rx_text)}</p>

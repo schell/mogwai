@@ -8,10 +8,12 @@ const API_URL: &'static str = "http://localhost:3000";
 pub mod model {
     use serde::{Deserialize, Serialize};
 
+    pub type GameId = uuid::Uuid;
+
     #[derive(Clone, Debug, Serialize)]
     pub struct GameMoveInput {
         #[serde(skip)]
-        pub game_id: String,
+        pub game_id: GameId,
         pub column: usize,
         pub row: usize,
         #[serde(rename = "type")]
@@ -46,19 +48,19 @@ pub mod model {
     /// data when deserializing
     #[derive(Clone, Debug, Deserialize)]
     pub struct GameState {
-        pub id: String,
+        pub id: GameId,
         pub board: Vec<Vec<String>>,
         pub status: GameStatus,
     }
 }
 
 pub use model::*;
-pub async fn get_game(game_id: String) -> Result<GameState, FetchError> {
+pub async fn get_game(game_id: model::GameId) -> Result<GameState, FetchError> {
     let url = format!("{}/game/{}", API_URL, game_id);
     fetch(url).await
 }
 
-pub async fn get_game_list() -> Result<Vec<String>, FetchError> {
+pub async fn get_game_list() -> Result<Vec<model::GameId>, FetchError> {
     let url = format!("{}/game", API_URL);
     fetch(url).await
 }
