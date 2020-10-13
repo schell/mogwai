@@ -36,7 +36,7 @@ impl CellInteract {
 /// by `rx`.
 #[allow(unused_braces)]
 fn board_cell<'a>(
-    coords: (usize, usize, &'a str),
+    coords: (usize, usize, String),
     tx: &Transmitter<CellInteract>,
     rx: &Receiver<CellUpdate>,
 ) -> ViewBuilder<HtmlElement> {
@@ -71,7 +71,7 @@ fn board_cell<'a>(
 /// text to display is received by `rx`.
 fn board_row<'a>(
     row: usize,
-    initial_cells: Vec<&'a str>,
+    initial_cells: Vec<String>,
     tx: &Transmitter<CellInteract>,
     rx: &Receiver<CellUpdate>,
 ) -> ViewBuilder<HtmlElement> {
@@ -79,36 +79,25 @@ fn board_row<'a>(
         .into_iter()
         .enumerate()
         .map(|(col, value)| board_cell((col, row, value), tx, rx));
-    let mut tr = ViewBuilder {
-        element: Some("tr".to_owned()),
-        ..ViewBuilder::default()
-    };
+    let mut tr = builder! { <tr /> };
     for child in children {
         tr.with(child);
     }
     tr
 }
 
-#[allow(unused_braces)]
 pub fn board<'a>(
-    initial_cells: Vec<Vec<&'a str>>,
+    cells: Vec<Vec<String>>,
     tx: &Transmitter<CellInteract>,
     rx: &Receiver<CellUpdate>,
 ) -> ViewBuilder<HtmlElement> {
-    let children = initial_cells
+    let children = cells
         .into_iter()
         .enumerate()
         .map(|(row, cells)| board_row(row, cells, tx, rx));
-    let mut tbody: ViewBuilder<HtmlElement> = ViewBuilder {
-        element: Some("tbody".to_owned()),
-        ..ViewBuilder::default()
-    };
+    let mut tbody: ViewBuilder<HtmlElement> = builder! { <tbody /> };
     for child in children {
         tbody.with(child);
     }
-    builder! {
-        <table>
-            {tbody}
-        </table>
-    }
+    tbody
 }

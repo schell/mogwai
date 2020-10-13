@@ -77,34 +77,58 @@ pub fn game(game_id: String) -> ViewBuilder<HtmlElement> {
     let tx_game: Transmitter<api::model::GameState> = Transmitter::new();
     let tx_cells: Transmitter<CellInteract> = Transmitter::new();
     let rx_cell_updates = Receiver::new();
+    let rx_game_board = Receiver::new();
     tx_cells.wire_map(&rx_cell_updates, |interaction| CellUpdate::Single {
         column: interaction.column,
         row: interaction.row,
         value: match interaction.flag {
-            true => "?".into(),
-            _ => "x".into(),
+            true => "F".into(),
+            false => "*".into(),
         },
     });
+    // Fetch the initial board state
     let game_state = api::get_game(game_id.clone());
     let tx = tx_game.contra_filter_map(
         |r: &Result<api::model::GameState, api::model::FetchError>| r.clone().ok(),
     );
-    tx_game.wire_map(&rx_cell_updates, |game_state| CellUpdate::All {
+    tx_game.wire_map(&rx_game_board, |game_state| CellUpdate::All {
         cells: game_state.board.clone(),
     });
     tx.send_async(game_state);
-    let initial_board = vec![
-        vec![" ", " ", " "],
-        vec![" ", " ", " "],
-        vec![" ", " ", " "],
-    ];
+    // Set up to receive later board states
+    let id = game_id.clone();
+    tx_cells.spawn_recv().respond(move |interaction| {
+        let game_id = id.clone();
+        let input = api::model::GameMoveInput {
+            game_id,
+            column: interaction.column,
+            row: interaction.row,
+            move_type: match interaction.flag {
+                true => api::model::GameMoveType::FLAG,
+                false => api::model::GameMoveType::OPEN,
+            },
+        };
+        tx.send_async(api::patch_game(input));
+    });
+    // Patch the initial board state into the game board slot
+    let rx_patch_game = rx_game_board.branch_filter_map(move |update| match update {
+        CellUpdate::All { cells } => Some(Patch::Replace {
+            index: 0,
+            value: board(cells.clone(), &tx_cells, &rx_cell_updates),
+        }),
+        _ => None,
+    });
     builder! {
         <main class="container">
             <div class="overlay">
                 "This site is only supported in portrait mode."
             </div>
             <div class="game-board" data-game-id=&game_id>
-                {board(initial_board, &tx_cells, &rx_cell_updates)}
+                <table>
+                    <slot name="game-board" patch:children=rx_patch_game>
+                        <tbody />
+                    </slot>
+                </table>
             </div>
         </main>
     }
