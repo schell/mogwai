@@ -58,8 +58,19 @@ impl RouteDispatcher {
     }
 
     /// Dispatch the given `Route`.
-    pub fn navigate(&self, route: Route) {
-        self.tx.send(&route);
+    pub fn push_state(&self, route: Route) {
+        let window = mogwai::utils::window();
+        match window.history() {
+            Ok(history) => {
+                let state = JsValue::from("");
+                let push_result =
+                    history.push_state_with_url(&state, "", Some(&format!("{}", route)));
+                if let Err(error) = push_result {
+                    ::log::debug!("{:?}", error);
+                }
+            }
+            Err(error) => ::log::debug!("{:?}", error),
+        }
     }
 
     /// Create a `ViewBuilder` for the given `Route`. The `ViewBuilder` will be
