@@ -53,16 +53,14 @@ features = [
 [dependencies.web-sys]
 version = "^0.3"
 features = [
-  "HashChangeEvent",
   "Headers",
-  "HtmlInputElement",
+  "History",
   "Location",
   "MouseEvent",
   "Request",
   "RequestInit",
   "RequestMode",
   "Response",
-  "Storage",
   "Window",
 ]
 
