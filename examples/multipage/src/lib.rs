@@ -32,8 +32,9 @@ pub fn main() -> Result<(), JsValue> {
         log::trace!("Hello from release mogwai-multipage");
     }
 
+    let initial_route = Route::from(utils::window().location().pathname().unwrap_throw());
     // Create our app's view by hydrating a gizmo from an initial state
-    let root: Gizmo<App> = App::gizmo();
+    let root: Gizmo<App> = App::gizmo(initial_route);
 
     // Hand the app's view ownership to the window so it never
     // goes out of scope

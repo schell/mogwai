@@ -15,12 +15,12 @@ pub struct App {
 }
 
 impl App {
-    pub fn gizmo() -> Gizmo<Self> {
+    pub fn gizmo(initial_route: Route) -> Gizmo<Self> {
         let tx_model = Transmitter::new();
         let rx_view = Receiver::new();
         let app = App {
             click_count: 0,
-            current_route: Route::Home,
+            current_route: initial_route,
             dispatch: RouteDispatcher::new(tx_model.clone()),
         };
         Gizmo::from_parts(app, tx_model, rx_view)
@@ -38,6 +38,7 @@ impl Component for App {
             tx_view.send(&Out::Render {
                 route: self.current_route,
             });
+            self.dispatch.push_state(*msg);
         }
         self.click_count += 1;
         tx_view.send(&Out::RenderClicks(self.click_count));
