@@ -83,6 +83,43 @@ impl std::fmt::Debug for RouteDispatcher {
     }
 }
 
+impl std::fmt::Display for Route {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Route::Game { game_id } => f.write_fmt(format_args!("/game/{}", game_id)),
+            Route::GameList => f.write_str("/game"),
+            Route::Home => f.write_str("/"),
+            Route::NotFound => f.write_str("/404"),
+        }
+    }
+}
+
+impl From<&str> for Route {
+    fn from(s: &str) -> Self {
+        ::log::trace!("route try_from: {}", s);
+        // remove the scheme, if it has one
+        let paths: Vec<&str> = s.split("/").collect::<Vec<_>>();
+        ::log::trace!("route paths: {:?}", paths);
+
+        match paths.as_slice() {
+            [""] => Route::Home,
+            ["", ""] => Route::Home,
+            ["", "game"] => Route::GameList,
+            ["", "game", game_id] => match uuid::Uuid::parse_str(game_id) {
+                Ok(game_id) => Route::Game { game_id },
+                Err(_) => Route::NotFound,
+            },
+            _ => Route::NotFound,
+        }
+    }
+}
+
+impl From<String> for Route {
+    fn from(s: String) -> Self {
+        Route::from(s.as_str())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
