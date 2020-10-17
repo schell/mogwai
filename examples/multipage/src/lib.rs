@@ -21,6 +21,19 @@ pub enum Route {
     NotFound,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub fn view<T>(path: T) -> String
+where
+    T: AsRef<str>,
+{
+    let initial_route: Route = path.into();
+    // Create our app's view by hydrating a gizmo from an initial state
+    let root: Gizmo<App> = App::gizmo(initial_route);
+    let builder = root.view_builder();
+    let view = View::from(builder);
+    view.html_string()
+}
+
 #[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
