@@ -95,7 +95,9 @@ impl Component for GameList {
                 Err(_) => None,
             },
         );
-        tx_fetch.send_async(crate::api::get_game_list());
+        if cfg!(target_arch = "wasm32") {
+            tx_fetch.send_async(crate::api::get_game_list());
+        }
         let tx_cloned = tx.clone();
         let rx_patch = rx.branch_map(move |msg| Patch::Replace {
             index: 0,
