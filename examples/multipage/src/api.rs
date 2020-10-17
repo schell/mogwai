@@ -1,4 +1,3 @@
-use mogwai::prelude::utils;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, RequestMode, Response};
@@ -85,7 +84,7 @@ where
         .headers()
         .set("Accept", "application/json")
         .map_err(|_| FetchError::RequestHeaderSetError)?;
-    let resp_value = JsFuture::from(utils::window().fetch_with_request(&request))
+    let resp_value = JsFuture::from(mogwai::utils::window().fetch_with_request(&request))
         .await
         .map_err(|_| FetchError::FetchError)?;
     // `resp_value` is a `Response` object.
@@ -122,7 +121,7 @@ where
         .headers()
         .set("Content-Type", "application/json")
         .map_err(|_| FetchError::RequestHeaderSetError)?;
-    let resp_value = JsFuture::from(utils::window().fetch_with_request(&request))
+    let resp_value = JsFuture::from(mogwai::utils::window().fetch_with_request(&request))
         .await
         .map_err(|_| FetchError::FetchError)?;
     // `resp_value` is a `Response` object.
