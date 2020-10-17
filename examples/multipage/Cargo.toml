@@ -67,14 +67,9 @@ features = [
 [dependencies.web-sys]
 version = "^0.3"
 features = [
-  "Headers",
   "History",
   "Location",
   "MouseEvent",
-  "Request",
-  "RequestInit",
-  "RequestMode",
-  "Response",
   "Window",
 ]
 
