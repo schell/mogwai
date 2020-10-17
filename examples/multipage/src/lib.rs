@@ -110,8 +110,9 @@ impl std::fmt::Display for Route {
     }
 }
 
-impl From<&str> for Route {
-    fn from(s: &str) -> Self {
+impl<T: AsRef<str>> From<T> for Route {
+    fn from(path: T) -> Self {
+        let s = path.as_ref();
         ::log::trace!("route try_from: {}", s);
         // remove the scheme, if it has one
         let paths: Vec<&str> = s.split("/").collect::<Vec<_>>();
@@ -127,12 +128,6 @@ impl From<&str> for Route {
             },
             _ => Route::NotFound,
         }
-    }
-}
-
-impl From<String> for Route {
-    fn from(s: String) -> Self {
-        Route::from(s.as_str())
     }
 }
 
