@@ -25,11 +25,8 @@ hyper = { version = "0.13", optional = true }
 hyper-staticfile = { version = "0.5", optional = true }
 lazy_static = { version = "1.4.0", optional = true }
 log = "^0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 tera = { version = "1", default-features = false, optional = true }
 tokio = { version = "0.2", features = ["full"], optional = true }
-wasm-bindgen-futures = "^0.4"
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`. This is great for development, but requires
@@ -49,14 +46,6 @@ path = "../../mogwai"
 
 [dependencies.mogwai-hydrator]
 path = "../../crates/mogwai-hydrator"
-
-[dependencies.uuid]
-version = "0.8"
-features = [
-  "serde",
-  "v4",
-  "wasm-bindgen",
-]
 
 [dependencies.wasm-bindgen]
 version = "^0.2"
