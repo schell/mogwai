@@ -75,16 +75,6 @@ impl Component for App {
                         "Home"
                     </a>
                     <a
-                        href="/game"
-                        style="margin-right: 15px;"
-                        on:click=tx.contra_map(|e: &Event| {
-                            e.prevent_default();
-                            Route::GameList
-                        })
-                    >
-                        "Games"
-                    </a>
-                    <a
                         href="/404"
                         style="margin-right: 15px;"
                         on:click=tx.contra_map(|e: &Event| {

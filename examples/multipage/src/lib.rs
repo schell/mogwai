@@ -1,6 +1,4 @@
-mod api;
 mod app;
-mod components;
 mod routes;
 
 use crate::app::App;
@@ -15,8 +13,6 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Route {
-    Game { game_id: api::GameId },
-    GameList,
     Home,
     NotFound,
 }
@@ -95,11 +91,6 @@ impl RouteDispatcher {
     /// given access to the `Transmitter`.
     fn view_builder(&self, route: Route) -> ViewBuilder<HtmlElement> {
         match route {
-            Route::Game { game_id } => routes::game(game_id),
-            Route::GameList => {
-                let component = routes::GameList::new(self.tx.clone(), vec![]);
-                Gizmo::from(component).view_builder()
-            }
             Route::Home => routes::home(),
             Route::NotFound => routes::not_found(),
         }
@@ -115,8 +106,6 @@ impl std::fmt::Debug for RouteDispatcher {
 impl std::fmt::Display for Route {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Route::Game { game_id } => f.write_fmt(format_args!("/game/{}", game_id)),
-            Route::GameList => f.write_str("/game"),
             Route::Home => f.write_str("/"),
             Route::NotFound => f.write_str("/404"),
         }
@@ -134,11 +123,6 @@ impl<T: AsRef<str>> From<T> for Route {
         match paths.as_slice() {
             [""] => Route::Home,
             ["", ""] => Route::Home,
-            ["", "game"] => Route::GameList,
-            ["", "game", game_id] => match uuid::Uuid::parse_str(game_id) {
-                Ok(game_id) => Route::Game { game_id },
-                Err(_) => Route::NotFound,
-            },
             _ => Route::NotFound,
         }
     }
