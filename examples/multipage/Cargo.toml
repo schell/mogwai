@@ -36,6 +36,9 @@ wee_alloc = { version = "0.4.2", optional = true }
 [dependencies.mogwai]
 path = "../../mogwai"
 
+[dependencies.mogwai-hydrator]
+path = "../../crates/mogwai-hydrator"
+
 [dependencies.uuid]
 version = "0.8"
 features = [

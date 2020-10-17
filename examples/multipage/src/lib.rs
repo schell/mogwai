@@ -38,7 +38,11 @@ pub fn main() -> Result<(), JsValue> {
 
     // Hand the app's view ownership to the window so it never
     // goes out of scope
-    View::from(root).run()
+    let hydrator = mogwai_hydrator::Hydrator::from(root.view_builder());
+    match View::try_from(hydrator) {
+        Ok(view) => view.run(),
+        Err(err) => Err(JsValue::from(err.to_string())),
+    }
 }
 
 /// `RouteDispatcher` is a reference counting container for a `Transmitter<Route>`.

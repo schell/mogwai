@@ -61,7 +61,7 @@ impl Component for App {
         });
         let contents = self.dispatch.view_builder(self.current_route);
         builder! {
-            <div class="root">
+            <div id="root" class="root">
                 <p>{("0 times", rx_text)}</p>
                 <nav>
                     <a
