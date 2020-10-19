@@ -394,7 +394,6 @@ use std::{
     rc::Rc,
     task::{Context, Poll, Waker},
 };
-use wasm_bindgen_futures::spawn_local;
 
 
 pub type RecvFuture<A> = Pin<Box<dyn Future<Output = Option<A>>>>;
@@ -486,12 +485,26 @@ impl<A: 'static> Transmitter<A> {
     }
 
     /// Execute a future that results in a message, then send it.
+    /// wasm32 spawns a local execution context to drive the Future to
+    /// completion, outside of wasm32 (e.g. during SSR) will block until the
+    /// `Future` completes.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn send_async<FutureA>(&self, fa: FutureA)
+    where
+        FutureA: Future<Output = A> + 'static,
+    {
+        let a: A = futures::executor::block_on(fa);
+        self.send(&a);
+    }
+
+    /// Execute a future that results in a message, then send it.
+    #[cfg(target_arch = "wasm32")]
     pub fn send_async<FutureA>(&self, fa: FutureA)
     where
         FutureA: Future<Output = A> + 'static,
     {
         let tx = self.clone();
-        spawn_local(async move {
+        wasm_bindgen_futures::spawn_local(async move {
             let a: A = fa.await;
             tx.send(&a);
         });
@@ -1011,7 +1024,7 @@ impl<A> Receiver<A> {
                     let mut inner_state = state_clone.borrow_mut();
                     cleanup_clone(&mut inner_state, &opt);
                 };
-                spawn_local(future);
+                wasm_bindgen_futures::spawn_local(future);
             });
         });
     }
