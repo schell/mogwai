@@ -1,6 +1,5 @@
 //! A very limited transmitter used to map messages.
 use super::super::txrx::{Receiver, Transmitter};
-use std::future::Future;
 
 /// A subscriber allows a component to subscribe to other components' messages
 /// without having explicit access to both Transmitter and Receiver. This allows
@@ -43,9 +42,10 @@ impl<Msg: Clone + 'static> Subscriber<Msg> {
     }
 
     /// Send a one-time asynchronous message.
+    #[cfg(target_arch = "wasm32")]
     pub fn send_async<F>(&self, f: F)
     where
-        F: Future<Output = Msg> + 'static,
+        F: std::future::Future<Output = Msg> + 'static,
     {
         self.tx.send_async(f);
     }
