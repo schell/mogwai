@@ -240,6 +240,10 @@ To build the examples use:
 cd examples/whatever && wasm-pack build --target web
 ```
 
+## support channel :phone:
+There is an experimental realtime support channel at https://matrix.to/#/!iABugogSTxJNzlrcMW:matrix.org?via=matrix.org. 
+YMMV
+
 ## sponsorship
 Please consider sponsoring the development of this library!
 
