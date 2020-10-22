@@ -239,6 +239,8 @@ To build the examples use:
 ```shell
 cd examples/whatever && wasm-pack build --target web
 ```
+### external examples 
+[mogwai-realworld](https://github.com/schell/mogwai-realworld/) A "real world" app implementation (WIP)
 
 ## support channel :phone:
 There is an experimental realtime support channel at https://matrix.to/#/!iABugogSTxJNzlrcMW:matrix.org?via=matrix.org. 
