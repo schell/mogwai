@@ -1,4 +1,4 @@
-use crate::{Route, RouteDispatcher};
+use crate::{route_dispatch, Route};
 use mogwai::prelude::*;
 
 #[derive(Copy, Clone, Debug)]
@@ -11,7 +11,6 @@ pub enum Out {
 pub struct App {
     click_count: i32,
     current_route: Route,
-    dispatch: RouteDispatcher,
 }
 
 impl App {
@@ -21,7 +20,6 @@ impl App {
         let app = App {
             click_count: 0,
             current_route: initial_route,
-            dispatch: RouteDispatcher::new(&tx_model),
         };
         Gizmo::from_parts(app, tx_model, rx_view)
     }
@@ -38,7 +36,7 @@ impl Component for App {
             tx_view.send(&Out::Render {
                 route: self.current_route,
             });
-            self.dispatch.push_state(*msg);
+            route_dispatch::push_state(*msg);
         }
         self.click_count += 1;
         tx_view.send(&Out::RenderClicks(self.click_count));
@@ -51,15 +49,14 @@ impl Component for App {
             Out::RenderClicks(count) => Some(format!("{} times", count)),
             _ => None,
         });
-        let dispatch = self.dispatch.clone();
         let rx_main = rx.branch_filter_map(move |msg| match msg {
             Out::Render { route } => Some(Patch::Replace {
                 index: 0,
-                value: dispatch.view_builder(*route),
+                value: ViewBuilder::from(*route),
             }),
             _ => None,
         });
-        let contents = self.dispatch.view_builder(self.current_route);
+        let contents = ViewBuilder::from(self.current_route);
         builder! {
             <div id="root" class="root">
                 <p>{("0 times", rx_text)}</p>

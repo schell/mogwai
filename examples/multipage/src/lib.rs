@@ -54,23 +54,12 @@ pub fn main() -> Result<(), JsValue> {
     }
 }
 
-/// `RouteDispatcher` is a reference counting container for a `Transmitter<Route>`.
-/// This means cloning a `RouteDispatcher` increases the reference count to the
-/// `Transmitter` and when the clone is dropped from scope the reference count
-/// is decreased (see `Rc`).
-#[derive(Clone)]
-pub struct RouteDispatcher {
-    tx: Transmitter<Route>,
-}
-
-impl RouteDispatcher {
-    /// Create a new `RouteDispatcher` from the given `Transmitter`.
-    fn new(tx: &Transmitter<Route>) -> Self {
-        RouteDispatcher { tx: tx.clone() }
-    }
+mod route_dispatch {
+    use crate::Route;
+    use wasm_bindgen::prelude::JsValue;
 
     /// Dispatch the given `Route`.
-    pub fn push_state(&self, route: Route) {
+    pub fn push_state(route: Route) {
         let window = mogwai::utils::window();
         match window.history() {
             Ok(history) => {
@@ -83,21 +72,6 @@ impl RouteDispatcher {
             }
             Err(error) => ::log::debug!("{:?}", error),
         }
-    }
-
-    /// Create a `ViewBuilder` for the given `Route`. The `ViewBuilder` will be
-    /// given access to the `Transmitter`.
-    fn view_builder(&self, route: Route) -> ViewBuilder<HtmlElement> {
-        match route {
-            Route::Home => routes::home(),
-            Route::NotFound => routes::not_found(),
-        }
-    }
-}
-
-impl std::fmt::Debug for RouteDispatcher {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RouteDispatcher").finish()
     }
 }
 
@@ -122,6 +96,15 @@ impl<T: AsRef<str>> From<T> for Route {
             [""] => Route::Home,
             ["", ""] => Route::Home,
             _ => Route::NotFound,
+        }
+    }
+}
+
+impl From<Route> for ViewBuilder<HtmlElement> {
+    fn from(route: Route) -> ViewBuilder<HtmlElement> {
+        match route {
+            Route::Home => routes::home(),
+            Route::NotFound => routes::not_found(),
         }
     }
 }
