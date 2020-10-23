@@ -21,7 +21,7 @@ impl App {
         let app = App {
             click_count: 0,
             current_route: initial_route,
-            dispatch: RouteDispatcher::new(tx_model.clone()),
+            dispatch: RouteDispatcher::new(&tx_model),
         };
         Gizmo::from_parts(app, tx_model, rx_view)
     }

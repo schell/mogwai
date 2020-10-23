@@ -60,15 +60,13 @@ pub fn main() -> Result<(), JsValue> {
 /// is decreased (see `Rc`).
 #[derive(Clone)]
 pub struct RouteDispatcher {
-    tx: std::rc::Rc<Transmitter<Route>>,
+    tx: Transmitter<Route>,
 }
 
 impl RouteDispatcher {
     /// Create a new `RouteDispatcher` from the given `Transmitter`.
-    fn new(tx: Transmitter<Route>) -> Self {
-        RouteDispatcher {
-            tx: std::rc::Rc::new(tx),
-        }
+    fn new(tx: &Transmitter<Route>) -> Self {
+        RouteDispatcher { tx: tx.clone() }
     }
 
     /// Dispatch the given `Route`.
