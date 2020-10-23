@@ -1,5 +1,8 @@
 [package]
 name = "multipage"
+description = "A multipage SPA, maybe with SSR?"
+license = "MIT"
+repository = "https://github.com/schell/mogwai"
 version = "0.1.0"
 authors = ["Bryan Swift <bryan@bryanjswift.com>"]
 edition = "2018"
@@ -7,15 +10,23 @@ edition = "2018"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "multipage-server"
+path = "src/main.rs"
+required-features = ["server"]
+
 [features]
 default = ["console_error_panic_hook"]
+server = ["hyper", "hyper-staticfile", "lazy_static", "tera", "tokio"]
 
 [dependencies]
 console_log = "^0.1"
+hyper = { version = "0.13", optional = true }
+hyper-staticfile = { version = "0.5", optional = true }
+lazy_static = { version = "1.4.0", optional = true }
 log = "^0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-wasm-bindgen = "^0.2"
+tera = { version = "1", default-features = false, optional = true }
+tokio = { version = "0.2", features = ["full"], optional = true }
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`. This is great for development, but requires
@@ -33,14 +44,22 @@ wee_alloc = { version = "0.4.2", optional = true }
 [dependencies.mogwai]
 path = "../../mogwai"
 
+[dependencies.mogwai-hydrator]
+path = "../../crates/mogwai-hydrator"
+
+[dependencies.wasm-bindgen]
+version = "^0.2"
+features = [
+  "serde-serialize",
+]
+
 [dependencies.web-sys]
 version = "^0.3"
 features = [
-  "HashChangeEvent",
-  "HtmlInputElement",
-  "KeyboardEvent",
+  "History",
   "Location",
-  "Storage"
+  "MouseEvent",
+  "Window",
 ]
 
 [dev-dependencies]

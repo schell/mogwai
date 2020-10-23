@@ -1,30 +1,9 @@
-use crate::routes;
+use crate::{route_dispatch, Route};
 use mogwai::prelude::*;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Route {
-    Home,
-    NotFound,
-}
-
-impl From<Route> for View<HtmlElement> {
-    fn from(route: Route) -> Self {
-        ViewBuilder::from(route).into()
-    }
-}
-
-impl From<Route> for ViewBuilder<HtmlElement> {
-    fn from(route: Route) -> Self {
-        match route {
-            Route::Home => routes::home(),
-            Route::NotFound => routes::not_found(),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug)]
 pub enum Out {
-    Render(Route),
+    Render { route: Route },
     RenderClicks(i32),
 }
 
@@ -35,11 +14,12 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> Self {
-        App {
+    pub fn gizmo(initial_route: Route) -> Gizmo<Self> {
+        let app = App {
             click_count: 0,
-            current_route: Route::Home,
-        }
+            current_route: initial_route,
+        };
+        Gizmo::from(app)
     }
 }
 
@@ -50,8 +30,11 @@ impl Component for App {
 
     fn update(&mut self, msg: &Route, tx_view: &Transmitter<Out>, _sub: &Subscriber<Route>) {
         if self.current_route != *msg {
-            self.current_route = msg.clone();
-            tx_view.send(&Out::Render(self.current_route));
+            self.current_route = *msg;
+            tx_view.send(&Out::Render {
+                route: self.current_route,
+            });
+            route_dispatch::push_state(*msg);
         }
         self.click_count += 1;
         tx_view.send(&Out::RenderClicks(self.click_count));
@@ -64,24 +47,42 @@ impl Component for App {
             Out::RenderClicks(count) => Some(format!("{} times", count)),
             _ => None,
         });
-        let rx_main = rx.branch_filter_map(|msg| match msg {
-            Out::Render(route) => Some(View::<HtmlElement>::from(*route)),
+        let rx_main = rx.branch_filter_map(move |msg| match msg {
+            Out::Render { route } => Some(Patch::Replace {
+                index: 0,
+                value: ViewBuilder::from(*route),
+            }),
             _ => None,
         });
-        let mut contents = ViewBuilder::from(self.current_route);
-        contents.replaces = vec![rx_main];
+        let contents = ViewBuilder::from(self.current_route);
         builder! {
-            <div class="root">
-                <nav>
-                    <button on:click=tx.contra_map(|_| Route::Home)>
-                        "Home"
-                    </button>
-                    <button on:click=tx.contra_map(|_| Route::NotFound)>
-                        "Not Found"
-                    </button>
-                </nav>
+            <div id="root" class="root">
                 <p>{("0 times", rx_text)}</p>
-                {contents}
+                <nav>
+                    <a
+                        href="/"
+                        style="margin-right: 15px;"
+                        on:click=tx.contra_map(|e: &Event| {
+                            e.prevent_default();
+                            Route::Home
+                        })
+                    >
+                        "Home"
+                    </a>
+                    <a
+                        href="/404"
+                        style="margin-right: 15px;"
+                        on:click=tx.contra_map(|e: &Event| {
+                            e.prevent_default();
+                            Route::NotFound
+                        })
+                    >
+                        "Not Found"
+                    </a>
+                </nav>
+                <slot patch:children=rx_main>
+                    {contents}
+                </slot>
             </div>
         }
     }

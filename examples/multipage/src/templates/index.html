@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Mogwai • Multipage</title>
+    <title>{{ title }} • Multipage • Mogwai</title>
     </head>
     <body>
+        {{ contents }}
         <script type="module">
-        import init from './pkg/multipage.js';
+        import init from '/pkg/multipage.js';
             window.addEventListener('load', async () => {
                 await init();
             });
