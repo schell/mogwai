@@ -8,6 +8,10 @@ use hyper::service::{make_service_fn, service_fn};
 use multipage::Route;
 
 lazy_static! {
+    /// Define the [`tera::Tera`] templates which can be used as the shell of the single page
+    /// application. The templates are expected to have output for a `"contents"` key. The
+    /// `"contents"` key (as defined in the [`html_view`] function) will be the output of rendering
+    /// the [`multipage::Route`].
     pub static ref TEMPLATES: tera::Tera = {
         let mut tera = match tera::Tera::new("examples/multipage/src/templates/*.html") {
             Ok(t) => t,
