@@ -15,13 +15,11 @@ pub struct App {
 
 impl App {
     pub fn gizmo(initial_route: Route) -> Gizmo<Self> {
-        let tx_model = Transmitter::new();
-        let rx_view = Receiver::new();
         let app = App {
             click_count: 0,
             current_route: initial_route,
         };
-        Gizmo::from_parts(app, tx_model, rx_view)
+        Gizmo::from(app)
     }
 }
 
