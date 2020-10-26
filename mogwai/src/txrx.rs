@@ -484,20 +484,38 @@ impl<A: 'static> Transmitter<A> {
         self.responders.send(a);
     }
 
-    /// Execute a future that results in a message, then send it.
-    /// wasm32 spawns a local execution context to drive the Future to
-    /// completion, outside of wasm32 (e.g. during SSR) will block until the
-    /// `Future` completes.
+    /// Execute a future that results in a message, then send it. wasm32 spawns
+    /// a local execution context to drive the Future to completion, outside of
+    /// wasm32 (e.g. during SSR) this is not implemented.
+    ///
+    /// ### Notes
+    ///
+    /// Does nothing when invoked outside of the wasm32 architecture because
+    /// the functionality of [`wasm_bindgen_futures::spawn_local`] is largely
+    /// managed by third party runtimes that mogwai does not need to depend
+    /// upon. If `send_async` is necessary for server side rendering it may be
+    /// better to modify the behavior so the [`Future`] resolves outside of the
+    /// `Transmitter` lifecycle.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn send_async<FutureA>(&self, fa: FutureA)
+    pub fn send_async<FutureA>(&self, _fa: FutureA)
     where
         FutureA: Future<Output = A> + 'static,
     {
-        let a: A = futures::executor::block_on(fa);
-        self.send(&a);
+        ::log::warn!("`Transmitter::send_async` is only implemented for wasm32");
     }
 
-    /// Execute a future that results in a message, then send it.
+    /// Execute a future that results in a message, then send it. wasm32 spawns
+    /// a local execution context to drive the Future to completion, outside of
+    /// wasm32 (e.g. during SSR) this is not implemented.
+    ///
+    /// ### Notes
+    ///
+    /// Does nothing when invoked outside of the wasm32 architecture because
+    /// the functionality of [`wasm_bindgen_futures::spawn_local`] is largely
+    /// managed by third party runtimes that mogwai does not need to depend
+    /// upon. If `send_async` is necessary for server side rendering it may be
+    /// better to modify the behavior so the [`Future`] resolves outside of the
+    /// `Transmitter` lifecycle.
     #[cfg(target_arch = "wasm32")]
     pub fn send_async<FutureA>(&self, fa: FutureA)
     where
