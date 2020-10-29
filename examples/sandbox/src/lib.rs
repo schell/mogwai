@@ -94,7 +94,7 @@ async fn request_to_text(req: Request) -> Result<String, String> {
         .await
         .map_err(|_| "getting text failed")?
         .as_string()
-        .ok_or("couldn't get text as string".to_string())?;
+        .ok_or_else(|| "couldn't get text as string".to_string())?;
     Ok(text)
 }
 

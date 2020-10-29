@@ -3,7 +3,6 @@ pub use web_sys::{Element, Event, EventTarget, HtmlElement};
 
 use crate::prelude::{Effect, Receiver, Transmitter};
 
-
 /// `ElementView`s are views that represent DOM elements.
 pub trait ElementView {
     /// Create a view with the given element tag.
@@ -13,13 +12,11 @@ pub trait ElementView {
     fn element_ns(tag: &str, ns: &str) -> Self;
 }
 
-
 /// `TextView`s are views that represent text nodes.
 pub trait TextView {
     /// Create a new text node view.
     fn text<E: Into<Effect<String>>>(eff: E) -> Self;
 }
-
 
 /// `AttributeView`s can describe themselves with key value pairs.
 pub trait AttributeView {
@@ -63,7 +60,6 @@ pub trait AttributeView {
     fn boolean_attribute<E: Into<Effect<bool>>>(&mut self, name: &str, eff: E);
 }
 
-
 /// `StyleView`s can describe themselves using CSS style key value pairs.
 pub trait StyleView {
     /// Set a CSS property in the style attribute of the view being built.
@@ -71,7 +67,6 @@ pub trait StyleView {
     /// value.
     fn style<E: Into<Effect<String>>>(&mut self, name: &str, eff: E);
 }
-
 
 /// `EventTargetView`s can transmit messages when events occur within them. They can
 /// also transmit messages when events occur within the window or the document.
@@ -88,7 +83,6 @@ pub trait EventTargetView {
     /// happens on [`Document`].
     fn document_on(&mut self, ev_name: &str, tx: Transmitter<Event>);
 }
-
 
 /// `PostBuildView`s can send their underlying browser DOM node as a message on
 /// a Transmitter once they've been built.
@@ -107,51 +101,29 @@ pub trait PostBuildView {
     fn post_build(&mut self, tx: Transmitter<Self::DomNode>);
 }
 
-
 /// `ParentView`s can nest child views.
 pub trait ParentView<T> {
     /// Add a child to this parent.
     fn with(&mut self, view_now: T);
 }
 
-
-/// `ReplaceView`s can entirely replace themselves with views sent to a
-/// [`Receiver`].
-pub trait ReplaceView<T> {
-    fn this_later<S:Clone + Into<T> + 'static>(&mut self, rx: Receiver<S>);
-}
-
-
 /// An enumeration of commands used to update the children of a [`PatchView`].
 #[derive(Clone, Debug)]
 pub enum Patch<T> {
-    Insert {
-        index: usize,
-        value: T
-    },
-    Replace {
-        index: usize,
-        value: T
-    },
-    Remove {
-        index: usize
-    },
+    Insert { index: usize, value: T },
+    Replace { index: usize, value: T },
+    Remove { index: usize },
     RemoveAll,
-    PushFront {
-        value: T
-    },
-    PushBack {
-        value: T
-    },
+    PushFront { value: T },
+    PushBack { value: T },
     PopFront,
-    PopBack
+    PopBack,
 }
 
-
 impl<T> Patch<T> {
-    pub(crate) fn branch_map<F, X>(&self, f:F) -> Patch<X>
+    pub(crate) fn branch_map<F, X>(&self, f: F) -> Patch<X>
     where
-        F: FnOnce(&T) -> X
+        F: FnOnce(&T) -> X,
     {
         match self {
             Patch::Insert { index, value } => Patch::Insert {
@@ -164,20 +136,15 @@ impl<T> Patch<T> {
             },
             Patch::Remove { index } => Patch::Remove { index: *index },
             Patch::RemoveAll => Patch::RemoveAll,
-            Patch::PushFront { value } => Patch::PushFront {
-                value: f(value),
-            },
-            Patch::PushBack { value } => Patch::PushBack {
-                value: f(value),
-            },
+            Patch::PushFront { value } => Patch::PushFront { value: f(value) },
+            Patch::PushBack { value } => Patch::PushBack { value: f(value) },
             Patch::PopFront => Patch::PopFront,
             Patch::PopBack => Patch::PopBack,
         }
     }
 }
 
-
 /// `PatchView`s' children can be manipulated using patch commands sent on a [`Receiver`].
 pub trait PatchView<T> {
-    fn patch<S:Clone + Into<T> + 'static>(&mut self, rx: Receiver<Patch<S>>);
+    fn patch<S: Clone + Into<T> + 'static>(&mut self, rx: Receiver<Patch<S>>);
 }

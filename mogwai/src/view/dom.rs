@@ -1,7 +1,7 @@
 //! Widgets for the browser.
 use std::{
-    convert::TryFrom,
     cell::{Ref, RefCell},
+    convert::TryFrom,
     marker::PhantomData,
     rc::Rc,
 };
@@ -19,14 +19,12 @@ use crate::{
     view::interface::*,
 };
 
-
 #[derive(Clone)]
 #[allow(dead_code)]
 pub(crate) enum NameOrText {
     Name(Rc<RefCell<String>>),
     Text(Rc<RefCell<String>>),
 }
-
 
 /// A wrapper for closures that can be used as callbacks.
 #[derive(Clone)]
@@ -36,7 +34,6 @@ pub struct MogwaiCallback {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) callback: Rc<Box<dyn FnMut(JsValue)>>,
 }
-
 
 impl MogwaiCallback {
     #[cfg(not(target_arch = "wasm32"))]
@@ -59,7 +56,6 @@ impl MogwaiCallback {
     }
 }
 
-
 #[derive(Clone)]
 pub(crate) struct ServerNode {
     pub(crate) name_or_text: NameOrText,
@@ -67,14 +63,12 @@ pub(crate) struct ServerNode {
     pub(crate) styles: Vec<(String, Rc<RefCell<String>>)>,
 }
 
-
 #[derive(Clone)]
 enum StoredCb {
     This(String, MogwaiCallback),
     Window(String, MogwaiCallback),
     Document(String, MogwaiCallback),
 }
-
 
 #[derive(Clone)]
 pub(crate) struct ViewInternals {
@@ -84,7 +78,6 @@ pub(crate) struct ViewInternals {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) server_node: ServerNode,
 }
-
 
 /// ViewInternal's Drop implementation removes any javascript callbacks being managed by this
 /// view and also removes its element from the DOM if it is not referenced by any other view.
@@ -121,7 +114,6 @@ impl Drop for ViewInternals {
     }
 }
 
-
 impl Default for ViewInternals {
     #[cfg(target_arch = "wasm32")]
     fn default() -> Self {
@@ -145,7 +137,6 @@ impl Default for ViewInternals {
         }
     }
 }
-
 
 impl ViewInternals {
     #[cfg(target_arch = "wasm32")]
@@ -383,7 +374,6 @@ impl ViewInternals {
     }
 }
 
-
 /// A widget that may contain a bundled network of html elements, callback
 /// closures and receivers. This wraps a Javascript DOM node and maintains lists
 /// and maps needed to orchestrate user interaction.
@@ -393,7 +383,6 @@ pub struct View<T: IsDomNode> {
     pub(crate) internals: Rc<RefCell<ViewInternals>>,
 }
 
-
 impl<T: IsDomNode> Default for View<T> {
     fn default() -> Self {
         View {
@@ -402,7 +391,6 @@ impl<T: IsDomNode> Default for View<T> {
         }
     }
 }
-
 
 impl<T: IsDomNode> View<T> {
     /// Return a reference to the underlying DOM element.
@@ -567,7 +555,6 @@ impl<T: IsDomNode> View<T> {
     }
 }
 
-
 impl<T: IsDomNode + AsRef<Node>> View<T> {
     /// Run this gizmo in a parent container forever, never dropping it.
     pub fn run_in_container(self, container: &Node) -> Result<(), JsValue> {
@@ -588,7 +575,6 @@ impl<T: IsDomNode + AsRef<Node>> View<T> {
         }
     }
 }
-
 
 impl View<Text> {
     #[cfg(target_arch = "wasm32")]
@@ -632,7 +618,6 @@ impl View<Text> {
     }
 }
 
-
 impl<T: IsDomNode + AsRef<Node>> TryFrom<Option<View<T>>> for View<T> {
     type Error = ();
 
@@ -640,7 +625,6 @@ impl<T: IsDomNode + AsRef<Node>> TryFrom<Option<View<T>>> for View<T> {
         o_view.ok_or_else(|| ())
     }
 }
-
 
 /// # From instances for [`View`]
 ///
@@ -652,7 +636,6 @@ impl<T: IsDomNode + AsRef<Node>> TryFrom<Option<View<T>>> for View<T> {
 ///   an initial string and updates through the receiver.
 /// * Any raw DOM element `T` gets wrapped by a view to make [`View<T>`]
 /// * [`Gizmo<C>`] returns its view, a [`View<<C::as Component>::DomNode>`].
-
 
 impl From<Effect<String>> for View<Text> {
     fn from(eff: Effect<String>) -> Self {
@@ -666,7 +649,6 @@ impl From<Effect<String>> for View<Text> {
     }
 }
 
-
 impl From<(&str, Receiver<String>)> for View<Text> {
     fn from(tuple: (&str, Receiver<String>)) -> Self {
         let eff: Effect<String> = tuple.into();
@@ -674,14 +656,12 @@ impl From<(&str, Receiver<String>)> for View<Text> {
     }
 }
 
-
 impl From<(String, Receiver<String>)> for View<Text> {
     fn from(tuple: (String, Receiver<String>)) -> Self {
         let eff: Effect<String> = tuple.into();
         eff.into()
     }
 }
-
 
 impl From<(&String, Receiver<String>)> for View<Text> {
     fn from((now, later): (&String, Receiver<String>)) -> Self {
@@ -691,13 +671,11 @@ impl From<(&String, Receiver<String>)> for View<Text> {
     }
 }
 
-
 impl<'a> From<&'a str> for View<Text> {
     fn from(s: &'a str) -> Self {
         View::text(s)
     }
 }
-
 
 impl From<&String> for View<Text> {
     fn from(s: &String) -> Self {
@@ -705,20 +683,17 @@ impl From<&String> for View<Text> {
     }
 }
 
-
 impl From<String> for View<Text> {
     fn from(s: String) -> Self {
         View::text(&s)
     }
 }
 
-
 impl<T: IsDomNode + AsRef<Node>> From<T> for View<T> {
     fn from(el: T) -> View<T> {
         View::wrapping(el)
     }
 }
-
 
 impl<T> From<Gizmo<T>> for View<<T as Component>::DomNode>
 where
@@ -730,9 +705,7 @@ where
     }
 }
 
-
 /// # ElementView
-
 
 impl<T: IsDomNode> ElementView for View<T> {
     #[cfg(not(target_arch = "wasm32"))]
@@ -772,7 +745,6 @@ impl<T: IsDomNode> ElementView for View<T> {
     }
 }
 
-
 impl<T: IsDomNode + AsRef<EventTarget>> EventTargetView for View<T> {
     fn on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
         if cfg!(target_arch = "wasm32") {
@@ -795,7 +767,6 @@ impl<T: IsDomNode + AsRef<EventTarget>> EventTargetView for View<T> {
     }
 }
 
-
 /// # AttributeView
 
 impl<T: IsDomNode + AsRef<Element>> AttributeView for View<T> {
@@ -812,9 +783,7 @@ impl<T: IsDomNode + AsRef<Element>> AttributeView for View<T> {
     }
 }
 
-
 /// # ParentView
-
 
 impl<S: IsDomNode + AsRef<Node>, T: IsDomNode + AsRef<Node>> ParentView<View<S>> for View<T> {
     fn with(&mut self, view: View<S>) {
@@ -822,8 +791,9 @@ impl<S: IsDomNode + AsRef<Node>, T: IsDomNode + AsRef<Node>> ParentView<View<S>>
     }
 }
 
-
-impl<S: IsDomNode + AsRef<Node>, T: IsDomNode + AsRef<Node>> ParentView<Option<View<S>>> for View<T> {
+impl<S: IsDomNode + AsRef<Node>, T: IsDomNode + AsRef<Node>> ParentView<Option<View<S>>>
+    for View<T>
+{
     fn with(&mut self, o_view: Option<View<S>>) {
         if let Some(view) = o_view {
             self.internals.borrow_mut().add_child(view);
@@ -831,9 +801,7 @@ impl<S: IsDomNode + AsRef<Node>, T: IsDomNode + AsRef<Node>> ParentView<Option<V
     }
 }
 
-
 /// # StyleView
-
 
 impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for View<T> {
     fn style<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
@@ -842,9 +810,7 @@ impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for View<T> {
     }
 }
 
-
 /// # PostBuildView
-
 
 impl<T: IsDomNode> PostBuildView for View<T> {
     type DomNode = T;
@@ -861,44 +827,13 @@ impl<T: IsDomNode> PostBuildView for View<T> {
     }
 }
 
-
-/// # ReplaceView
-
-
 fn to_child_node<T: IsDomNode + AsRef<Node>, S: Clone + Into<View<T>>>(value: &S) -> View<Node> {
     let s: S = value.clone();
     let v: View<T> = s.into();
     v.upcast::<Node>()
 }
 
-
-impl<T: IsDomNode + AsRef<Node>> ReplaceView<View<T>> for View<T> {
-    fn this_later<S: Clone + Into<View<T>>>(&mut self, rx: Receiver<S>) {
-        let internals: Rc<RefCell<ViewInternals>> = self.internals.clone();
-        let rx = rx.branch_map(|s| to_child_node(s));
-        rx.respond(move |new_view| {
-            {
-                let old_dom: Ref<Node> =
-                    Ref::map(internals.borrow(), |i| i.element.unchecked_ref::<Node>());
-                let new_dom: Ref<Node> = new_view.dom_ref();
-                if let Some(parent) = (old_dom.as_ref() as &Node).parent_node() {
-                    parent
-                        .replace_child(new_dom.as_ref(), old_dom.as_ref())
-                        .unwrap_throw();
-                }
-            }
-
-            // swap the internals
-            let old_internals: &RefCell<ViewInternals> = internals.as_ref();
-            let new_internals: &RefCell<ViewInternals> = new_view.internals.as_ref();
-            old_internals.swap(new_internals);
-        });
-    }
-}
-
-
 /// # PatchView
-
 
 impl<T, C> PatchView<View<C>> for View<T>
 where
