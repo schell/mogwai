@@ -815,14 +815,14 @@ impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for View<T> {
 impl<T: IsDomNode> PostBuildView for View<T> {
     type DomNode = T;
 
-    fn post_build(&mut self, tx: Transmitter<T>) {
+    fn post_build(&mut self, _tx: Transmitter<T>) {
         #[cfg(target_arch = "wasm32")]
         {
             let t: Ref<T> = Ref::map(self.internals.borrow(), |internals| {
                 internals.element.unchecked_ref()
             });
             let t: T = t.clone();
-            tx.send_async(async move { t });
+            _tx.send_async(async move { t });
         }
     }
 }
