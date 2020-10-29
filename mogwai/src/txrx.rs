@@ -395,9 +395,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-
 pub type RecvFuture<A> = Pin<Box<dyn Future<Output = Option<A>>>>;
-
 
 pub fn wrap_future<A, F>(future: F) -> Option<RecvFuture<A>>
 where
@@ -405,7 +403,6 @@ where
 {
     Some(Box::pin(future))
 }
-
 
 struct Responders<A> {
     next_k: Cell<usize>,
@@ -450,12 +447,10 @@ impl<A> Responders<A> {
     }
 }
 
-
 /// Send messages instantly.
 pub struct Transmitter<A> {
     responders: Rc<Responders<A>>,
 }
-
 
 impl<A> Clone for Transmitter<A> {
     fn clone(&self) -> Self {
@@ -464,7 +459,6 @@ impl<A> Clone for Transmitter<A> {
         }
     }
 }
-
 
 impl<A: 'static> Transmitter<A> {
     /// Create a new transmitter.
@@ -699,13 +693,11 @@ impl<A: 'static> Transmitter<A> {
     }
 }
 
-
 // A message received by a [`Receiver`] at some point in the future.
 struct MessageFuture<A> {
     var: Rc<RefCell<Option<A>>>,
     waker: Rc<RefCell<Option<Waker>>>,
 }
-
 
 impl<A> Future for MessageFuture<A> {
     type Output = A;
@@ -723,20 +715,17 @@ impl<A> Future for MessageFuture<A> {
     }
 }
 
-
 /// Receive messages instantly.
 pub struct Receiver<A> {
     k: usize,
     responders: Rc<Responders<A>>,
 }
 
-
 impl<A> Clone for Receiver<A> {
     fn clone(&self) -> Self {
         self.responders.clone().recv_from()
     }
 }
-
 
 impl<A> Receiver<A> {
     pub fn new() -> Receiver<A> {
@@ -1064,18 +1053,15 @@ impl<A> Receiver<A> {
     }
 }
 
-
 /// Create a new unlinked `Receiver<T>`.
 pub fn recv<A>() -> Receiver<A> {
     Receiver::new()
 }
 
-
 /// Create a new unlinked `Transmitter<T>`.
 pub fn trns<A: 'static>() -> Transmitter<A> {
     Transmitter::new()
 }
-
 
 /// Create a linked `Transmitter<A>` and `Receiver<A>` pair.
 pub fn txrx<A: 'static>() -> (Transmitter<A>, Receiver<A>) {
@@ -1186,7 +1172,6 @@ where
     (ta, rb)
 }
 
-
 /// Create a linked `Transmitter<A>` and `Receiver<B>` pair.
 ///
 /// Using the given map function, messages sent on the transmitter are mapped
@@ -1203,7 +1188,6 @@ where
     (ta, rb)
 }
 
-
 /// Helper for making thread-safe shared mutable variables.
 ///
 /// Use this as a short hand for creating variables to pass to
@@ -1212,7 +1196,6 @@ where
 pub fn new_shared<A: 'static, X: Into<A>>(init: X) -> Rc<RefCell<A>> {
     Rc::new(RefCell::new(init.into()))
 }
-
 
 #[cfg(test)]
 mod range {
@@ -1226,7 +1209,6 @@ mod range {
         assert_eq!(n, 2);
     }
 }
-
 
 #[cfg(test)]
 mod instant_txrx {

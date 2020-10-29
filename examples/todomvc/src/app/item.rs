@@ -3,7 +3,6 @@ use web_sys::{HtmlInputElement, KeyboardEvent};
 
 use super::utils;
 
-
 #[derive(Clone)]
 pub struct Todo {
     pub index: usize,
@@ -13,7 +12,6 @@ pub struct Todo {
     edit_input: Option<HtmlInputElement>,
     toggle_input: Option<HtmlInputElement>,
 }
-
 
 impl Todo {
     pub fn new(index: usize, name: String) -> Todo {
@@ -28,7 +26,6 @@ impl Todo {
     }
 }
 
-
 #[derive(Clone)]
 pub enum TodoIn {
     CompletionToggleInput(HtmlInputElement),
@@ -41,7 +38,6 @@ pub enum TodoIn {
     Remove,
 }
 
-
 #[derive(Clone)]
 pub enum TodoOut {
     UpdateEditComplete(bool, bool),
@@ -49,7 +45,6 @@ pub enum TodoOut {
     SetVisible(bool),
     Remove,
 }
-
 
 impl TodoOut {
     fn as_list_class(&self) -> Option<String> {
@@ -68,7 +63,6 @@ impl TodoOut {
         }
     }
 }
-
 
 impl Component for Todo {
     type ModelMsg = TodoIn;

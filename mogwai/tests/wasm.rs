@@ -84,11 +84,11 @@ fn gizmo_tree() {
     let root = view! {
         <div id="root">
             <div id="branch">
-            <div id="leaf">
-            "leaf"
+                <div id="leaf">
+                    "leaf"
+                </div>
             </div>
-            </div>
-            </div>
+        </div>
     };
     let el = root.dom_ref();
     if let Some(branch) = el.first_child() {

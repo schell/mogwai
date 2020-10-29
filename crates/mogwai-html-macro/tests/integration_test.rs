@@ -1,7 +1,6 @@
 #![allow(unused_braces)]
 use mogwai::prelude::*;
 
-
 #[test]
 fn node_self_closing() {
     let div: String = view! {
@@ -11,13 +10,11 @@ fn node_self_closing() {
     assert_eq!(&div, r#"<a href="http://zyghost.com" />"#);
 }
 
-
 #[test]
 fn node_self_closing_gt_1_att() {
     let div: String = view! {<a href="http://zyghost.com" class="blah"/>}.html_string();
     assert_eq!(&div, r#"<a href="http://zyghost.com" class="blah" />"#);
 }
-
 
 #[test]
 fn by_hand() {
@@ -31,7 +28,6 @@ fn by_hand() {
     );
 }
 
-
 #[test]
 fn node() {
     let div: String = view! {
@@ -43,7 +39,6 @@ fn node() {
         r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#
     );
 }
-
 
 #[test]
 fn block_in_text() {
@@ -59,7 +54,6 @@ fn block_in_text() {
     );
 }
 
-
 #[test]
 fn block_at_end_of_text() {
     let x: u32 = 66;
@@ -71,7 +65,6 @@ fn block_at_end_of_text() {
     assert_eq!(&s, "<pre>just a string with the number 66</pre>");
 }
 
-
 #[test]
 fn lt_in_text() {
     let s: String = view! {
@@ -81,7 +74,6 @@ fn lt_in_text() {
 
     assert_eq!(s, "<pre>this is text &lt;- text</pre>");
 }
-
 
 #[test]
 fn allow_attributes_on_next_line() {

@@ -6,14 +6,12 @@ use super::{store, store::Item, utils};
 mod item;
 use item::{Todo, TodoIn, TodoOut};
 
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum FilterShow {
     All,
     Completed,
     Active,
 }
-
 
 #[derive(Clone, Debug)]
 pub enum In {
@@ -27,7 +25,6 @@ pub enum In {
     RemoveCompleted,
 }
 
-
 #[derive(Clone)]
 pub enum Out {
     ShouldShowTodoList(bool),
@@ -37,7 +34,6 @@ pub enum Out {
     PatchTodos(Patch<View<HtmlElement>>),
 }
 
-
 pub struct App {
     next_index: usize,
     todos: Vec<Gizmo<Todo>>,
@@ -45,7 +41,6 @@ pub struct App {
     todo_toggle_input: Option<HtmlInputElement>,
     has_completed: bool,
 }
-
 
 impl App {
     pub fn new() -> App {
@@ -104,13 +99,11 @@ impl App {
 
     fn filter_selected(msg: &Out, show: FilterShow) -> Option<String> {
         match msg {
-            Out::SelectedFilter(msg_show) => Some(
-                if *msg_show == show {
-                    "selected".to_string()
-                } else {
-                    "".to_string()
-                },
-            ),
+            Out::SelectedFilter(msg_show) => Some(if *msg_show == show {
+                "selected".to_string()
+            } else {
+                "".to_string()
+            }),
             _ => None,
         }
     }
@@ -129,7 +122,6 @@ impl App {
         }
     }
 }
-
 
 impl Component for App {
     type ModelMsg = In;

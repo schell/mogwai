@@ -11,14 +11,12 @@ use crate::{
     utils,
 };
 
-
 /// A widget and all of its pieces.
 pub struct Gizmo<T: Component> {
     pub trns: Transmitter<T::ModelMsg>,
     pub recv: Receiver<T::ViewMsg>,
     pub state: Rc<RefCell<T>>,
 }
-
 
 impl<T> Gizmo<T>
 where
@@ -103,17 +101,14 @@ where
     }
 }
 
-
 impl<T: Component> From<T> for Gizmo<T> {
     fn from(component: T) -> Gizmo<T> {
         Gizmo::new(component)
     }
 }
 
-
 /// The type of function that uses a txrx pair and returns a View.
 pub type BuilderFn<T, D> = dyn Fn(&Transmitter<T>, &Receiver<T>) -> ViewBuilder<D>;
-
 
 /// A simple component made from a [BuilderFn].
 ///
@@ -137,7 +132,6 @@ pub type BuilderFn<T, D> = dyn Fn(&Transmitter<T>, &Receiver<T>) -> ViewBuilder<
 /// ```
 pub struct SimpleComponent<T, D: IsDomNode>(Box<BuilderFn<T, D>>);
 
-
 impl<T, D: IsDomNode> SimpleComponent<T, D> {
     pub fn new<F>(f: F) -> Self
     where
@@ -146,7 +140,6 @@ impl<T, D: IsDomNode> SimpleComponent<T, D> {
         SimpleComponent(Box::new(f))
     }
 }
-
 
 impl<T, D> Component for SimpleComponent<T, D>
 where

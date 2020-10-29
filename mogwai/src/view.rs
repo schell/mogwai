@@ -9,7 +9,6 @@ pub mod builder;
 pub mod dom;
 pub mod interface;
 
-
 /// `Effect`s describe a value right now or at many points in the future - or both.
 ///
 /// [`View`]s use `Effect`s to change attributes, styles and inner text.
@@ -21,7 +20,6 @@ pub enum Effect<T> {
     ManyLater { later: Receiver<T> },
     OnceNowAndManyLater { now: T, later: Receiver<T> },
 }
-
 
 impl<T: Clone> Clone for Effect<T> {
     fn clone(&self) -> Self {
@@ -38,7 +36,6 @@ impl<T: Clone> Clone for Effect<T> {
     }
 }
 
-
 impl<T> From<Effect<T>> for (Option<T>, Option<Receiver<T>>) {
     fn from(eff: Effect<T>) -> Self {
         match eff {
@@ -49,13 +46,11 @@ impl<T> From<Effect<T>> for (Option<T>, Option<Receiver<T>>) {
     }
 }
 
-
 impl<T> From<T> for Effect<T> {
     fn from(now: T) -> Effect<T> {
         Effect::OnceNow { now }
     }
 }
-
 
 impl From<&str> for Effect<String> {
     fn from(s: &str) -> Effect<String> {
@@ -63,13 +58,11 @@ impl From<&str> for Effect<String> {
     }
 }
 
-
 impl From<&String> for Effect<String> {
     fn from(s: &String) -> Effect<String> {
         Effect::OnceNow { now: s.clone() }
     }
 }
-
 
 impl<T> From<Receiver<T>> for Effect<T> {
     fn from(later: Receiver<T>) -> Effect<T> {
@@ -77,13 +70,11 @@ impl<T> From<Receiver<T>> for Effect<T> {
     }
 }
 
-
 impl<T> From<(T, Receiver<T>)> for Effect<T> {
     fn from((now, later): (T, Receiver<T>)) -> Effect<T> {
         Effect::OnceNowAndManyLater { now, later }
     }
 }
-
 
 impl<T> From<(Option<T>, Receiver<Rc<RefCell<Option<T>>>>)> for Effect<Rc<RefCell<Option<T>>>> {
     fn from((now, later): (Option<T>, Receiver<Rc<RefCell<Option<T>>>>)) -> Self {
@@ -91,7 +82,6 @@ impl<T> From<(Option<T>, Receiver<Rc<RefCell<Option<T>>>>)> for Effect<Rc<RefCel
         Effect::OnceNowAndManyLater { now, later }
     }
 }
-
 
 impl From<(&str, Receiver<String>)> for Effect<String> {
     fn from((now, later): (&str, Receiver<String>)) -> Effect<String> {
@@ -102,9 +92,7 @@ impl From<(&str, Receiver<String>)> for Effect<String> {
     }
 }
 
-
 /// Marker trait that means JsCast + Clone + + 'static.
 pub trait IsDomNode: JsCast + Clone + 'static {}
-
 
 impl<T> IsDomNode for T where T: JsCast + Clone + 'static {}
