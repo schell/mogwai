@@ -77,59 +77,9 @@
 //! the receiver own the messages.
 //!
 //! It's also possible to send asynchronous messages! We can do this with
-//! [Transmitter::send_async], which takes a type that implements [Future]. Here
-//! is an example of running an async web request to send some text from an
-//! `async` block:
-//!
-//! ```rust, no_run
-//! extern crate mogwai;
-//! extern crate web_sys;
-//! use mogwai::prelude::*;
-//! use web_sys::{Request, RequestMode, RequestInit, Response};
-//!
-//! // Here's our async function that fetches a text response from a server,
-//! // or returns an error string.
-//! async fn request_to_text(req:Request) -> Result<String, String> {
-//!   let resp:Response =
-//!     JsFuture::from(
-//!       window()
-//!         .fetch_with_request(&req)
-//!     )
-//!     .await
-//!     .map_err(|_| "request failed".to_string())?
-//!     .dyn_into()
-//!     .map_err(|_| "response is malformed")?;
-//!   let text:String =
-//!     JsFuture::from(
-//!       resp
-//!         .text()
-//!         .map_err(|_| "could not get response text")?
-//!     )
-//!     .await
-//!     .map_err(|_| "getting text failed")?
-//!     .as_string()
-//!     .ok_or("couldn't get text as string".to_string())?;
-//!   Ok(text)
-//! }
-//!
-//! let (tx, rx) = txrx();
-//! tx.send_async(async {
-//!   let mut opts = RequestInit::new();
-//!   opts.method("GET");
-//!   opts.mode(RequestMode::Cors);
-//!
-//!   let req =
-//!     Request::new_with_str_and_init(
-//!       "https://worldtimeapi.org/api/timezone/Europe/London.txt",
-//!       &opts
-//!     )
-//!     .unwrap_throw();
-//!
-//!   request_to_text(req)
-//!     .await
-//!     .unwrap_or_else(|e| e)
-//! });
-//! ```
+//! [Transmitter::send_async], which takes a type that implements [Future].
+//! Check out [Transmitter::send_async] to see an example of running an async
+//! web request to send some text from an `async` block.
 //!
 //! ## Responding to messages
 //!
@@ -478,21 +428,69 @@ impl<A: 'static> Transmitter<A> {
         self.responders.send(a);
     }
 
-    /// Execute a future that results in a message, then send it.
-    /// wasm32 spawns a local execution context to drive the Future to
-    /// completion, outside of wasm32 (e.g. during SSR) will block until the
-    /// `Future` completes.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn send_async<FutureA>(&self, fa: FutureA)
-    where
-        FutureA: Future<Output = A> + 'static,
-    {
-        let a: A = futures::executor::block_on(fa);
-        self.send(&a);
-    }
-
-    /// Execute a future that results in a message, then send it.
-    #[cfg(target_arch = "wasm32")]
+    /// Execute a future that results in a message, then send it. wasm32 spawns
+    /// a local execution context to drive the Future to completion, outside of
+    /// wasm32 (e.g. during SSR) this is not implemented.
+    ///
+    /// ### Notes
+    ///
+    /// Does not exist outside of the wasm32 architecture because the
+    /// functionality of [`wasm_bindgen_futures::spawn_local`] is largely
+    /// managed by third party runtimes that mogwai does not need to depend
+    /// upon. If `send_async` is necessary for server side rendering it may be
+    /// better to modify the behavior so the [`Future`] resolves outside of the
+    /// `Transmitter` lifecycle.
+    ///
+    /// ```rust, ignore
+    /// extern crate mogwai;
+    /// extern crate web_sys;
+    /// use mogwai::prelude::*;
+    /// use web_sys::{Request, RequestMode, RequestInit, Response};
+    ///
+    /// // Here's our async function that fetches a text response from a server,
+    /// // or returns an error string.
+    /// async fn request_to_text(req:Request) -> Result<String, String> {
+    ///   let resp:Response =
+    ///     JsFuture::from(
+    ///       window()
+    ///         .fetch_with_request(&req)
+    ///     )
+    ///     .await
+    ///     .map_err(|_| "request failed".to_string())?
+    ///     .dyn_into()
+    ///     .map_err(|_| "response is malformed")?;
+    ///   let text:String =
+    ///     JsFuture::from(
+    ///       resp
+    ///         .text()
+    ///         .map_err(|_| "could not get response text")?
+    ///     )
+    ///     .await
+    ///     .map_err(|_| "getting text failed")?
+    ///     .as_string()
+    ///     .ok_or("couldn't get text as string".to_string())?;
+    ///   Ok(text)
+    /// }
+    ///
+    /// let (tx, rx) = txrx();
+    /// tx.send_async(async {
+    ///   let mut opts = RequestInit::new();
+    ///   opts.method("GET");
+    ///   opts.mode(RequestMode::Cors);
+    ///
+    ///   let req =
+    ///     Request::new_with_str_and_init(
+    ///       "https://worldtimeapi.org/api/timezone/Europe/London.txt",
+    ///       &opts
+    ///     )
+    ///     .unwrap_throw();
+    ///
+    ///   request_to_text(req)
+    ///     .await
+    ///     .unwrap_or_else(|e| e)
+    /// });
+    /// ```
+    #[cfg(any(target_arch = "wasm32", doc))]
     pub fn send_async<FutureA>(&self, fa: FutureA)
     where
         FutureA: Future<Output = A> + 'static,
