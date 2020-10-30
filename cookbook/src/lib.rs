@@ -14,6 +14,5 @@ pub fn cookbook() {
 #[cfg(test)]
 mod my_tests {
     #[test]
-    fn can_test() {
-    }
+    fn can_test() {}
 }

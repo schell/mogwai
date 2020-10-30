@@ -13,7 +13,6 @@ use web_sys;
 
 use crate::prelude::{MogwaiCallback, Transmitter};
 
-
 pub fn window() -> web_sys::Window {
     web_sys::window().expect("no global `window` exists")
 }
@@ -125,7 +124,6 @@ where
     return;
 }
 
-
 #[cfg(target_arch = "wasm32")]
 pub fn add_event(
     ev_name: &str,
@@ -154,7 +152,6 @@ pub fn add_event(
     }
 }
 
-
 #[cfg(target_arch = "wasm32")]
 pub fn remove_event(ev_name: &str, target: &web_sys::EventTarget, cb: &MogwaiCallback) {
     let function: &Function = cb.callback.as_ref().as_ref().unchecked_ref();
@@ -163,20 +160,13 @@ pub fn remove_event(ev_name: &str, target: &web_sys::EventTarget, cb: &MogwaiCal
         .unwrap_throw();
 }
 #[cfg(not(target_arch = "wasm32"))]
-pub fn remove_event(
-    _ev_name: &str,
-    _target: &web_sys::EventTarget,
-    _cb: &MogwaiCallback,
-) {
-}
-
+pub fn remove_event(_ev_name: &str, _target: &web_sys::EventTarget, _cb: &MogwaiCallback) {}
 
 struct WaitFuture {
     start: f64,
     millis: f64,
     waker: Rc<RefCell<Option<Waker>>>,
 }
-
 
 impl Future for WaitFuture {
     type Output = f64;
@@ -193,7 +183,6 @@ impl Future for WaitFuture {
         }
     }
 }
-
 
 /// Wait approximately the given number of milliseconds.
 /// Returns a [`Future`] that yields the actual number of milliseconds waited.

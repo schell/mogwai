@@ -47,9 +47,6 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
                 ["boolean", name] => Ok(quote! {
                     __mogwai_node.boolean_attribute(#name, #expr);
                 }),
-                ["this", "later"] => Ok(quote! {
-                    __mogwai_node.this_later(#expr);
-                }),
                 ["patch", "children"] => Ok(quote! {
                     __mogwai_node.patch(#expr);
                 }),
@@ -151,14 +148,20 @@ where
             if let Some(value) = node.value {
                 Ok(quote! {#view_path::from(#value)})
             } else {
-                Err(Error::new(Span::call_site(), "dom child text node value error"))
+                Err(Error::new(
+                    Span::call_site(),
+                    "dom child text node value error",
+                ))
             }
-        },
+        }
         NodeType::Block => {
             if let Some(value) = node.value {
                 Ok(quote! {#view_path::try_from(#value).ok()})
             } else {
-                Err(Error::new(Span::call_site(), "dom child expr node value error"))
+                Err(Error::new(
+                    Span::call_site(),
+                    "dom child expr node value error",
+                ))
             }
         }
 

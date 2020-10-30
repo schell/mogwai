@@ -7,6 +7,19 @@ pub enum Out {
     RenderClicks(i32),
 }
 
+impl Out {
+    fn maybe_patch_route(&self) -> Option<Patch<View<HtmlElement>>> {
+        if let Out::Render { route } = self {
+            Some(Patch::Replace {
+                index: 0,
+                value: View::from(ViewBuilder::from(route)),
+            })
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct App {
     click_count: i32,
@@ -47,14 +60,6 @@ impl Component for App {
             Out::RenderClicks(count) => Some(format!("{} times", count)),
             _ => None,
         });
-        let rx_main = rx.branch_filter_map(move |msg| match msg {
-            Out::Render { route } => Some(Patch::Replace {
-                index: 0,
-                value: ViewBuilder::from(*route),
-            }),
-            _ => None,
-        });
-        let contents = ViewBuilder::from(self.current_route);
         builder! {
             <div id="root" class="root">
                 <p>{("0 times", rx_text)}</p>
@@ -80,8 +85,8 @@ impl Component for App {
                         "Not Found"
                     </a>
                 </nav>
-                <slot patch:children=rx_main>
-                    {contents}
+                <slot patch:children=rx.branch_filter_map(Out::maybe_patch_route)>
+                    {ViewBuilder::from(&self.current_route)}
                 </slot>
             </div>
         }

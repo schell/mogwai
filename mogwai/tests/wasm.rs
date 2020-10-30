@@ -1,29 +1,23 @@
 #![allow(unused_braces)]
 use mogwai::prelude::*;
 use mogwai_html_macro::target_arch_is_wasm32;
-use std::{
-    cell::Ref,
-};
+use std::cell::Ref;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
 use web_sys::Element;
 
-
 wasm_bindgen_test_configure!(run_in_browser);
-
 
 #[wasm_bindgen_test]
 fn this_arch_is_wasm32() {
     assert!(target_arch_is_wasm32! {});
 }
 
-
 #[wasm_bindgen_test]
 fn can_create_text_view_node() {
     let view1: View<Text> = View::from("Hello!");
     view1.run().unwrap()
 }
-
 
 #[wasm_bindgen_test]
 fn can_nest_created_text_view_node() {
@@ -34,7 +28,6 @@ fn can_nest_created_text_view_node() {
     view1.with(text);
     view1.run().unwrap()
 }
-
 
 #[wasm_bindgen_test]
 fn gizmo_ref_as_child() {
@@ -57,7 +50,6 @@ fn gizmo_ref_as_child() {
     );
     //console::log_1(&"dropping parent".into());
 }
-
 
 #[wasm_bindgen_test]
 fn gizmo_as_child() {
@@ -87,17 +79,16 @@ fn gizmo_as_child() {
     //console::log_1(&"dropping div and pre".into());
 }
 
-
 #[wasm_bindgen_test]
 fn gizmo_tree() {
     let root = view! {
         <div id="root">
             <div id="branch">
-            <div id="leaf">
-            "leaf"
+                <div id="leaf">
+                    "leaf"
+                </div>
             </div>
-            </div>
-            </div>
+        </div>
     };
     let el = root.dom_ref();
     if let Some(branch) = el.first_child() {
@@ -115,7 +106,6 @@ fn gizmo_tree() {
     }
 }
 
-
 #[wasm_bindgen_test]
 fn gizmo_texts() {
     let div = view! {
@@ -132,7 +122,6 @@ fn gizmo_texts() {
     );
 }
 
-
 #[wasm_bindgen_test]
 fn rx_attribute_jsx() {
     let (tx, rx) = txrx::<String>();
@@ -145,7 +134,6 @@ fn rx_attribute_jsx() {
     tx.send(&"later".to_string());
     assert_eq!(div_el.outer_html(), r#"<div class="later"></div>"#);
 }
-
 
 #[wasm_bindgen_test]
 fn rx_style_plain() {
@@ -164,7 +152,6 @@ fn rx_style_plain() {
     assert_eq!(div_el.outer_html(), r#"<div style="display: none;"></div>"#);
 }
 
-
 #[wasm_bindgen_test]
 fn rx_style_jsx() {
     let (tx, rx) = txrx::<String>();
@@ -179,7 +166,6 @@ fn rx_style_jsx() {
     assert_eq!(div_el.outer_html(), r#"<div style="display: none;"></div>"#);
 }
 
-
 #[wasm_bindgen_test]
 pub fn rx_text() {
     let (tx, rx) = txrx::<String>();
@@ -192,7 +178,6 @@ pub fn rx_text() {
     tx.send(&"after".into());
     assert_eq!(el.inner_text(), "after");
 }
-
 
 #[wasm_bindgen_test]
 fn tx_on_click_plain() {
@@ -215,7 +200,6 @@ fn tx_on_click_plain() {
     assert_eq!(el.inner_html(), "Clicked 1 time");
 }
 
-
 #[wasm_bindgen_test]
 fn tx_on_click_jsx() {
     let (tx, rx) = txrx_fold(0, |n: &mut i32, _: &Event| -> String {
@@ -235,7 +219,6 @@ fn tx_on_click_jsx() {
     assert_eq!(el.inner_html(), "Clicked 1 time");
 }
 
-
 #[wasm_bindgen_test]
 fn tx_window_on_click_jsx() {
     let (tx, rx) = txrx();
@@ -254,7 +237,6 @@ fn tx_window_on_click_jsx() {
 //        <div unknown:colon:thing="not ok" />
 //    };
 //}
-
 
 #[test]
 #[wasm_bindgen_test]
@@ -288,7 +270,6 @@ pub fn can_i_alter_views_on_the_server() {
         r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#
     );
 }
-
 
 #[wasm_bindgen_test]
 fn can_hydrate_view() {
@@ -325,7 +306,6 @@ fn can_hydrate_view() {
         r#"<div id="my_div"><p class="new_class">different inner text</p></div>"#
     );
 }
-
 
 #[wasm_bindgen_test]
 async fn can_hydrate_or_view() {
@@ -378,7 +358,6 @@ async fn can_hydrate_or_view() {
     assert_eq!(pb_count, 2);
 }
 
-
 #[wasm_bindgen_test]
 async fn can_wait_approximately() {
     let millis_waited = utils::wait_approximately(22.0).await;
@@ -386,56 +365,10 @@ async fn can_wait_approximately() {
     assert!(millis_waited >= 21.0);
 }
 
-
-#[wasm_bindgen_test]
-async fn can_rx_views() {
-    console_log::init_with_level(log::Level::Trace).unwrap_throw();
-    log::trace!("can_rx_views");
-
-    let (tx, rx) = txrx::<View<HtmlElement>>();
-    let parent = view! {
-        <div id="main">
-            <slot this:later=rx></slot>
-        </div>
-    };
-    let node: HtmlElement = parent.dom_ref().clone();
-    parent.run().unwrap();
-
-    assert_eq!(
-        node.outer_html().as_str(),
-        r#"<div id="main"><slot></slot></div>"#
-    );
-
-    let view = view! {
-        <div>"hello"</div>
-    };
-
-    tx.send(&view);
-    utils::wait_approximately(10.0).await;
-    log::trace!("done waiting for hello");
-    assert_eq!(
-        node.outer_html().as_str(),
-        r#"<div id="main"><div>hello</div></div>"#
-    );
-
-    let view = view! {
-        <div>"goodbye"</div>
-    };
-
-    tx.send(&view);
-    utils::wait_approximately(10.0).await;
-    log::trace!("done waiting for goodbye");
-    assert_eq!(
-        node.outer_html().as_str(),
-        r#"<div id="main"><div>goodbye</div></div>"#
-    );
-}
-
-
 #[wasm_bindgen_test]
 async fn can_patch_children() {
     let (tx, rx) = txrx::<Patch<View<HtmlElement>>>();
-    let view = view!{
+    let view = view! {
         <ol id="main" patch:children=rx>
             <li>"Zero"</li>
             <li>"One"</li>
@@ -454,7 +387,7 @@ async fn can_patch_children() {
         <li>"Two"</li>
     };
 
-    tx.send(&Patch::PushBack{ value: two });
+    tx.send(&Patch::PushBack { value: two });
     assert_eq!(
         dom.outer_html().as_str(),
         r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
@@ -466,19 +399,24 @@ async fn can_patch_children() {
         r#"<ol id="main"><li>One</li><li>Two</li></ol>"#
     );
 
-    tx.send(&Patch::Insert{ index: 0, value: view!{<li>"Zero"</li>} });
+    tx.send(&Patch::Insert {
+        index: 0,
+        value: view! {<li>"Zero"</li>},
+    });
     assert_eq!(
         dom.outer_html().as_str(),
         r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
     );
 
-    tx.send(&Patch::Remove{ index: 2 });
+    tx.send(&Patch::Remove { index: 2 });
     assert_eq!(
         dom.outer_html().as_str(),
         r#"<ol id="main"><li>Zero</li><li>One</li></ol>"#
     );
 
-    tx.send(&Patch::PushFront{ value: view!{<li>"Negative One"</li>}});
+    tx.send(&Patch::PushFront {
+        value: view! {<li>"Negative One"</li>},
+    });
     assert_eq!(
         dom.outer_html().as_str(),
         r#"<ol id="main"><li>Negative One</li><li>Zero</li><li>One</li></ol>"#
@@ -490,23 +428,23 @@ async fn can_patch_children() {
         r#"<ol id="main"><li>Negative One</li><li>Zero</li></ol>"#
     );
 
-    tx.send(&Patch::Replace{ index: 1, value: view!{<li>"One"</li>}});
+    tx.send(&Patch::Replace {
+        index: 1,
+        value: view! {<li>"One"</li>},
+    });
     assert_eq!(
         dom.outer_html().as_str(),
         r#"<ol id="main"><li>Negative One</li><li>One</li></ol>"#
     );
 
     tx.send(&Patch::RemoveAll);
-    assert_eq!(
-        dom.outer_html().as_str(),
-        r#"<ol id="main"></ol>"#
-    );
+    assert_eq!(dom.outer_html().as_str(), r#"<ol id="main"></ol>"#);
 }
 
 #[wasm_bindgen_test]
 fn can_patch_children_into() {
     let (tx, rx) = txrx::<Patch<String>>();
-    let view = view!{
+    let view = view! {
         <p id="main" patch:children=rx>
             "Zero ""One"
         </p>
@@ -515,20 +453,16 @@ fn can_patch_children_into() {
     let dom: HtmlElement = view.dom_ref().clone();
     view.run().unwrap();
 
-    assert_eq!(
-        dom.outer_html().as_str(),
-        r#"<p id="main">Zero One</p>"#
-    );
+    assert_eq!(dom.outer_html().as_str(), r#"<p id="main">Zero One</p>"#);
 
-    tx.send(&Patch::PushFront{ value: "First ".to_string() });
+    tx.send(&Patch::PushFront {
+        value: "First ".to_string(),
+    });
     assert_eq!(
         dom.outer_html().as_str(),
         r#"<p id="main">First Zero One</p>"#
     );
 
     tx.send(&Patch::RemoveAll);
-    assert_eq!(
-        dom.outer_html().as_str(),
-        r#"<p id="main"></p>"#
-    );
+    assert_eq!(dom.outer_html().as_str(), r#"<p id="main"></p>"#);
 }

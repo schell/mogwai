@@ -119,9 +119,7 @@
 use super::prelude::*;
 use crate as mogwai;
 
-
 struct Unit {}
-
 
 impl Component for Unit {
     type ModelMsg = ();

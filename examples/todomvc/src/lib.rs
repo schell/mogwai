@@ -9,13 +9,11 @@ mod utils;
 mod app;
 use app::{App, In};
 
-
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-
 
 fn fresh_app(msgs: Vec<In>) -> Result<(), JsValue> {
     let app: Gizmo<App> = Gizmo::from(App::new());
@@ -25,7 +23,6 @@ fn fresh_app(msgs: Vec<In>) -> Result<(), JsValue> {
 
     View::from(app).run()
 }
-
 
 #[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {

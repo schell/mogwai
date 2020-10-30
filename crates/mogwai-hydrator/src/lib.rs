@@ -10,7 +10,6 @@ pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget, HtmlElement};
 use web_sys::{Node, Text};
 
-
 #[snafu(visibility = "pub(crate)")]
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -37,12 +36,10 @@ pub enum Error {
     ViewOnly,
 }
 
-
 pub enum HydrationKey {
     Id(String),
     IndexedChildOf { node: Node, index: u32 },
 }
-
 
 impl HydrationKey {
     pub fn hydrate<T: IsDomNode + AsRef<Node>>(self) -> Result<View<T>, Error> {
@@ -103,12 +100,10 @@ impl HydrationKey {
     }
 }
 
-
 pub struct Hydrator<T: IsDomNode> {
     pub(crate) create: Box<dyn FnOnce() -> Result<View<T>, Error>>,
     pub(crate) update: Option<Box<dyn FnOnce(&mut View<T>) -> Result<(), Error>>>,
 }
-
 
 impl<T: IsDomNode + AsRef<JsValue>> Hydrator<T> {
     pub fn from_create_fn<F>(f: F) -> Self
@@ -171,7 +166,6 @@ impl<T: IsDomNode + AsRef<JsValue>> Hydrator<T> {
     }
 }
 
-
 /// [`ViewBuilder`] can be converted into a [`Hydrator`].
 impl<T> From<ViewBuilder<T>> for Hydrator<T>
 where
@@ -185,7 +179,6 @@ where
             styles,
             events,
             children,
-            replaces,
             patches,
             posts,
             text,
@@ -291,13 +284,6 @@ where
             hview.with(child);
         }
 
-        for update in replaces.into_iter() {
-            hview.append_update(|view: &mut View<T>| {
-                view.this_later(update);
-                Ok(())
-            });
-        }
-
         for patch in patches.into_iter() {
             hview.append_update(|view| Ok(view.patch(patch)));
         }
@@ -310,7 +296,6 @@ where
     }
 }
 
-
 impl<T: IsDomNode + AsRef<Node>> TryFrom<Option<Hydrator<T>>> for Hydrator<T> {
     type Error = ();
 
@@ -319,12 +304,10 @@ impl<T: IsDomNode + AsRef<Node>> TryFrom<Option<Hydrator<T>>> for Hydrator<T> {
     }
 }
 
-
 /// # [`From`] instances for [`Hydrator`]
 ///
 /// Most of these mimic the corresponding [`From`] instances for [`View`],
 /// the rest are here for the operation of this module.
-
 
 impl From<Effect<String>> for Hydrator<Text> {
     fn from(eff: Effect<String>) -> Self {
@@ -350,7 +333,6 @@ impl From<Effect<String>> for Hydrator<Text> {
     }
 }
 
-
 impl From<Receiver<String>> for Hydrator<Text> {
     fn from(later: Receiver<String>) -> Self {
         let mut hydrate_view = Hydrator::from_create_fn(|| {
@@ -367,7 +349,6 @@ impl From<Receiver<String>> for Hydrator<Text> {
     }
 }
 
-
 impl From<(&str, Receiver<String>)> for Hydrator<Text> {
     fn from(tuple: (&str, Receiver<String>)) -> Self {
         let eff: Effect<String> = tuple.into();
@@ -375,14 +356,12 @@ impl From<(&str, Receiver<String>)> for Hydrator<Text> {
     }
 }
 
-
 impl From<(String, Receiver<String>)> for Hydrator<Text> {
     fn from(tuple: (String, Receiver<String>)) -> Self {
         let eff: Effect<String> = tuple.into();
         eff.into()
     }
 }
-
 
 impl From<(&String, Receiver<String>)> for Hydrator<Text> {
     fn from((now, later): (&String, Receiver<String>)) -> Self {
@@ -392,7 +371,6 @@ impl From<(&String, Receiver<String>)> for Hydrator<Text> {
     }
 }
 
-
 impl From<&String> for Hydrator<Text> {
     fn from(text: &String) -> Self {
         let tag = text.to_owned();
@@ -400,13 +378,11 @@ impl From<&String> for Hydrator<Text> {
     }
 }
 
-
 impl From<String> for Hydrator<Text> {
     fn from(text: String) -> Self {
         Hydrator::from_create_fn(|| NoHydrationOption { tag: text }.fail())
     }
 }
-
 
 impl From<&str> for Hydrator<Text> {
     fn from(tag_or_text: &str) -> Self {
@@ -415,13 +391,11 @@ impl From<&str> for Hydrator<Text> {
     }
 }
 
-
 impl<T: IsDomNode + AsRef<Node>> From<HydrationKey> for Hydrator<T> {
     fn from(key: HydrationKey) -> Self {
         Hydrator::from_create_fn(move || key.hydrate::<T>())
     }
 }
-
 
 impl<T: IsDomNode> TryFrom<Hydrator<T>> for View<T> {
     type Error = Error;
@@ -435,9 +409,7 @@ impl<T: IsDomNode> TryFrom<Hydrator<T>> for View<T> {
     }
 }
 
-
 /// # ElementView
-
 
 impl<T: IsDomNode + AsRef<Node>> ElementView for Hydrator<T> {
     fn element(tag: &str) -> Self {
@@ -451,9 +423,7 @@ impl<T: IsDomNode + AsRef<Node>> ElementView for Hydrator<T> {
     }
 }
 
-
 /// # AttributeView
-
 
 impl<T: IsDomNode + AsRef<Node> + AsRef<Element> + 'static> AttributeView for Hydrator<T> {
     fn attribute<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
@@ -479,9 +449,7 @@ impl<T: IsDomNode + AsRef<Node> + AsRef<Element> + 'static> AttributeView for Hy
     }
 }
 
-
 /// # StyleView
-
 
 impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for Hydrator<T> {
     fn style<E: Into<Effect<String>>>(&mut self, name: &str, eff: E) {
@@ -494,9 +462,7 @@ impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for Hydrator<T> {
     }
 }
 
-
 /// # EventTargetView
-
 
 impl<T: IsDomNode + AsRef<EventTarget>> EventTargetView for Hydrator<T> {
     fn on(&mut self, ev_name: &str, tx: Transmitter<Event>) {
@@ -518,9 +484,7 @@ impl<T: IsDomNode + AsRef<EventTarget>> EventTargetView for Hydrator<T> {
     }
 }
 
-
 /// # ParentView
-
 
 impl<P, C> ParentView<Hydrator<C>> for Hydrator<P>
 where
@@ -539,7 +503,6 @@ where
     }
 }
 
-
 impl<P, C> ParentView<Option<Hydrator<C>>> for Hydrator<P>
 where
     P: IsDomNode + AsRef<Node>,
@@ -552,9 +515,7 @@ where
     }
 }
 
-
 /// # PostBuildView
-
 
 impl<T: IsDomNode> PostBuildView for Hydrator<T> {
     type DomNode = T;
@@ -564,19 +525,7 @@ impl<T: IsDomNode> PostBuildView for Hydrator<T> {
     }
 }
 
-
-/// # ReplaceView
-
-
-impl<T: IsDomNode + AsRef<Node>> ReplaceView<View<T>> for Hydrator<T> {
-    fn this_later<S: Clone + Into<View<T>> + 'static>(&mut self, rx: Receiver<S>) {
-        self.append_update(move |v| Ok(v.this_later(rx)));
-    }
-}
-
-
 /// # PatchView
-
 
 impl<T, C> PatchView<View<C>> for Hydrator<T>
 where

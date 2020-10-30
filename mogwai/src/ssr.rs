@@ -8,7 +8,6 @@ pub enum Node {
     },
 }
 
-
 impl From<Node> for String {
     fn from(node: Node) -> String {
         match node {

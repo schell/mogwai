@@ -54,7 +54,6 @@ pub struct ViewBuilder<T: IsDomNode> {
     pub styles: Vec<StyleCmd>,
     pub events: Vec<EventTargetCmd>,
     pub posts: Vec<Transmitter<T>>,
-    pub replaces: Vec<Receiver<View<T>>>,
     pub patches: Vec<Receiver<Patch<View<Node>>>>,
     pub children: Vec<ViewBuilder<Node>>,
 }
@@ -69,7 +68,6 @@ impl<T: IsDomNode> Default for ViewBuilder<T> {
             styles: vec![],
             events: vec![],
             posts: vec![],
-            replaces: vec![],
             patches: vec![],
             children: vec![],
         }
@@ -90,13 +88,6 @@ impl<T: IsDomNode + AsRef<Node>> ViewBuilder<T> {
                 .patches
                 .into_iter()
                 .map(|rx| rx.branch_map(|patch| patch.branch_map(|v| v.clone().upcast::<Node>())))
-                .collect(),
-            replaces: self
-                .replaces
-                .into_iter()
-                .map(|update| {
-                    update.branch_map(|builder| View::from(builder.clone()).upcast::<Node>())
-                })
                 .collect(),
             posts: self
                 .posts
@@ -129,7 +120,6 @@ impl<T: IsDomNode + AsRef<Node>> From<ViewBuilder<T>> for View<T> {
             attribs,
             styles,
             events,
-            replaces,
             patches,
             children,
             posts,
@@ -200,10 +190,6 @@ impl<T: IsDomNode + AsRef<Node>> From<ViewBuilder<T>> for View<T> {
         for builder in children.into_iter() {
             let child: View<Node> = View::from(builder);
             view.with(child);
-        }
-
-        for update in replaces.into_iter() {
-            view.this_later(update);
         }
 
         for patch in patches.into_iter() {
@@ -390,14 +376,6 @@ impl<T: IsDomNode + Clone> PostBuildView for ViewBuilder<T> {
 
     fn post_build(&mut self, transmitter: Transmitter<T>) {
         self.posts.push(transmitter);
-    }
-}
-
-/// # ReplaceView
-
-impl<T: IsDomNode + AsRef<Node>> ReplaceView<View<T>> for ViewBuilder<T> {
-    fn this_later<S: Clone + Into<View<T>>>(&mut self, rx: Receiver<S>) {
-        self.replaces.push(rx.branch_map(|s| s.clone().into()));
     }
 }
 

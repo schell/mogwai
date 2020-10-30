@@ -100,8 +100,8 @@ impl<T: AsRef<str>> From<T> for Route {
     }
 }
 
-impl From<Route> for ViewBuilder<HtmlElement> {
-    fn from(route: Route) -> ViewBuilder<HtmlElement> {
+impl From<&Route> for ViewBuilder<HtmlElement> {
+    fn from(route: &Route) -> ViewBuilder<HtmlElement> {
         match route {
             Route::Home => routes::home(),
             Route::NotFound => routes::not_found(),

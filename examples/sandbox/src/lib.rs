@@ -9,7 +9,6 @@ use std::panic;
 use wasm_bindgen::prelude::*;
 use web_sys::{Request, RequestInit, RequestMode, Response};
 
-
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
 pub fn new_button_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
@@ -50,7 +49,6 @@ pub fn new_button_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
     button
 }
 
-
 /// Creates a h1 heading that changes its color.
 pub fn new_h1_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
     // Create a receiver for our heading to get its color from.
@@ -83,7 +81,6 @@ pub fn new_h1_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
     h1
 }
 
-
 async fn request_to_text(req: Request) -> Result<String, String> {
     let resp: Response = JsFuture::from(window().fetch_with_request(&req))
         .await
@@ -94,10 +91,9 @@ async fn request_to_text(req: Request) -> Result<String, String> {
         .await
         .map_err(|_| "getting text failed")?
         .as_string()
-        .ok_or("couldn't get text as string".to_string())?;
+        .ok_or_else(|| "couldn't get text as string".to_string())?;
     Ok(text)
 }
-
 
 async fn click_to_text() -> Option<String> {
     let mut opts = RequestInit::new();
@@ -116,7 +112,6 @@ async fn click_to_text() -> Option<String> {
     };
     Some(result)
 }
-
 
 /// Creates a button that when clicked requests the time in london and sends
 /// it down a receiver.
@@ -162,7 +157,6 @@ pub fn time_req_button_and_pre() -> View<HtmlElement> {
     }
 }
 
-
 /// Creates a view that ticks a count upward every second.
 pub fn counter() -> View<HtmlElement> {
     // Create a transmitter to send ticks every second
@@ -187,7 +181,6 @@ pub fn counter() -> View<HtmlElement> {
 
     view! { <h3>{("Awaiting first count", rx)}</h3> }
 }
-
 
 #[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {
@@ -231,7 +224,7 @@ pub fn main() -> Result<(), JsValue> {
 
     // Now we'll attempt to hydrate a view from the pre-existing DOM and then
     // update the inner text of the child `p` node.
-    let (tx, rx) = txrx_fold(0, |count: &mut u32, _:&()| -> String {
+    let (tx, rx) = txrx_fold(0, |count: &mut u32, _: &()| -> String {
         *count += 1;
         if *count == 1 {
             "Sent 1 message".into()
@@ -247,16 +240,15 @@ pub fn main() -> Result<(), JsValue> {
         };
         let hydrator = Hydrator::from(builder);
         let view = View::try_from(hydrator).unwrap();
-        view.forget()
-            .unwrap_throw();
+        view.forget().unwrap_throw();
     };
 
     tx.send(&());
     tx.send(&());
     tx.send(&());
     utils::timeout(3000, move || {
-       tx.send(&());
-       true
+        tx.send(&());
+        true
     });
 
     Ok(())

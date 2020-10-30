@@ -33,7 +33,11 @@ impl Component for Button {
         }
     }
 
-    fn view(&self, tx: &Transmitter<ButtonIn>, rx: &Receiver<ButtonOut>) -> ViewBuilder<HtmlElement> {
+    fn view(
+        &self,
+        tx: &Transmitter<ButtonIn>,
+        rx: &Receiver<ButtonOut>,
+    ) -> ViewBuilder<HtmlElement> {
         builder! {
             <button style="cursor: pointer;" on:click=tx.contra_map(|_| ButtonIn::Click)>
                 {(

@@ -4,7 +4,6 @@ use serde_json;
 use wasm_bindgen::JsValue;
 use web_sys::Storage;
 
-
 #[derive(Serialize, Deserialize)]
 pub struct Item {
     pub title: String,
