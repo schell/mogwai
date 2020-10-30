@@ -1,15 +1,7 @@
 use proc_macro2::Span;
 use quote::quote;
-use syn::{spanned::Spanned, Error};
-use syn_rsx::{Node, NodeName, NodeType};
-
-fn node_name_span(name: &NodeName) -> Span {
-    match name {
-        NodeName::Path(expr_path) => expr_path.span(),
-        NodeName::Dash(dash) => dash.span(),
-        NodeName::Colon(colon) => colon.span(),
-    }
-}
+use syn::Error;
+use syn_rsx::{Node, NodeType};
 
 fn cast_type_attribute(node: &Node) -> Option<proc_macro2::TokenStream> {
     let key = node.name_as_string()?;
@@ -21,11 +13,7 @@ fn cast_type_attribute(node: &Node) -> Option<proc_macro2::TokenStream> {
 }
 
 fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
-    let span: Span = node
-        .name
-        .as_ref()
-        .map(node_name_span)
-        .unwrap_or(Span::call_site());
+    let span = node.name_span().unwrap_or(Span::call_site());
     if let Some(key) = node.name_as_string() {
         if let Some(expr) = node.value {
             match key.split(':').collect::<Vec<_>>().as_slice() {
@@ -200,7 +188,7 @@ fn walk_dom(
     input: proc_macro::TokenStream,
     f: impl Fn(Node) -> Result<proc_macro2::TokenStream, Error>,
 ) -> proc_macro2::TokenStream {
-    match syn_rsx::parse(input, None) {
+    match syn_rsx::parse(input) {
         Ok(parsed) => {
             let (tokens, errs) = partition_unzip(parsed, f);
             if let Some(error) = combine_errors(errs) {
@@ -216,12 +204,7 @@ fn walk_dom(
                 }
             }
         }
-        Err(msg) => {
-            let msg = format!("{}", msg);
-            quote! {
-                compile_error!(#msg)
-            }
-        }
+        Err(error) => error.to_compile_error(),
     }
 }
 
