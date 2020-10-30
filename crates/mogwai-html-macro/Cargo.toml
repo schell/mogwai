@@ -19,7 +19,7 @@ proc-macro = true
 proc-macro2 = { version = "^1.0", features = ["span-locations"] }
 quote = "^1.0"
 syn = { version = "^1.0", features = ["full", "extra-traits"] }
-syn-rsx = "^0.6"
+syn-rsx = "^0.7"
 
 [dev-dependencies]
 mogwai = { path = "../../mogwai" }
