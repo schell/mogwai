@@ -3,6 +3,7 @@
 Consider this variable declaration:
 
 ```rust
+use mogwai::prelude::*;
 let element = builder!{ <h1>"Hello, world!"</h1> };
 ```
 
@@ -12,6 +13,7 @@ The macro `builder!` is using RSX, which is a "**R**ust **S**yntax E**x**tension
 Similarly there is a `view!` macro that creates `View<HtmlElement>`.
 
 ```rust
+use mogwai::prelude::*;
 let my_builder: ViewBuilder<HtmlElement> = builder!{ <h1>"Hello, world!"</h1> };
 let my_view: View<HtmlElement> = view!{ <h1>"Hello, world!"</h1> };
 
@@ -35,8 +37,11 @@ RSX may remind you of a template language, but it comes with the full power of R
 You can cast the inner DOM element using the special attribute `type:cast`:
 
 ```rust
+use mogwai::prelude::*;
+use web_sys::HtmlInputElement;
+
 let name_input: View<HtmlInputElement> = view! {
-    <input type="text" placeholder="Your Name" type:cast=web_sys::HtmlInputElement />
+    <input type="text" placeholder="Your Name" cast:type=web_sys::HtmlInputElement />
 };
 ```
 
@@ -45,6 +50,8 @@ Without this explicit casting all DOM nodes assume the type `HtmlElement`;
 ## Conditionally include DOM
 
 ```rust
+use mogwai::prelude::*;
+
 struct User {
     username: String,
     o_image: Option<String>
@@ -58,7 +65,7 @@ fn signed_in_view_builder(
     profile_class: Effect<String>,
 ) -> ViewBuilder<HtmlElement> {
     let o_image: Option<ViewBuilder<HtmlElement>> = user
-        .image
+        .o_image
         .as_ref()
         .map(|image| {
             if image.is_empty() {
@@ -102,6 +109,13 @@ fn signed_in_view_builder(
 Here is the definition of `signed_in_user` above, written without RSX:
 
 ```rust
+use mogwai::prelude::*;
+
+struct User {
+    username: String,
+    o_image: Option<String>
+}
+
 fn signed_in_view_builder(
     user: &User,
     home_class: Effect<String>,
@@ -110,7 +124,7 @@ fn signed_in_view_builder(
     profile_class: Effect<String>,
 ) -> ViewBuilder<HtmlElement> {
     let o_image: Option<ViewBuilder<HtmlElement>> = user
-        .image
+        .o_image
         .as_ref()
         .map(|image| {
             if image.is_empty() {
