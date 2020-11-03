@@ -466,3 +466,22 @@ fn can_patch_children_into() {
     tx.send(&Patch::RemoveAll);
     assert_eq!(dom.outer_html().as_str(), r#"<p id="main"></p>"#);
 }
+
+#[wasm_bindgen_test]
+fn can_add_children_as_vec() {
+    // Unfortunately this doesn't mix well with RSX. To remedy this:
+    // TODO: Add ParentView impls instead of calling
+    // `ViewBuilder::from` on everything passed to `with`.
+    let mut view = view! {<ul></ul>};
+    let children = (0..3)
+        .map(|i| {
+            view! { <li>{format!("{}", i)}</li> }
+        })
+        .collect::<Vec<_>>();
+    view.with(children);
+
+    assert_eq!(
+        view.dom_ref().outer_html().as_str(),
+        "<ul><li>0</li><li>1</li><li>2</li></ul>"
+    );
+}

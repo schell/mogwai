@@ -75,7 +75,7 @@ impl<T: IsDomNode> Default for ViewBuilder<T> {
 }
 
 impl<T: IsDomNode + AsRef<Node>> ViewBuilder<T> {
-    fn to_node(self) -> ViewBuilder<Node> {
+    pub fn to_node(self) -> ViewBuilder<Node> {
         ViewBuilder {
             element: self.element,
             ns: self.ns,
@@ -366,6 +366,16 @@ where
         if let Some(child) = o_child {
             self.children.push(child.to_node());
         }
+    }
+}
+
+impl<P, C> ParentView<Vec<ViewBuilder<C>>> for ViewBuilder<P>
+where
+    P: IsDomNode + AsRef<Node>,
+    C: IsDomNode + AsRef<Node>,
+{
+    fn with(&mut self, children: Vec<ViewBuilder<C>>) {
+        children.into_iter().for_each(|c| self.with(c));
     }
 }
 

@@ -515,6 +515,16 @@ where
     }
 }
 
+impl<P, C> ParentView<Vec<Hydrator<C>>> for Hydrator<P>
+where
+    P: IsDomNode + AsRef<Node>,
+    C: IsDomNode + AsRef<Node>,
+{
+    fn with(&mut self, children: Vec<Hydrator<C>>) {
+        children.into_iter().for_each(|c| self.with(c));
+    }
+}
+
 /// # PostBuildView
 
 impl<T: IsDomNode> PostBuildView for Hydrator<T> {

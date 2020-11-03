@@ -801,6 +801,16 @@ impl<S: IsDomNode + AsRef<Node>, T: IsDomNode + AsRef<Node>> ParentView<Option<V
     }
 }
 
+impl<P, C> ParentView<Vec<View<C>>> for View<P>
+where
+    P: IsDomNode + AsRef<Node>,
+    C: IsDomNode + AsRef<Node>,
+{
+    fn with(&mut self, children: Vec<View<C>>) {
+        children.into_iter().for_each(|c| self.with(c));
+    }
+}
+
 /// # StyleView
 
 impl<T: IsDomNode + AsRef<HtmlElement>> StyleView for View<T> {
