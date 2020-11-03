@@ -10,10 +10,8 @@ keywords = ["ui", "dom", "app", "reactive", "frontend"]
 categories = ["gui", "wasm", "web-programming"]
 documentation = "https://docs.rs/mogwai/"
 
-
 [lib]
 proc-macro = true
-
 
 [dependencies]
 proc-macro2 = { version = "^1.0", features = ["span-locations"] }
