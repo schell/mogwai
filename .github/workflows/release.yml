@@ -21,8 +21,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-all-refs/heads/master
           ${{ runner.os }}-cargo-all-
+
     - name: "release to crates-io"
-      run: |
-        cd crates/mogwai-html-macro && cargo publish --token ${{ secrets.cargo_token }}
-        cd ../../mogwai && cargo publish --token ${{ secrets.cargo_token }}
-        cd ../crates/mogwai-hydrator && cargo publish --token ${{ secrets.cargo_token }}
+      run: scripts/release.sh ${{ secrets.cargo_token }}
