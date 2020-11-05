@@ -1,28 +1,28 @@
 //! Provides string rendering for server-side mogwai nodes.
 
-/// Only certain nodes can be "void" - which means written as <tag /> when
-/// the node contains no children. Writing non-void nodes in void notation
-/// does some spooky things to the DOM at parse-time.
-///
-/// From https://riptutorial.com/html/example/4736/void-elements
-/// HTML 4.01/XHTML 1.0 Strict includes the following void elements:
-///
-///     area - clickable, defined area in an image
-///     base - specifies a base URL from which all links base
-///     br - line break
-///     col - column in a table [deprecated]
-///     hr - horizontal rule (line)
-///     img - image
-///     input - field where users enter data
-///     link - links an external resource to the document
-///     meta - provides information about the document
-///     param - defines parameters for plugins
-///
-///     HTML 5 standards include all non-deprecated tags from the previous list and
-///
-///     command - represents a command users can invoke [obsolete]
-///     keygen - facilitates public key generation for web certificates [deprecated]
-///     source - specifies media sources for picture, audio, and video elements
+// Only certain nodes can be "void" - which means written as <tag /> when
+// the node contains no children. Writing non-void nodes in void notation
+// does some spooky things to the DOM at parse-time.
+//
+// From https://riptutorial.com/html/example/4736/void-elements
+// HTML 4.01/XHTML 1.0 Strict includes the following void elements:
+//
+//     rea - clickable, defined area in an image
+//     base - specifies a base URL from which all links base
+//     br - line break
+//     col - column in a table [deprecated]
+//     hr - horizontal rule (line)
+//     img - image
+//     input - field where users enter data
+//     link - links an external resource to the document
+//     meta - provides information about the document
+//     param - defines parameters for plugins
+//
+//     HTML 5 standards include all non-deprecated tags from the previous list and
+//
+//     command - represents a command users can invoke [obsolete]
+//     keygen - facilitates public key generation for web certificates [deprecated]
+//     source - specifies media sources for picture, audio, and video elements
 fn tag_is_voidable(tag: &str) -> bool {
     tag == "area"
         || tag == "base"
