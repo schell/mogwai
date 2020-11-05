@@ -11,19 +11,6 @@
 
 > **m**inimalist, **o**bvious, **g**raphical **w**eb **a**pplication **i**nterface
 
-
-## contents
-- [goals](#goals)
-- [concepts](#concepts)
-- [example](#example)
-- [intro](#introduction)
-- [why](#why)
-- [beginning](#ok---where-do-i-start?)
-- [more examples](#more-examples)
-- [cookbook :green_book:](#cookbook-:green_book:)
-- [sponsor this project](#sponsorship)
-
-
 release: [![Crates.io][ci]][cl] ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=release)
 
 master: ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=master)
@@ -31,10 +18,20 @@ master: ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch
 [ci]: https://img.shields.io/crates/v/mogwai.svg
 [cl]: https://crates.io/crates/mogwai/
 
-
 `mogwai` is a frontend DOM library for creating web applications.
 It is written in Rust and runs in your browser and has enough functionality server-side
 to do rendering. It is an alternative to React, Backbone, Ember, Elm, Purescript, etc.
+
+## toc
+- [goals](#goals)
+- [concepts](#concepts)
+- [example](#example)
+- [intro](#introduction)
+- [why](#why)
+- [beginning](#ok---where-do-i-start?)
+- [more examples](#more-examples)
+- [cookbook :green_book:](#cookbook-green_book)
+- [sponsor this project](#sponsorship)
 
 ## goals
 
@@ -60,13 +57,14 @@ The main concepts behind `mogwai` are
   When a `View` goes out of scope and is dropped in Rust, it is also dropped from the DOM.
   `Views` may be constructed and nested using plain Rust functions or an RSX macro.
 
-* **widgets are folds over input messages** - a `Gizmo` is `mogwai`'s controller. `Gizmo`s
-  maintain state and communicate messages to views. The `Gizmo`'s update function is a fold
-  over messages sent on its `Transmitter` that mutate the state variable and send output
-  messages to the `View`, which in turn update the DOM.
+* **widgets are folds over input messages** - the user interface widget in `mogwai` is a `Gizmo`.
+  The `Gizmo` type holds an internally mutable state and can communicate messages to its `View`,
+  which may live out in the DOM. Its `View` can send messages back to the `Gizmo`, which triggers
+  the `Gizmo`'s update function. The `Gizmo`'s update function can mutate the state variable and
+  send output messages to the `View`, which in turn updates the DOM.
 
 * **communication is easy** - just `gizmo.send(&my_message)` to send a message into a gizmo
-  and the gizmo will update its view accordingly.
+  and the gizmo will run its update logic and patch the view accordingly.
 
 ## example
 Here is an example of a button that counts the number of times it has been clicked:
@@ -123,14 +121,21 @@ impl Component for Button {
         let rx_text = rx.branch_map(|ButtonOut::Clicks(text)| text.clone());
 
         builder!(
+            // Create a button that transmits a message into tx_event on click.
             <button on:click=tx_event>
+                // Using braces we can embed rust values in our DOM.
+                // Here we're creating a text node that starts with the
+                // string "Clicked 0 times" and then updates every time a
+                // message is received on rx_text.
                 {("Clicked 0 times", rx_text)}
             </button>
         )
     }
 }
-
+// To create a new gizmo/widget/component we simply convert a value of the Button type
+// into a Gizmo...
 let gizmo = Gizmo::from(Button{ clicks: 0 });
+// ...and create a View from that gizmo's builder.
 let view = View::from(gizmo.view_builder());
 // Queue some messages for the component, as if the button had been clicked:
 gizmo.send(&ButtonIn::Click);
@@ -139,7 +144,7 @@ gizmo.send(&ButtonIn::Click);
 assert_eq!(&view.html_string(), "<button>Clicked 2 times</button>");
 
 if cfg!(target_arch = "wasm32") {
-    // running a view adds its DOM to document.body and ownership is passed to the window,
+    // running a view adds its DOM to the document.body and ownership is passed to the window,
     // so this only works in the browser
     view.run().unwrap_throw()
 }
