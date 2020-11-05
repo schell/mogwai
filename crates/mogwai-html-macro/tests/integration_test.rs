@@ -3,17 +3,29 @@ use mogwai::prelude::*;
 
 #[test]
 fn node_self_closing() {
+    // not all nodes are void nodes
     let div: String = view! {
         <a href="http://zyghost.com" />
     }
     .html_string();
-    assert_eq!(&div, r#"<a href="http://zyghost.com" />"#);
+    assert_eq!(&div, r#"<a href="http://zyghost.com"></a>"#);
+
+    let div: String = view! {
+        <img src="http://zyghost.com/favicon.ico" />
+    }
+    .html_string();
+    assert_eq!(&div, r#"<img src="http://zyghost.com/favicon.ico" />"#);
+
 }
 
 #[test]
 fn node_self_closing_gt_1_att() {
+    // not all nodes are void nodes
     let div: String = view! {<a href="http://zyghost.com" class="blah"/>}.html_string();
-    assert_eq!(&div, r#"<a href="http://zyghost.com" class="blah" />"#);
+    assert_eq!(&div, r#"<a href="http://zyghost.com" class="blah"></a>"#);
+
+    let div: String = view! {<img src="http://zyghost.com/favicon.ico" class="blah"/>}.html_string();
+    assert_eq!(&div, r#"<img src="http://zyghost.com/favicon.ico" class="blah" />"#);
 }
 
 #[test]
