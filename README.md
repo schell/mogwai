@@ -12,6 +12,18 @@
 > **m**inimalist, **o**bvious, **g**raphical **w**eb **a**pplication **i**nterface
 
 
+## contents
+- [goals](#goals)
+- [concepts](#concepts)
+- [example](#example)
+- [intro](#introduction)
+- [why](#why)
+- [beginning](#ok---where-do-i-start?)
+- [more examples](#more-examples)
+- [cookbook :green_book:](#cookbook-:green_book:)
+- [sponsor this project](#sponsorship)
+
+
 release: [![Crates.io][ci]][cl] ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=release)
 
 master: ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=master)
@@ -57,37 +69,7 @@ The main concepts behind `mogwai` are
   and the gizmo will update its view accordingly.
 
 ## example
-Here is an example of a "dumb view" button that counts its own clicks.
-
-```rust
-extern crate mogwai;
-use mogwai::prelude::*;
-
-let (tx, rx) =
-  txrx_fold(
-    0,
-    |n:&mut i32, _:&Event| -> String {
-      *n += 1;
-      if *n == 1 {
-        "Clicked 1 time".to_string()
-      } else {
-        format!("Clicked {} times", *n)
-      }
-    }
-  );
-
-let view = view!(
-    <button on:click=tx>
-        {("Clicked 0 times", rx)}
-    </button>
-);
-
-if cfg!(target_arch = "wasm32") {
-  view.run().unwrap_throw()
-}
-```
-
-Here's that same example using the elm-like `Component` trait:
+Here is an example of a button that counts the number of times it has been clicked:
 
 ```rust
 use mogwai::prelude::*;
@@ -131,7 +113,7 @@ impl Component for Button {
     }
 
     // Notice that the `Component::view` function returns a `ViewBuilder<T>` and not
-    // a `View<T`.
+    // a `View<T>`.
     fn view(
         &self,
         tx: &Transmitter<ButtonIn>,
@@ -157,8 +139,8 @@ gizmo.send(&ButtonIn::Click);
 assert_eq!(&view.html_string(), "<button>Clicked 2 times</button>");
 
 if cfg!(target_arch = "wasm32") {
-    // running a view adds its DOM to document.body and ownership is passed to the window
-    // this only works in the browser
+    // running a view adds its DOM to document.body and ownership is passed to the window,
+    // so this only works in the browser
     view.run().unwrap_throw()
 }
 
@@ -171,30 +153,25 @@ If you're interested in learning more - please read the [introduction and
 documentation](https://docs.rs/mogwai/).
 
 ## why
-Rust is beginning to have a good number of frontend libraries. Most however,
-encorporate a virtual DOM with a magical update phase. Even in a languague that
-has performance to spare this step can cause unwanted slowness.
+Rust is beginning to have a good number of frontend libraries. Many
+encorporate a virtual DOM with a magical update phase. Even in a language that
+has performance to spare this step can cause unwanted slowness and can be hard to
+reason about _what_ is updating, exactly.
 
-`mogwai` lives in a happy space just above "bare metal". It does this by
-providing the tools needed to declare exactly which parts of the DOM change and
-when. These same tools encourage functional progamming patterns like encapsulation over
-inheritance.
-
-Channel-like primitives and a declarative view are used to define
-components and then wire them together. Once the interface is defined and built,
-the channels are effectively erased and it's functions all the way down. There's
-no performance overhead from vdom, shadow dom, polling or patching. So if you
-prefer a functional style of programming with lots of maps and folds - or if
-you're looking to go _vroom!_ then maybe `mogwai` is right for you and your
-team :)
+In `mogwai`, channel-like primitives and a declarative view builder are used to
+define components and then wire them together. Once the interface is defined and
+built, the channels are effectively erased and it's functions all the way down.
+There's no performance overhead from vdom, shadow dom, polling or patching. So if
+you prefer a functional style of programming with lots of maps and folds - or if
+you're looking to go _vroom!_ then maybe `mogwai` is right for you :)
 
 Please do keep in mind that `mogwai` is still in alpha and the API is actively
-changing.
+changing - PRs, issues and questions are welcomed.
 
 ### made for rustaceans, by a rustacean
-Another benefit of `mogwai` is that it is Rust-first. There is no requirement
-that you have `npm` or `node`. Getting your project up and running without
-writing any javascript is easy enough.
+`mogwai` is a Rust first library. There is no requirement that you have `npm` or
+`node`. Getting your project up and running without writing any javascript is easy
+enough.
 
 ### performance
 `mogwai` is snappy! Here is some very handwavey and sketchy todomvc benchmarketing:
@@ -239,12 +216,18 @@ To build the examples use:
 ```shell
 cd examples/whatever && wasm-pack build --target web
 ```
-### external examples 
+### external examples
 [mogwai-realworld](https://github.com/schell/mogwai-realworld/) A "real world" app implementation (WIP)
 
-## support channel :phone:
-There is an experimental realtime support channel at https://matrix.to/#/!iABugogSTxJNzlrcMW:matrix.org?via=matrix.org. 
-YMMV
+## cookbook :green_book:
+[Cooking with Mogwai](http://zyghost.com/guides/mogwai-cookbook) is a series of example solutions to
+various UI problems. It aims to be a good reference doc but not a step-by-step tutorial.
+
+## group channel :phone:
+Hang out and talk about `mogwai` in the support channel:
+
+* [direct link to element app](https://app.element.io/#/room/#mogwai:matrix.org)
+* invitation https://matrix.to/#/!iABugogSTxJNzlrcMW:matrix.org?via=matrix.org.
 
 ## sponsorship
 Please consider sponsoring the development of this library!

@@ -1,6 +1,6 @@
 # Cooking with Mogwai
-The following chapters are explanations and examples of solving common user
-interface problems using the [mogwai][m] rust library.
+This book contains explanations and examples of solving common user
+interface problems using the [mogwai][m] rust library. It is a work in progress.
 
 Any requests, questions, or improvements may be logged in the [issue tracker][i].
 
