@@ -9,7 +9,9 @@ TOKEN=$1
 echo "publishing mogwai-html-macro"
 cd $ROOT
 cd crates/mogwai-html-macro
-cargo publish --dry-run --token $TOKEN
+#cargo publish --token $TOKEN
+sleep 10s
+echo "  done!"
 
 echo "publishing mogwai"
 cd $ROOT

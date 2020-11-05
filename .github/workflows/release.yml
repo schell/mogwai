@@ -2,7 +2,7 @@ name: "on release"
 
 on:
   push:
-    tags: v*.*.*
+    tags: remove_me-v*.*.*
 
 jobs:
   mogwai:

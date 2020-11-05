@@ -26,3 +26,13 @@ features = [
   "Node",
   "Text",
 ]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.17"
+wasm-bindgen-futures = "^0.4"
+
+[dev-dependencies.web-sys]
+version = "^0.3"
+features = [
+  "Request", "RequestMode", "RequestInit", "Response"
+]
