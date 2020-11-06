@@ -1,17 +1,40 @@
 # Components
-A [Component][component] is a fold function (logic), a state variable and a [ViewBuilder][builder]
-all wrapped up in one, for your convenience!
+The [Component][traitcomponent] trait is how ordinary types can become a UI element.
+A type that implements `Component` is the state of a UI element - eg. how many clicks
+to display or what an input field contains or maybe a list of subcopmonents (we'll go
+more in depth on that later). `Component`s have two methods that you must implement.
+
+1. The [Component::update][traitcomponent_methodupdate] method
+   This function is your component's UI logic. It receives an input message and can
+   update the implementing type's value since it is passing `&mut self`. Within this
+   function you can send messages out to the view using the provided
+   [Transmitter][structtransmitter] which is often named `tx`. When the view receives
+   these messages it will patch the DOM.
+
+   Also provided is a [Subscriber][structsubscriber] which we'll talk more about later.
+   At this point it is good to note that [with a `Subscriber` you can send async messages][structsubscriber_methodsend_async]
+   to `self` - essentially calling `self.update` when the async block yields. This is great for
+   sending off requests, for example, and then triggering a state update with the
+   response.
+2. The [Component::view][traitcomponent_methodview] method
+is fold function (logic), a state variable and a
+[ViewBuilder][structviewbuilder] all wrapped up in one.
 
 ## Creating a Component
-A mogwai component can be created by implementing the [Component][component]
-trait for any type. That type is the state. Its [Component::update][update] function
-is the logic. The [Component::view][view] function returns a builder that becomes the view
+A mogwai component can be created by implementing the [Component][traitcomponent]
+trait for any type. That type is the state. Its [Component::update][traitcomponent_methodupdate] function
+is the logic. The [Component::view][traitcomponent_methodview] function returns a builder that becomes the view
 (or views). There are a couple steps to set up the model-view-controller scenario:
 
-  1. Use [Gizmo::from][gizmo_from] to turn your state type into a [Gizmo][gizmo]
-     `let gizmo = Gizmo::from(my_data);`
+  1. Use [Gizmo::from][structgizmo_implfromt] to turn your state type into a [Gizmo][structgizmo]
+     ```rust,ignore
+     let gizmo = Gizmo::from(my_data);
+     ```
   2. Create a view using a builder from the gizmo
-     `let view = View::from(gizmo.view_builder());`
+     ```rust,ignore
+     let builder_ref: &ViewBuilder<_> = gizmo.view_builder();
+     let view = View::from(builder_ref);
+     ```
   3. Run the view and communicate with it using the gizmo
      ```rust,ignore
      view.run().unwrap_throw();
@@ -85,6 +108,4 @@ pub fn main() -> Result<(), JsValue> {
 }
 ```
 
-[component]:_
-[gizmo_component]:_
-[gizmo]:_
+{{#include reflinks.md}}

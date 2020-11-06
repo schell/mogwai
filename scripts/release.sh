@@ -1,5 +1,4 @@
 #! /bin/bash
-set -e
 
 ROOT="$(git rev-parse --show-toplevel)"
 . $ROOT/scripts/common.sh
@@ -7,25 +6,28 @@ ROOT="$(git rev-parse --show-toplevel)"
 TOKEN=$1
 SLEEP="10s"
 
-echo "publishing mogwai-html-macro"
-cd $ROOT
-cd crates/mogwai-html-macro
-cargo publish --token $TOKEN
-sleep $SLEEP
-echo "  done!"
+publish() {
+    DIR=$1
+    CRATE=`echo $DIR | cut -d'/' -f2-`
+    echo "publishing $CRATE from $DIR"
+    cargo search $CRATE
+    cd $ROOT
+    cd $DIR
+    cargo publish --token $TOKEN
+    if [ "$?" = "101" ]; then
+        echo "  no dice!"
+    else
+        sleep $SLEEP
+        echo "  done!"
+    fi
+    cd $ROOT
+}
 
-echo "publishing mogwai"
-cd $ROOT
-cd mogwai
-cargo publish --token $TOKEN
-sleep $SLEEP
-echo "  done!"
+DIRS="crates/mogwai-html-macro mogwai crates/mogwai-hydrator"
 
-echo "publishing mogwai-hydrator"
-cd $ROOT
-cd crates/mogwai-hydrator
-cargo publish --token $TOKEN
-echo "  done!"
+for DIR in $DIRS; do
+    publish $DIR
+done
 
 cd $ROOT
 mdbook build cookbook

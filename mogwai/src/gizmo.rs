@@ -1,3 +1,10 @@
+//! A `Gizmo` turns implementors of [`Component`] into something useful.
+//!
+//! Converting an implementor of [`Component`] into a `Gizmo` wires up
+//! the transmitter of the `Gizmo` to the state's [Component::update]
+//! function and its [`View`].
+//!
+//! Use the [`Gizmo::view_builder`] function to
 use std::{
     cell::{Ref, RefCell},
     rc::Rc,

@@ -1,7 +1,7 @@
 # Nesting components
 Naturally your app will likely nest components. The simplest way to nest components is by
-maintaining a [Gizmo](gizmo) in your component. Then spawn a builder from that sub-component field in your
-component's [Gizmo::view](gizmo_view) function to add the sub-component's view to your component's DOM.
+maintaining a [Gizmo][structgizmo] in your component. Then spawn a builder from that sub-component field in your
+component's [Component::view][traitcomponent_methodview] function to add the sub-component's view to your component's DOM.
 
 ```rust
 extern crate mogwai;
@@ -117,3 +117,5 @@ pub fn main() -> Result<(), JsValue> {
     }
 }
 ```
+
+{{#include reflinks.md}}

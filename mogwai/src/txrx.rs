@@ -428,9 +428,9 @@ impl<A: 'static> Transmitter<A> {
         self.responders.send(a);
     }
 
-    /// Execute a future that results in a message, then send it. wasm32 spawns
-    /// a local execution context to drive the Future to completion, outside of
-    /// wasm32 (e.g. during SSR) this is not implemented.
+    /// Execute a future that results in a message, then send it. `wasm32` spawns
+    /// a local execution context to drive the `Future` to completion, outside of
+    /// `wasm32` (e.g. during server-side rendering) this is not implemented.
     ///
     /// ### Notes
     ///
