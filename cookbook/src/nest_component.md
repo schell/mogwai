@@ -1,5 +1,6 @@
 # Nesting components
-Naturally your app will likely nest components. The simplest way to nest components is by
+A type implementing [Component][traitcomponent] is a node in a user interface graph.
+This type will naturally contain other types that represent other nodes in the graph.
 maintaining a [Gizmo][structgizmo] in your component. Then spawn a builder from that sub-component field in your
 component's [Component::view][traitcomponent_methodview] function to add the sub-component's view to your component's DOM.
 

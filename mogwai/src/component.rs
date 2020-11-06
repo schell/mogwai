@@ -1,4 +1,4 @@
-//! Elmesque components through model and view message passing.
+//! Reactive component trees using two way model and view message passing.
 //!
 //! Sometimes an application can get so entangled that it's hard to follow the
 //! path of messages through `Transmitter`s, `Receiver`s and fold functions. For
