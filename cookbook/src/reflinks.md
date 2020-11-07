@@ -9,6 +9,7 @@
 [traitcomponent_methodview]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/trait.Component.html#tymethod.view
 [traitcomponent_atypemodelmsg]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/trait.Component.html#associatedtype.ModelMsg
 [traitcomponent_atypeviewmsg]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/trait.Component.html#associatedtype.ViewMsg
+[traitcomponent_atypedomnode]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/trait.Component.html#associatedtype.DomNode
 
 [structtransmitter]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/txrx/struct.Transmitter.html
 
@@ -16,3 +17,5 @@
 
 [structsubscriber]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/subscriber/struct.Subscriber.html
 [structsubscriber_methodsend_async]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/subscriber/struct.Subscriber.html#method.send_async
+
+[enumpatch]: http://127.0.0.1:8887/mogwai/view/interface/enum.Patch.html

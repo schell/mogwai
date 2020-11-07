@@ -1,4 +1,4 @@
-# Introducing RSX
+# Rust Syntax Extension
 
 Consider this variable declaration:
 
@@ -17,24 +17,107 @@ use mogwai::prelude::*;
 let my_builder: ViewBuilder<HtmlElement> = builder!{ <h1>"Hello, world!"</h1> };
 let my_view: View<HtmlElement> = view!{ <h1>"Hello, world!"</h1> };
 
-let my_identical_view: View<HtmlElement> = View::from(my_builder);
+let my_identical_view: View<HtmlElement> = View::from(&my_builder);
 ```
 
-We recommend using these macros in mogwai to describe what the UI should look like.
-RSX cuts down on the amount of boilerplate you have to type when describing the UI.
+We recommend using these macros in mogwai to describe the DOM nodes used by your
+components.
+RSX cuts down on the amount of boilerplate you have to type when writing components.
 RSX may remind you of a template language, but it comes with the full power of Rust.
 
 ## Tags
+You may use any tags you wish when writing RSX.
 
+```html
+builder! {
+    <p>"Once upon a time in a galaxy far, far away..."</p>
+}
+```
 ## Attributes
+Adding attributes happens the way you expect it to.
+```html
+builder! {
+    <p id="starwars">"Once upon a time in a galaxy far, far away..."</p>
+}
+```
+All html attributes are supported.
+
+### Special Mogwai Attributes
+Additionally there are some `mogwai` specific
+attributes that do special things. These are all denoted with two words separated by
+a colon.
+
+- **style:{name}** `= {expr: Into<Effect<String>>}`
+
+  Declares a single style.
+  ```rust,no_run
+  builder! {
+      <a href="#burritos" style:border="1px dashed #333">"link"</a>
+  }
+  ```
+
+- **on:{event}** `= {tx: &Transmitter<Event>}`
+
+  Declares that the element's matching events should be sent on the given transmitter.
+  ```rust,no_run
+  let (tx, _rx) = txrx::<()>();
+  builder! {
+      <div on:click=tx.contra_map(|_:&Event| ())>"Click me!"</div>
+  }
+  ```
+
+- **window:{event}** = `= {tx: &Transmitter<Event>}`
+
+  Declares that the windows's matching events should be sent on the given transmitter.
+  ```rust,no_run
+  let (tx, rx) = txrx::<()>();
+  builder! {
+      <div window:load=tx.contra_map(|_:&Event| ())>{rx.branch_map(|_:&()| "Loaded!")}</div>
+  }
+  ```
+
+
+- **document:{event}** = `= {tx: &Transmitter<Event>}`
+
+  Declares that the document's matching events should be sent on the given transmitter.
+  ```rust,no_run
+  let (tx, rx) = txrx::<Event>();
+  builder! {
+      <div document:keyup=tx>{rx.branch_map(|ev| format!("{:#?}"))}</div>
+  }
+  ```
+
+- **boolean:{name}** `= {expr: Into<Effect<bool>}`
+
+  Declares a boolean attribute with the given name.
+  ```rust,no_run
+  builder! {
+      <input boolean:checked=true />
+  }
+  ```
+
+- **patch:children `= {expr: Receiver<Patch<View<_>>>}`
+
+  Declares that this element's children will be updated with [Patch][enumpatch] messages received on
+  the given [Receiver][structreceiver].
+
+- **cast:type** `= web_sys::{type}`
+
+  Declares that this element's underlying [DomNode][traitcomponent_atypedomnode] is the given type.
+  ```rust,no_run
+  let my_input: ViewBuilder<web_sys::HtmlInputElement> = builder! {
+        <input cast:type=web_sys::HtmlInputElement />
+  };
+  ```
 
 ## Transmitters, Receivers and Effects
+[Transmitters][structtransmitter] can be used in attributes that transmit events.
 
 ## Expressions
+Rust expressions can be used as the values of attributes and as child nodes.
 
 ## Casting the inner DOM element
-
-You can cast the inner DOM element using the special attribute `type:cast`:
+You can cast the inner DOM element of a `View` or `ViewBuilder` using the special attribute `cast:type`:
 
 ```rust
 use mogwai::prelude::*;
@@ -220,3 +303,5 @@ fn signed_in_view_builder(
     }
 }
 ```
+
+{{#include reflinks.md}}
