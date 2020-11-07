@@ -3,7 +3,6 @@
 ROOT="$(git rev-parse --show-toplevel)"
 . $ROOT/scripts/common.sh
 
-cargo build || exit 1
 for DIR in examples/*/
 do
     echo ""

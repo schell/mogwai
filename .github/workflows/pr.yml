@@ -19,10 +19,10 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-all-refs/heads/master
           ${{ runner.os }}-cargo-all-
-    - name: build
-      run: scripts/build.sh
     - name: test
       run: scripts/test.sh
+    - name: build
+      run: scripts/build.sh
 
   cookbook:
     runs-on: ubuntu-latest
