@@ -3,7 +3,7 @@
 Consider this variable declaration:
 
 ```rust
-use mogwai::prelude::*;
+# use mogwai::prelude::*;
 let element = builder!{ <h1>"Hello, world!"</h1> };
 ```
 
@@ -13,11 +13,11 @@ The macro `builder!` is using RSX, which is a "**R**ust **S**yntax E**x**tension
 Similarly there is a `view!` macro that creates `View<HtmlElement>`.
 
 ```rust
-use mogwai::prelude::*;
+# use mogwai::prelude::*;
 let my_builder: ViewBuilder<HtmlElement> = builder!{ <h1>"Hello, world!"</h1> };
 let my_view: View<HtmlElement> = view!{ <h1>"Hello, world!"</h1> };
 
-let my_identical_view: View<HtmlElement> = View::from(&my_builder);
+let my_identical_view: View<HtmlElement> = View::from(my_builder);
 ```
 
 We recommend using these macros in mogwai to describe the DOM nodes used by your
@@ -29,6 +29,7 @@ RSX may remind you of a template language, but it comes with the full power of R
 You may use any tags you wish when writing RSX.
 
 ```html
+# use mogwai::prelude::*;
 builder! {
     <p>"Once upon a time in a galaxy far, far away..."</p>
 }
@@ -36,6 +37,7 @@ builder! {
 ## Attributes
 Adding attributes happens the way you expect it to.
 ```html
+# use mogwai::prelude::*;
 builder! {
     <p id="starwars">"Once upon a time in a galaxy far, far away..."</p>
 }
@@ -44,36 +46,39 @@ All html attributes are supported.
 
 ### Special Mogwai Attributes
 Additionally there are some `mogwai` specific
-attributes that do special things. These are all denoted with two words separated by
+attributes that do special things. These are all denoted by two words separated by
 a colon.
 
 - **style:{name}** `= {expr: Into<Effect<String>>}`
 
   Declares a single style.
   ```rust,no_run
-  builder! {
+  # use mogwai::prelude::*;
+  let _ = builder! {
       <a href="#burritos" style:border="1px dashed #333">"link"</a>
-  }
+  };
   ```
 
 - **on:{event}** `= {tx: &Transmitter<Event>}`
 
   Declares that the element's matching events should be sent on the given transmitter.
   ```rust,no_run
+  # use mogwai::prelude::*;
   let (tx, _rx) = txrx::<()>();
-  builder! {
+  let _ = builder! {
       <div on:click=tx.contra_map(|_:&Event| ())>"Click me!"</div>
-  }
+  };
   ```
 
 - **window:{event}** = `= {tx: &Transmitter<Event>}`
 
   Declares that the windows's matching events should be sent on the given transmitter.
   ```rust,no_run
+  # use mogwai::prelude::*;
   let (tx, rx) = txrx::<()>();
-  builder! {
-      <div window:load=tx.contra_map(|_:&Event| ())>{rx.branch_map(|_:&()| "Loaded!")}</div>
-  }
+  let _ = builder! {
+      <div window:load=tx.contra_map(|_:&Event| ())>{rx.branch_map(|_:&()| "Loaded!".to_string())}</div>
+  };
   ```
 
 
@@ -81,40 +86,107 @@ a colon.
 
   Declares that the document's matching events should be sent on the given transmitter.
   ```rust,no_run
+  # use mogwai::prelude::*;
   let (tx, rx) = txrx::<Event>();
-  builder! {
-      <div document:keyup=tx>{rx.branch_map(|ev| format!("{:#?}"))}</div>
-  }
+  let _ = builder! {
+      <div document:keyup=tx>{rx.branch_map(|ev| format!("{:#?}", ev))}</div>
+  };
   ```
 
 - **boolean:{name}** `= {expr: Into<Effect<bool>}`
 
   Declares a boolean attribute with the given name.
   ```rust,no_run
-  builder! {
+  # use mogwai::prelude::*;
+  let _ = builder! {
       <input boolean:checked=true />
-  }
+  };
   ```
 
-- **patch:children `= {expr: Receiver<Patch<View<_>>>}`
+- **patch:children** `= {expr: Receiver<Patch<View<_>>>}`
 
   Declares that this element's children will be updated with [Patch][enumpatch] messages received on
   the given [Receiver][structreceiver].
+  ```rust
+  # use mogwai::prelude::*;
+  let (tx, rx) = txrx();
+  let my_view = view! {
+      <div id="main" patch:children=rx>"Waiting for a patch message..."</div>
+  };
+  tx.send(&Patch::RemoveAll);
+
+  let other_view = view! {
+      <h1>"Hello!"</h1>
+  };
+  tx.send(&Patch::PushBack { value: other_view });
+
+  assert_eq!(my_view.html_string(), r#"<div id="main"><h1>Hello!</h1></div>"#);
+  ```
 
 - **cast:type** `= web_sys::{type}`
 
   Declares that this element's underlying [DomNode][traitcomponent_atypedomnode] is the given type.
   ```rust,no_run
+  # use mogwai::prelude::*;
   let my_input: ViewBuilder<web_sys::HtmlInputElement> = builder! {
         <input cast:type=web_sys::HtmlInputElement />
   };
   ```
 
 ## Transmitters, Receivers and Effects
-[Transmitters][structtransmitter] can be used in attributes that transmit events.
+[Transmitter][structtransmitter]s and [Receiver][structreceiver]s are the key to reactivity in
+`mogwai`.
+
+### Transmitters
+
+[Transmitter][structtransmitter]s are given to a [View][structview] so that [View][structview]
+can transmit DOM events out to any [Receiver][structreceiver]s. In most cases the
+[Receiver][structreceiver] will be wired to the [Component::update][traitcomponent_methodupdate]
+function. In turn, this function can send messages back out to that same [View][structview]'s
+[Receiver][structreceiver]s.
+
+### Receivers
+
+[Receiver][structreceiver]s are responsible for the majority of DOM updates. It's possible to
+patch the DOM by hand in the [Component::update][traitcomponent_methodupdate] function but in
+most cases it's not necessary. [Receiver][structreceiver]s can be used as attribute values and
+child nodes. When a message is received, that attribute will update its value, or that child node
+will be replaced with the new message value.
+
+### Effects
+An [Effect][enumeffect] is either a value now or some values later, or both. We can declare
+text nodes and attributes to have a value now and some values later using anything that can
+be converted into an [Effect][enumeffect]. In most cases we'll use a tuple:
+```rust,no_run
+# use mogwai::prelude::*;
+let (tx, rx_later) = txrx();
+let _ = builder! {
+    <div>
+      <p>{("Value now!", rx_later.clone())}</p>
+      <p>{"Only a value now!"}</p>
+      <p>{rx_later}</p>
+    </div>
+};
+tx.send(&"Value later".to_string());
+```
 
 ## Expressions
 Rust expressions can be used as the values of attributes and as child nodes.
+```rust,no_run
+# use mogwai::prelude::*;
+let is_cool = true;
+let _ = builder! {
+    <div>
+        {
+            if !is_cool {
+                "This is hot."
+            } else {
+                "This is cool."
+            }
+        }
+    </div>
+};
+```
 
 ## Casting the inner DOM element
 You can cast the inner DOM element of a `View` or `ViewBuilder` using the special attribute `cast:type`:

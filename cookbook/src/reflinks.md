@@ -18,4 +18,6 @@
 [structsubscriber]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/subscriber/struct.Subscriber.html
 [structsubscriber_methodsend_async]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/subscriber/struct.Subscriber.html#method.send_async
 
-[enumpatch]: http://127.0.0.1:8887/mogwai/view/interface/enum.Patch.html
+[enumpatch]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/interface/enum.Patch.html
+
+[enumeffuct]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/enum.Effect.html
