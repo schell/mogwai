@@ -1,5 +1,7 @@
 [structviewbuilder]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/builder/struct.ViewBuilder.html
 
+[structview]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/dom/struct.View.html
+
 [structgizmo]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/gizmo/struct.Gizmo.html
 [structgizmo_implfromt]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/gizmo/struct.Gizmo.html#impl-From%3CT%3E
 
@@ -20,4 +22,4 @@
 
 [enumpatch]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/interface/enum.Patch.html
 
-[enumeffuct]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/enum.Effect.html
+[enumeffect]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/enum.Effect.html
