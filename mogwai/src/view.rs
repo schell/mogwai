@@ -1,4 +1,4 @@
-//! Views
+//! Dynamic, declarative views.
 use std::{cell::RefCell, rc::Rc};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 pub use web_sys::{Element, Event, EventTarget};
@@ -11,9 +11,9 @@ pub mod interface;
 
 /// `Effect`s describe a value right now or at many points in the future - or both.
 ///
-/// [`View`]s use `Effect`s to change attributes, styles and inner text.
+/// `Effect`s are used to change attributes, styles and inner text.
 ///
-/// An `Effect` can be created from a single value, a [`Receiver`] or a tuple of the
+/// An `Effect` can be created from either a single value, a [`Receiver`] or a tuple of the
 /// two.
 pub enum Effect<T> {
     OnceNow { now: T },

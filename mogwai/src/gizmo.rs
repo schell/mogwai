@@ -1,10 +1,10 @@
 //! A `Gizmo` turns implementors of [`Component`] into something useful.
 //!
 //! Converting an implementor of [`Component`] into a `Gizmo` wires up
-//! the transmitter of the `Gizmo` to the state's [Component::update]
-//! function and its [`View`].
+//! a set of [`Transmitter`]s and [`Receiver`]s into the `Gizmo`'s
+//! [Component::update] function.
 //!
-//! Use the [`Gizmo::view_builder`] function to
+//! For more info see [the Component module documentation][crate::component].
 use std::{
     cell::{Ref, RefCell},
     rc::Rc,
@@ -117,11 +117,12 @@ impl<T: Component> From<T> for Gizmo<T> {
 /// The type of function that uses a txrx pair and returns a View.
 pub type BuilderFn<T, D> = dyn Fn(&Transmitter<T>, &Receiver<T>) -> ViewBuilder<D>;
 
-/// A simple component made from a [BuilderFn].
+/// A simple component made from a [`BuilderFn`].
 ///
 /// Any function that takes a transmitter and receiver of the same type and
-/// returns a [View] can be made into a component that holds no internal
-/// state. It forwards all of its incoming messages to its view.
+/// returns a [`ViewBuilder`][crate::view::builder::ViewBuilder] can be made
+/// into a component that holds no internal state. It forwards all of its
+/// incoming messages to its view.
 ///
 /// ```rust,no_run
 /// extern crate mogwai;

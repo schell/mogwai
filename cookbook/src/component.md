@@ -56,6 +56,12 @@ To these ends there are two [Component][traitcomponent] methods that you must im
    [rx: &Receiver\<Self::ViewMsg\>][structreceiver] the return [ViewBuilder][structviewbuilder]
    can receive messages from the component and patch the DOM accordingly.
 
+   It should be noted that this function is typically run only once during view construction.
+   > For folks coming from other libraries (ahem, React) this looks very much like the render
+   > function but that's not how mogwai works. The `Component::view` function is like a
+   > "setup" function that describes initial state (the RSX) and how it will update (via Receivers).
+   > -- [bryanjswift](https://github.com/bryanjswift)
+
 ## Example
 
 ```rust

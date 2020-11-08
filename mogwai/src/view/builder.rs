@@ -204,7 +204,7 @@ impl<T: IsDomNode + AsRef<Node>> From<ViewBuilder<T>> for View<T> {
     }
 }
 
-/// # [`From`] instances for [`Hydrator`]
+/// # [`From`] instances for [`ViewBuilder`].
 ///
 /// Most of these mimic the corresponding [`From`] instances for [`View`],
 /// the rest are here for the operation of this module.

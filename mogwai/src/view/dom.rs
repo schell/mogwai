@@ -631,11 +631,12 @@ impl<T: IsDomNode + AsRef<Node>> TryFrom<Option<View<T>>> for View<T> {
 /// * String, str etc get converted into [`View<Text>`] - ie text nodes,
 ///   with their initial inner text set to the input string.
 /// * Receiver<String> get converted into [`View<Text>`] with their
-///   inner text set by the receiver.
+///   inner text initially empty and then later set by the messages sent to the
+///   receiver.
 /// * Effect<String> gets converted into [`View<Text>`] with possibly
 ///   an initial string and updates through the receiver.
 /// * Any raw DOM element `T` gets wrapped by a view to make [`View<T>`]
-/// * [`Gizmo<C>`] returns its view, a [`View<<C::as Component>::DomNode>`].
+/// * [`Gizmo<C>`] returns its view, a `View<<C::as Component>::DomNode>`.
 
 impl From<Effect<String>> for View<Text> {
     fn from(eff: Effect<String>) -> Self {

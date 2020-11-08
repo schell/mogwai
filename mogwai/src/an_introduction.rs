@@ -199,16 +199,6 @@
 //! is the [`JsCast`](../prelude/trait.JsCast.html) trait. Its `dyn_into` and
 //! `dyn_ref` functions are the primary way to cast JavaScript values as specific
 //! types.
-//!
-//! [`builder!`]: builder
-//! [`view!`]: view
-//! [`View::run`]: View::method@run
-//! [`View`]: struct@View
-//! [`ViewBuilder`]: struct@ViewBuilder
-//! [`Transmitter<T>`]: struct@Transmitter
-//! [`Receiver<T>`]: struct@Receiver
-//! [`HtmlElement`]: struct@HtmlElement
-//! [`Component`]: trait@Component
 use super::prelude::*;
 use crate as mogwai;
 

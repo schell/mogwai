@@ -1,3 +1,4 @@
+//! RSX for building mogwai DOM nodes.
 use proc_macro2::Span;
 use quote::quote;
 use syn::Error;
@@ -209,20 +210,55 @@ fn walk_dom(
 }
 
 #[proc_macro]
-/// Uses an html description to construct a [`View`].
+/// Uses an html description to construct a `View`.
+///
+/// ```rust
+/// # extern crate mogwai;
+/// use mogwai::prelude::*;
+///
+/// let my_div = view! {
+///     <div id="main">
+///         <p>"Trolls are real"</p>
+///     </div>
+/// };
+/// ```
 pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(walk_dom(input, node_to_view_token_stream))
 }
 
 #[proc_macro]
-/// Uses an html description to construct a [`Hydrator`], which can then be converted
-/// into a [`View`] with [`std::convert::TryFrom`].
+/// Uses an html description to construct a `Hydrator`, which can then be converted
+/// into a `View` with [`std::convert::TryFrom`].
+///
+/// ```rust
+/// # extern crate mogwai;
+/// # extern crate mogwai_hydrator;
+/// use mogwai::prelude::*;
+/// use mogwai_hydrator::Hydrator;
+///
+/// let my_div = hydrate! {
+///     <div id="main">
+///         <p>"Trolls are real"</p>
+///     </div>
+/// };
+/// ```
 pub fn hydrate(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(walk_dom(input, node_to_hydrateview_token_stream))
 }
 
 #[proc_macro]
-/// Uses an html description to construct a [`ViewBuilder`].
+/// Uses an html description to construct a `ViewBuilder`.
+///
+/// ```rust
+/// # extern crate mogwai;
+/// use mogwai::prelude::*;
+///
+/// let my_div = builder! {
+///     <div id="main">
+///         <p>"Trolls are real"</p>
+///     </div>
+/// };
+/// ```
 pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(walk_dom(input, node_to_builder_token_stream))
 }
