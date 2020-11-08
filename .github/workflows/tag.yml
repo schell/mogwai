@@ -1,9 +1,11 @@
-name: "on pull request"
+name: "on tag"
 
-on: pull_request
+on:
+  push:
+    tags: v*.*.*
 
 jobs:
-  test-and-build-mogwai:
+  publish-crates-on-tag:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
@@ -19,13 +21,11 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-all-refs/heads/master
           ${{ runner.os }}-cargo-all-
-    - name: test
-      run: scripts/test.sh
-    - name: build
-      run: scripts/build.sh
 
-  test-and-build-cookbook:
-    runs-on: ubuntu-latest
+    - name: "publish crates to crates-io"
+      run: scripts/release.sh ${{ secrets.cargo_token }}
+
+  publish-cookbook-on-tag:
     steps:
     - uses: actions/checkout@v1
     # caching
@@ -35,10 +35,11 @@ jobs:
         path: |
           ~/.cargo
           /usr/share/rust/.cargo/bin
-        key: ${{ runner.os }}-cargo-cookbook-${{ github.ref }}
+        key: ${{ runner.os }}-cargo-all-${{ github.ref }}
         restore-keys: |
           ${{ runner.os }}-cargo-cookbook-refs/heads/master
           ${{ runner.os }}-cargo-cookbook-
           ${{ runner.os }}-cargo-all-
-    - name: test
-      run: scripts/test_cookbook.sh
+
+    - name: "publish cookbook to zyghost.com"
+      run: scripts/release_cookbook.sh

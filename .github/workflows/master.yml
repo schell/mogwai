@@ -1,11 +1,11 @@
-name: "on release"
+name: "on push master"
 
 on:
   push:
-    tags: v*.*.*
+    branches: master
 
 jobs:
-  mogwai:
+  publish-cookbook-on-master:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
@@ -16,11 +16,10 @@ jobs:
         path: |
           ~/.cargo
           /usr/share/rust/.cargo/bin
-          target
-        key: ${{ runner.os }}-cargo-all-${{ github.ref }}
+        key: ${{ runner.os }}-cargo-cookbook-${{ github.ref }}
         restore-keys: |
-          ${{ runner.os }}-cargo-all-refs/heads/master
+          ${{ runner.os }}-cargo-cookbook-refs/heads/master
+          ${{ runner.os }}-cargo-cookbook-
           ${{ runner.os }}-cargo-all-
-
-    - name: "release to crates-io"
-      run: scripts/release.sh ${{ secrets.cargo_token }}
+    - name: test
+      run: scripts/release_cookbook.sh

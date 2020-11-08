@@ -3,10 +3,10 @@ authors = ["Schell Carl Scivally"]
 language = "en"
 multilingual = false
 src = "src"
-title = "The Mogwai Cookbook"
+title = "Cooking with Mogwai"
 
 [preprocessor.variables.variables]
-mogwai_docs_version = "0.3.0"
+mogwai_docs_version = "0.3.1"
 
 [output.html]
 

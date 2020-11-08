@@ -35,7 +35,3 @@ DIRS="crates/mogwai-html-macro mogwai crates/mogwai-hydrator"
 for DIR in $DIRS; do
     publish $DIR
 done
-
-cd $ROOT
-mdbook build cookbook
-aws s3 sync cookbook/book s3://zyghost.com/guides/mogwai-cookbook --acl public-read
