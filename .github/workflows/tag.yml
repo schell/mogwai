@@ -26,6 +26,7 @@ jobs:
       run: scripts/release.sh ${{ secrets.cargo_token }}
 
   publish-cookbook-on-tag:
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
     # caching
@@ -38,7 +39,6 @@ jobs:
         key: ${{ runner.os }}-cargo-all-${{ github.ref }}
         restore-keys: |
           ${{ runner.os }}-cargo-all-refs/heads/master
-          ${{ runner.os }}-cargo-all-
           ${{ runner.os }}-cargo-all-
 
     - name: "publish cookbook to zyghost.com"
