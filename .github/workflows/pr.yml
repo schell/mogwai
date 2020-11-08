@@ -39,6 +39,5 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-cookbook-refs/heads/master
           ${{ runner.os }}-cargo-cookbook-
-          ${{ runner.os }}-cargo-all-
     - name: test
       run: scripts/test_cookbook.sh

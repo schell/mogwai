@@ -12,49 +12,80 @@ use crate::{
     view::interface::*,
 };
 
+/// Attribute declaration variants.
 #[derive(Clone)]
 pub enum AttributeCmd {
+    /// A named, value holding attribute.
     Attrib {
+        /// Attribute name.
         name: String,
+        /// Attribute value either now, later or both.
         effect: Effect<String>,
     },
+    /// A named, valueless attribute.
     Bool {
+        /// Attribute name.
         name: String,
+        /// Whether this attribute is extant now, later or both.
         effect: Effect<bool>,
     },
 }
 
+/// A single style declaration.
 #[derive(Clone)]
 pub struct StyleCmd {
+    /// Style name.
     pub name: String,
+    /// Style value now, later or both.
     pub effect: Effect<String>,
 }
 
+/// An event target declaration.
 #[derive(Clone)]
 pub enum EventTargetType {
+    /// This target is the view it is declared on.
     Myself,
+    /// This target is the window.
     Window,
+    /// This target is the document.
     Document,
 }
 
+/// A DOM event declaration.
 #[derive(Clone)]
 pub struct EventTargetCmd {
+    /// The target of the event.
+    /// In other words this is the target that a listener will be placed on.
     pub type_is: EventTargetType,
+    /// The event name.
     pub name: String,
+    /// The [`Transmitter`] that the event should be sent on.
     pub transmitter: Transmitter<Event>,
 }
 
 /// An un-built mogwai view.
+/// A ViewBuilder is the most generic view representation in the mogwai library.
+/// It is the zyghost of a view - the blueprints - everything needed to
+/// create, hydrate or serialized a view.
 #[derive(Clone)]
 pub struct ViewBuilder<T: IsDomNode> {
+    /// Tag name of the DOM element.
     pub element: Option<String>,
+    /// Namespace of the DOM element.
     pub ns: Option<String>,
+    /// This element's text if it is a text node.
     pub text: Option<Effect<String>>,
+    /// This view's attribute declarations.
     pub attribs: Vec<AttributeCmd>,
+    /// This view's style declarations.
     pub styles: Vec<StyleCmd>,
+    /// This view's declared events.
     pub events: Vec<EventTargetCmd>,
+    /// This view's post-build transmitters.
     pub posts: Vec<Transmitter<T>>,
+    /// This view's child patch receivers.
     pub patches: Vec<Receiver<Patch<View<Node>>>>,
+    /// This view's children.
     pub children: Vec<ViewBuilder<Node>>,
 }
 
@@ -75,6 +106,7 @@ impl<T: IsDomNode> Default for ViewBuilder<T> {
 }
 
 impl<T: IsDomNode + AsRef<Node>> ViewBuilder<T> {
+    /// Upcast the builder's inner DomNode to [`web_sys::Node`].
     pub fn to_node(self) -> ViewBuilder<Node> {
         ViewBuilder {
             element: self.element,

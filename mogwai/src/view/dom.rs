@@ -36,6 +36,7 @@ pub struct MogwaiCallback {
 }
 
 impl MogwaiCallback {
+    /// Create a new callback from a rust FnMut closure.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn new<F>(f: F) -> Self
     where
@@ -413,6 +414,8 @@ impl<T: IsDomNode> View<T> {
         self.internals.borrow().slots.len()
     }
 
+    /// Create a server side rendering node from this View.
+    /// Instead of using this, consider [`View::html_string`].
     #[cfg(not(target_arch = "wasm32"))]
     pub fn as_ssr_node(&self) -> SsrNode {
         let internals = self.internals.borrow();
@@ -453,6 +456,12 @@ impl<T: IsDomNode> View<T> {
         }
     }
 
+    /// A string value of this View.
+    /// This is equivalent to `Element.outerHtml` in JS.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn html_string(&self) -> String {
+        String::from(self.as_ssr_node())
+    }
     #[cfg(target_arch = "wasm32")]
     pub fn html_string(&self) -> String {
         let value: Ref<JsValue> = Ref::map(self.internals.borrow(), |internals| {
@@ -471,15 +480,15 @@ impl<T: IsDomNode> View<T> {
             value
         );
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn html_string(&self) -> String {
-        String::from(self.as_ssr_node())
-    }
 
     /// Create a new `View` wrapping a `T` that can be dereferenced to a `Node`.
     ///
     /// # Panics
     /// Panics if used outside of a wasm32 target.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn wrapping(_element: T) -> View<T> {
+        panic!("View::wrapping is only available on wasm32")
+    }
     #[cfg(target_arch = "wasm32")]
     pub fn wrapping(element: T) -> View<T> {
         let mut internals = ViewInternals::default();
@@ -490,16 +499,19 @@ impl<T: IsDomNode> View<T> {
             internals: Rc::new(RefCell::new(internals)),
         }
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn wrapping(_element: T) -> View<T> {
-        panic!("View::wrapping is only available on wasm32")
-    }
 
+    /// Attempt to cast the view.
     /// # Note
     /// On wasm32 this performs a check on the inner element to determine if the
     /// element can be downcast to the desired type. On other compilation targets
     /// this function always returns Ok.
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn try_cast<To: IsDomNode>(self) -> Result<View<To>, Self> {
+        let mut view: View<To> = View::default();
+        view.internals = self.internals;
+        Ok(view)
+    }
+   #[cfg(target_arch = "wasm32")]
     pub fn try_cast<To: IsDomNode>(self) -> Result<View<To>, Self> {
         if self.internals.borrow().element.has_type::<To>() {
             Ok(View {
@@ -509,12 +521,6 @@ impl<T: IsDomNode> View<T> {
         } else {
             Err(self)
         }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn try_cast<To: IsDomNode>(self) -> Result<View<To>, Self> {
-        let mut view: View<To> = View::default();
-        view.internals = self.internals;
-        Ok(view)
     }
 
     /// Cast the given View to contain the inner DOM node of another type.
@@ -577,10 +583,7 @@ impl<T: IsDomNode + AsRef<Node>> View<T> {
 }
 
 impl View<Text> {
-    #[cfg(target_arch = "wasm32")]
-    pub fn text(text: &str) -> View<Text> {
-        View::wrapping(Text::new_with_data(text).expect("could not create text"))
-    }
+    /// Create a new text node View.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn text(text: &str) -> View<Text> {
         let mut internals = ViewInternals::default();
@@ -599,7 +602,12 @@ impl View<Text> {
             internals: Rc::new(RefCell::new(internals)),
         }
     }
+    #[cfg(target_arch = "wasm32")]
+    pub fn text(text: &str) -> View<Text> {
+        View::wrapping(Text::new_with_data(text).expect("could not create text"))
+    }
 
+    /// Use the given receiver to update this text node View's text.
     pub fn rx_text(&mut self, rx: Receiver<String>) {
         if cfg!(target_arch = "wasm32") {
             let text: Text = self.dom_ref().clone();

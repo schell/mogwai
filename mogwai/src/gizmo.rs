@@ -18,10 +18,16 @@ use crate::{
     utils,
 };
 
-/// A widget and all of its pieces.
+/// A user interface component that can spawn views.
 pub struct Gizmo<T: Component> {
+    /// This gizmo's [`Component::ModelMsg`] transmitter.
+    /// Sending on this [`Transmitter`] causes its [`Component::update`]
+    /// function to run.
     pub trns: Transmitter<T::ModelMsg>,
+    /// This gizmo's [`Component::ViewMsg`] receiver.
+    /// Clones of this receiver are owned by all of this gizmo's views.
     pub recv: Receiver<T::ViewMsg>,
+    /// This gizmo's internal state.
     pub state: Rc<RefCell<T>>,
 }
 
@@ -141,6 +147,7 @@ pub type BuilderFn<T, D> = dyn Fn(&Transmitter<T>, &Receiver<T>) -> ViewBuilder<
 pub struct SimpleComponent<T, D: IsDomNode>(Box<BuilderFn<T, D>>);
 
 impl<T, D: IsDomNode> SimpleComponent<T, D> {
+    /// Create a new SimpleCopmonent form a static Fn closure.
     pub fn new<F>(f: F) -> Self
     where
         F: Fn(&Transmitter<T>, &Receiver<T>) -> ViewBuilder<D> + 'static,

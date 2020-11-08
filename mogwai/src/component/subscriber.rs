@@ -14,6 +14,7 @@ pub struct Subscriber<Msg> {
 }
 
 impl<Msg: Clone + 'static> Subscriber<Msg> {
+    /// Create a new Subscriber from a Transmitter.
     pub fn new(tx: &Transmitter<Msg>) -> Subscriber<Msg> {
         Subscriber { tx: tx.clone() }
     }
