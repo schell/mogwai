@@ -130,16 +130,16 @@
 //! `rx_b:Receiver<B>`, but we want to send `A`s on `tx_a` and have `B`s pop out
 //! of `rx_b`? We could use the machinery we have and write something like:
 //!
-//! ```rust, ignore
-//! extern crate mogwai;
+//! ```rust
+//! # extern crate mogwai;
 //! use mogwai::prelude::*;
 //!
 //! let (tx_a, rx_b) = {
-//!   let (tx_a, rx_a) = txrx();
-//!   let (tx_b, rx_b) = txrx();
-//!   let f = |a| { a.turn_into_b() };
+//!   let (tx_a, rx_a) = txrx::<u32>();
+//!   let (tx_b, rx_b) = txrx::<String>();
+//!   let f = |a: &u32| { format!("{}", a) };
 //!   rx_a.respond(move |a| {
-//!     tx_b.send(f(a));
+//!     tx_b.send(&f(a));
 //!   });
 //!   (tx_a, rx_b)
 //! };
@@ -190,7 +190,7 @@
 //! separately using [trns] and [recv] and then wire them together:
 //!
 //! ```rust
-//! extern crate mogwai;
+//! # extern crate mogwai;
 //! use mogwai::prelude::*;
 //!
 //! let mut tx = trns::<()>();
@@ -213,7 +213,7 @@
 //! to the transmitter:
 //!
 //! ```rust
-//! extern crate mogwai;
+//! # extern crate mogwai;
 //! use mogwai::prelude::*;
 //!
 //! let (tx, rx) = txrx::<()>();
@@ -428,9 +428,9 @@ impl<A: 'static> Transmitter<A> {
         self.responders.send(a);
     }
 
-    /// Execute a future that results in a message, then send it. wasm32 spawns
-    /// a local execution context to drive the Future to completion, outside of
-    /// wasm32 (e.g. during SSR) this is not implemented.
+    /// Execute a future that results in a message, then send it. `wasm32` spawns
+    /// a local execution context to drive the `Future` to completion, outside of
+    /// `wasm32` (e.g. during server-side rendering) this is not implemented.
     ///
     /// ### Notes
     ///

@@ -1,4 +1,4 @@
-//! Interfaces for constructing declarative views.
+//! Traits for constructing declarative views.
 pub use web_sys::{Element, Event, EventTarget, HtmlElement};
 
 use crate::prelude::{Effect, Receiver, Transmitter};
@@ -76,11 +76,11 @@ pub trait EventTargetView {
     fn on(&mut self, ev_name: &str, tx: Transmitter<Event>);
 
     /// Transmit an event message on the given transmitter when the named event
-    /// happens on [`Window`].
+    /// happens on [`web_sys::Window`].
     fn window_on(&mut self, ev_name: &str, tx: Transmitter<Event>);
 
     /// Transmit an event message into the given transmitter when the named event
-    /// happens on [`Document`].
+    /// happens on [`web_sys::Document`].
     fn document_on(&mut self, ev_name: &str, tx: Transmitter<Event>);
 }
 
@@ -92,7 +92,7 @@ pub trait EventTargetView {
 /// builder function. For example, you may want to use `input.focus()` within the
 /// `update` function of your component. This method allows you to store the
 /// input `HtmlInputElement` once it is built, allowing you to use it as you see fit
-/// within your [`Component::update`] function.
+/// within your [`Component::update`][crate::component::Component::update] function.
 pub trait PostBuildView {
     type DomNode;
 

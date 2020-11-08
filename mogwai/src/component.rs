@@ -1,4 +1,4 @@
-//! Elmesque components through model and view message passing.
+//! Reactive component trees using two way model and view message passing.
 //!
 //! Sometimes an application can get so entangled that it's hard to follow the
 //! path of messages through `Transmitter`s, `Receiver`s and fold functions. For
@@ -19,20 +19,23 @@
 //! entire diffing phase of rendering DOM. This is where Mogwai gets its speed
 //! advantage.
 //!
-//! Instead of a virtual DOM Mogwai uses one more step in its model update. The
+//! Instead of a virtual DOM Mogwai uses channels to patch the DOM from afar. The
 //! [`Component::update`] method is given a [`Transmitter<Self::ViewMsg>`] with which
-//! to send _view update messages_. Messages sent on this transmitter will
-//! be sent out to the view to update the DOM. This forms a cycle. Messages
-//! come into the update function from the view which processes, updates state,
-//! and eventually sends messages out to the view, where they are used to update
+//! to send _view patching messages_. Messages sent on this transmitter will
+//! be sent out to the view to update the DOM (if that view chooses to). This forms a
+//! cycle:
+//! 1. Messages come into the update function from the view which processes the message,
+//! updates the state, and may send messages out to the view
+//! 2. Message come into the view from the update function where they are used to patch
 //! the DOM.
+//!
 //! In this way DOM updates are obvious. You know exactly where, when and
 //! why updates are made - both to the model and the view.
 //!
 //! Here is a minimal example of a [`Component`] that counts its own clicks.
 //!
-//! ```rust, no_run
-//! extern crate mogwai;
+//! ```rust
+//! # extern crate mogwai;
 //! use mogwai::prelude::*;
 //!
 //! #[derive(Clone)]
@@ -82,7 +85,12 @@
 //!
 //! pub fn main() -> Result<(), JsValue> {
 //!     let app = Gizmo::from(App{ num_clicks: 0 });
-//!     View::from(app).run()
+//!
+//!     if cfg!(target_arch = "wasm32") {
+//!         View::from(app).run()
+//!     } else {
+//!         Ok(())
+//!     }
 //! }
 //! ```
 //!
@@ -91,22 +99,47 @@
 //! trait method uses these message types to build the view. It does this by
 //! consuming a `Transmitter<Self::ModelMsg>` and a `Receiver<Self::ViewMsg>` and returning
 //! a [`ViewBuilder`].
-//! This channel represents the inputs and the outputs of your component. Roughly,
+//! These terminals represent the inputs and the outputs of your component. Roughly,
 //! `Self::ModelMsg` comes into the [`Component::update`] function and `Self::ViewMsg`s go out
 //! of the `update` function.
+//!
+//! ## Creating a component
+//!
+//! To use a component after writing its `Component` trait implementation we turn it into a
+//! [`Gizmo`]:
+//!
+//! ```rust, ignore
+//!     let app: Gizmo<App> = Gizmo::from(App{ num_clicks: 0 });
+//! ```
+//!
+//! [`Gizmo`]s can then be used to spawn a view, or can be converted into a view.
+//!
+//! ```rust, ignore
+//!     let view = View::from(app.view_builder());
+//! ```
+//!
+//! ```rust, ignore
+//!     let view = View::from(app);
+//! ```
 //!
 //! ## Communicating to components
 //!
 //! If your component is owned by another, the parent component can communicate to
-//! the child through its messages, either by calling [`Gizmo::update`]
-//! on the child component within its own `update` function or by subscribing to
+//! the child through its messages, either by calling [`Gizmo::send`]
+//! on the child component within its own update function or by subscribing to
 //! the child component's messages when the child component is created (see
 //! [`Subscriber`]).
 //!
 //! ## Placing components
 //!
-//! Gizmos may be used within a [`View`] using the
-//! [`ParentView::with`] function.
+//! A parent component may nest an in-scope component by placing a [`ViewBuilder`]
+//! or [`View`] inside the parent component's RSX:
+//! ```rust, ignore
+//! let child = builder! { <blockquote>"Fairies live"</blockquote> };
+//! let parent = builder! {
+//!     <div id="fairy_quote">{child}</div>
+//! };
+//! ```
 use wasm_bindgen::JsCast;
 use web_sys::Node;
 
@@ -127,12 +160,10 @@ where
     Self::ViewMsg: Clone,
     Self::DomNode: JsCast + AsRef<Node> + Clone,
 {
-    /// A model message comes out from the view through a tx_on function into your
-    /// component's update function.
+    /// Message type used to drive component state updates.
     type ModelMsg;
 
-    /// A view message comes out from your component's update function and changes
-    /// the view by being used in an rx_* function.
+    /// Message type used to drive view DOM patching.
     type ViewMsg;
 
     /// The type of [`web_sys::Node`] that represents the root of this component.
@@ -159,11 +190,14 @@ where
         rx: &Receiver<Self::ViewMsg>,
     ) -> ViewBuilder<Self::DomNode>;
 
-    /// Perform a one time binding from any child `Gizmo`s to this component's subscriber.
+    /// Used to perform any one-time binding from in scope [`Gizmo`]s to this component's subscriber.
     ///
     /// This should be used to bind sub-component view messages into this parent component's
     /// model messages in order to receive updates from child components. The default implementation
     /// is a noop.
+    ///
+    /// This function will be called only once, after a [`Gizmo`] is converted from the
+    /// type implementing `Component`.
     #[allow(unused_variables)]
     fn bind(&self, sub: &Subscriber<Self::ModelMsg>) {}
 }

@@ -1,6 +1,13 @@
 [book]
-authors = ["Schell"]
+authors = ["Schell Carl Scivally"]
 language = "en"
 multilingual = false
 src = "src"
 title = "The Mogwai Cookbook"
+
+[preprocessor.variables.variables]
+mogwai_docs_version = "0.3.0"
+
+[output.html]
+
+[output.linkcheck]

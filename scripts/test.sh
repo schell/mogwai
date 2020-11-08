@@ -12,6 +12,7 @@ then
     echo "Skipping headless wasm tests"
 else
     wasm-pack test --firefox --headless mogwai || exit 1
+    wasm-pack test --firefox --headless crates/mogwai-hydrator || exit 1
 fi
 
 echo "Done testing on ref ${GITHUB_REF}"

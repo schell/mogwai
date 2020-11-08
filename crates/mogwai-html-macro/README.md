@@ -1,5 +1,5 @@
 # mogwai-html-macro
-Provides procedural macro `view!`, which allows the use of RSX
+Provides procedural macros `builder!` and `view!`, which allow the use of RSX
 to declare mogwai views.
 
 Example - this RSX:
@@ -20,7 +20,7 @@ Example - this RSX:
     ).run()
 ```
 
-will generate this rust code:
+will roughly generate this rust code:
 
 ```rust
     (mogwai::gizmo::dom::View::element("footer") as View<web_sys::HtmlElement>)

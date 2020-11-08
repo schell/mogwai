@@ -1,29 +1,71 @@
 # Components
-A [Component][component] is a fold function (logic), a state variable and a [ViewBuilder][builder]
-all wrapped up in one, for your convenience!
+The [Component][traitcomponent] trait allows rust types to be used as a node
+in the DOM. These nodes are loosely referred to as components.
 
-## Creating a Component
-A mogwai component can be created by implementing the [Component][component]
-trait for any type. That type is the state. Its [Component::update][update] function
-is the logic. The [Component::view][view] function returns a builder that becomes the view
-(or views). There are a couple steps to set up the model-view-controller scenario:
+## Discussion
+A type that implements [Component][traitcomponent] is the state of a user
+interface element - for example we might use the following struct to express a
+component that keeps track of how many clicks a user has performed on a button.
+```rust
+struct ButtonCounter {
+    clicks: u32
+}
+```
+or `current_contents: String` to store what a
+user has entered into an input field. Another common pattern is to use a field like
+`items: Gizmo<String>` to be able to communicate with a list of subcopmonents (we'll go
+into more detail on that in the [subcomponents](nest_component.md) chapter).
 
-  1. Use [Gizmo::from][gizmo_from] to turn your state type into a [Gizmo][gizmo]
-     `let gizmo = Gizmo::from(my_data);`
-  2. Create a view using a builder from the gizmo
-     `let view = View::from(gizmo.view_builder());`
-  3. Run the view and communicate with it using the gizmo
-     ```rust,ignore
-     view.run().unwrap_throw();
-     gizmo.send(&MyMessage);
-     ```
+There are two basic concepts you must understand about components:
 
-Alternatively, if you don't have a need to communicate with your view you can create a view
-directly from the gizmo with `let view = View::from(gizmo);`.
+1. **State**
+   As described above, a component probably contains some stateful information which
+   determines how that component reacts to input messages (also known as your component's
+   [Self::ModelMsg][traitcomponent_atypemodelmsg] type).
+   In turn this determines when and if the component sends output messages (also known as
+   your component's [Self::ViewMsg][traitcomponent_atypeviewmsg]) to its view.
+2. **View**
+   A component describes the structure of its DOM, most likely using [RSX](rsx.md).
+   It also describes how messages received may change that view and when or if the view
+   sends input messages to update the component's state.
+
+To these ends there are two [Component][traitcomponent] methods that you must implement:
+
+1. **[Component::update][traitcomponent_methodupdate]**
+   This function is your component's logic. It receives an input message
+   [msg: &Self::ModelMsg][traitcomponent_atypemodelmsg] from the view or another
+   component and can update the component state using `&mut self`.
+   Within this function you can send messages out to the view using the provided
+   [tx: &Transmitter\<Self::ViewMsg\>][structtransmitter].
+   When the view receives these messages it will patch the DOM according to the
+   [Component::view][traitcomponent_methodview] function.
+
+   Also provided is a subscriber [sub: &Subscriber<ModelMsg>][structsubscriber] which
+   we'll talk more about in the [subcomponents](nest_component.md) chapter.
+   At this point it is good to note that
+   [with a `Subscriber` you can send async messages][structsubscriber_methodsend_async]
+   to `self` - essentially calling `self.update` when the async block yields. This is great for
+   sending off requests, for example, and then triggering a state update with the
+   response.
+
+2. **[Component::view][traitcomponent_methodview]**
+   This function uses a reference to the current state (in the form of `&self`) to return
+   its DOM representation: a [ViewBuilder][structviewbuilder]. With the
+   [tx: &Transmitter\<Self::ModelMsg\>][structtransmitter] the returned [ViewBuilder][structviewbuilder]
+   can send DOM events as messages to update the component state. With the
+   [rx: &Receiver\<Self::ViewMsg\>][structreceiver] the return [ViewBuilder][structviewbuilder]
+   can receive messages from the component and patch the DOM accordingly.
+
+   It should be noted that this function is typically run only once during view construction.
+   > For folks coming from other libraries (ahem, React) this looks very much like the render
+   > function but that's not how mogwai works. The `Component::view` function is like a
+   > "setup" function that describes initial state (the RSX) and how it will update (via Receivers).
+   > -- [bryanjswift](https://github.com/bryanjswift)
+
+## Example
 
 ```rust
 extern crate mogwai;
-extern crate web_sys;
 
 use mogwai::prelude::*;
 
@@ -46,6 +88,15 @@ impl Component for App {
   type ViewMsg = Out;
   type DomNode = HtmlElement;
 
+  fn update(&mut self, msg: &In, tx_view: &Transmitter<Out>, _sub: &Subscriber<In>) {
+    match msg {
+      In::Click => {
+        self.num_clicks += 1;
+        tx_view.send(&Out::DrawClicks(self.num_clicks));
+      }
+    }
+  }
+
   fn view(&self, tx: &Transmitter<In>, rx: &Receiver<Out>) -> ViewBuilder<HtmlElement> {
       builder!{
           <button on:click=tx.contra_map(|_| In::Click)>
@@ -62,29 +113,24 @@ impl Component for App {
           </button>
       }
   }
-
-  fn update(&mut self, msg: &In, tx_view: &Transmitter<Out>, _sub: &Subscriber<In>) {
-    match msg {
-      In::Click => {
-        self.num_clicks += 1;
-        tx_view.send(&Out::DrawClicks(self.num_clicks));
-      }
-    }
-  }
 }
 
 
-pub fn main() -> Result<(), JsValue> {
+fn main() {
     let gizmo: Gizmo<App> = Gizmo::from(App{ num_clicks: 0 });
-    let view = View::from(gizmo);
+    let view = View::from(gizmo.view_builder());
+
+    gizmo.send(&In::Click);
+    gizmo.send(&In::Click);
+    gizmo.send(&In::Click);
+
+    println!("{}", view.html_string());
+
+    // In wasm32 we can add the view to the window.body
     if cfg!(target_arch = "wasm32") {
-        view.run()
-    } else {
-        Ok(())
+        view.run().unwrap()
     }
 }
 ```
 
-[component]:_
-[gizmo_component]:_
-[gizmo]:_
+{{#include reflinks.md}}

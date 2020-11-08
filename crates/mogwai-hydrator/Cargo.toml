@@ -1,14 +1,15 @@
 [package]
 name = "mogwai-hydrator"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
 description = "View hydration for the mogwai library"
+license = "MIT"
 repository = "https://github.com/schell/mogwai"
-readme = "../../README.md"
-keywords = ["ui", "dom", "app", "reactive", "frontend"]
+readme = "README.md"
+keywords = ["ui", "dom", "hydration", "html"]
 categories = ["gui", "wasm", "web-programming"]
-
+documentation = "https://docs.rs/mogwai/"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -25,4 +26,14 @@ features = [
   "HtmlElement",
   "Node",
   "Text",
+]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.17"
+wasm-bindgen-futures = "^0.4"
+
+[dev-dependencies.web-sys]
+version = "^0.3"
+features = [
+  "Request", "RequestMode", "RequestInit", "Response"
 ]

@@ -9,27 +9,51 @@
 //! The following is a short introduction to the concepts of Mogwai.
 //!
 //! ## Constructing DOM Nodes
-//! Building DOM is one of the main tasks of web development. In mogwai the
-//! quickest way to construct DOM nodes is with the [`dom`] RSX macro. RSX
-//! is a lot like React's JSX, except that it uses type checket rust expressions.
-//! The [`dom`] macro evaluates to a [`View`] which is used as the view
-//! of a [`Component`] or can be used by itself:
 //!
-//! ```rust, no_run
-//! extern crate mogwai;
+//! Building DOM is one of the main tasks of web development. In mogwai the
+//! quickest way to construct DOM nodes is by using one of the built in RSX macros.
+//!
+//! `builder!` or `view!` are flavors of mogwai's RSX that evaluate to
+//! [`ViewBuilder`] or [`View`] respectively. RSX is a lot like react.js's JSX,
+//! except that it uses type checked rust expressions.
+//!
+//! Most of the time you'll see the [`builder!`] macro used to create a [`ViewBuilder`]:
+//!
+//! ```rust
+//! # extern crate mogwai;
 //! use::mogwai::prelude::*;
 //!
-//! view!(
+//! let my_div: ViewBuilder<HtmlElement> = builder!(
 //!     <div class="my-div">
 //!         <a href="http://zyghost.com">
 //!             "Schellsan's website"
 //!         </a>
 //!     </div>
-//!   ).run().unwrap_throw()
+//!   );
 //! ```
 //!
-//! The example above would create a DOM node with a link inside it and append it
-//! to the document body. It would look like this:
+//! The [`ViewBuilder`] can be converted into a [`View`]:
+//!
+//! ```rust
+//! # extern crate mogwai;
+//! # use::mogwai::prelude::*;
+//!
+//! # let my_div: ViewBuilder<HtmlElement> = builder!(
+//! #     <div class="my-div">
+//! #         <a href="http://zyghost.com">
+//! #             "Schellsan's website"
+//! #         </a>
+//! #     </div>
+//! #   );
+//! let view: View<HtmlElement> = View::from(my_div);
+//!
+//! assert_eq!(
+//!     view.html_string(),
+//!     r#"<div class="my-div"><a href="http://zyghost.com">Schellsan's website</a></div>"#
+//! );
+//! ```
+//!
+//! As you can see the above example creates a DOM node with a link inside it:
 //!
 //! ```html
 //! <div class="my-div">
@@ -37,12 +61,32 @@
 //! </div>
 //! ```
 //!
-//! ### Running Gizmos and removing gizmos
+//! ### Appending a [`View`] to the DOM
 //!
-//! Note that by using the [`View::run`] function the nod is added to the
-//! body automatically. This `run` function is special. It hands off the
-//! callee to be *owned by the window* - otherwise the gizmo would go out of scope
-//! and be dropped. This is important - when a [`View`] is dropped and all references
+//! To append a [`View`] to the DOM's `document.body` we can use [`View::run`]:
+//!
+//! ```rust, no_run
+//! # extern crate mogwai;
+//! # use::mogwai::prelude::*;
+//!
+//! # let my_div: ViewBuilder<HtmlElement> = builder!(
+//! #     <div class="my-div">
+//! #         <a href="http://zyghost.com">
+//! #             "Schellsan's website"
+//! #         </a>
+//! #     </div>
+//! #   );
+//! # let view: View<HtmlElement> = View::from(my_div);
+//! view.run().unwrap();
+//! ```
+//!
+//! [`View::run`] consumes the view, *handing ownership to the browser window*.
+//! Because of this it is only available on `wasm32`.
+//!
+//! ### Dropping a [`View`]
+//!
+//! By handing the [`View`] off to the window it never goes out of scope.
+//! This is important - when a [`View`] is dropped and all references
 //! to its inner DOM node are no longer in scope, that DOM node is removed from
 //! the DOM.
 //!
@@ -61,33 +105,81 @@
 //! Whenever the `Transmitter<T>` of the channel sends a value, the DOM is
 //! updated.
 //!
-//! ```rust, no_run
-//! extern crate mogwai;
+//! ```rust
+//! # extern crate mogwai;
 //! use::mogwai::prelude::*;
 //!
 //! let (tx, rx) = txrx();
 //!
-//! view!(
+//! let my_view = view!(
 //!     <div class="my-div">
 //!         <a href="http://zyghost.com">
-//!           {("Schellsan's website", rx)}
+//!             // start with a value and update when a message
+//!             // is received on rx.
+//!             {("Schellsan's website", rx)}
 //!         </a>
 //!     </div>
-//! ).run().unwrap_throw();
+//! );
 //!
 //! tx.send(&"Gizmo's website".into());
 //! ```
 //!
-//! Just like previously, this builds a DOM node and appends it to the document
-//! body, but this time we've already updated the link's text to "Gizmo's website":
+//! A [`Transmitter`] can be used to send DOM events as messages, allowing
+//! your view to communicate with itself or other components:
+//! ```rust
+//! # extern crate mogwai;
+//! use::mogwai::prelude::*;
 //!
-//! ```html
-//! <div class="my-div">
-//!   <a href="http://zyghost.com">Gizmo's website</a>
-//! </div>
+//! let (tx, rx) = txrx();
+//!
+//! let my_view = view!(
+//!     <div class="my-div">
+//!         <a href="#" on:click=tx.contra_map(|_: &Event| "Gizmo's website".to_string())>
+//!             // start with a value and update when a message
+//!             // is received on rx.
+//!             {("Schellsan's website", rx)}
+//!         </a>
+//!     </div>
+//! );
+//! ```
+//!
+//! See [txrx's module level documentation](super::txrx) for more info on mapping
+//! `Transmitter`s and `Receiver`s.
+//!
+//! ### Accessing the underlying DOM node
+//!
+//! The [`View`] contains a reference to the raw DOM node, making it possible
+//! to manipulate the DOM by hand using Javascript FFI bindings and functions
+//! provided by the great `web_sys` crate:
+//!
+//! ```rust, no_run
+//! # extern crate mogwai;
+//! # use::mogwai::prelude::*;
+//!
+//! # let (tx, rx) = txrx();
+//!
+//! # let my_view = view!(
+//! #     <div class="my-div">
+//! #         <a href="http://zyghost.com">
+//! #             // start with a value and update when a message
+//! #             // is received on rx.
+//! #             {("Schellsan's website", rx)}
+//! #         </a>
+//! #     </div>
+//! # );
+//! # tx.send(&"Gizmo's website".into());
+//! #
+//! let node: std::cell::Ref<HtmlElement> = my_view.dom_ref();
+//! assert_eq!(
+//!     node.inner_html(),
+//!     r#"<a href="http://zyghost.com">Gizmo's website</a>"#
+//! );
 //! ```
 //!
 //! ### Components and more advanced wiring
+//!
+//! For anything but the simplest view, it is recommended you use the
+//! [`Component`] trait to build your view components.
 //!
 //! In bigger applications we often have circular dependencies between buttons,
 //! fields and other interface elements. When these complex situations arise
@@ -107,15 +199,6 @@
 //! is the [`JsCast`](../prelude/trait.JsCast.html) trait. Its `dyn_into` and
 //! `dyn_ref` functions are the primary way to cast JavaScript values as specific
 //! types.
-//!
-//! [`dom`]: dom
-//! [`View::run`]: View::method@run
-//! [`View`]: struct@View
-//! [`View`]: struct@View
-//! [`Transmitter<T>`]: struct@Transmitter
-//! [`Receiver<T>`]: struct@Receiver
-//! [`HtmlElement`]: struct@HtmlElement
-//! [`Component`]: trait@Component
 use super::prelude::*;
 use crate as mogwai;
 

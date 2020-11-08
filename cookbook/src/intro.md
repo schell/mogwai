@@ -1,10 +1,12 @@
 # Cooking with Mogwai
-The following chapters are explanations and examples of solving common user
-interface problems using the [mogwai][m] rust library.
+This book contains explanations and examples of solving common user
+interface problems using the [mogwai][m] rust library. It is a work in progress.
 
 Any requests, questions, or improvements may be logged in the [issue tracker][i].
 
 See the [library documentation][d] for an introduction to the library in general.
+
+Visit us at the [support channel][s].
 
 Happy hacking!
 <h1>🦀</h1>
@@ -12,3 +14,4 @@ Happy hacking!
 [m]:https://github.com/schell/mogwai
 [i]:https://github.com/schell/mogwai/issues
 [d]:https://docs.rs/mogwai
+[s]:https://app.element.io/#/room/#mogwai:matrix.org
