@@ -1,3 +1,4 @@
+//! Helpers and utilities.
 #[cfg(target_arch = "wasm32")]
 use js_sys::Function;
 use std::{
@@ -13,18 +14,30 @@ use web_sys;
 
 use crate::prelude::{MogwaiCallback, Transmitter};
 
+/// Return the DOM [`web_sys::Window`].
+/// #### Panics
+/// Panics when the window cannot be returned.
 pub fn window() -> web_sys::Window {
     web_sys::window().expect("no global `window` exists")
 }
 
+/// Return the DOM [`web_sys::Document`]
+/// #### Panics
+/// Panics when the document cannot be returned.
 pub fn document() -> web_sys::Document {
     window().document().expect("no global `document` exists")
 }
 
+/// Return the DOM body.
+/// #### Panics
+/// Panics when document.body cannot be returned.
 pub fn body() -> web_sys::HtmlElement {
     document().body().expect("document does not have a body")
 }
 
+/// Set a callback closure to be called in a given number of milliseconds.
+/// ### Panics
+/// Panics when window.setInterval is not available.
 pub fn set_checkup_interval(millis: i32, f: &Closure<dyn FnMut()>) -> i32 {
     window()
         .set_timeout_with_callback_and_timeout_and_arguments_0(f.as_ref().unchecked_ref(), millis)
@@ -80,6 +93,9 @@ where
     }
 }
 
+/// Sets a static rust closure to be called after a given amount of milliseconds.
+/// The given function may return whether or not this timeout should be rescheduled.
+/// If the function returns `true` it will be rescheduled. Otherwise it will not.
 pub fn timeout<F>(millis: i32, mut logic: F) -> i32
 where
     F: FnMut() -> bool + 'static,
@@ -105,6 +121,9 @@ fn req_animation_frame(f: &Closure<dyn FnMut()>) {
         .expect("should register `requestAnimationFrame` OK");
 }
 
+/// Sets a static rust closure to be called with `window.requestAnimationFrame`.
+/// The given function may return whether or not this function should be rescheduled.
+/// If the function returns `true` it will be rescheduled. Otherwise it will not.
 pub fn request_animation_frame<F>(mut logic: F)
 where
     F: FnMut() -> bool + 'static,
@@ -124,6 +143,18 @@ where
     return;
 }
 
+/// Add an event of the given name on the given target, transmitting any triggered
+/// events into the given [`Transmitter`]. Returns the wrapped JS callback.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn add_event(
+    _ev_name: &str,
+    _target: &web_sys::EventTarget,
+    _tx: Transmitter<web_sys::Event>,
+) -> MogwaiCallback {
+    MogwaiCallback {
+        callback: Rc::new(Box::new(|_| {})),
+    }
+}
 #[cfg(target_arch = "wasm32")]
 pub fn add_event(
     ev_name: &str,
@@ -141,17 +172,10 @@ pub fn add_event(
         callback: Rc::new(cb),
     }
 }
-#[cfg(not(target_arch = "wasm32"))]
-pub fn add_event(
-    _ev_name: &str,
-    _target: &web_sys::EventTarget,
-    _tx: Transmitter<web_sys::Event>,
-) -> MogwaiCallback {
-    MogwaiCallback {
-        callback: Rc::new(Box::new(|_| {})),
-    }
-}
 
+/// Remove an event of the given name from the given target.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn remove_event(_ev_name: &str, _target: &web_sys::EventTarget, _cb: &MogwaiCallback) {}
 #[cfg(target_arch = "wasm32")]
 pub fn remove_event(ev_name: &str, target: &web_sys::EventTarget, cb: &MogwaiCallback) {
     let function: &Function = cb.callback.as_ref().as_ref().unchecked_ref();
@@ -159,8 +183,7 @@ pub fn remove_event(ev_name: &str, target: &web_sys::EventTarget, cb: &MogwaiCal
         .remove_event_listener_with_callback(ev_name, function)
         .unwrap_throw();
 }
-#[cfg(not(target_arch = "wasm32"))]
-pub fn remove_event(_ev_name: &str, _target: &web_sys::EventTarget, _cb: &MogwaiCallback) {}
+
 
 struct WaitFuture {
     start: f64,

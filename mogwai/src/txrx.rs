@@ -345,8 +345,10 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
+/// A pinned, possible future message.
 pub type RecvFuture<A> = Pin<Box<dyn Future<Output = Option<A>>>>;
 
+/// Wrap an optional future message in a pin box.
 pub fn wrap_future<A, F>(future: F) -> Option<RecvFuture<A>>
 where
     F: Future<Output = Option<A>> + 'static,
@@ -726,6 +728,7 @@ impl<A> Clone for Receiver<A> {
 }
 
 impl<A> Receiver<A> {
+    /// Create a new Receiver.
     pub fn new() -> Receiver<A> {
         Responders::recv_from(Default::default())
     }
@@ -759,6 +762,7 @@ impl<A> Receiver<A> {
         self.responders.remove(self.k);
     }
 
+    /// Spawn a new [`Transmitter`] that sends to this Receiver.
     pub fn new_trns(&self) -> Transmitter<A> {
         Transmitter {
             responders: self.responders.clone(),

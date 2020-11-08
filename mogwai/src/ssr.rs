@@ -39,12 +39,18 @@ fn tag_is_voidable(tag: &str) -> bool {
         || tag == "source"
 }
 
+/// DOM node variants.
 #[derive(Debug)]
 pub enum Node {
+    /// Text node.
     Text(String),
+    /// Parent node.
     Container {
+        /// Tag name.
         name: String,
+        /// Tag attributes.
         attributes: Vec<(String, Option<String>)>,
+        /// Child node list.
         children: Vec<Node>,
     },
 }

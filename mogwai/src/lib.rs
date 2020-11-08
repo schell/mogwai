@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! # Mogwai
 //!
 //! Mogwai is library for frontend web development using Rust-to-Wasm

@@ -94,6 +94,7 @@ pub trait EventTargetView {
 /// input `HtmlInputElement` once it is built, allowing you to use it as you see fit
 /// within your [`Component::update`][crate::component::Component::update] function.
 pub trait PostBuildView {
+    /// The type of the inner DOM node.
     type DomNode;
 
     /// After the view is built, transmit its underlying DomNode on the given
@@ -107,16 +108,46 @@ pub trait ParentView<T> {
     fn with(&mut self, view_now: T);
 }
 
-/// An enumeration of commands used to update the children of a [`PatchView`].
+/// Variants used to patch the children of a [`View`][crate::prelude::View].
 #[derive(Clone, Debug)]
 pub enum Patch<T> {
-    Insert { index: usize, value: T },
-    Replace { index: usize, value: T },
-    Remove { index: usize },
+    /// Insert a child node at a certain index.
+    /// Zero-indexed.
+    Insert {
+        /// The index to insert the child node.
+        index: usize,
+        /// The child node.
+        value: T
+    },
+    /// Replace a child at a certain index.
+    /// Zero-indexed.
+    Replace {
+        /// The index of the child to replace.
+        index: usize,
+        /// The replacement child.
+        value: T
+    },
+    /// Remove the child at a certain index.
+    /// Zero-indexed.
+    Remove {
+        /// The index of the child to remove.
+        index: usize
+    },
+    /// Remove all child nodes.
     RemoveAll,
-    PushFront { value: T },
-    PushBack { value: T },
+    /// Push a child node onto the front of the list of child nodes.
+    PushFront {
+        /// The child to push at the front.
+        value: T
+    },
+    /// Push a child node onto the back of the list of child nodes.
+    PushBack {
+        /// The child to push on the back.
+        value: T
+    },
+    /// Remove the first child node.
     PopFront,
+    /// Remove the last child node.
     PopBack,
 }
 
@@ -146,5 +177,6 @@ impl<T> Patch<T> {
 
 /// `PatchView`s' children can be manipulated using patch commands sent on a [`Receiver`].
 pub trait PatchView<T> {
+    /// Patch the view using the [`Patch`] messages sent on the given [`Receiver`].
     fn patch<S: Clone + Into<T> + 'static>(&mut self, rx: Receiver<Patch<S>>);
 }

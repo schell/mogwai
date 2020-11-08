@@ -16,9 +16,23 @@ pub mod interface;
 /// An `Effect` can be created from either a single value, a [`Receiver`] or a tuple of the
 /// two.
 pub enum Effect<T> {
-    OnceNow { now: T },
-    ManyLater { later: Receiver<T> },
-    OnceNowAndManyLater { now: T, later: Receiver<T> },
+    /// A value now.
+    OnceNow {
+        /// The extant value.
+        now: T
+    },
+    /// Forthcoming values, to be delivered as messages from a [`Receiver`].
+    ManyLater {
+        /// The receiver that will deliver new values.
+        later: Receiver<T>
+    },
+    /// Both a value now and forthcoming values to be delivered as messages from a [`Receiver`].
+    OnceNowAndManyLater {
+        /// The extant value.
+        now: T,
+        /// The receiver that will deliver new values.
+        later: Receiver<T>
+    },
 }
 
 impl<T: Clone> Clone for Effect<T> {
