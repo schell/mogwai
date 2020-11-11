@@ -45,7 +45,7 @@ impl<Msg: Clone + 'static> Subscriber<Msg> {
     /// Send a one-time asynchronous message.
     /// # NOTE
     /// This is only available in the browser, being compiled for `wasm32`.
-    #[cfg(any(doc, target_arch = "wasm32"))]
+    /// On other targets this is a noop.
     pub fn send_async<F>(&self, f: F)
     where
         F: std::future::Future<Output = Msg> + 'static,

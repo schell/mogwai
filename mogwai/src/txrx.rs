@@ -336,6 +336,7 @@
 //!
 //! [contramap]: https://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor-Contravariant.html#v:contramap
 //! [fmap]: https://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor.html#v:fmap
+use log::warn;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -431,8 +432,8 @@ impl<A: 'static> Transmitter<A> {
     }
 
     /// Execute a future that results in a message, then send it. `wasm32` spawns
-    /// a local execution context to drive the `Future` to completion, outside of
-    /// `wasm32` (e.g. during server-side rendering) this is not implemented.
+    /// a local execution context to drive the `Future` to completion. Outside of
+    /// `wasm32` (e.g. during server-side rendering) this is a noop.
     ///
     /// ### Notes
     ///
@@ -492,7 +493,14 @@ impl<A: 'static> Transmitter<A> {
     ///     .unwrap_or_else(|e| e)
     /// });
     /// ```
-    #[cfg(any(target_arch = "wasm32", doc))]
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn send_async<FutureA>(&self, fa: FutureA)
+    where FutureA: Future<Output = A> + 'static
+    {
+        warn!("Transmitter::send_async is a noop on non-wasm32 targets");
+        let _ = fa;// noop
+    }
+    #[cfg(target_arch = "wasm32")]
     pub fn send_async<FutureA>(&self, fa: FutureA)
     where
         FutureA: Future<Output = A> + 'static,

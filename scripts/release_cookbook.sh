@@ -5,4 +5,4 @@ ROOT="$(git rev-parse --show-toplevel)"
 
 cd $ROOT
 mdbook build cookbook
-aws s3 sync cookbook/book s3://zyghost.com/guides/mogwai-cookbook --acl public-read
+aws s3 sync cookbook/book/html s3://zyghost.com/guides/mogwai-cookbook --acl public-read
