@@ -47,7 +47,7 @@ Notice that the `main` of this example is a little different than the others. Th
 of an element that we'd like to append our list/parent component to. This allows us to load the example on
 the page right here.
 
-## Play with it at '{{cookbookroot}}'
+## Play with it
 
 <div id="app_example"></div>
 <script type="module">
