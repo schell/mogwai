@@ -7,6 +7,7 @@ title = "Cooking with Mogwai"
 
 [preprocessor.variables.variables]
 mogwai_docs_version = "0.3.2"
+cookbookroot = ""
 
 [output.html]
 
