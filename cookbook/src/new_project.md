@@ -14,7 +14,7 @@ cargo generate --git https://github.com/schell/mogwai-template.git
 and give the command line a project name. Then `cd` into your sparkling new
 project and
 ```shell
-wasm-pack build --target no-modules
+wasm-pack build --target web
 ```
 Then, if you don't already have it, `cargo install basic-http-server` or use your
 favorite alternative to serve your app:
