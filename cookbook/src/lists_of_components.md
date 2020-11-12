@@ -43,7 +43,7 @@ more explicit and less magical than its vdom counterparts.
 {{#include ../../examples/list-of-gizmos/src/lib.rs}}
 ```
 
-Notice that the `main` of this example is a little different than the others. This allows us to pass the id
+Notice that the `main` of this example takes an optional string. This allows us to pass the id
 of an element that we'd like to append our list/parent component to. This allows us to load the example on
 the page right here.
 

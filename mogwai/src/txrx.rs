@@ -336,6 +336,7 @@
 //!
 //! [contramap]: https://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor-Contravariant.html#v:contramap
 //! [fmap]: https://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor.html#v:fmap
+#[cfg(not(target_arch = "wasm32"))]
 use log::warn;
 use std::{
     cell::{Cell, RefCell},
