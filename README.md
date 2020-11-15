@@ -225,7 +225,7 @@ cd examples/whatever && wasm-pack build --target web
 [mogwai-realworld](https://github.com/schell/mogwai-realworld/) A "real world" app implementation (WIP)
 
 ## cookbook :green_book:
-[Cooking with Mogwai](http://zyghost.com/guides/mogwai-cookbook) is a series of example solutions to
+[Cooking with Mogwai](https://zyghost.com/guides/mogwai-cookbook/index.html) is a series of example solutions to
 various UI problems. It aims to be a good reference doc but not a step-by-step tutorial.
 
 ## group channel :phone:
