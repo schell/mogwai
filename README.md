@@ -28,7 +28,7 @@ to do rendering. It is an alternative to React, Backbone, Ember, Elm, Purescript
 - [why](#why)
 - [beginning](#ok---where-do-i-start?)
 - [more examples](#more-examples)
-- [cookbook :green_book:](#cookbook-green_book)
+- [cookbook](#cookbook)
 - [sponsor this project](#sponsorship)
 
 ## goals
@@ -222,9 +222,9 @@ cd examples/whatever && wasm-pack build --target web
 ### external examples
 [mogwai-realworld](https://github.com/schell/mogwai-realworld/) A "real world" app implementation (WIP)
 
-## cookbook :green_book:
-[Cooking with Mogwai](https://zyghost.com/guides/mogwai-cookbook/index.html) is a series of example solutions to
-various UI problems. It aims to be a good reference doc but not a step-by-step tutorial.
+## cookbook
+:green_book: [Cooking with Mogwai](https://zyghost.com/guides/mogwai-cookbook/index.html) is a series
+of example solutions to various UI problems. It aims to be a good reference doc but not a step-by-step tutorial.
 
 ## group channel :phone:
 Hang out and talk about `mogwai` in the support channel:
