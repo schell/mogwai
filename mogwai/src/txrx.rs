@@ -501,6 +501,7 @@ impl<A: 'static> Transmitter<A> {
         warn!("Transmitter::send_async is a noop on non-wasm32 targets");
         let _ = fa;// noop
     }
+    /// Placeholder docs to negate warnings.
     #[cfg(target_arch = "wasm32")]
     pub fn send_async<FutureA>(&self, fa: FutureA)
     where

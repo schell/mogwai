@@ -8,6 +8,7 @@ members = [
   "examples/sandbox",
   "examples/todomvc",
   "examples/multipage",
+  "examples/spa-routing",
   "cookbook"
 ]
 

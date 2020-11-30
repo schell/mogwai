@@ -46,6 +46,7 @@ impl MogwaiCallback {
             callback: Rc::new(Box::new(f)),
         }
     }
+    /// Placeholder docs to negate warnings.
     #[cfg(target_arch = "wasm32")]
     pub fn new<F>(f: F) -> Self
     where
@@ -462,6 +463,7 @@ impl<T: IsDomNode> View<T> {
     pub fn html_string(&self) -> String {
         String::from(self.as_ssr_node())
     }
+    /// Placeholder docs to negate warnings.
     #[cfg(target_arch = "wasm32")]
     pub fn html_string(&self) -> String {
         let value: Ref<JsValue> = Ref::map(self.internals.borrow(), |internals| {
@@ -489,6 +491,7 @@ impl<T: IsDomNode> View<T> {
     pub fn wrapping(_element: T) -> View<T> {
         panic!("View::wrapping is only available on wasm32")
     }
+    /// Placeholder docs to negate warnings.
     #[cfg(target_arch = "wasm32")]
     pub fn wrapping(element: T) -> View<T> {
         let mut internals = ViewInternals::default();
@@ -511,7 +514,8 @@ impl<T: IsDomNode> View<T> {
         view.internals = self.internals;
         Ok(view)
     }
-   #[cfg(target_arch = "wasm32")]
+    /// Placeholder docs to negate warnings.
+    #[cfg(target_arch = "wasm32")]
     pub fn try_cast<To: IsDomNode>(self) -> Result<View<To>, Self> {
         if self.internals.borrow().element.has_type::<To>() {
             Ok(View {
@@ -602,6 +606,7 @@ impl View<Text> {
             internals: Rc::new(RefCell::new(internals)),
         }
     }
+    /// Placeholder docs to negate warnings.
     #[cfg(target_arch = "wasm32")]
     pub fn text(text: &str) -> View<Text> {
         View::wrapping(Text::new_with_data(text).expect("could not create text"))
