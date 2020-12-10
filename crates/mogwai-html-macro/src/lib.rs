@@ -13,6 +13,16 @@ fn cast_type_attribute(node: &Node) -> Option<proc_macro2::TokenStream> {
     }
 }
 
+fn xmlns_attribute(node: &Node) -> Option<proc_macro2::TokenStream> {
+    let key = node.name_as_string()?;
+    let expr = node.value.as_ref()?;
+    if key.starts_with("xmlns") {
+        Some(quote! {#expr})
+    } else {
+        None
+    }
+}
+
 fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     let span = node.name_span().unwrap_or(Span::call_site());
     if let Some(key) = node.name_as_string() {
@@ -43,13 +53,12 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
                 [attribute_name] => Ok(quote! {
                     __mogwai_node.attribute(#attribute_name, #expr);
                 }),
-                keys => Err(Error::new(
-                    span,
-                    format!(
-                        "expected a valid attribute key/value pair. Got `{}`",
-                        keys.join(":")
-                    ),
-                )),
+                keys => {
+                    let attribute_name = keys.join(":");
+                    Ok(quote! {
+                        __mogwai_node.attribute(#attribute_name, #expr);
+                    })
+                }
             }
         } else {
             Ok(quote! {
@@ -98,10 +107,13 @@ where
         NodeType::Element => match node.name_as_string() {
             Some(tag) => {
                 let mut type_is = quote! { web_sys::HtmlElement };
-                'find_type: for att_node in node.attributes.iter() {
+                let mut namespace = None;
+                for att_node in node.attributes.iter() {
                     if let Some(cast_type) = cast_type_attribute(att_node) {
                         type_is = cast_type;
-                        break 'find_type;
+                    }
+                    if let Some(ns) = xmlns_attribute(att_node) {
+                        namespace = Some(ns);
                     }
                 }
 
@@ -121,9 +133,14 @@ where
                 if let Some(error) = may_error {
                     Err(error)
                 } else {
+                    let create = if let Some(ns) = namespace {
+                        quote! {#view_path::element_ns(#tag, #ns)}
+                    } else {
+                        quote! {#view_path::element(#tag)}
+                    };
                     Ok(quote! {
                         {
-                            let mut __mogwai_node = (#view_path::element(#tag) as #view_path<#type_is>);
+                            let mut __mogwai_node = #create as #view_path<#type_is>;
                             #(#attribute_tokens)*
                             #(#child_tokens)*
                             __mogwai_node

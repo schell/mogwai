@@ -7,3 +7,4 @@
 - [Nesting components](nest_component.md)
 - [List of components](lists_of_components.md)
 - [Single page application routing](routing.md)
+- [SVG](svg.md)

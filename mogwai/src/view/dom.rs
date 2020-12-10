@@ -897,6 +897,23 @@ where
                 let len = i.slots.len();
                 let _ = i.remove_child_at(len - 1);
             }
+            Patch::Keep{ first } => {
+                let mut i = internals.borrow_mut();
+                let len = i.slots.len();
+                if *first < len {
+                    for n in *first..len {
+                        let _ = i.remove_child_at(n);
+                    }
+                }
+            }
+            Patch::Drop{ first } => {
+                let mut i = internals.borrow_mut();
+                let end = usize::min(i.slots.len(), *first);
+                for n in 0..end {
+                    let _ = i.remove_child_at(n);
+                }
+            }
+
         });
     }
 }

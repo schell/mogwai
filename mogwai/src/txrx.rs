@@ -432,6 +432,13 @@ impl<A: 'static> Transmitter<A> {
         self.responders.send(a);
     }
 
+    /// Send a bunch of messages.
+    pub fn send_many(&self, msgs: &[A]) {
+        msgs
+            .iter()
+            .for_each(|msg| self.send(msg));
+    }
+
     /// Execute a future that results in a message, then send it. `wasm32` spawns
     /// a local execution context to drive the `Future` to completion. Outside of
     /// `wasm32` (e.g. during server-side rendering) this is a noop.
