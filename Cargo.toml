@@ -9,6 +9,7 @@ members = [
   "examples/todomvc",
   "examples/multipage",
   "examples/spa-routing",
+  "examples/svg",
   "cookbook"
 ]
 

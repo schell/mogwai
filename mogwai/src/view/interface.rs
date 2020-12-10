@@ -149,6 +149,16 @@ pub enum Patch<T> {
     PopFront,
     /// Remove the last child node.
     PopBack,
+    /// Keep the first N nodes.
+    Keep {
+        /// The number/size of the first nodes to keep.
+        first: usize,
+    },
+    /// Drop the first N nodes.
+    Drop {
+        /// the number/size of the first nodes to drop.
+        first: usize,
+    }
 }
 
 impl<T> Patch<T> {
@@ -171,6 +181,8 @@ impl<T> Patch<T> {
             Patch::PushBack { value } => Patch::PushBack { value: f(value) },
             Patch::PopFront => Patch::PopFront,
             Patch::PopBack => Patch::PopBack,
+            Patch::Keep { first } => Patch::Keep{first: *first},
+            Patch::Drop { first } => Patch::Drop{first: *first},
         }
     }
 }
