@@ -170,6 +170,14 @@ where
     /// ie HtmlElement, HtmlInputElement, etc.
     type DomNode;
 
+    /// Used to perform any one-time binding from in scope [`Gizmo`]s or [`Model`]s to this component's subscribers.
+    ///
+    /// This function will be called only once, after a [`Gizmo`] is converted from the
+    /// type implementing `Component`.
+    #[allow(unused_variables)]
+    fn bind(&self, input_sub: &Subscriber<Self::ModelMsg>, output_sub: &Subscriber<Self::ViewMsg>) {
+    }
+
     /// Update this component in response to any received model messages.
     /// This is essentially the component's fold function.
     fn update(
@@ -189,15 +197,4 @@ where
         tx: &Transmitter<Self::ModelMsg>,
         rx: &Receiver<Self::ViewMsg>,
     ) -> ViewBuilder<Self::DomNode>;
-
-    /// Used to perform any one-time binding from in scope [`Gizmo`]s to this component's subscriber.
-    ///
-    /// This should be used to bind sub-component view messages into this parent component's
-    /// model messages in order to receive updates from child components. The default implementation
-    /// is a noop.
-    ///
-    /// This function will be called only once, after a [`Gizmo`] is converted from the
-    /// type implementing `Component`.
-    #[allow(unused_variables)]
-    fn bind(&self, sub: &Subscriber<Self::ModelMsg>) {}
 }

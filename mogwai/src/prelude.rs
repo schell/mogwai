@@ -2,6 +2,7 @@
 pub use super::{
     component::{subscriber::Subscriber, *},
     gizmo::*,
+    model::*,
     txrx::{
         new_shared, recv, trns, txrx, txrx_filter_fold, txrx_filter_map, txrx_fold,
         txrx_fold_shared, txrx_map, wrap_future, Receiver, Transmitter,

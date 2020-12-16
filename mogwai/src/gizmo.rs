@@ -19,6 +19,7 @@ use crate::{
 };
 
 /// A user interface component that can spawn views.
+#[derive(Clone)]
 pub struct Gizmo<T: Component> {
     /// This gizmo's [`Component::ModelMsg`] transmitter.
     /// Sending on this [`Transmitter`] causes its [`Component::update`]
@@ -45,15 +46,17 @@ where
         tx_in: Transmitter<T::ModelMsg>,
         rx_out: Receiver<T::ViewMsg>,
     ) -> Self {
-        let subscriber = Subscriber::new(&tx_in);
-        init.bind(&subscriber);
-        let state = Rc::new(RefCell::new(init));
         let tx_out = rx_out.new_trns();
         let rx_in = tx_in.spawn_recv();
+        let in_subscriber = Subscriber::new(&tx_in);
+        let out_subscriber = Subscriber::new(&tx_out);
+        init.bind(&in_subscriber, &out_subscriber);
+
+        let state = Rc::new(RefCell::new(init));
 
         let (tx_view, rx_view) = txrx();
         rx_in.respond_shared(state.clone(), move |t: &mut T, msg: &T::ModelMsg| {
-            t.update(msg, &tx_view, &subscriber);
+            t.update(msg, &tx_view, &in_subscriber);
         });
 
         rx_view.respond(move |msg: &T::ViewMsg| {
@@ -89,6 +92,15 @@ where
     /// This how a parent component communicates down to its child components.
     pub fn send(&self, msg: &T::ModelMsg) {
         self.trns.send(msg);
+    }
+
+    /// Visit the wrapped value with a function that produces a value.
+    pub fn visit<F, A>(&self, f: F) -> A
+    where
+        A: 'static,
+        F: FnOnce(&T) -> A,
+    {
+        f(&self.state.borrow())
     }
 
     /// Access the underlying state.
