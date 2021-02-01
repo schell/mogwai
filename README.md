@@ -26,7 +26,7 @@ to do rendering. It is an alternative to React, Backbone, Ember, Elm, Purescript
 - [example](#example)
 - [intro](#introduction)
 - [why](#why)
-- [beginning](#ok---where-do-i-start?)
+- [beginning](#ok---where-do-i-start)
 - [more examples](#more-examples)
 - [cookbook](#cookbook)
 - [sponsor this project](#sponsorship)
