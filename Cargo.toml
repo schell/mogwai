@@ -1,16 +1,17 @@
 [workspace]
 
 members = [
-  "mogwai",
+  "cookbook",
   "crates/mogwai-html-macro",
   "crates/mogwai-hydrator",
+  "examples/focus-follower",
   "examples/list-of-gizmos",
-  "examples/sandbox",
-  "examples/todomvc",
   "examples/multipage",
+  "examples/sandbox",
   "examples/spa-routing",
   "examples/svg",
-  "cookbook"
+  "examples/todomvc",
+  "mogwai",
 ]
 
 
