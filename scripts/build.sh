@@ -18,7 +18,8 @@ do
     DEST=$ROOT/book_examples/$EXAMPLE
     mkdir -p $DEST
     cd $DIR
-    cp -R index.html pkg style.css $DEST || exit 1
+    cp -R index.html pkg $DEST || exit 1
+    cp style.css $DEST || echo "$DIR has no style.css file"
     cd $ROOT
 done
 
