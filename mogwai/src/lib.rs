@@ -13,7 +13,6 @@
 pub mod an_introduction;
 pub mod component;
 pub mod gizmo;
-pub mod model;
 pub mod prelude;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ssr;

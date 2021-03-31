@@ -1,0 +1,36 @@
+[package]
+name = "gremlin"
+version = "0.1.0"
+description = "Mogwai 0.5 experiment"
+authors = ["Schell Carl Scivally <efsubenovex@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+mogwai-chan = { path = "../mogwai-chan", version = "^0.1" }
+mogwai = { path = "../../mogwai" }
+wasm-bindgen = "^0.2"
+
+[dependencies.web-sys]
+version = "^0.3"
+features = [
+  "CharacterData",
+  "CssStyleDeclaration",
+  "Document",
+  "Element",
+  "Event",
+  "EventTarget",
+  "HtmlElement",
+  "MessageChannel",
+  "MessagePort",
+  "Node",
+  "NodeList",
+  "Performance",
+  "Text",
+  "Window"
+]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.17"
+wasm-bindgen-futures = "^0.4"

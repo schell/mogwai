@@ -14,8 +14,8 @@ use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget};
 
 use crate::{
-    prelude::{txrx, Component, IsDomNode, Receiver, Subscriber, Transmitter, ViewBuilder},
-    utils,
+    txrx::{channel, Receiver, Transmitter},
+    utils, component::{Component, subscriber::Subscriber}, view::{IsDomNode, builder::ViewBuilder},
 };
 
 /// A user interface component that can spawn views.
@@ -54,7 +54,7 @@ where
 
         let state = Rc::new(RefCell::new(init));
 
-        let (tx_view, rx_view) = txrx();
+        let (tx_view, rx_view) = channel();
         rx_in.respond_shared(state.clone(), move |t: &mut T, msg: &T::ModelMsg| {
             t.update(msg, &tx_view, &in_subscriber);
         });

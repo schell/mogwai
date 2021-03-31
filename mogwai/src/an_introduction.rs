@@ -219,5 +219,5 @@ impl Component for Unit {
 
 // This is here just for the documentation links.
 fn _not_used() {
-    let (_tx, _rx) = txrx::<()>();
+    let (_tx, _rx) = channel::<()>();
 }

@@ -144,7 +144,12 @@ use wasm_bindgen::JsCast;
 use web_sys::Node;
 
 #[allow(unused_imports)]
-use crate::prelude::{Gizmo, ParentView, Receiver, Transmitter, View, ViewBuilder};
+use crate::{
+    gizmo::Gizmo,
+    txrx::{Receiver, Transmitter},
+    view::interface::ParentView,
+    view::{builder::ViewBuilder, dom::View},
+};
 
 pub mod subscriber;
 use subscriber::Subscriber;

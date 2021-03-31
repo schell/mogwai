@@ -2,15 +2,12 @@
 pub use super::{
     component::{subscriber::Subscriber, *},
     gizmo::*,
-    model::*,
-    txrx::{
-        new_shared, recv, trns, txrx, txrx_filter_fold, txrx_filter_map, txrx_fold,
-        txrx_fold_shared, txrx_map, wrap_future, Receiver, Transmitter,
-    },
+    txrx::*,
     utils::*,
     view::{builder::*, dom::*, interface::*, *},
     *,
 };
+pub use mogwai_chan::model::*;
 pub use mogwai_html_macro::{builder, hydrate, view};
 pub use std::convert::TryFrom;
 pub use wasm_bindgen::JsCast;
