@@ -1,4 +1,3 @@
-#![feature(bound_cloned)]
 //! # Multiple producer, multiple consumer channels that respond to messages
 //! instantly. Just add water! ;)
 //!

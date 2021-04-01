@@ -1,6 +1,14 @@
 //! Updating lists of items.
 use std::ops::{Bound, RangeBounds};
 
+fn clone_bound<T: Copy>(bound:Bound<&T>) -> Bound<T> {
+    match bound {
+        Bound::Included(b) => Bound::Included(*b),
+        Bound::Excluded(b) => Bound::Excluded(*b),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
 /// Variants used to patch the items in a list.
 #[derive(Clone, Debug)]
 pub enum Patch<T> {
@@ -93,7 +101,7 @@ pub trait PatchApply {
     /// Replace the specified range in the list with the given `replace_with` items.
     /// Returns any removed items.
     fn patch_splice<R: RangeBounds<usize>, I:IntoIterator<Item = Self::Item>>(&mut self, range:R, replace_with:I) -> Vec<Self::Item> {
-        let range = (range.start_bound().cloned(), range.end_bound().cloned());
+        let range = (clone_bound(range.start_bound()), clone_bound(range.end_bound()));
         let replace_with = replace_with.into_iter().collect::<Vec<_>>();
         self.patch_apply(Patch::Splice { range, replace_with })
     }
