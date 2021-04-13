@@ -35,14 +35,15 @@
 //! This pair makes a linked channel. Messages you send on the [Transmitter]
 //! will be sent directly to the [Receiver] on the other end.
 //!
-//! You can create separate terminals using the [trns] and [recv] functions. Then
-//! later in your code you can spawn new linked partners from them:
+//! You can create separate terminals using the [`Transmitter::default`] and
+//! [`Receiver::default`] functions. Then later in your code you can spawn new
+//! linked partners from them:
 //!
 //! ```rust
 //! extern crate mogwai_chan;
 //! use mogwai_chan::*;
 //!
-//! let mut tx: Transmitter<()> = Transmitter::new();
+//! let mut tx: Transmitter<()> = Transmitter::default();
 //! let rx = tx.spawn_recv();
 //! tx.send(&()); // rx will receive the message
 //! ```
@@ -50,7 +51,7 @@
 //! extern crate mogwai_chan;
 //! use mogwai_chan::*;
 //!
-//! let rx: Receiver<()> = Receiver::new();
+//! let rx: Receiver<()> = Receiver::default();
 //! let tx = rx.new_trns();
 //! tx.send(&()); // rx will receive the message
 //! ```
@@ -443,6 +444,98 @@ impl<A: 'static> Transmitter<A> {
             .iter()
             .for_each(|msg| self.send(msg));
     }
+
+
+    /// Execute a future that results in a message, then send it. `wasm32` spawns
+    /// a local execution context to drive the `Future` to completion. Outside of
+    /// `wasm32` (e.g. during server-side rendering) this is a noop.
+    ///
+    /// ### Notes
+    ///
+    /// Does not exist outside of the wasm32 architecture because the
+    /// functionality of [`wasm_bindgen_futures::spawn_local`] is largely
+    /// managed by third party runtimes that mogwai does not need to depend
+    /// upon. If `send_async` is necessary for server side rendering it may be
+    /// better to modify the behavior so the [`Future`] resolves outside of the
+    /// `Transmitter` lifecycle.
+    ///
+    /// ```rust, ignore
+    /// extern crate mogwai;
+    /// extern crate web_sys;
+    /// use mogwai::prelude::*;
+    /// use web_sys::{Request, RequestMode, RequestInit, Response};
+    ///
+    /// // Here's our async function that fetches a text response from a server,
+    /// // or returns an error string.
+    /// async fn request_to_text(req:Request) -> Result<String, String> {
+    ///   let resp:Response =
+    ///     JsFuture::from(
+    ///       window()
+    ///         .fetch_with_request(&req)
+    ///     )
+    ///     .await
+    ///     .map_err(|_| "request failed".to_string())?
+    ///     .dyn_into()
+    ///     .map_err(|_| "response is malformed")?;
+    ///   let text:String =
+    ///     JsFuture::from(
+    ///       resp
+    ///         .text()
+    ///         .map_err(|_| "could not get response text")?
+    ///     )
+    ///     .await
+    ///     .map_err(|_| "getting text failed")?
+    ///     .as_string()
+    ///     .ok_or("couldn't get text as string".to_string())?;
+    ///   Ok(text)
+    /// }
+    ///
+    /// let (tx, rx) = txrx();
+    /// tx.send_async(async {
+    ///   let mut opts = RequestInit::new();
+    ///   opts.method("GET");
+    ///   opts.mode(RequestMode::Cors);
+    ///
+    ///   let req =
+    ///     Request::new_with_str_and_init(
+    ///       "https://worldtimeapi.org/api/timezone/Europe/London.txt",
+    ///       &opts
+    ///     )
+    ///     .unwrap_throw();
+    ///
+    ///   request_to_text(req)
+    ///     .await
+    ///     .unwrap_or_else(|e| e)
+    /// });
+    /// ```
+    #[cfg(target_arch = "wasm32")]
+    pub fn send_async<FutureA>(&self, fa: FutureA)
+    where
+        FutureA: Future<Output = A> + 'static,
+    {
+        let tx = self.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let a: A = fa.await;
+            tx.send(&a);
+        });
+    }
+    #[cfg(all(not(target_arch = "wasm32"), feature = "async-tokio"))]
+    pub fn send_async<FutureA>(&self, fa: FutureA)
+    where
+        FutureA: Future<Output = A> + 'static,
+    {
+        let _ = tokio::task::spawn(fa);
+    }
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "async-tokio")))]
+    pub fn send_async<FutureA>(&self, fa: FutureA)
+    where
+        FutureA: Future<Output = A> + 'static,
+    {
+        compile_error!("Transmitter::send_async is un implemented. Either compile for wasm32 or choose an async implementation using cargo features")
+    }
+
+
+
 
     /// Extend this transmitter with a new transmitter using a filtering fold
     /// function. The given function folds messages of `B` over a shared state `T`
