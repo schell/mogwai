@@ -120,7 +120,7 @@
 //! tx.send(&());
 //! tx.send(&());
 //! tx.send(&());
-//! assert_eq!(*shared_count.borrow(), 3);
+//! assert_eq!(shared_count.inner_cloned(), 3);
 //! ```
 //!
 //! ## Composing channels
@@ -165,7 +165,7 @@
 //! tx_a.send(&());
 //! tx_a.send(&());
 //! tx_a.send(&());
-//! assert_eq!(*shared_count.borrow(), 3);
+//! assert_eq!(shared_count.inner_cloned(), 3);
 //! ```
 //!
 //! That is useful, but we can also do much more than simple maps! We can fold
@@ -227,7 +227,7 @@
 //! });
 //!
 //! tx.send(&());
-//! assert_eq!(*shared_got_it.borrow(), true);
+//! assert_eq!(shared_got_it.inner_cloned(), true);
 //! ```
 //!
 //! These make up the `forward_*` family of functions on [Receiver]:
@@ -259,7 +259,7 @@
 //! });
 //! tx1.send(&());
 //! tx2.send(&());
-//! assert_eq!(*shared_count.borrow(), 2);
+//! assert_eq!(shared_count.inner_cloned(), 2);
 //! ```
 //!
 //! [Receiver]s are a bit different from [Transmitter]s, though. They are _not_
@@ -281,7 +281,7 @@
 //!     *count += 1;
 //! });
 //! tx.send(&());
-//! assert_eq!(*shared_count.borrow(), 2);
+//! assert_eq!(shared_count.inner_cloned(), 2);
 //! ```
 //!
 //! Both [Transmitter]s and [Receiver]s can be "branched" so that multiple
@@ -337,16 +337,35 @@
 //! [contramap]: https://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor-Contravariant.html#v:contramap
 //! [fmap]: https://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor.html#v:fmap
 use std::{
-    cell::{Cell, RefCell},
     collections::HashMap,
     future::Future,
     pin::Pin,
-    rc::Rc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
     task::{Context, Poll, Waker},
 };
 
+pub use std::ops::{Deref, DerefMut};
 pub mod model;
 pub mod patch;
+
+/// Convenience trait for returning a cloned inner value.
+pub trait InnerCloned {
+    type Output;
+
+    /// Returns a clone of the inner value.
+    fn inner_cloned(&self) -> Self::Output;
+}
+
+impl<A: Clone> InnerCloned for Arc<Mutex<A>> {
+    type Output = A;
+
+    fn inner_cloned(&self) -> Self::Output {
+        self.lock().unwrap().clone()
+    }
+}
 
 /// A pinned, possible future message.
 pub type RecvFuture<A> = Pin<Box<dyn Future<Output = Option<A>>>>;
@@ -360,43 +379,33 @@ where
 }
 
 struct Responders<A> {
-    next_k: Cell<usize>,
-    branches: RefCell<HashMap<usize, Box<dyn FnMut(&A)>>>,
+    next_k: AtomicUsize,
+    branches: Mutex<HashMap<usize, Box<dyn FnMut(&A)>>>,
 }
 
 impl<A> Default for Responders<A> {
     fn default() -> Self {
         Self {
-            next_k: Cell::new(0),
+            next_k: AtomicUsize::new(0),
             branches: Default::default(),
         }
     }
 }
 
 impl<A> Responders<A> {
-    fn recv_from(self: Rc<Self>) -> Receiver<A> {
-        let k = {
-            let k = self.next_k.get();
-            self.next_k.set(k + 1);
-            k
-        };
-
-        Receiver {
-            k,
-            responders: self,
-        }
-    }
-
     fn insert(&self, k: usize, f: impl FnMut(&A) + 'static) {
-        self.branches.borrow_mut().insert(k, Box::new(f));
+        let mut guard = self.branches.lock().unwrap();
+        guard.insert(k, Box::new(f));
     }
 
     fn remove(&self, k: usize) {
-        self.branches.borrow_mut().remove(&k);
+        let mut guard = self.branches.lock().unwrap();
+        guard.remove(&k);
     }
 
     fn send(&self, a: &A) {
-        self.branches.borrow_mut().values_mut().for_each(|f| {
+        let mut guard = self.branches.lock().unwrap();
+        guard.values_mut().for_each(|f| {
             f(a);
         });
     }
@@ -404,7 +413,7 @@ impl<A> Responders<A> {
 
 /// Send messages instantly.
 pub struct Transmitter<A> {
-    responders: Rc<Responders<A>>,
+    responders: Arc<Responders<A>>,
 }
 
 impl<A> Clone for Transmitter<A> {
@@ -418,19 +427,19 @@ impl<A> Clone for Transmitter<A> {
 impl<A> Default for Transmitter<A> {
     fn default() -> Self {
         Transmitter {
-            responders: Default::default()
+            responders: Default::default(),
         }
     }
 }
 
-impl<A: 'static> Transmitter<A> {
+impl<A: Send + 'static> Transmitter<A> {
     pub fn new() -> Transmitter<A> {
         Default::default()
     }
 
     /// Spawn a receiver for this transmitter.
     pub fn spawn_recv(&self) -> Receiver<A> {
-        self.responders.clone().recv_from()
+        Receiver::from(self.responders.clone())
     }
 
     /// Send a message to any and all receivers of this transmitter.
@@ -440,11 +449,8 @@ impl<A: 'static> Transmitter<A> {
 
     /// Send a bunch of messages.
     pub fn send_many(&self, msgs: &[A]) {
-        msgs
-            .iter()
-            .for_each(|msg| self.send(msg));
+        msgs.iter().for_each(|msg| self.send(msg));
     }
-
 
     /// Execute a future that results in a message, then send it. `wasm32` spawns
     /// a local execution context to drive the `Future` to completion. Outside of
@@ -511,7 +517,7 @@ impl<A: 'static> Transmitter<A> {
     #[cfg(target_arch = "wasm32")]
     pub fn send_async<FutureA>(&self, fa: FutureA)
     where
-        FutureA: Future<Output = A> + 'static,
+        FutureA: Future<Output = A> + Send + 'static,
     {
         let tx = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
@@ -522,27 +528,24 @@ impl<A: 'static> Transmitter<A> {
     #[cfg(all(not(target_arch = "wasm32"), feature = "async-tokio"))]
     pub fn send_async<FutureA>(&self, fa: FutureA)
     where
-        FutureA: Future<Output = A> + 'static,
+        FutureA: Future<Output = A> + Send + 'static,
     {
         let _ = tokio::task::spawn(fa);
     }
     #[cfg(all(not(target_arch = "wasm32"), not(feature = "async-tokio")))]
     pub fn send_async<FutureA>(&self, fa: FutureA)
     where
-        FutureA: Future<Output = A> + 'static,
+        FutureA: Future<Output = A> + Send + 'static,
     {
         compile_error!("Transmitter::send_async is un implemented. Either compile for wasm32 or choose an async implementation using cargo features")
     }
 
-
-
-
     /// Extend this transmitter with a new transmitter using a filtering fold
     /// function. The given function folds messages of `B` over a shared state `T`
     /// and optionally sends `A`s down into this transmitter.
-    pub fn contra_filter_fold_shared<B, T, F>(&self, var: Rc<RefCell<T>>, f: F) -> Transmitter<B>
+    pub fn contra_filter_fold_shared<B, T, F>(&self, var: Arc<Mutex<T>>, f: F) -> Transmitter<B>
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         F: Fn(&mut T, &B) -> Option<A> + 'static,
     {
@@ -550,8 +553,8 @@ impl<A: 'static> Transmitter<A> {
         let (tev, rev) = channel();
         rev.respond(move |ev| {
             let result = {
-                let mut t = var.borrow_mut();
-                f(&mut t, ev)
+                let mut guard = var.lock().unwrap();
+                f(&mut guard, ev)
             };
             result.into_iter().for_each(|b| {
                 tx.send(&b);
@@ -565,7 +568,7 @@ impl<A: 'static> Transmitter<A> {
     /// optionally sends `A`s into this transmitter.
     pub fn contra_filter_fold<B, X, T, F>(&self, init: X, f: F) -> Transmitter<B>
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         X: Into<T>,
         F: Fn(&mut T, &B) -> Option<A> + 'static,
@@ -586,7 +589,7 @@ impl<A: 'static> Transmitter<A> {
     /// into this transmitter.
     pub fn contra_fold<B, X, T, F>(&self, init: X, f: F) -> Transmitter<B>
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         X: Into<T>,
         F: Fn(&mut T, &B) -> A + 'static,
@@ -599,7 +602,7 @@ impl<A: 'static> Transmitter<A> {
     /// transmitter.
     pub fn contra_filter_map<B, F>(&self, f: F) -> Transmitter<B>
     where
-        B: 'static,
+        B: Send + 'static,
         F: Fn(&B) -> Option<A> + 'static,
     {
         self.contra_filter_fold((), move |&mut (), ev| f(ev))
@@ -612,7 +615,7 @@ impl<A: 'static> Transmitter<A> {
     /// hence the `contra_` prefix on this family of methods.
     pub fn contra_map<B, F>(&self, f: F) -> Transmitter<B>
     where
-        B: 'static,
+        B: Send + 'static,
         F: Fn(&B) -> A + 'static,
     {
         self.contra_filter_map(move |ev| Some(f(ev)))
@@ -623,9 +626,9 @@ impl<A: 'static> Transmitter<A> {
     ///
     /// The fold function returns an `Option<B>`. In the case that the value of
     /// `Option<B>` is `None`, no message will be sent to the receiver.
-    pub fn wire_filter_fold_shared<T, B, F>(&self, rb: &Receiver<B>, var: Rc<RefCell<T>>, f: F)
+    pub fn wire_filter_fold_shared<T, B, F>(&self, rb: &Receiver<B>, var: Arc<Mutex<T>>, f: F)
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         F: Fn(&mut T, &A) -> Option<B> + 'static,
     {
@@ -641,7 +644,7 @@ impl<A: 'static> Transmitter<A> {
     /// `Option<B>` is `None`, no message will be sent to the receiver.
     pub fn wire_filter_fold<T, B, X, F>(&self, rb: &Receiver<B>, init: X, f: F)
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         X: Into<T>,
         F: Fn(&mut T, &A) -> Option<B> + 'static,
@@ -655,7 +658,7 @@ impl<A: 'static> Transmitter<A> {
     /// function.
     pub fn wire_fold<T, B, X, F>(&self, rb: &Receiver<B>, init: X, f: F)
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         X: Into<T>,
         F: Fn(&mut T, &A) -> B + 'static,
@@ -667,9 +670,9 @@ impl<A: 'static> Transmitter<A> {
 
     /// Wires the transmitter to send to the given receiver using a stateful fold
     /// function, where the state is a shared mutex.
-    pub fn wire_fold_shared<T, B, F>(&self, rb: &Receiver<B>, var: Rc<RefCell<T>>, f: F)
+    pub fn wire_fold_shared<T, B, F>(&self, rb: &Receiver<B>, var: Arc<Mutex<T>>, f: F)
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         F: Fn(&mut T, &A) -> B + 'static,
     {
@@ -683,7 +686,7 @@ impl<A: 'static> Transmitter<A> {
     /// *not* be sent to the given transmitter.
     pub fn wire_filter_map<B, F>(&self, rb: &Receiver<B>, f: F)
     where
-        B: 'static,
+        B: Send + 'static,
         F: Fn(&A) -> Option<B> + 'static,
     {
         let tb = rb.new_trns();
@@ -694,7 +697,7 @@ impl<A: 'static> Transmitter<A> {
     /// Wires the transmitter to the given receiver using a stateless map function.
     pub fn wire_map<B, F>(&self, rb: &Receiver<B>, f: F)
     where
-        B: 'static,
+        B: Send + 'static,
         F: Fn(&A) -> B + 'static,
     {
         let tb = rb.new_trns();
@@ -705,8 +708,8 @@ impl<A: 'static> Transmitter<A> {
 
 // A message received by a [`Receiver`] at some point in the future.
 struct MessageFuture<A> {
-    var: Rc<RefCell<Option<A>>>,
-    waker: Rc<RefCell<Option<Waker>>>,
+    var: Arc<Mutex<Option<A>>>,
+    waker: Arc<Mutex<Option<Waker>>>,
 }
 
 impl<A> Future for MessageFuture<A> {
@@ -714,11 +717,15 @@ impl<A> Future for MessageFuture<A> {
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         let future: &mut MessageFuture<A> = self.get_mut();
-        let var: Option<A> = future.var.as_ref().borrow_mut().take();
+        let var: Option<A> = {
+            let mut guard = future.var.lock().unwrap();
+            guard.take()
+        };
         match var {
             Some(msg) => Poll::Ready(msg),
             None => {
-                *future.waker.borrow_mut() = Some(ctx.waker().clone());
+                let mut guard = future.waker.lock().unwrap();
+                *guard = Some(ctx.waker().clone());
                 Poll::Pending
             }
         }
@@ -728,18 +735,26 @@ impl<A> Future for MessageFuture<A> {
 /// Receive messages instantly.
 pub struct Receiver<A> {
     k: usize,
-    responders: Rc<Responders<A>>,
+    responders: Arc<Responders<A>>,
+}
+
+impl<A> From<Arc<Responders<A>>> for Receiver<A> {
+    fn from(responders: Arc<Responders<A>>) -> Receiver<A> {
+        let k = responders.next_k.fetch_add(1, Ordering::SeqCst);
+
+        Receiver { k, responders }
+    }
 }
 
 impl<A> Clone for Receiver<A> {
     fn clone(&self) -> Self {
-        self.responders.clone().recv_from()
+        Receiver::from(self.responders.clone())
     }
 }
 
 impl<A> Default for Receiver<A> {
     fn default() -> Self {
-        Responders::recv_from(Default::default())
+        Receiver::from(Arc::new(Responders::default()))
     }
 }
 
@@ -761,13 +776,13 @@ impl<A> Receiver<A> {
     /// Set the response this receiver has to messages. Upon receiving a message
     /// the response will run immediately.
     ///
-    /// Folds mutably over a Rc<RefCell<T>>.
-    pub fn respond_shared<T: 'static, F>(self, val: Rc<RefCell<T>>, f: F)
+    /// Folds mutably over a Arc<Mutex<T>>.
+    pub fn respond_shared<T: 'static, F>(self, val: Arc<Mutex<T>>, f: F)
     where
         F: Fn(&mut T, &A) + 'static,
     {
         self.responders.insert(self.k, move |a: &A| {
-            let mut t = val.borrow_mut();
+            let mut t = val.lock().unwrap();
             f(&mut t, a);
         });
     }
@@ -789,7 +804,7 @@ impl<A> Receiver<A> {
     /// Each branch will receive from the same transmitter.
     /// The new branch has no initial response to messages.
     pub fn branch(&self) -> Receiver<A> {
-        self.responders.clone().recv_from()
+        Receiver::from(self.responders.clone())
     }
 
     /// Branch a new receiver off of an original and wire any messages sent to the
@@ -801,7 +816,7 @@ impl<A> Receiver<A> {
     /// Each branch will receive from the same transmitter.
     pub fn branch_filter_fold<B, X, T, F>(&self, init: X, f: F) -> Receiver<B>
     where
-        B: 'static,
+        B: Send + 'static,
         X: Into<T>,
         T: 'static,
         F: Fn(&mut T, &A) -> Option<B> + 'static,
@@ -820,9 +835,9 @@ impl<A> Receiver<A> {
     /// `Option<B>` is `None`, no message will be sent to the new receiver.
     ///
     /// Each branch will receive from the same transmitter.
-    pub fn branch_filter_fold_shared<B, T, F>(&self, state: Rc<RefCell<T>>, f: F) -> Receiver<B>
+    pub fn branch_filter_fold_shared<B, T, F>(&self, state: Arc<Mutex<T>>, f: F) -> Receiver<B>
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         F: Fn(&mut T, &A) -> Option<B> + 'static,
     {
@@ -840,7 +855,7 @@ impl<A> Receiver<A> {
     /// Each branch will receive from the same transmitter(s).
     pub fn branch_fold<B, X, T, F>(&self, init: X, f: F) -> Receiver<B>
     where
-        B: 'static,
+        B: Send + 'static,
         X: Into<T>,
         T: 'static,
         F: Fn(&mut T, &A) -> B + 'static,
@@ -858,9 +873,9 @@ impl<A> Receiver<A> {
     /// All output of the fold function is sent to the new receiver.
     ///
     /// Each branch will receive from the same transmitter(s).
-    pub fn branch_fold_shared<B, T, F>(&self, t: Rc<RefCell<T>>, f: F) -> Receiver<B>
+    pub fn branch_fold_shared<B, T, F>(&self, t: Arc<Mutex<T>>, f: F) -> Receiver<B>
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         F: Fn(&mut T, &A) -> B + 'static,
     {
@@ -881,7 +896,7 @@ impl<A> Receiver<A> {
     /// Each branch will receive from the same transmitter.
     pub fn branch_filter_map<B, F>(&self, f: F) -> Receiver<B>
     where
-        B: 'static,
+        B: Send + 'static,
         F: Fn(&A) -> Option<B> + 'static,
     {
         let ra = self.branch();
@@ -898,7 +913,7 @@ impl<A> Receiver<A> {
     /// Each branch will receive from the same transmitter.
     pub fn branch_map<B, F>(&self, f: F) -> Receiver<B>
     where
-        B: 'static,
+        B: Send + 'static,
         F: Fn(&A) -> B + 'static,
     {
         let ra = self.branch();
@@ -912,16 +927,16 @@ impl<A> Receiver<A> {
     ///
     /// The fold function returns an `Option<B>`. In the case that the value of
     /// `Option<B>` is `None`, no message will be sent to the transmitter.
-    pub fn forward_filter_fold_shared<B, T, F>(self, tx: &Transmitter<B>, var: Rc<RefCell<T>>, f: F)
+    pub fn forward_filter_fold_shared<B, T, F>(self, tx: &Transmitter<B>, var: Arc<Mutex<T>>, f: F)
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         F: Fn(&mut T, &A) -> Option<B> + 'static,
     {
         let tx = tx.clone();
         self.respond(move |a: &A| {
             let result = {
-                let mut t = var.borrow_mut();
+                let mut t = var.lock().unwrap();
                 f(&mut t, a)
             };
             result.into_iter().for_each(|b| {
@@ -937,12 +952,12 @@ impl<A> Receiver<A> {
     /// `Option<B>` is `None`, no message will be sent to the transmitter.
     pub fn forward_filter_fold<B, X, T, F>(self, tx: &Transmitter<B>, init: X, f: F)
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         X: Into<T>,
         F: Fn(&mut T, &A) -> Option<B> + 'static,
     {
-        let var = Rc::new(RefCell::new(init.into()));
+        let var = Arc::new(Mutex::new(init.into()));
         self.forward_filter_fold_shared(tx, var, f);
     }
 
@@ -951,7 +966,7 @@ impl<A> Receiver<A> {
     /// function is sent to the given transmitter.
     pub fn forward_fold<B, X, T, F>(self, tx: &Transmitter<B>, init: X, f: F)
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         X: Into<T>,
         F: Fn(&mut T, &A) -> B + 'static,
@@ -962,9 +977,9 @@ impl<A> Receiver<A> {
     /// Forwards messages on the given receiver to the given transmitter using a
     /// stateful fold function, where the state is a shared mutex. All output of
     /// the fold function is sent to the given transmitter.
-    pub fn forward_fold_shared<B, T, F>(self, tx: &Transmitter<B>, t: Rc<RefCell<T>>, f: F)
+    pub fn forward_fold_shared<B, T, F>(self, tx: &Transmitter<B>, t: Arc<Mutex<T>>, f: F)
     where
-        B: 'static,
+        B: Send + 'static,
         T: 'static,
         F: Fn(&mut T, &A) -> B + 'static,
     {
@@ -976,7 +991,7 @@ impl<A> Receiver<A> {
     /// those messages will *not* be sent to the given transmitter.
     pub fn forward_filter_map<B, F>(self, tx: &Transmitter<B>, f: F)
     where
-        B: 'static,
+        B: Send + 'static,
         F: Fn(&A) -> Option<B> + 'static,
     {
         self.forward_filter_fold(tx, (), move |&mut (), a| f(a))
@@ -987,7 +1002,7 @@ impl<A> Receiver<A> {
     /// transmitter.
     pub fn forward_map<B, F>(self, tx: &Transmitter<B>, f: F)
     where
-        B: 'static,
+        B: Send + 'static,
         F: Fn(&A) -> B + 'static,
     {
         self.forward_filter_map(tx, move |a| Some(f(a)))
@@ -995,7 +1010,7 @@ impl<A> Receiver<A> {
 
     /// Merge all the receivers into one. Any time a message is received on any
     /// receiver, it will be sent to the returned receiver.
-    pub fn merge<B: 'static>(rxs: Vec<Receiver<B>>) -> Receiver<B> {
+    pub fn merge<B: Send + 'static>(rxs: Vec<Receiver<B>>) -> Receiver<B> {
         let (tx, rx) = channel();
         rxs.into_iter().for_each(|rx_inc| {
             let tx = tx.clone();
@@ -1011,17 +1026,17 @@ impl<A> Receiver<A> {
     where
         A: Clone + 'static,
     {
-        let var: Rc<RefCell<Option<A>>> = Rc::new(RefCell::new(None));
-        let var2: Rc<RefCell<Option<A>>> = var.clone();
-        let waker: Rc<RefCell<Option<Waker>>> = Rc::new(RefCell::new(None));
+        let var: Arc<Mutex<Option<A>>> = Default::default();
+        let var2: Arc<Mutex<Option<A>>> = var.clone();
+        let waker: Arc<Mutex<Option<Waker>>> = Default::default();
         let waker2 = waker.clone();
         self.branch().respond(move |msg| {
-            *var2.borrow_mut() = Some(msg.clone());
-            waker2
-                .borrow_mut()
-                .take()
-                .into_iter()
-                .for_each(|waker| waker.wake());
+            {
+                let mut guard = var2.lock().unwrap();
+                *guard = Some(msg.clone());
+            }
+            let mut guard = waker2.lock().unwrap();
+            guard.take().into_iter().for_each(|waker| waker.wake());
         });
 
         MessageFuture { var, waker }
@@ -1029,8 +1044,8 @@ impl<A> Receiver<A> {
 }
 
 /// Create a linked `Transmitter<A>` and `Receiver<A>` pair.
-pub fn channel<A: 'static>() -> (Transmitter<A>, Receiver<A>) {
-    let trns:Transmitter<A> = Default::default();
+pub fn channel<A: Send + 'static>() -> (Transmitter<A>, Receiver<A>) {
+    let trns: Transmitter<A> = Default::default();
     let recv = trns.spawn_recv();
     (trns, recv)
 }
@@ -1046,8 +1061,8 @@ pub fn channel<A: 'static>() -> (Transmitter<A>, Receiver<A>) {
 /// will be sent to the receiver.
 pub fn channel_filter_fold<A, B, T, F>(t: T, f: F) -> (Transmitter<A>, Receiver<B>)
 where
-    A: 'static,
-    B: 'static,
+    A: Send + 'static,
+    B: Send + 'static,
     T: 'static,
     F: Fn(&mut T, &A) -> Option<B> + 'static,
 {
@@ -1067,12 +1082,12 @@ where
 /// In the case that the return value of the given function is `None`, no message
 /// will be sent to the receiver.
 pub fn channel_filter_fold_shared<A, B, T, F>(
-    var: Rc<RefCell<T>>,
+    var: Arc<Mutex<T>>,
     f: F,
 ) -> (Transmitter<A>, Receiver<B>)
 where
-    A: 'static,
-    B: 'static,
+    A: Send + 'static,
+    B: Send + 'static,
     T: 'static,
     F: Fn(&mut T, &A) -> Option<B> + 'static,
 {
@@ -1089,8 +1104,8 @@ where
 /// the receiver.
 pub fn channel_fold<A, B, T, F>(t: T, f: F) -> (Transmitter<A>, Receiver<B>)
 where
-    A: 'static,
-    B: 'static,
+    A: Send + 'static,
+    B: Send + 'static,
     T: 'static,
     F: Fn(&mut T, &A) -> B + 'static,
 {
@@ -1105,10 +1120,10 @@ where
 /// Using the given fold function, messages sent on the transmitter are folded
 /// into the given internal state and all output messages will be sent to the
 /// receiver.
-pub fn channel_fold_shared<A, B, T, F>(t: Rc<RefCell<T>>, f: F) -> (Transmitter<A>, Receiver<B>)
+pub fn channel_fold_shared<A, B, T, F>(t: Arc<Mutex<T>>, f: F) -> (Transmitter<A>, Receiver<B>)
 where
-    A: 'static,
-    B: 'static,
+    A: Send + 'static,
+    B: Send + 'static,
     T: 'static,
     F: Fn(&mut T, &A) -> B + 'static,
 {
@@ -1127,8 +1142,8 @@ where
 /// will be sent to the receiver.
 pub fn channel_filter_map<A, B, F>(f: F) -> (Transmitter<A>, Receiver<B>)
 where
-    A: 'static,
-    B: 'static,
+    A: Send + 'static,
+    B: Send + 'static,
     F: Fn(&A) -> Option<B> + 'static,
 {
     let (ta, ra) = channel();
@@ -1143,8 +1158,8 @@ where
 /// to output messages that will be sent to the receiver.
 pub fn channel_map<A, B, F>(f: F) -> (Transmitter<A>, Receiver<B>)
 where
-    A: 'static,
-    B: 'static,
+    A: Send + 'static,
+    B: Send + 'static,
     F: Fn(&A) -> B + 'static,
 {
     let (ta, ra) = channel();
@@ -1158,8 +1173,8 @@ where
 /// Use this as a short hand for creating variables to pass to
 /// the many `*_shared` flavored fold functions in the [channel](index.html)
 /// module.
-pub fn new_shared<A: 'static, X: Into<A>>(init: X) -> Rc<RefCell<A>> {
-    Rc::new(RefCell::new(init.into()))
+pub fn new_shared<A: 'static, X: Into<A>>(init: X) -> Arc<Mutex<A>> {
+    Arc::new(Mutex::new(init.into()))
 }
 
 #[cfg(test)]
@@ -1177,20 +1192,20 @@ mod range {
 
 #[cfg(test)]
 mod test {
-    use std::cell::Ref;
+    use std::{ops::{Deref, DerefMut}, sync::MutexGuard};
 
-    use super::{*, model::*, patch::*};
+    use super::{model::*, patch::*, *};
 
     #[test]
     fn channel_test() {
-        let count = Rc::new(RefCell::new(0));
+        let count = new_shared(0);
         let (tx_unit, rx_unit) = channel::<()>();
         let (tx_i32, rx_i32) = channel::<i32>();
         {
             let my_count = count.clone();
             rx_i32.respond(move |n: &i32| {
                 println!("Got message: {:?}", n);
-                let mut c = my_count.borrow_mut();
+                let mut c = my_count.lock().unwrap();
                 *c = *n;
             });
 
@@ -1205,7 +1220,7 @@ mod test {
         tx_unit.send(&());
         tx_unit.send(&());
 
-        let final_count: i32 = *count.borrow();
+        let final_count: i32 = *count.lock().unwrap();
         assert_eq!(final_count, 3);
     }
 
@@ -1222,11 +1237,11 @@ mod test {
             }
         });
 
-        let got_called = Rc::new(RefCell::new(false));
+        let got_called = new_shared(false);
         let remote_got_called = got_called.clone();
         rx_str.respond(move |s: &String| {
             println!("got: {:?}", s);
-            let mut called = remote_got_called.borrow_mut();
+            let mut called = remote_got_called.lock().unwrap();
             *called = true;
         });
 
@@ -1234,7 +1249,7 @@ mod test {
         tx_unit.send(&());
         tx_unit.send(&());
 
-        let ever_called = *got_called.borrow();
+        let ever_called = *got_called.lock().unwrap();
         assert!(ever_called);
     }
 
@@ -1243,41 +1258,44 @@ mod test {
         let (tx, rx) = channel::<()>();
         let ry: Receiver<i32> = rx.branch_map(|_| 0);
 
-        let done = Rc::new(RefCell::new(false));
+        let done = new_shared(false);
 
         let cdone = done.clone();
         ry.respond(move |n| {
             if *n == 0 {
-                *cdone.borrow_mut() = true;
+                *cdone.lock().unwrap() = true;
             }
         });
 
         tx.send(&());
 
-        assert!(*done.borrow());
+        assert!(*done.lock().unwrap());
     }
 
     #[test]
     fn patch_list_model() {
         let mut list = PatchListModel::new(vec![0, 1, 2, 3]);
-        let view = Rc::new(RefCell::new(vec![0.0, 1.0, 2.0, 3.0]));
+        let view = new_shared(vec![0.0, 1.0, 2.0, 3.0]);
         let view_clone = view.clone();
         let rx = list.receiver().clone();
         rx.respond(move |patch| {
-            let patch:Patch<f32> = patch.patch_map(|i| *i as f32);
-            let mut v = view_clone.borrow_mut();
+            let patch: Patch<f32> = patch.patch_map(|i| *i as f32);
+            let mut guard: MutexGuard<Vec<f32>> = view_clone.lock().unwrap();
+            let v: &mut Vec<_> = guard.deref_mut();
             v.patch_apply(patch);
         });
 
         list.patch_push(4);
         {
-            let v_ref: Ref<Vec<f32>> = view.borrow();
+            let guard: MutexGuard<Vec<f32>> = view.lock().unwrap();
+            let v_ref: &Vec<f32> = guard.deref();
             assert_eq!(v_ref.as_slice(), &[0.0, 1.0, 2.0, 3.0, 4.0]);
         }
 
         let _ = list.patch_splice(0.., vec![]);
         {
-            let v_ref: Ref<Vec<f32>> = view.borrow();
+            let guard = view.lock().unwrap();
+            let v_ref = guard.deref();
             assert!(v_ref.is_empty());
         }
     }

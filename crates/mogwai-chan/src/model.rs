@@ -1,6 +1,6 @@
 //! Data that transmits updates to subscribers automatically.
 use crate::{Transmitter, Receiver, channel, patch::{Patch, PatchApply}};
-use std::{cell::RefCell, rc::Rc};
+use std::{ops::DerefMut, sync::{Arc, Mutex}};
 
 /// Wraps a value `T` and transmits updates to subscribers.
 ///
@@ -8,17 +8,17 @@ use std::{cell::RefCell, rc::Rc};
 /// all downstream receivers will get a message containing the new value.
 #[derive(Clone)]
 pub struct Model<T> {
-    value: Rc<RefCell<T>>,
+    value: Arc<Mutex<T>>,
     trns: Transmitter<T>,
     recv: Receiver<T>,
 }
 
-impl<T: Clone + 'static> Model<T> {
+impl<T: Send + 'static> Model<T> {
     /// Create a new model from a `T`.
     pub fn new(t: T) -> Model<T> {
         let (trns, recv) = channel::<T>();
         Model {
-            value: Rc::new(RefCell::new(t)),
+            value: Arc::new(Mutex::new(t)),
             trns,
             recv,
         }
@@ -26,7 +26,8 @@ impl<T: Clone + 'static> Model<T> {
 
     /// Manually send the inner value of this model to subscribers.
     fn transmit(&self) {
-        self.trns.send(&self.value.as_ref().borrow());
+        let guard = self.value.lock().unwrap();
+        self.trns.send(&guard);
     }
 
     /// Visit the wrapped value with a function that produces a value.
@@ -35,7 +36,8 @@ impl<T: Clone + 'static> Model<T> {
         A: 'static,
         F: FnOnce(&T) -> A,
     {
-        f(&self.value.borrow())
+        let guard = self.value.lock().unwrap();
+        f(&guard)
     }
 
     /// Visit the mutable wrapped value with a function that produces a value.
@@ -44,7 +46,8 @@ impl<T: Clone + 'static> Model<T> {
         A: 'static,
         F: FnOnce(&mut T) -> A,
     {
-        let a = f(&mut self.value.borrow_mut());
+        let mut guard = self.value.lock().unwrap();
+        let a = f(&mut guard);
         self.transmit();
         a
     }
@@ -53,19 +56,10 @@ impl<T: Clone + 'static> Model<T> {
     ///
     /// This function corresponds to std::mem::replace.
     pub fn replace(&self, t: T) -> T {
-        let t = self.value.replace(t);
+        let mut guard = self.value.lock().unwrap();
+        let prev = std::mem::replace(guard.deref_mut(), t);
         self.transmit();
-        t
-    }
-
-    /// Replaces the wrapped value with a new one computed from f, returning the old value, without deinitializing either one.
-    pub fn replace_with<F>(&self, f: F) -> T
-    where
-        F: FnOnce(&mut T) -> T,
-    {
-        let t = self.value.replace_with(f);
-        self.transmit();
-        t
+        prev
     }
 
     /// Access the model's receiver.
@@ -76,7 +70,7 @@ impl<T: Clone + 'static> Model<T> {
     }
 }
 
-impl<T: Clone + Default + 'static> Model<T> {
+impl<T: Send + Default + 'static> Model<T> {
     /// Takes the wrapped value, leaving Default::default() in its place.
     pub fn take(&self) -> T {
         let new_t = Default::default();
@@ -94,17 +88,17 @@ impl<T: Clone + Default + 'static> Model<T> {
 /// instead of the entire list itself. In other words the `T` in `PatchModel<T>` is just _one item_ in the list
 /// of values.
 pub struct PatchListModel<T> {
-    value: Rc<RefCell<Vec<T>>>,
+    value: Arc<Mutex<Vec<T>>>,
     trns: Transmitter<Patch<T>>,
     recv: Receiver<Patch<T>>,
 }
 
-impl<T: Clone + 'static> PatchListModel<T> {
+impl<T: Clone + Send + 'static> PatchListModel<T> {
     /// Create a new list model from a list of `T`s.
     pub fn new<A: IntoIterator<Item = T>>(ts: A) -> PatchListModel<T> {
         let (trns, recv) = channel::<Patch<T>>();
         PatchListModel {
-            value: Rc::new(RefCell::new(ts.into_iter().collect::<Vec<T>>())),
+            value: Arc::new(Mutex::new(ts.into_iter().collect::<Vec<T>>())),
             trns,
             recv,
         }
@@ -116,7 +110,8 @@ impl<T: Clone + 'static> PatchListModel<T> {
         A: 'static,
         F: FnOnce(&Vec<T>) -> A,
     {
-        f(&self.value.borrow())
+        let guard = self.value.lock().unwrap();
+        f(&guard)
     }
 
     /// Visit the value at the given index with a function that produces a value.
@@ -125,7 +120,8 @@ impl<T: Clone + 'static> PatchListModel<T> {
         A: 'static,
         F: FnOnce(Option<&T>) -> A,
     {
-        f(self.value.borrow().get(i))
+        let guard = self.value.lock().unwrap();
+        f(guard.get(i))
     }
 
     /// Visit the values with a function that produces an update, then apply that update and send it
@@ -134,7 +130,7 @@ impl<T: Clone + 'static> PatchListModel<T> {
     where
         F: FnOnce(&Vec<T>) -> Option<Patch<T>>,
     {
-        let mut ts = self.value.borrow_mut();
+        let mut ts = self.value.lock().unwrap();
         if let Some(update) = f(&ts) {
             let removed = ts.patch_apply(update.clone());
             self.trns.send(&update);
@@ -152,7 +148,7 @@ impl<T: Clone + 'static> PatchListModel<T> {
     }
 }
 
-impl<T: Clone + 'static> PatchApply for PatchListModel<T> {
+impl<T: Clone + Send + 'static> PatchApply for PatchListModel<T> {
     type Item = T;
 
     fn patch_apply(&mut self, patch: Patch<Self::Item>) -> Vec<Self::Item> {
