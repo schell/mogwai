@@ -2,7 +2,7 @@
 
 members = [
   "cookbook",
-  "crates/gremlin",
+  "crates/mogwai",
   "crates/mogwai-chan",
   "crates/mogwai-html-macro",
   "crates/mogwai-hydrator",
@@ -13,7 +13,6 @@ members = [
   "examples/spa-routing",
   "examples/svg",
   "examples/todomvc",
-  "mogwai",
 ]
 
 
