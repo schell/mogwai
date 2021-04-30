@@ -711,7 +711,7 @@ impl<T: IsDomNode + AsRef<Node>> From<T> for View<T> {
 
 impl<T> From<Gizmo<T>> for View<<T as Component>::DomNode>
 where
-    T: Component,
+    T: Component + Send + Sync,
     <T as Component>::DomNode: JsCast + AsRef<Node>,
 {
     fn from(gizmo: Gizmo<T>) -> Self {

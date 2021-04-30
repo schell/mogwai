@@ -12,3 +12,6 @@ async-tokio = ["tokio"]
 
 [dependencies]
 tokio = { version = "1.5", optional = true, features = ["rt"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "^0.4"

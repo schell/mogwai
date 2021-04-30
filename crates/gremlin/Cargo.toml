@@ -9,7 +9,7 @@ edition = "2018"
 
 [dependencies]
 mogwai-chan = { path = "../mogwai-chan", version = "^0.1" }
-mogwai = { path = "../../mogwai" }
+mogwai = { path = "../mogwai" }
 wasm-bindgen = "^0.2"
 
 [dependencies.web-sys]

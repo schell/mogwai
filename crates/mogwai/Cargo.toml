@@ -12,6 +12,7 @@ keywords = ["ui", "dom", "app", "reactive", "frontend"]
 categories = ["gui", "wasm", "web-programming"]
 
 [features]
+default = []
 async-tokio = [ "mogwai-chan/async-tokio", "tokio" ]
 
 [dependencies]

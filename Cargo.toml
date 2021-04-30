@@ -1,18 +1,18 @@
 [workspace]
 
 members = [
-  "cookbook",
+  #"cookbook",
   "crates/mogwai",
   "crates/mogwai-chan",
   "crates/mogwai-html-macro",
-  "crates/mogwai-hydrator",
-  "examples/focus-follower",
-  "examples/list-of-gizmos",
-  "examples/multipage",
-  "examples/sandbox",
-  "examples/spa-routing",
-  "examples/svg",
-  "examples/todomvc",
+  "crates/mogwai-hydrator"
+  #"examples/focus-follower",
+  #"examples/list-of-gizmos",
+  #"examples/multipage",
+  #"examples/sandbox",
+  #"examples/spa-routing",
+  #"examples/svg",
+  #"examples/todomvc",
 ]
 
 

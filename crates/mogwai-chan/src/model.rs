@@ -13,7 +13,7 @@ pub struct Model<T> {
     recv: Receiver<T>,
 }
 
-impl<T: Send + 'static> Model<T> {
+impl<T: Send + Sync + 'static> Model<T> {
     /// Create a new model from a `T`.
     pub fn new(t: T) -> Model<T> {
         let (trns, recv) = channel::<T>();
@@ -70,7 +70,7 @@ impl<T: Send + 'static> Model<T> {
     }
 }
 
-impl<T: Send + Default + 'static> Model<T> {
+impl<T: Send + Sync + Default + 'static> Model<T> {
     /// Takes the wrapped value, leaving Default::default() in its place.
     pub fn take(&self) -> T {
         let new_t = Default::default();
@@ -93,7 +93,7 @@ pub struct PatchListModel<T> {
     recv: Receiver<Patch<T>>,
 }
 
-impl<T: Clone + Send + 'static> PatchListModel<T> {
+impl<T: Clone + Send + Sync + 'static> PatchListModel<T> {
     /// Create a new list model from a list of `T`s.
     pub fn new<A: IntoIterator<Item = T>>(ts: A) -> PatchListModel<T> {
         let (trns, recv) = channel::<Patch<T>>();
@@ -148,7 +148,7 @@ impl<T: Clone + Send + 'static> PatchListModel<T> {
     }
 }
 
-impl<T: Clone + Send + 'static> PatchApply for PatchListModel<T> {
+impl<T: Clone + Send + Sync + 'static> PatchApply for PatchListModel<T> {
     type Item = T;
 
     fn patch_apply(&mut self, patch: Patch<Self::Item>) -> Vec<Self::Item> {
