@@ -6,23 +6,21 @@
 //!
 //! For more info see [the Component module documentation][crate::component].
 use std::{
-    cell::Ref,
-    sync::{Arc, Mutex},
+    cell::{Ref, RefCell},
+    rc::Rc,
 };
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget};
 
 use crate::{
-    component::{subscriber::Subscriber, Component},
-    txrx::{channel, new_shared, Receiver, Transmitter},
-    utils,
-    view::{builder::ViewBuilder, IsDomNode},
+    txrx::{channel, Receiver, Transmitter},
+    utils, component::{Component, subscriber::Subscriber}, view::{IsDomNode, builder::ViewBuilder},
 };
 
 /// A user interface component that can spawn views.
 #[derive(Clone)]
-pub struct Gizmo<T: Component + Send + Sync> {
+pub struct Gizmo<T: Component> {
     /// This gizmo's [`Component::ModelMsg`] transmitter.
     /// Sending on this [`Transmitter`] causes its [`Component::update`]
     /// function to run.
@@ -31,14 +29,13 @@ pub struct Gizmo<T: Component + Send + Sync> {
     /// Clones of this receiver are owned by all of this gizmo's views.
     pub recv: Receiver<T::ViewMsg>,
     /// This gizmo's internal state.
-    pub state: Arc<Mutex<T>>,
+    pub state: Rc<RefCell<T>>,
 }
 
 impl<T> Gizmo<T>
 where
-    T: Component + Send + Sync + 'static,
-    T::ViewMsg: Send + Sync + Clone,
-    T::ModelMsg: Send + Sync,
+    T: Component + 'static,
+    T::ViewMsg: Clone,
     T::DomNode: JsCast + AsRef<Node> + Clone,
 {
     /// Create a new [`Gizmo`] from an initial state using
@@ -55,7 +52,7 @@ where
         let out_subscriber = Subscriber::new(&tx_out);
         init.bind(&in_subscriber, &out_subscriber);
 
-        let state = new_shared(init);
+        let state = Rc::new(RefCell::new(init));
 
         let (tx_view, rx_view) = channel();
         rx_in.respond_shared(state.clone(), move |t: &mut T, msg: &T::ModelMsg| {
@@ -129,7 +126,7 @@ where
     }
 }
 
-impl<T: Send + Sync + Component> From<T> for Gizmo<T> {
+impl<T: Component> From<T> for Gizmo<T> {
     fn from(component: T) -> Gizmo<T> {
         Gizmo::new(component)
     }
