@@ -15,7 +15,7 @@ console_error_panic_hook = "^0.1"
 futures = "^0.3"
 log = "^0.4"
 mogwai-hydrator = { path = "../../crates/mogwai-hydrator", version = "^0.1" }
-wasm-bindgen = "^0.2"
+wasm-bindgen = "0.2.73"
 wasm-bindgen-futures = "^0.4"
 
 [dependencies.mogwai]
