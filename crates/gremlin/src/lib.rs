@@ -4,9 +4,6 @@ mod gremlin_tests {
     use wasm_bindgen_test::*;
     use mogwai_chan::{model::*, *};
     use web_sys::HtmlElement;
-    use mogwai::prelude::*;
-
-    wasm_bindgen_test_configure!(run_in_browser);
 
     struct Counter {
         model: Model<u32>,
@@ -21,12 +18,12 @@ mod gremlin_tests {
         CountChanged(u32)
     }
 
-    fn view_builder(tx: &Transmitter<MsgFromView>, rx: &Receiver<MsgToView>) -> ViewBuilder<HtmlElement> {
+    fn view_builder(model: &Model<u32>) -> ViewBuilder<HtmlElement> {
         builder! {
             <fieldset>
                 <legend>"Counter"</legend>
                 <div class="title">
-                    {rx.branch_map(|MsgToView::CountChanged(count)| format!("{} clicks", count))}
+                    {model.receiver().branch_map(|count| format!("{} clicks", count))}
                 </div>
                 <button on:click=tx.contra_map(|_| MsgFromView::CountInc)>"+1"</button>
             </fieldset>
@@ -40,7 +37,7 @@ mod gremlin_tests {
         }
     }
 
-    #[wasm_bindgen_test]
+    #[tokio::test]
     async fn main_test() {
         let model = Model::new(0);
         let tx_model = model.clone();

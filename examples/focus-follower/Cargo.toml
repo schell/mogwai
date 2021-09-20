@@ -32,7 +32,7 @@ wee_alloc = { version = "0.4.2", optional = true }
 
 [dependencies.mogwai]
 version = "^0.4"
-path = "../../mogwai"
+path = "../../crates/mogwai"
 
 [dependencies.web-sys]
 version = "^0.3"

@@ -160,9 +160,9 @@ use subscriber::Subscriber;
 /// See the [module level documentation](super::component) for more details.
 pub trait Component
 where
-    Self: Sized + 'static,
-    Self::ModelMsg: Clone,
-    Self::ViewMsg: Clone,
+    Self: Sized + Send + Sync + 'static,
+    Self::ModelMsg: Send + Clone,
+    Self::ViewMsg: Send + Clone,
     Self::DomNode: JsCast + AsRef<Node> + Clone,
 {
     /// Message type used to drive component state updates.

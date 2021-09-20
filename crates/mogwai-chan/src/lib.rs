@@ -22,16 +22,6 @@
 //! let (tx, rx) = channel::<()>();
 //! ```
 //!
-//! Or simply let the compiler try to figure it out:
-//!
-//! ```rust, ignore
-//! extern crate mogwai_chan;
-//! use mogwai_chan::*;
-//!
-//! let (tx, rx) = channel();
-//! // ...
-//! ```
-//!
 //! This pair makes a linked channel. Messages you send on the [Transmitter]
 //! will be sent directly to the [Receiver] on the other end.
 //!
@@ -734,6 +724,17 @@ impl<A> Future for MessageFuture<A> {
     }
 }
 
+impl<A> futures::Stream for MessageFuture<A> {
+    type Item = A;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        match <Self as Future>::poll(self, cx) {
+            Poll::Ready(msg) => Poll::Ready(Some(msg)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 /// Receive messages instantly.
 pub struct Receiver<A> {
     k: usize,
@@ -1061,6 +1062,27 @@ impl<A> Receiver<A> {
 
     /// Create a future to await the next message received by this `Receiver`.
     pub fn recv(&self) -> impl Future<Output = A>
+    where
+        A: Clone + Send + 'static,
+    {
+        let var: Arc<Mutex<Option<A>>> = Arc::new(Mutex::new(None));
+        let var2: Arc<Mutex<Option<A>>> = var.clone();
+        let waker: Arc<Mutex<Option<Waker>>> = Arc::new(Mutex::new(None));
+        let waker2 = waker.clone();
+        self.branch().respond(move |msg| {
+            let mut var_guard = var2.lock().unwrap();
+            *var_guard = Some(msg.clone());
+            let mut waker_guard = waker2.lock().unwrap();
+            waker_guard
+                .take()
+                .into_iter()
+                .for_each(|waker| waker.wake());
+        });
+
+        MessageFuture { var, waker }
+    }
+
+    pub fn recv_stream(&self) -> impl futures::Stream<Item = A>
     where
         A: Clone + Send + 'static,
     {

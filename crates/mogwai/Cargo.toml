@@ -11,12 +11,15 @@ readme = "../README.md"
 keywords = ["ui", "dom", "app", "reactive", "frontend"]
 categories = ["gui", "wasm", "web-programming"]
 
+[features]
+default = []
+
 [dependencies]
-mogwai-chan = { path = "../crates/mogwai-chan", version = "^0.1" }
+mogwai-chan = { path = "../mogwai-chan", version = "^0.1" }
 console_log = "^0.1"
 log = "^0.4"
 js-sys = "0.3.44"
-mogwai-html-macro = { path = "../crates/mogwai-html-macro", version = "^0.2" }
+mogwai-html-macro = { path = "../mogwai-html-macro", version = "^0.2" }
 wasm-bindgen = "^0.2"
 wasm-bindgen-futures = "^0.4"
 
@@ -38,6 +41,9 @@ features = [
   "Text",
   "Window"
 ]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1.5", features = ["rt"] }
 
 [dev-dependencies]
 doc-comment = "^0.3"

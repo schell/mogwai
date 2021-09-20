@@ -13,7 +13,7 @@ pub struct Subscriber<Msg> {
     tx: Transmitter<Msg>,
 }
 
-impl<Msg: Clone + 'static> Subscriber<Msg> {
+impl<Msg: Clone + Send + Sync + 'static> Subscriber<Msg> {
     /// Create a new Subscriber from a Transmitter.
     pub fn new(tx: &Transmitter<Msg>) -> Subscriber<Msg> {
         Subscriber { tx: tx.clone() }
@@ -23,7 +23,8 @@ impl<Msg: Clone + 'static> Subscriber<Msg> {
     /// function.
     pub fn subscribe_filter_map<ChildMsg, F>(&self, rx: &Receiver<ChildMsg>, f: F)
     where
-        F: Fn(&ChildMsg) -> Option<Msg> + 'static,
+        ChildMsg: Send,
+        F: Fn(&ChildMsg) -> Option<Msg> + Send + Sync + 'static,
     {
         rx.branch().forward_filter_map(&self.tx, f)
     }
@@ -31,7 +32,8 @@ impl<Msg: Clone + 'static> Subscriber<Msg> {
     /// Subscribe to a receiver by forwarding messages from it using a map function.
     pub fn subscribe_map<ChildMsg, F>(&self, rx: &Receiver<ChildMsg>, f: F)
     where
-        F: Fn(&ChildMsg) -> Msg + 'static,
+        ChildMsg: Send,
+        F: Fn(&ChildMsg) -> Msg + Send + Sync + 'static,
     {
         rx.branch()
             .forward_filter_map(&self.tx, move |msg| Some(f(msg)))
@@ -44,11 +46,11 @@ impl<Msg: Clone + 'static> Subscriber<Msg> {
 
     /// Send a one-time asynchronous message.
     /// # NOTE
-    /// This is only available in the browser, being compiled for `wasm32`.
-    /// On other targets this is a noop.
+    /// This is only enabled by default for the browser. On other targets this is powered by tokio.
+    /// When compiling for a target **other than wasm32** you must supply the feature `async-tokio`.
     pub fn send_async<F>(&self, f: F)
     where
-        F: std::future::Future<Output = Msg> + 'static,
+        F: std::future::Future<Output = Msg> + Send + Sync + 'static,
     {
         self.tx.send_async(f);
     }

@@ -1,5 +1,8 @@
 //! Data that transmits updates to subscribers automatically.
-use std::{ops::DerefMut, sync::{Arc, Mutex}};
+use std::{
+    ops::DerefMut,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     channel,
@@ -11,6 +14,18 @@ use crate::{
 ///
 /// A `Model` may be cloned, sharing its underlying data. When any clone of a `Model` is updated
 /// all downstream receivers will get a message containing the new value.
+///
+/// ```rust
+/// extern crate mogwai_chan;
+/// use mogwai_chan::model::*;
+///
+/// let model_a = Model::new("hello".to_string());
+/// let model_b = model_a.clone();
+/// assert_eq!(model_b.visit(|s| s.clone()).as_str(), "hello");
+///
+/// model_b.replace("goodbye".to_string());
+/// assert_eq!(model_a.visit(|s| s.clone()).as_str(), "goodbye");
+/// ```
 #[derive(Clone)]
 pub struct Model<T> {
     value: Arc<Mutex<T>>,
@@ -18,7 +33,7 @@ pub struct Model<T> {
     recv: Receiver<T>,
 }
 
-impl<T: Clone + 'static> Model<T> {
+impl<T: Clone + Send + 'static> Model<T> {
     /// Create a new model from a `T`.
     pub fn new(t: T) -> Model<T> {
         let (trns, recv) = channel::<T>();
@@ -58,8 +73,10 @@ impl<T: Clone + 'static> Model<T> {
     ///
     /// This function corresponds to std::mem::replace.
     pub fn replace(&self, t: T) -> T {
-        let mut guard = self.value.lock().unwrap();
-        let t1 = std::mem::replace(guard.deref_mut(), t);
+        let t1 = {
+            let mut guard = self.value.lock().unwrap();
+            std::mem::replace(guard.deref_mut(), t)
+        };
         self.transmit();
         t1
     }
@@ -69,9 +86,11 @@ impl<T: Clone + 'static> Model<T> {
     where
         F: FnOnce(&mut T) -> T,
     {
-        let mut guard = self.value.lock().unwrap();
-        let t0 = f(guard.deref_mut());
-        let t = std::mem::replace(guard.deref_mut(), t0);
+        let t = {
+            let mut guard = self.value.lock().unwrap();
+            let t0 = f(guard.deref_mut());
+            std::mem::replace(guard.deref_mut(), t0)
+        };
         self.transmit();
         t
     }
@@ -82,9 +101,14 @@ impl<T: Clone + 'static> Model<T> {
     pub fn receiver(&self) -> &Receiver<T> {
         &self.recv
     }
+
+    /// Create an asynchronous stream of all this patchmodel's updates.
+    pub fn updates(&self) -> impl futures::Stream<Item = T> {
+        self.recv.recv_stream()
+    }
 }
 
-impl<T: Clone + Default + 'static> Model<T> {
+impl<T: Clone + Default + Send + 'static> Model<T> {
     /// Takes the wrapped value, leaving Default::default() in its place.
     pub fn take(&self) -> T {
         let new_t = Default::default();
@@ -106,7 +130,7 @@ pub struct PatchListModel<T> {
     recv: Receiver<Patch<T>>,
 }
 
-impl<T: Clone + 'static> PatchListModel<T> {
+impl<T: Clone + Send + 'static> PatchListModel<T> {
     /// Create a new list model from a list of `T`s.
     pub fn new<A: IntoIterator<Item = T>>(ts: A) -> PatchListModel<T> {
         let (trns, recv) = channel::<Patch<T>>();
@@ -142,27 +166,56 @@ impl<T: Clone + 'static> PatchListModel<T> {
         F: FnOnce(&Vec<T>) -> Option<Patch<T>>,
     {
         let mut ts = self.value.lock().unwrap();
-        if let Some(update) = f(&ts) {
-            let removed = ts.patch_apply(update.clone());
-            self.trns.send(&update);
-            removed
+        let may_update = f(&ts);
+        let removed = if let Some(update) = may_update.as_ref() {
+            ts.patch_apply(update.clone())
         } else {
             vec![]
+        };
+        drop(ts);
+        if let Some(update) = may_update {
+            self.trns.send(&update);
         }
+        removed
     }
 
-    /// Access the model's receiver.
+    /// Access the patchmodel's receiver.
     ///
-    /// The returned receiver can be used to subscribe to the model's updates.
+    /// The returned receiver can be used to subscribe to the patchmodel's updates.
     pub fn receiver(&self) -> &Receiver<Patch<T>> {
         &self.recv
     }
+
+    /// Create an asynchronous stream of all this patchmodel's updates.
+    pub fn updates(&self) -> impl futures::Stream<Item = Patch<T>> {
+        self.recv.recv_stream()
+    }
 }
 
-impl<T: Clone + 'static> PatchApply for PatchListModel<T> {
+impl<T: Clone + Send + 'static> PatchApply for PatchListModel<T> {
     type Item = T;
 
     fn patch_apply(&mut self, patch: Patch<Self::Item>) -> Vec<Self::Item> {
         self.patch(|_| Some(patch))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn sanity() {
+        println!("start");
+        let model_a = Model::new("hello".to_string());
+        println!("created a");
+        let model_b = model_a.clone();
+        println!("created b");
+
+        assert_eq!(model_b.visit(|s| s.clone()).as_str(), "hello");
+        println!("visited");
+
+        model_b.replace("goodbye".to_string());
+        println!("replaced");
     }
 }
