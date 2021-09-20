@@ -33,8 +33,6 @@ mod gremlin_tests {
         }
     }
 
-    fn update()
-
     impl Counter {
         /// Wait for an increment from the user and return the new count.
         pub async fn get_inc(&self) -> u32 {

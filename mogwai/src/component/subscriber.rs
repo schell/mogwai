@@ -1,5 +1,5 @@
 //! A very limited transmitter used to map messages.
-use super::super::txrx::{Receiver, Transmitter, TransmitterAsync};
+use super::super::txrx::{Receiver, Transmitter};
 
 /// A subscriber allows a component to subscribe to other components' messages
 /// without having explicit access to both Transmitter and Receiver. This allows

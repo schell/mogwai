@@ -11,4 +11,9 @@ default = []
 async-tokio = ["tokio"]
 
 [dependencies]
-tokio = { version = "1.5", optional = true, features = ["rt"] }
+cfg-if = "^1.0"
+lazy_static = "^1.4"
+tokio = { version = "^1.5", optional = true, features = ["rt"] }
+
+[dev-dependencies]
+smol = { version = "^1.2" }
