@@ -132,7 +132,7 @@ impl<T: IsDomNode + AsRef<Node>> ViewBuilder<T> {
                 })
                 .collect(),
         }
-    }
+   }
 }
 
 impl<T: IsDomNode + AsRef<Node>> TryFrom<Option<ViewBuilder<T>>> for ViewBuilder<T> {

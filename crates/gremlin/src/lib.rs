@@ -1,9 +1,9 @@
-use async_channel::{Sender, TrySendError, bounded};
+use async_channel::bounded;
 use futures::stream::StreamExt;
 use log::{info, Level};
-use std::panic;
-use wasm_bindgen::{prelude::*, JsCast};
-use web_sys::{Document, HtmlElement, Window};
+use std::{convert::TryInto, panic};
+use wasm_bindgen::prelude::*;
+use web_sys::{Event, HtmlElement, Node, Text};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -11,40 +11,14 @@ use web_sys::{Document, HtmlElement, Window};
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-pub mod var;
-pub mod sleep;
-pub mod dom;
+pub mod builder;
+pub mod event;
 pub mod patch;
+pub mod sleep;
+pub mod var;
+pub mod view;
 
-/// Add an event listener of the given name to the given target. When the event happens, the
-/// event will be sent on the given sender. If the sender is closed, the listener will be removed.
-pub fn add_event<T, F>(
-    ev_name: &str,
-    target: &web_sys::EventTarget,
-    tx: Sender<T>,
-    mut f:F,
-) -> Closure<dyn FnMut(JsValue)>
-where
-    T: 'static,
-    F: FnMut(web_sys::Event) -> T + 'static
-{
-    let closure = Closure::wrap(Box::new(move |val: JsValue| {
-        let ev = val.unchecked_into();
-        match tx.try_send(f(ev)) {
-            Ok(_) => {}
-            Err(err) => match err {
-                TrySendError::Full(_) => panic!("event handler Sender is full"),
-                TrySendError::Closed(_) => todo!("remove the event listener"),
-            },
-        }
-    }) as Box<dyn FnMut(JsValue)>);
-
-    target
-        .add_event_listener_with_callback(ev_name, closure.as_ref().unchecked_ref())
-        .unwrap_throw();
-
-    closure
-}
+use crate::{builder::ViewBuilder, patch::{HashPatch, ListPatch}, view::View};
 
 pub enum FromButtonMsg {
     Click,
@@ -52,66 +26,50 @@ pub enum FromButtonMsg {
     MouseOut,
 }
 
-pub struct View<T> {
-    pub raw: T,
-}
-
-impl<T: Clone + 'static> View<T> {
-    pub fn set_stream<S, F, A>(&self, mut setter: S, f:F)
-    where
-        S: futures::Stream<Item = A> + Unpin + 'static,
-        F: Fn(&T, A) + 'static,
-    {
-        let t = self.raw.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            loop {
-                match setter.next().await {
-                    Some(msg) => {
-                        f(&t, msg);
-                    }
-                    None => {
-                        break;
-                    }
-                }
-            }
-        });
-    }
-}
-
 pub async fn run() -> Result<(), JsValue> {
     info!("hello");
-    let window: Window = web_sys::window().unwrap();
-    let document: Document = window.document().unwrap();
-    let el: HtmlElement = document
-        .create_element("button")
-        .unwrap()
-        .dyn_into::<HtmlElement>()
-        .unwrap();
-    el.set_inner_text("0 clicks");
+
+    let (btn_text_tx, btn_text_rx) = bounded::<String>(1);
+    let (btn_color_tx, btn_color_rx) = bounded::<String>(1);
     let (click_tx, click_rx) = bounded(1);
-    let _click_cb = add_event("click", &el, click_tx, |_| FromButtonMsg::Click);
     let (over_tx, over_rx) = bounded(1);
-    let _over_cb = add_event("mouseover", &el, over_tx, |_| FromButtonMsg::MouseOver);
     let (out_tx, out_rx) = bounded(1);
-    let _out_cb = add_event("mouseout", &el, out_tx, |_| FromButtonMsg::MouseOut);
+
+    info!("button text created");
+
+    let button_builder: ViewBuilder<HtmlElement, Node, Event> = ViewBuilder::element("button")
+        .with_child_stream(futures::stream::once(async move {
+            let text: ViewBuilder<Text, Node, Event> = ViewBuilder::text(
+                futures::stream::once(async { "0 clicks".to_string() })
+                    .chain(btn_text_rx)
+                    .boxed_local(),
+            );
+
+            ListPatch::Push(text.with_type::<Node>())
+        }))
+        .with_style_stream(
+            btn_color_rx.map(|color| HashPatch::Insert("background-color".to_string(), color)),
+        )
+        .with_event("click", click_tx)
+        .with_event("mouseover", over_tx)
+        .with_event("mouseout", out_tx);
+
+    let button: View<HtmlElement> = button_builder.try_into().unwrap();
+    info!("button created");
 
     let mut from_btn_msgs = futures::stream::select_all(vec![
-        click_rx,
-        over_rx,
-        out_rx,
+        click_rx.map(|_| FromButtonMsg::Click).boxed_local(),
+        over_rx.map(|_| FromButtonMsg::MouseOver).boxed_local(),
+        out_rx.map(|_| FromButtonMsg::MouseOut).boxed_local(),
     ]);
 
-    let view:View<HtmlElement> = View {
-        raw: el.clone()
-    };
-    info!("view created");
-    let (btn_text_tx, btn_text_rx) = bounded::<String>(1);
-    view.set_stream(btn_text_rx, |v, s| v.set_inner_text(s.as_str()));
-    let (btn_color_tx, btn_color_rx) = bounded::<String>(1);
-    view.set_stream(btn_color_rx, |v, s| v.style().set_property("background-color", s.as_str()).unwrap());
-    info!("updates bound to view");
-
-    document.body().unwrap().append_child(&el)?;
+    web_sys::window()
+        .unwrap()
+        .document()
+        .unwrap()
+        .body()
+        .unwrap()
+        .append_child(&button.inner)?;
     info!("raw view added to document.body");
 
     let mut clicks = 0u32;
@@ -126,13 +84,19 @@ pub async fn run() -> Result<(), JsValue> {
                     1 => btn_color_tx.send("yellow".to_string()).await.unwrap(),
                     _ => {}
                 }
-                btn_text_tx.send(format!("{} clicks", clicks)).await.unwrap();
+                btn_text_tx
+                    .send(format!("{} clicks", clicks))
+                    .await
+                    .unwrap();
             }
             Some(FromButtonMsg::MouseOver) => {
                 btn_text_tx.send(format!("click me")).await.unwrap();
             }
             Some(FromButtonMsg::MouseOut) => {
-                btn_text_tx.send(format!("{} clicks", clicks)).await.unwrap();
+                btn_text_tx
+                    .send(format!("{} clicks", clicks))
+                    .await
+                    .unwrap();
             }
             None => {
                 break;
@@ -157,8 +121,8 @@ pub fn start() -> Result<(), JsValue> {
 
 #[cfg(test)]
 mod test {
-    use wasm_bindgen_test::*;
     use super::*;
+    use wasm_bindgen_test::*;
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 

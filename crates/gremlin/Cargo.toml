@@ -46,6 +46,9 @@ features = [
   "CssStyleDeclaration",
   "EventTarget",
   "Performance",
+  "Text",
+  "Node",
+  "NodeList",
 ]
 
 [dev-dependencies]

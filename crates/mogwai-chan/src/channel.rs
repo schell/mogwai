@@ -1,17 +1,12 @@
 //! Instant [`Transmitters`] and [`Receivers`].
 use std::{
-    collections::HashMap,
     future::Future,
     pin::Pin,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
-    },
     task::{Context, Poll, Waker},
 };
 
 mod target;
-use target::*;
+pub use target::*;
 
 /// Wrap an optional future message in a pin box.
 pub fn wrap_future<A, F>(future: F) -> Option<RecvFuture<A>>
@@ -21,7 +16,7 @@ where
     Some(Box::pin(future))
 }
 
-/// Send messages instantly.
+/// The sending end of an instant channel.
 pub struct Transmitter<A> {
     responders: Counted<Responders<A>>,
 }
@@ -56,7 +51,7 @@ impl<A: Transmission> Transmitter<A> {
     ///
     /// The responder closures of any downstream [`Receiver`]s are executed immediately.
     pub fn send(&self, a: &A) {
-        self.responders.inner.send(a);
+        self.responders.send(a);
     }
 
     /// Send a bunch of messages.
@@ -136,15 +131,18 @@ impl<A: Transmission> Transmitter<A> {
             tx.send(&a);
         });
     }
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "async-tokio"))]
     pub fn send_async<FutureA: FutureMessage<A>>(&self, fa: FutureA) {
         let _ = tokio::task::spawn(fa);
     }
-
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "async-tokio"), feature = "async-smol"))]
+    pub fn send_async<FutureA: FutureMessage<A>>(&self, fa: FutureA) {
+        let _ = smol::spawn(fa);
+    }
     /// Extend this transmitter with a new transmitter using a filtering fold
     /// function. The given function folds messages of `B` over a shared state `T`
     /// and optionally sends `A`s down into this transmitter.
-    pub fn contra_filter_fold_shared<B, T, F>(&self, var: Arc<Mutex<T>>, f: F) -> Transmitter<B>
+    pub fn contra_filter_fold_shared<B, T, F>(&self, var: Counted<Shared<T>>, f: F) -> Transmitter<B>
     where
         B: Transmission,
         T: Transmission,
@@ -153,10 +151,7 @@ impl<A: Transmission> Transmitter<A> {
         let tx = self.clone();
         let (tev, rev) = channel();
         rev.respond(move |ev| {
-            let result = {
-                let mut guard = var.lock().unwrap();
-                f(&mut guard, ev)
-            };
+            let result = var.visit_mut(|t| f(t, ev));
             result.into_iter().for_each(|b| {
                 tx.send(&b);
             });
@@ -227,7 +222,7 @@ impl<A: Transmission> Transmitter<A> {
     ///
     /// The fold function returns an `Option<B>`. In the case that the value of
     /// `Option<B>` is `None`, no message will be sent to the receiver.
-    pub fn wire_filter_fold_shared<T, B, F>(&self, rb: &Receiver<B>, var: Arc<Mutex<T>>, f: F)
+    pub fn wire_filter_fold_shared<T, B, F>(&self, rb: &Receiver<B>, var: Counted<Shared<T>>, f: F)
     where
         B: Transmission,
         T: Send + 'static,
@@ -271,7 +266,7 @@ impl<A: Transmission> Transmitter<A> {
 
     /// Wires the transmitter to send to the given receiver using a stateful fold
     /// function, where the state is a shared mutex.
-    pub fn wire_fold_shared<T, B, F>(&self, rb: &Receiver<B>, var: Arc<Mutex<T>>, f: F)
+    pub fn wire_fold_shared<T, B, F>(&self, rb: &Receiver<B>, var: Counted<Shared<T>>, f: F)
     where
         B: Transmission,
         T: Send + 'static,
@@ -332,26 +327,47 @@ impl<A: Transmission> Transmitter<A> {
 
 // A message received by a [`Receiver`] at some point in the future.
 struct MessageFuture<A> {
-    var: Arc<Mutex<Option<A>>>,
-    waker: Arc<Mutex<Option<Waker>>>,
+    var: Counted<Shared<Option<A>>>,
+    waker: Counted<Shared<Option<Waker>>>,
 }
 
-impl<A> Future for MessageFuture<A> {
+impl<A: Clone + Transmission> From<Receiver<A>> for MessageFuture<A> {
+    fn from(rx: Receiver<A>) -> Self {
+        let var: Counted<Shared<Option<A>>> = Default::default();
+        let var2: Counted<Shared<Option<A>>> = var.clone();
+        let waker: Counted<Shared<Option<Waker>>> = Default::default();
+        let waker2 = waker.clone();
+        rx.respond(move |msg| {
+            var2.visit_mut(|v| *v = Some(msg.clone()));
+            waker2.visit_mut(|w| w.take().into_iter().for_each(|w| w.wake()));
+        });
+
+        MessageFuture { var, waker }
+    }
+}
+
+impl<A: Transmission> Future for MessageFuture<A> {
     type Output = A;
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-        let future: &mut MessageFuture<A> = self.get_mut();
-        let var: Option<A> = {
-            let mut guard = future.var.lock().unwrap();
-            guard.take()
-        };
+        let var: Option<A> = self.var.visit_mut(Option::take);
         match var {
             Some(msg) => Poll::Ready(msg),
             None => {
-                let mut guard = future.waker.lock().unwrap();
-                *guard = Some(ctx.waker().clone());
+                self.waker.visit_mut(|w| *w = Some(ctx.waker().clone()) );
                 Poll::Pending
             }
+        }
+    }
+}
+
+impl<A: Transmission> futures::Stream for MessageFuture<A> {
+    type Item = A;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        match <Self as Future>::poll(self, cx) {
+            Poll::Ready(msg) => Poll::Ready(Some(msg)),
+            Poll::Pending => Poll::Pending,
         }
     }
 }
@@ -362,27 +378,26 @@ pub struct Receiver<A> {
     responders: Counted<Responders<A>>,
 }
 
-impl<A> From<Counted<Responders<A>>> for Receiver<A> {
+impl<A: Transmission> From<Counted<Responders<A>>> for Receiver<A> {
     fn from(responders: Counted<Responders<A>>) -> Receiver<A> {
-        let k = responders.inner.next_k.fetch_add(1, Ordering::SeqCst);
-
+        let k = responders.get_next_k();
         Receiver { k, responders }
     }
 }
 
-impl<A> Clone for Receiver<A> {
+impl<A: Transmission> Clone for Receiver<A> {
     fn clone(&self) -> Self {
         Receiver::from(self.responders.clone())
     }
 }
 
-impl<A> Default for Receiver<A> {
+impl<A: Transmission> Default for Receiver<A> {
     fn default() -> Self {
         Receiver::from(Counted::new(Responders::default()))
     }
 }
 
-impl<A: Send> Receiver<A> {
+impl<A: Transmission> Receiver<A> {
     /// Create a new Receiver.
     pub fn new() -> Receiver<A> {
         Default::default()
@@ -394,28 +409,27 @@ impl<A: Send> Receiver<A> {
     where
         F: FnMut(&A) + Transmission,
     {
-        self.responders.inner.insert(self.k, f);
+        self.responders.insert(self.k, f);
     }
 
     /// Set the response this receiver has to messages. Upon receiving a message
     /// the response will run immediately.
     ///
-    /// Folds mutably over a Arc<Mutex<T>>.
-    pub fn respond_shared<T, F>(self, val: Arc<Mutex<T>>, f: F)
+    /// Folds mutably over a Counted<Shared<T>>.
+    pub fn respond_shared<T, F>(self, val: Counted<Shared<T>>, f: F)
     where
         T: 'static + Send,
         F: Fn(&mut T, &A) + Transmission,
     {
-        self.responders.inner.insert(self.k, move |a: &A| {
-            let mut t = val.lock().unwrap();
-            f(&mut t, a);
+        self.responders.insert(self.k, move |a: &A| {
+            val.visit_mut(|t| f(t, a));
         });
     }
 
     /// Removes the responder from the receiver.
     /// This drops anything owned by the responder.
     pub fn drop_responder(&self) {
-        self.responders.inner.remove(self.k);
+        self.responders.remove(self.k);
     }
 
     /// Spawn a new [`Transmitter`] that sends to this Receiver.
@@ -460,7 +474,7 @@ impl<A: Send> Receiver<A> {
     /// `Option<B>` is `None`, no message will be sent to the new receiver.
     ///
     /// Each branch will receive from the same transmitter.
-    pub fn branch_filter_fold_shared<B, T, F>(&self, state: Arc<Mutex<T>>, f: F) -> Receiver<B>
+    pub fn branch_filter_fold_shared<B, T, F>(&self, state: Counted<Shared<T>>, f: F) -> Receiver<B>
     where
         B: Transmission,
         T: Send + 'static,
@@ -498,7 +512,7 @@ impl<A: Send> Receiver<A> {
     /// All output of the fold function is sent to the new receiver.
     ///
     /// Each branch will receive from the same transmitter(s).
-    pub fn branch_fold_shared<B, T, F>(&self, t: Arc<Mutex<T>>, f: F) -> Receiver<B>
+    pub fn branch_fold_shared<B, T, F>(&self, t: Counted<Shared<T>>, f: F) -> Receiver<B>
     where
         B: Transmission,
         T: Send + 'static,
@@ -552,7 +566,7 @@ impl<A: Send> Receiver<A> {
     ///
     /// The fold function returns an `Option<B>`. In the case that the value of
     /// `Option<B>` is `None`, no message will be sent to the transmitter.
-    pub fn forward_filter_fold_shared<B, T, F>(self, tx: &Transmitter<B>, var: Arc<Mutex<T>>, f: F)
+    pub fn forward_filter_fold_shared<B, T, F>(self, tx: &Transmitter<B>, var: Counted<Shared<T>>, f: F)
     where
         B: Transmission,
         T: Send + 'static,
@@ -560,13 +574,9 @@ impl<A: Send> Receiver<A> {
     {
         let tx = tx.clone();
         self.respond(move |a: &A| {
-            let result = {
-                let mut t = var.lock().unwrap();
-                f(&mut t, a)
-            };
-            result.into_iter().for_each(|b| {
+            if let Some(b) = var.visit_mut(|t| f(t, a)) {
                 tx.send(&b);
-            });
+            }
         });
     }
 
@@ -582,7 +592,7 @@ impl<A: Send> Receiver<A> {
         X: Into<T>,
         F: Fn(&mut T, &A) -> Option<B> + Transmission,
     {
-        let var = Arc::new(Mutex::new(init.into()));
+        let var = Counted::new(Shared::new(init.into()));
         self.forward_filter_fold_shared(tx, var, f);
     }
 
@@ -602,7 +612,7 @@ impl<A: Send> Receiver<A> {
     /// Forwards messages on the given receiver to the given transmitter using a
     /// stateful fold function, where the state is a shared mutex. All output of
     /// the fold function is sent to the given transmitter.
-    pub fn forward_fold_shared<B, T, F>(self, tx: &Transmitter<B>, t: Arc<Mutex<T>>, f: F)
+    pub fn forward_fold_shared<B, T, F>(self, tx: &Transmitter<B>, t: Counted<Shared<T>>, f: F)
     where
         B: Transmission,
         T: Send + 'static,
@@ -653,28 +663,20 @@ impl<A: Send> Receiver<A> {
         H: Fn(&mut T, &Option<B>) + Transmission,
     {
         let state = new_shared(init.into());
-        let cleanup = Arc::new(Box::new(h));
+        let cleanup = Counted::new(Box::new(h));
         let tb = tb.clone();
         self.respond(move |a: &A| {
-            let may_async = {
-                let mut block_state = state.lock().unwrap();
-                f(&mut block_state, a)
-            };
-            may_async.into_iter().for_each(|block: RecvFuture<B>| {
+            if let Some(block) = state.visit_mut(|s| f(s, a)) {
                 let tb_clone = tb.clone();
                 let state_clone = state.clone();
                 let cleanup_clone = cleanup.clone();
                 let future = async move {
                     let opt: Option<B> = block.await;
                     opt.iter().for_each(|b| tb_clone.send(&b));
-                    let mut inner_state = state_clone.lock().unwrap();
-                    cleanup_clone(&mut inner_state, &opt);
+                    state_clone.visit_mut(|t| cleanup_clone(t, &opt));
                 };
-                #[cfg(target_arch = "wasm32")]
-                wasm_bindgen_futures::spawn_local(future);
-                #[cfg(not(target_arch = "wasm32"))]
-                let _ = tokio::task::spawn(future);
-            });
+                target::spawn(future);
+            }
         });
     }
 
@@ -697,23 +699,19 @@ impl<A: Send> Receiver<A> {
     /// Create a future to await the next message received by this `Receiver`.
     pub fn recv(&self) -> impl Future<Output = A>
     where
-        A: Clone + 'static,
+        A: Clone
     {
-        let var: Arc<Mutex<Option<A>>> = Default::default();
-        let var2: Arc<Mutex<Option<A>>> = var.clone();
-        let waker: Arc<Mutex<Option<Waker>>> = Default::default();
-        let waker2 = waker.clone();
-        self.branch().respond(move |msg| {
-            {
-                let mut guard = var2.lock().unwrap();
-                *guard = Some(msg.clone());
-            }
-            let mut guard = waker2.lock().unwrap();
-            guard.take().into_iter().for_each(|waker| waker.wake());
-        });
-
-        MessageFuture { var, waker }
+        MessageFuture::from(self.branch())
     }
+
+    /// Create a future to await the next message received by this `Receiver`.
+    pub fn recv_stream(&self) -> impl futures::Stream<Item = A>
+    where
+        A: Clone
+    {
+        MessageFuture::from(self.branch())
+    }
+
 }
 
 /// Create a linked `Transmitter<A>` and `Receiver<A>` pair.
@@ -758,7 +756,7 @@ where
 /// In the case that the return value of the given function is `None`, no message
 /// will be sent to the receiver.
 pub fn channel_filter_fold_shared<A, B, T, F>(
-    var: Arc<Mutex<T>>,
+    var: Counted<Shared<T>>,
     f: F,
 ) -> (Transmitter<A>, Receiver<B>)
 where
@@ -796,7 +794,7 @@ where
 /// Using the given fold function, messages sent on the transmitter are folded
 /// into the given internal state and all output messages will be sent to the
 /// receiver.
-pub fn channel_fold_shared<A, B, T, F>(t: Arc<Mutex<T>>, f: F) -> (Transmitter<A>, Receiver<B>)
+pub fn channel_fold_shared<A, B, T, F>(t: Counted<Shared<T>>, f: F) -> (Transmitter<A>, Receiver<B>)
 where
     A: Transmission,
     B: Transmission,
@@ -849,6 +847,6 @@ where
 /// Use this as a short hand for creating variables to pass to
 /// the many `*_shared` flavored fold functions in the [channel](index.html)
 /// module.
-pub fn new_shared<A: 'static, X: Into<A>>(init: X) -> Arc<Mutex<A>> {
-    Arc::new(Mutex::new(init.into()))
+pub fn new_shared<A: 'static, X: Into<A>>(init: X) -> Counted<Shared<A>> {
+    Counted::new(Shared::new(init.into()))
 }

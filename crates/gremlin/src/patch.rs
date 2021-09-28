@@ -26,10 +26,7 @@ pub enum ListPatch<T> {
     },
 
     /// Push an item onto the back of the list of items.
-    Push {
-        /// The item to push on the back.
-        value: T,
-    },
+    Push(T),
 
     /// Remove the last item.
     Pop,
@@ -48,7 +45,7 @@ impl<T> ListPatch<T> {
                 range,
                 replace_with: replace_with.into_iter().map(f).collect::<Vec<_>>(),
             },
-            ListPatch::Push { value } => ListPatch::Push { value: f(value) },
+            ListPatch::Push(value) => ListPatch::Push(f(value)),
             ListPatch::Pop => ListPatch::Pop,
         }
     }
@@ -91,7 +88,7 @@ pub trait ListPatchApply {
 
     /// Pushes the item to the end of the list.
     fn list_patch_push(&mut self, item: Self::Item) {
-        let ts = self.list_patch_apply(ListPatch::Push { value: item });
+        let ts = self.list_patch_apply(ListPatch::Push(item));
         assert!(ts.is_empty());
     }
 
@@ -130,7 +127,7 @@ impl<T> ListPatchApply for Vec<T> {
                 range,
                 replace_with,
             } => self.splice(range, replace_with).collect::<Vec<T>>(),
-            ListPatch::Push { value } => {
+            ListPatch::Push(value) => {
                 self.push(value);
                 vec![]
             }
