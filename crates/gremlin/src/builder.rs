@@ -2,9 +2,9 @@
 use crate::{
     patch::{HashPatch, ListPatch},
     view::View,
+    channel::SinkError,
 };
-use async_channel::Sender;
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, Sink};
 use std::{convert::TryFrom, marker::PhantomData, ops::RangeBounds, pin::Pin};
 use wasm_bindgen::JsCast;
 
@@ -32,7 +32,6 @@ pub enum EventTargetType {
 }
 
 /// An output event declaration.
-#[derive(Clone)]
 pub struct EventCmd<Event> {
     /// The target of the event.
     /// In other words this is the target that a listener will be placed on.
@@ -40,7 +39,7 @@ pub struct EventCmd<Event> {
     /// The event name.
     pub name: String,
     /// The [`Sender`] that the event should be sent on.
-    pub transmitter: Sender<Event>,
+    pub transmitter: Pin<Box<dyn Sink<Event, Error = SinkError>>>,
 }
 
 /// Child patching declaration.
@@ -130,29 +129,29 @@ impl<T, Child, Event> ViewBuilder<T, Child, Event> {
         self
     }
 
-    pub fn with_event(mut self, name: &str, tx: Sender<Event>) -> Self {
+    pub fn with_event(mut self, name: &str, tx: impl Sink<Event, Error = SinkError> + 'static) -> Self {
         self.events.push(EventCmd {
             type_is: EventTargetType::Myself,
             name: name.into(),
-            transmitter: tx,
+            transmitter: Box::pin(tx),
         });
         self
     }
 
-    pub fn with_window_event(mut self, name: &str, tx: Sender<Event>) -> Self {
+    pub fn with_window_event(mut self, name: &str, tx: impl Sink<Event, Error = SinkError> + 'static) -> Self {
         self.events.push(EventCmd {
             type_is: EventTargetType::Window,
             name: name.into(),
-            transmitter: tx,
+            transmitter: Box::pin(tx),
         });
         self
     }
 
-    pub fn with_document_event(mut self, name: &str, tx: Sender<Event>) -> Self {
+    pub fn with_document_event(mut self, name: &str, tx: impl Sink<Event, Error = SinkError> + 'static) -> Self {
         self.events.push(EventCmd {
             type_is: EventTargetType::Document,
             name: name.into(),
-            transmitter: tx,
+            transmitter: Box::pin(tx),
         });
         self
     }
@@ -315,14 +314,13 @@ where
             {
                 match type_is {
                     EventTargetType::Myself => {
-                        crate::event::add_event(&name, target, transmitter, |e| e);
+                        crate::event::add_event(&name, target, transmitter);
                     }
                     EventTargetType::Window => {
                         crate::event::add_event(
                             &name,
                             &web_sys::window().unwrap(),
                             transmitter,
-                            |e| e,
                         );
                     }
                     EventTargetType::Document => {
@@ -330,7 +328,6 @@ where
                             &name,
                             &web_sys::window().unwrap().document().unwrap(),
                             transmitter,
-                            |e| e,
                         );
                     }
                 }
