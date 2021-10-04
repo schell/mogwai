@@ -1,6 +1,6 @@
 [package]
 name = "mogwai"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -15,11 +15,12 @@ categories = ["gui", "wasm", "web-programming"]
 default = []
 
 [dependencies]
-mogwai-chan = { path = "../mogwai-chan", version = "^0.1" }
+async-channel = "^1.6"
 console_log = "^0.1"
-log = "^0.4"
+futures = "^0.3"
 js-sys = "0.3.44"
-mogwai-html-macro = { path = "../mogwai-html-macro", version = "^0.2" }
+log = "^0.4"
+mogwai-html-macro = { path = "../mogwai-html-macro", version = "^0.3" }
 wasm-bindgen = "^0.2"
 wasm-bindgen-futures = "^0.4"
 
@@ -41,9 +42,6 @@ features = [
   "Text",
   "Window"
 ]
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1.5", features = ["rt"] }
 
 [dev-dependencies]
 doc-comment = "^0.3"

@@ -1,112 +1,32 @@
-//! Dynamic, declarative views.
-use std::{cell::RefCell, rc::Rc};
-pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
-pub use web_sys::{Element, Event, EventTarget};
+//! Wrapped views.
+use futures::StreamExt;
 
-use crate::prelude::Receiver;
-
-pub mod builder;
-pub mod dom;
-pub mod interface;
-
-/// `Effect`s describe a value right now or at many points in the future - or both.
+/// A wrapper around a domain-specific view.
 ///
-/// `Effect`s are used to change attributes, styles and inner text.
+/// If using Mogwai in the browser `T` will most
+/// likely be something like `HtmlElement`.
 ///
-/// An `Effect` can be created from either a single value, a [`Receiver`] or a tuple of the
-/// two.
-pub enum Effect<T> {
-    /// A value now.
-    OnceNow {
-        /// The extant value.
-        now: T
-    },
-    /// Forthcoming values, to be delivered as messages from a [`Receiver`].
-    ManyLater {
-        /// The receiver that will deliver new values.
-        later: Receiver<T>
-    },
-    /// Both a value now and forthcoming values to be delivered as messages from a [`Receiver`].
-    OnceNowAndManyLater {
-        /// The extant value.
-        now: T,
-        /// The receiver that will deliver new values.
-        later: Receiver<T>
-    },
+/// In general the underlying `T` should be
+/// `Clone + Send + Sync + 'static`, but in the
+/// browser on WASM we don't worry about `Send + Sync`
+/// because that context is single-threaded.
+pub struct View<T> {
+    /// The underlying domain-specific view type.
+    pub inner: T,
 }
 
-impl<T: Clone> Clone for Effect<T> {
-    fn clone(&self) -> Self {
-        match self {
-            Effect::OnceNow { now } => Effect::OnceNow { now: now.clone() },
-            Effect::ManyLater { later } => Effect::ManyLater {
-                later: later.branch(),
-            },
-            Effect::OnceNowAndManyLater { now, later } => Effect::OnceNowAndManyLater {
-                now: now.clone(),
-                later: later.branch(),
-            },
+impl<T: std::fmt::Debug + wasm_bindgen::JsCast + 'static> From<&View<T>> for String {
+    fn from(view: &View<T>) -> String {
+        if let Some(element) = view.inner.dyn_ref::<web_sys::Element>() {
+            return element.outer_html();
         }
-    }
-}
 
-impl<T> From<Effect<T>> for (Option<T>, Option<Receiver<T>>) {
-    fn from(eff: Effect<T>) -> Self {
-        match eff {
-            Effect::OnceNow { now } => (Some(now), None),
-            Effect::ManyLater { later } => (None, Some(later)),
-            Effect::OnceNowAndManyLater { now, later } => (Some(now), Some(later)),
+        if let Some(text) = view.inner.dyn_ref::<web_sys::Text>() {
+            return text.data();
         }
+        panic!(
+            "Dom reference {:#?} could not be turned into a string",
+            view.inner
+        );
     }
 }
-
-impl<T> From<T> for Effect<T> {
-    fn from(now: T) -> Effect<T> {
-        Effect::OnceNow { now }
-    }
-}
-
-impl From<&str> for Effect<String> {
-    fn from(s: &str) -> Effect<String> {
-        Effect::OnceNow { now: s.into() }
-    }
-}
-
-impl From<&String> for Effect<String> {
-    fn from(s: &String) -> Effect<String> {
-        Effect::OnceNow { now: s.clone() }
-    }
-}
-
-impl<T> From<Receiver<T>> for Effect<T> {
-    fn from(later: Receiver<T>) -> Effect<T> {
-        Effect::ManyLater { later }
-    }
-}
-
-impl<T> From<(T, Receiver<T>)> for Effect<T> {
-    fn from((now, later): (T, Receiver<T>)) -> Effect<T> {
-        Effect::OnceNowAndManyLater { now, later }
-    }
-}
-
-impl<T> From<(Option<T>, Receiver<Rc<RefCell<Option<T>>>>)> for Effect<Rc<RefCell<Option<T>>>> {
-    fn from((now, later): (Option<T>, Receiver<Rc<RefCell<Option<T>>>>)) -> Self {
-        let now = Rc::new(RefCell::new(now));
-        Effect::OnceNowAndManyLater { now, later }
-    }
-}
-
-impl From<(&str, Receiver<String>)> for Effect<String> {
-    fn from((now, later): (&str, Receiver<String>)) -> Effect<String> {
-        Effect::OnceNowAndManyLater {
-            now: now.into(),
-            later,
-        }
-    }
-}
-
-/// Marker trait that means JsCast + Clone + + 'static.
-pub trait IsDomNode: JsCast + Clone + 'static {}
-
-impl<T> IsDomNode for T where T: JsCast + Clone + 'static {}

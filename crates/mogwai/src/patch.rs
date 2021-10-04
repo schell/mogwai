@@ -5,6 +5,7 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
+
 fn clone_bound<T: Copy>(bound: Bound<&T>) -> Bound<T> {
     match bound {
         Bound::Included(b) => Bound::Included(*b),
@@ -33,6 +34,7 @@ pub enum ListPatch<T> {
 }
 
 impl<T> ListPatch<T> {
+    /// Map the patch from `T` to `X`
     pub fn map<F, X>(self, f: F) -> ListPatch<X>
     where
         F: Fn(T) -> X,
@@ -53,6 +55,7 @@ impl<T> ListPatch<T> {
 
 /// Provides `list_patch_apply` (and friends) to list types.
 pub trait ListPatchApply {
+    /// The underlying item type of the list being patched.
     type Item;
 
     /// Apply the given patch, modifying the list and returning the removed items.
@@ -136,6 +139,49 @@ impl<T> ListPatchApply for Vec<T> {
     }
 }
 
+impl ListPatchApply for web_sys::Node {
+    type Item = web_sys::Node;
+
+    fn list_patch_apply(&mut self, patch: ListPatch<Self::Item>) -> Vec<Self::Item> {
+        let mut removed = vec![];
+        match patch {
+            crate::patch::ListPatch::Splice {
+                range,
+                mut replace_with,
+            } => {
+                let list: web_sys::NodeList = self.child_nodes();
+                for i in 0..list.length() {
+                    if range.contains(&(i as usize)) {
+                        if let Some(old) = list.get(i) {
+                            let may_replacement = if replace_with.is_empty() {
+                                None
+                            } else {
+                                Some(replace_with.remove(0))
+                            };
+                            if let Some(new_node) = may_replacement {
+                                self.replace_child(&new_node, &old).unwrap();
+                            } else {
+                                let _ = self.remove_child(&old).unwrap();
+                            }
+                            removed.push(old);
+                        }
+                    }
+                }
+            }
+            crate::patch::ListPatch::Push(new_node) => {
+                let _ = self.append_child(&new_node).unwrap();
+            }
+            crate::patch::ListPatch::Pop => {
+                if let Some(child) = self.last_child() {
+                    let _ = self.remove_child(&child).unwrap();
+                    removed.push(child);
+                }
+            }
+        }
+        removed
+    }
+}
+
 #[cfg(test)]
 mod list {
     use super::*;
@@ -169,15 +215,20 @@ mod list {
 /// Variants used to patch the items in a hash map.
 #[derive(Clone, Debug)]
 pub enum HashPatch<K, V> {
+    /// Insert value `V` at key `K`
     Insert(K, V),
+    /// Remove the value at `K`
     Remove(K),
 }
 
 /// Provides `hash_patch_apply`
 pub trait HashPatchApply {
+    /// Key type of the hash map being patched.
     type Key;
+    /// Value type of the hash map being patched.
     type Value;
 
+    /// Apply a patch to a hash map.
     fn hash_patch_apply(&mut self, patch: HashPatch<Self::Key, Self::Value>)
         -> Option<Self::Value>;
 }

@@ -1,3 +1,8 @@
+//! View events as streams of values.
+//!
+//! Events in Mogwai are registered and sent down a stream to be
+//! consumed by logic loops. When an event stream
+//! is dropped, its resources are cleaned up automatically.
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use log::info;
 use std::{cell::RefCell, pin::Pin, rc::Rc, task::Waker};
@@ -64,6 +69,9 @@ impl Stream for WebCallback {
     }
 }
 
+/// Listen for events of the given name on the given target.
+/// All events will be sent downstream until the stream is
+/// dropped.
 pub fn event_stream(
     ev_name: &str,
     target: &web_sys::EventTarget,

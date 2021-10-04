@@ -2,11 +2,11 @@
 
 members = [
   #"cookbook",
-  #"crates/mogwai",
-  "crates/mogwai-chan",
-  "crates/mogwai-view",
-  "crates/gremlin",
-  #"crates/mogwai-html-macro",
+  "crates/mogwai",
+  #"crates/mogwai-chan",
+  #"crates/mogwai-view",
+  #"crates/gremlin",
+  "crates/mogwai-html-macro",
   #"crates/mogwai-hydrator"
   #"examples/focus-follower",
   #"examples/list-of-gizmos",

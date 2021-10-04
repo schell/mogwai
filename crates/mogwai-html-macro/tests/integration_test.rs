@@ -1,16 +1,16 @@
 #![allow(unused_braces)]
-use mogwai::prelude::*;
+use::mogwai_html_macro::builder;
 
 #[test]
 fn node_self_closing() {
     // not all nodes are void nodes
-    let div: String = view! {
+    let div: String = builder! {
         <a href="http://zyghost.com" />
     }
     .html_string();
     assert_eq!(&div, r#"<a href="http://zyghost.com"></a>"#);
 
-    let div: String = view! {
+    let div: String = builder! {
         <img src="http://zyghost.com/favicon.ico" />
     }
     .html_string();

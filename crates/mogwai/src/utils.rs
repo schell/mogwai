@@ -12,8 +12,6 @@ use std::{
 use wasm_bindgen::{closure::Closure, JsCast, JsValue, UnwrapThrowExt};
 use web_sys;
 
-use crate::prelude::{MogwaiCallback, Transmitter};
-
 /// Return the DOM [`web_sys::Window`].
 /// #### Panics
 /// Panics when the window cannot be returned.
@@ -146,50 +144,6 @@ where
 
     req_animation_frame(g.borrow().as_ref().unwrap_throw());
 }
-
-/// Add an event of the given name on the given target, transmitting any triggered
-/// events into the given [`Transmitter`]. Returns the wrapped JS callback.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn add_event(
-    _ev_name: &str,
-    _target: &web_sys::EventTarget,
-    _tx: Transmitter<web_sys::Event>,
-) -> MogwaiCallback {
-    MogwaiCallback {
-        callback: Rc::new(Box::new(|_| {})),
-    }
-}
-/// Placeholder docs to negate warnings.
-#[cfg(target_arch = "wasm32")]
-pub fn add_event(
-    ev_name: &str,
-    target: &web_sys::EventTarget,
-    tx: Transmitter<web_sys::Event>,
-) -> MogwaiCallback {
-    let cb = Closure::wrap(Box::new(move |val: JsValue| {
-        let ev = val.unchecked_into();
-        tx.send(&ev);
-    }) as Box<dyn FnMut(JsValue)>);
-    target
-        .add_event_listener_with_callback(ev_name, cb.as_ref().unchecked_ref())
-        .unwrap_throw();
-    MogwaiCallback {
-        callback: Rc::new(cb),
-    }
-}
-
-/// Remove an event of the given name from the given target.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn remove_event(_ev_name: &str, _target: &web_sys::EventTarget, _cb: &MogwaiCallback) {}
-/// Placeholder docs to negate warnings.
-#[cfg(target_arch = "wasm32")]
-pub fn remove_event(ev_name: &str, target: &web_sys::EventTarget, cb: &MogwaiCallback) {
-    let function: &Function = cb.callback.as_ref().as_ref().unchecked_ref();
-    target
-        .remove_event_listener_with_callback(ev_name, function)
-        .unwrap_throw();
-}
-
 
 struct WaitFuture {
     start: f64,
