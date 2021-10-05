@@ -4,20 +4,30 @@ use quote::quote;
 use syn::Error;
 use syn_rsx::{Node, NodeType};
 
+fn under_to_dash(s: &str) -> String {
+    s.replace("_", "-")
+}
+
 fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     let span = node.name_span().unwrap_or(Span::call_site());
     if let Some(key) = node.name_as_string() {
         if let Some(expr) = node.value {
             match key.split(':').collect::<Vec<_>>().as_slice() {
+                ["ready", "sink"] => Ok(quote! {
+                    .with_ready_sink(#expr)
+                }),
                 ["xmlns"] => Ok(quote! {
                     .with_namespace(#expr)
                 }),
                 ["style"] => Ok(quote! {
                     .with_style_stream(#expr)
                 }),
-                ["style", name] => Ok(quote! {
-                    .with_single_style_stream(#name, #expr)
-                }),
+                ["style", name] => {
+                    let name = under_to_dash(name);
+                    Ok(quote! {
+                        .with_single_style_stream(#name, #expr)
+                    })
+                }
                 ["on", event] => Ok(quote! {
                     .with_event(#event, #expr)
                 }),
@@ -28,6 +38,7 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
                     .with_document_event(#event, #expr)
                 }),
                 ["boolean", name] => Ok(quote! {
+                    let name = under_to_dash(name);
                     .with_single_bool_attrib_stream(#name, #expr)
                 }),
                 ["patch", "children"] => Ok(quote! {
@@ -36,19 +47,23 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
                 ["cast", "type"] => Ok(quote! {
                     .with_type::<#expr>()
                 }),
-                [attribute_name] => Ok(quote! {
-                    .with_single_attrib_stream(#attribute_name, #expr)
-                }),
+                [attribute_name] => {
+                    let name = under_to_dash(attribute_name);
+                    Ok(quote! {
+                        .with_single_attrib_stream(#name, #expr)
+                    })
+                }
                 keys => {
-                    let attribute_name = keys.join(":");
+                    let attribute_name = under_to_dash(&keys.join(":"));
                     Ok(quote! {
                         .with_attrib_stream(#attribute_name, #expr)
                     })
                 }
             }
         } else {
+            let name = under_to_dash(&key);
             Ok(quote! {
-                .with_single_bool_attrib_stream(#key, true)
+                .with_single_bool_attrib_stream(#name, true)
             })
         }
     } else {

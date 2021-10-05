@@ -1,5 +1,4 @@
 //! Wrapped views.
-use futures::StreamExt;
 
 /// A wrapper around a domain-specific view.
 ///

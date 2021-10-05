@@ -126,8 +126,10 @@ pub struct ViewBuilder<T, Child, Event> {
     construct_with: String,
     /// Optional namespace.
     ns: Option<String>,
-    /// Ready channel.
-    ready: Option<Pin<Box<dyn Sink<(), Error = SinkError>>>>,
+    /// Ready sink.
+    ///
+    /// Sends the update count.
+    ready: Option<Pin<Box<dyn Sink<u8, Error = SinkError>>>>,
     /// This view's text declarations.
     texts: Vec<TextStream>,
     /// This view's attribute declarations.
@@ -174,6 +176,18 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
         self
     }
 
+    /// Add a sink to send ready notifications.
+    ///
+    /// A ready notification is sent when all "ready" updates have
+    /// been performed in the current cycle.
+    ///
+    /// Calling this more than once **replaces** the sink that is
+    /// currently set.
+    pub fn with_ready_sink(mut self, sink: impl Sink<u8, Error = SinkError> + 'static) -> Self {
+        self.ready = Some(Box::pin(sink));
+        self
+    }
+
     /// Add a stream to set the text of this builder.
     pub fn with_text_stream<'a, Mv, St>(mut self, mv: Mv) -> Self
     where
@@ -181,7 +195,7 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
         St: Stream<Item = String> + 'static,
     {
         let s: MogwaiValue<'a, String, St> = mv.into();
-        let t = TextStream::from(s);
+        let mut t = TextStream::from(s);
         self.texts.push(t);
         self
     }
@@ -196,7 +210,7 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
     }
 
     /// Add a stream to patch a single attribute of this builder.
-    pub fn with_single_attrib_stream<'a, S, Mv, St>(mut self, s:S, mv: Mv) -> Self
+    pub fn with_single_attrib_stream<'a, S, Mv, St>(mut self, s: S, mv: Mv) -> Self
     where
         S: Into<String>,
         Mv: Into<MogwaiValue<'a, String, St>>,
@@ -219,7 +233,7 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
     }
 
     /// Add a stream to patch a single boolean attribute of this builder.
-    pub fn with_single_bool_attrib_stream<'a, S, Mv, St>(mut self, s:S, mv: Mv) -> Self
+    pub fn with_single_bool_attrib_stream<'a, S, Mv, St>(mut self, s: S, mv: Mv) -> Self
     where
         S: Into<String>,
         Mv: Into<MogwaiValue<'a, bool, St>>,
@@ -232,7 +246,6 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
         self
     }
 
-
     /// Add a stream to patch the styles of this builder.
     pub fn with_style_stream<St>(mut self, st: St) -> Self
     where
@@ -243,7 +256,7 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
     }
 
     /// Add a stream to patch a single style of this builder.
-    pub fn with_single_style_stream<'a, S, Mv, St>(mut self, s:S, mv: Mv) -> Self
+    pub fn with_single_style_stream<'a, S, Mv, St>(mut self, s: S, mv: Mv) -> Self
     where
         S: Into<String>,
         Mv: Into<MogwaiValue<'a, String, St>>,
@@ -268,10 +281,7 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
     /// Add a single child.
     ///
     /// This is a convenient short-hand for calling [`ViewBuilder::with_child_stream`] with
-    pub fn with_child(
-        mut self,
-        child: ViewBuilder<Child, Child, Event>
-    ) -> Self {
+    pub fn with_child(mut self, child: ViewBuilder<Child, Child, Event>) -> Self {
         self.with_child_stream(futures::stream::once(async move { ListPatch::Push(child) }))
     }
 
@@ -346,22 +356,22 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
     }
 }
 
+/// Used for sending update ticks.
 #[derive(Clone)]
 pub struct ReadyTx {
-    pub tx: Option<async_channel::Sender<()>>
+    /// The underlying sender.
+    pub tx: Option<async_channel::Sender<()>>,
 }
 
 impl ReadyTx {
-    pub fn tick(&mut self) {
-        if let Some(mut tx) = self.tx.take() {
-            match tx.try_send(()) {
+    /// Send an update notification if anyone is listening.
+    pub async fn tick(&mut self) {
+        if let Some(tx) = self.tx.take() {
+            match tx.send(()).await {
                 Ok(()) => {
                     self.tx = Some(tx);
                 }
-                Err(err) => match err {
-                    async_channel::TrySendError::Full(_) => panic!("ready channel is full"),
-                    async_channel::TrySendError::Closed(_) => {}
-                }
+                Err(async_channel::SendError(())) => {}
             }
         }
     }
@@ -392,9 +402,9 @@ where
         let ready_sink = ready;
         let (ready_tx, ready_rx) = if ready_sink.is_some() {
             let (tx, rx) = async_channel::unbounded::<()>();
-            (ReadyTx { tx: Some(tx)}, Some(rx))
+            (ReadyTx { tx: Some(tx) }, Some(rx))
         } else {
-            (ReadyTx {tx: None}, None)
+            (ReadyTx { tx: None }, None)
         };
 
         let el: T = if !texts.is_empty() {
@@ -406,7 +416,7 @@ where
                 (node.clone(), ready_tx.clone()),
                 |(node, mut ready), text: String| async move {
                     node.set_data(&text);
-                    ready.tick();
+                    ready.tick().await;
                     Ok((node, ready))
                 },
             );
@@ -434,23 +444,32 @@ where
         if !attribs.is_empty() {
             let stream: Pin<Box<dyn Stream<Item = Result<HashPatch<String, String>, ()>>>> =
                 futures::stream::select_all(attribs).map(Ok).boxed_local();
-            let sink =
-                futures::sink::unfold::<web_sys::HtmlElement, _, _, HashPatch<String, String>, _>(
+            let sink = futures::sink::unfold::<
+                (web_sys::HtmlElement, ReadyTx),
+                _,
+                _,
+                HashPatch<String, String>,
+                _,
+            >(
+                (
                     el.dyn_ref::<web_sys::HtmlElement>()
                         .ok_or_else(|| "could not cast to HtmlElement".to_string())?
                         .clone(),
-                    |view, patch| async move {
-                        match patch {
-                            crate::patch::HashPatch::Insert(k, v) => {
-                                view.set_attribute(&k, &v).map_err(|_| ())?;
-                            }
-                            crate::patch::HashPatch::Remove(k) => {
-                                view.remove_attribute(&k).map_err(|_| ())?;
-                            }
+                    ready_tx.clone(),
+                ),
+                |(view, mut ready), patch| async move {
+                    match patch {
+                        crate::patch::HashPatch::Insert(k, v) => {
+                            view.set_attribute(&k, &v).map_err(|_| ())?;
                         }
-                        Ok(view)
-                    },
-                );
+                        crate::patch::HashPatch::Remove(k) => {
+                            view.remove_attribute(&k).map_err(|_| ())?;
+                        }
+                    }
+                    ready.tick().await;
+                    Ok((view, ready))
+                },
+            );
             wasm_bindgen_futures::spawn_local(async move {
                 futures::pin_mut!(sink);
                 let _ = stream.forward(&mut sink).await;
@@ -462,27 +481,36 @@ where
                 futures::stream::select_all(bool_attribs)
                     .map(Ok)
                     .boxed_local();
-            let sink =
-                futures::sink::unfold::<web_sys::HtmlElement, _, _, HashPatch<String, bool>, _>(
+            let sink = futures::sink::unfold::<
+                (web_sys::HtmlElement, ReadyTx),
+                _,
+                _,
+                HashPatch<String, bool>,
+                _,
+            >(
+                (
                     el.dyn_ref::<web_sys::HtmlElement>()
                         .ok_or_else(|| "could not cast to HtmlElement".to_string())?
                         .clone(),
-                    |view, patch| async move {
-                        match patch {
-                            crate::patch::HashPatch::Insert(k, v) => {
-                                if v {
-                                    view.set_attribute(&k, "").map_err(|_| ())?;
-                                } else {
-                                    view.remove_attribute(&k).map_err(|_| ())?;
-                                }
-                            }
-                            crate::patch::HashPatch::Remove(k) => {
+                    ready_tx.clone(),
+                ),
+                |(view, mut ready), patch| async move {
+                    match patch {
+                        crate::patch::HashPatch::Insert(k, v) => {
+                            if v {
+                                view.set_attribute(&k, "").map_err(|_| ())?;
+                            } else {
                                 view.remove_attribute(&k).map_err(|_| ())?;
                             }
                         }
-                        Ok(view)
-                    },
-                );
+                        crate::patch::HashPatch::Remove(k) => {
+                            view.remove_attribute(&k).map_err(|_| ())?;
+                        }
+                    }
+                    ready.tick().await;
+                    Ok((view, ready))
+                },
+            );
             wasm_bindgen_futures::spawn_local(async move {
                 futures::pin_mut!(sink);
                 let _ = stream.forward(&mut sink).await;
@@ -493,16 +521,19 @@ where
             let stream: Pin<Box<dyn Stream<Item = Result<HashPatch<String, String>, ()>>>> =
                 futures::stream::select_all(styles).map(Ok).boxed_local();
             let sink = futures::sink::unfold::<
-                web_sys::CssStyleDeclaration,
+                (web_sys::CssStyleDeclaration, ReadyTx),
                 _,
                 _,
                 HashPatch<String, String>,
                 _,
             >(
-                el.dyn_ref::<web_sys::HtmlElement>()
-                    .ok_or_else(|| "could not cast to HtmlElement".to_string())?
-                    .style(),
-                |style, patch| async move {
+                (
+                    el.dyn_ref::<web_sys::HtmlElement>()
+                        .ok_or_else(|| "could not cast to HtmlElement".to_string())?
+                        .style(),
+                    ready_tx.clone(),
+                ),
+                |(style, mut ready), patch| async move {
                     match patch {
                         crate::patch::HashPatch::Insert(k, v) => {
                             style.set_property(&k, &v).map_err(|_| ())?;
@@ -511,7 +542,8 @@ where
                             style.remove_property(&k).map_err(|_| ())?;
                         }
                     }
-                    Ok(style)
+                    ready.tick().await;
+                    Ok((style, ready))
                 },
             );
             wasm_bindgen_futures::spawn_local(async move {
@@ -551,17 +583,21 @@ where
         if !patches.is_empty() {
             let stream: Pin<Box<dyn Stream<Item = Result<ListPatch<_>, ()>>>> =
                 futures::stream::select_all(patches).map(Ok).boxed_local();
-            let sink = futures::sink::unfold::<web_sys::Node, _, _, _, _>(
-                el.dyn_ref::<web_sys::Node>()
-                    .ok_or_else(|| "could not cast to Node".to_string())?
-                    .clone(),
-                |mut view, patch: ListPatch<ViewBuilder<_, _, _>>| async move {
+            let sink = futures::sink::unfold::<(web_sys::Node, ReadyTx), _, _, _, _>(
+                (
+                    el.dyn_ref::<web_sys::Node>()
+                        .ok_or_else(|| "could not cast to Node".to_string())?
+                        .clone(),
+                    ready_tx.clone(),
+                ),
+                |(mut view, mut ready), patch: ListPatch<ViewBuilder<_, _, _>>| async move {
                     let patch = patch.map(|vb| {
                         let view: View<web_sys::Node> = View::try_from(vb).unwrap();
                         view.inner
                     });
                     let _ = view.list_patch_apply(patch);
-                    Ok(view)
+                    ready.tick().await;
+                    Ok((view, ready))
                 },
             );
             wasm_bindgen_futures::spawn_local(async move {
@@ -575,16 +611,22 @@ where
         if let Some(mut sink) = ready_sink {
             if let Some(rx) = ready_rx {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let mut rx = rx.ready_chunks(100);
+                    // start out our ready signal to allow some time for processing any immediate changes.
+                    let rx = futures::stream::once(async {
+                        let _ = crate::utils::wait_approximately(1.0).await;
+                    })
+                    .chain(rx)
+                    .boxed_local();
+                    let mut rx = rx.ready_chunks(u8::MAX as usize);
                     loop {
                         match rx.next().await {
-                            Some(_) => match sink.send(()).await {
+                            Some(updates) => match sink.send(updates.len() as u8).await {
                                 Ok(()) => {}
                                 Err(err) => match err {
                                     SinkError::Closed => break,
                                     SinkError::Full => panic!("ready sink is full"),
-                                }
-                            }
+                                },
+                            },
                             None => break,
                         }
                     }

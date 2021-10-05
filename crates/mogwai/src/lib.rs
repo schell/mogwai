@@ -29,9 +29,13 @@ doc_comment::doctest!("../../README.md");
 
 #[cfg(test)]
 mod test {
-    use futures::stream::once;
+    use futures::{stream::once, StreamExt};
     use mogwai_html_macro::{builder, target_arch_is_wasm32};
-    use std::{cell::Ref, convert::TryInto, ops::Deref};
+    use std::{
+        cell::Ref,
+        convert::{TryFrom, TryInto},
+        ops::Deref,
+    };
     use wasm_bindgen::JsCast;
     use wasm_bindgen_test::*;
     use web_sys::Element;
@@ -119,23 +123,39 @@ mod test {
     }
 
     #[wasm_bindgen_test]
-    fn can_use_rsx_to_make_builder() {
-        let (tx, rx) = mogwai::channel::bounded::<web_sys::Event>(1);
+    async fn can_use_rsx_to_make_builder() {
+        console_log::init_with_level(log::Level::Trace).unwrap();
+        let (ready_tx, mut ready_rx) = mogwai::channel::unbounded();
+        let (tx, _) = mogwai::channel::bounded::<web_sys::Event>(1);
+
         let rsx: ViewBuilder<web_sys::HtmlElement, web_sys::Node, web_sys::Event> = builder! {
-            <div id="view_zero" style:background_color="red">
-                <pre on:click=tx.clone()>"this has text"</pre>
+            <div id="view_zero" style:background_color="red" ready:sink=ready_tx.clone()>
+                <pre on:click=tx ready:sink=ready_tx>"this has text"</pre>
             </div>
         };
+        let rsx_view = View::try_from(rsx).unwrap();
+        let count = ready_rx.next().await.unwrap();
+        log::info!("{} rsx updates", count);
 
+        let (ready_tx, mut ready_rx) = mogwai::channel::unbounded();
+        let (tx, _) = mogwai::channel::bounded::<web_sys::Event>(1);
         let manual: ViewBuilder<web_sys::HtmlElement, web_sys::Node, web_sys::Event> =
             mogwai::builder::ViewBuilder::element("div")
-            .with_single_attrib_stream("id", "view_zero")
-            .with_single_style_stream("background_color", "red")
-            .with_child(
-                mogwai::builder::ViewBuilder::element("pre")
-                    .with_event("click", tx.clone())
-                    .with_child(mogwai::builder::ViewBuilder::text("this has text")),
-            );
+                .with_ready_sink(ready_tx.clone())
+                .with_single_attrib_stream("id", "view_zero")
+                .with_single_style_stream("background_color", "red")
+                .with_child(
+                    mogwai::builder::ViewBuilder::element("pre")
+                        .with_ready_sink(ready_tx)
+                        .with_event("click", tx.clone())
+                        .with_child(mogwai::builder::ViewBuilder::text("this has text")),
+                );
+
+        let manual_view = View::try_from(manual).unwrap();
+        let count = ready_rx.next().await.unwrap();
+        log::info!("{} man updates", count);
+
+        assert_eq!(String::from(&rsx_view), String::from(&manual_view));
     }
 
     //#[wasm_bindgen_test]
