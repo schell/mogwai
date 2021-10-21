@@ -64,6 +64,9 @@ mod exhaust {
     }
 }
 
+/// A stream of any static type.
+pub type ValueStream<T> = Pin<Box<Streaming<T>>>;
+
 /// A text/string stream.
 pub type TextStream = Pin<Box<Streaming<String>>>;
 
@@ -133,6 +136,7 @@ impl<'a, S: Clone + Sendable, St: Streamable<S>> From<MogwaiValue<'a, S, St>>
     }
 }
 
+/// Boolean stream.
 type BoolStream = Pin<Box<Streaming<bool>>>;
 
 /// HashPatch updates for String attributes.
@@ -484,7 +488,7 @@ impl TryFrom<DecomposedViewBuilder<Dom>> for View<Dom> {
             ops,
         }: DecomposedViewBuilder<Dom>,
     ) -> Result<Self, Self::Error> {
-        let mut el: Dom = if !texts.is_empty() {
+        let mut el: Dom = if !texts.is_empty() || construct_with.is_empty() {
             let node = Dom::text("")?;
             for text in texts.into_iter() {
                 node.set_text(&text)?;

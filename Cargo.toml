@@ -3,13 +3,10 @@
 members = [
   #"cookbook",
   "crates/mogwai",
-  #"crates/mogwai-chan",
-  #"crates/mogwai-view",
-  #"crates/gremlin",
   "crates/mogwai-html-macro",
   #"crates/mogwai-hydrator"
   #"examples/focus-follower",
-  #"examples/list-of-gizmos",
+  "examples/list-of-gizmos",
   #"examples/multipage",
   #"examples/sandbox",
   #"examples/spa-routing",

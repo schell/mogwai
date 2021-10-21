@@ -22,6 +22,11 @@ pub mod time;
 pub mod utils;
 pub mod view;
 
+pub mod futures {
+    //! A re-export of the `futures` crate.
+    pub use futures::*;
+}
+
 pub mod macros {
     //! RSX style macros for building DOM views.
     pub use mogwai_html_macro::{builder, view};
@@ -32,8 +37,11 @@ pub mod macros {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
+    use std::convert::TryFrom;
+
     use crate::{self as mogwai, channel::broadcast, ssr::SsrElement};
     use mogwai::{
+        builder::ViewBuilder,
         channel::broadcast::*,
         macros::*,
         view::{Dom, View},
@@ -147,6 +155,23 @@ mod test {
             String::from(&view),
             r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#
         );
+    }
+
+    #[test]
+    pub fn can_use_string_stream_as_child() {
+        use mogwai::channel::StreamExt;
+        let clicks = futures::stream::iter(vec![0, 1, 2]);
+        let bldr = builder! {
+            <span>
+            {
+                ViewBuilder::text(clicks.map(|clicks| match clicks {
+                    1 => "1 click".to_string(),
+                    n => format!("{} clicks", n),
+                }))
+            }
+            </span>
+        };
+        let _ = View::try_from(bldr).unwrap();
     }
 }
 
@@ -633,5 +658,21 @@ mod test {
             .unwrap();
         mogwai::channel::until_empty(&tx).await;
         assert_eq!(dom.outer_html().as_str(), r#"<p id="main"></p>"#);
+    }
+
+    #[wasm_bindgen_test]
+    pub fn can_use_string_stream_as_child() {
+        let clicks = futures::stream::iter(vec![0, 1, 2]);
+        let bldr = builder! {
+            <span>
+            {
+                ViewBuilder::text(clicks.map(|clicks| match clicks {
+                    1 => "1 click".to_string(),
+                    n => format!("{} clicks", n),
+                }))
+            }
+            </span>
+        };
+        let _ = View::try_from(bldr).unwrap();
     }
 }

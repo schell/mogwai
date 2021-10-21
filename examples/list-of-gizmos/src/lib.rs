@@ -1,7 +1,19 @@
 #![allow(unused_braces)]
 use log::Level;
-use mogwai::prelude::*;
-use std::panic;
+use mogwai::{
+    builder::ViewBuilder,
+    channel::{
+        broadcast::{self, broadcast},
+        IntoSenderSink, SinkExt, Stream, StreamExt,
+    },
+    futures,
+    macros::builder,
+    model::{ListPatchApply, ListPatchModel, Model},
+    patch::ListPatch,
+    spawn::Sendable,
+    view::{Dom, View},
+};
+use std::{convert::TryInto, panic};
 use wasm_bindgen::prelude::*;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -10,150 +22,156 @@ use wasm_bindgen::prelude::*;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-/// One item - keeps track of clicks.
+/// An item widget.
+/// Keeps track of clicks.
+#[derive(Clone)]
 struct Item {
     id: usize,
-    clicks: u32,
+    clicks: Model<u32>,
 }
 
-/// An item's model messages.
+/// An item's update messages.
 #[derive(Clone)]
-enum ItemIn {
+enum ItemMsg {
     /// The user clicked
     Click,
     /// The user requested this item be removed
     Remove,
 }
 
-/// An item's view messages.
-#[derive(Clone)]
-enum ItemOut {
-    /// Change the number of clicks displayed in the view
-    Clicked(u32),
-    /// Remove the item from the parent view
-    Remove(usize)
-}
-
-impl Component for Item {
-    type ModelMsg = ItemIn;
-    type ViewMsg = ItemOut;
-    type DomNode = HtmlElement;
-
-    fn update(
-        &mut self,
-        msg: &Self::ModelMsg,
-        tx: &Transmitter<Self::ViewMsg>,
-        _sub: &Subscriber<Self::ModelMsg>,
-    ) {
-        match msg {
-            ItemIn::Click => {
-                self.clicks += 1;
-                tx.send(&ItemOut::Clicked(self.clicks))
+/// One item's logic loop.
+async fn item_logic_loop(
+    id: usize,
+    clicks: Model<u32>,
+    mut from_view: broadcast::Receiver<ItemMsg>,
+    to_list: broadcast::Sender<ListMsg>,
+) {
+    loop {
+        match from_view.recv().await {
+            Ok(ItemMsg::Click) => {
+                clicks.visit_mut(|c| *c += 1).await;
             }
-            ItemIn::Remove => {
-                tx.send(&ItemOut::Remove(self.id));
+            Ok(ItemMsg::Remove) => {
+                to_list.broadcast(ListMsg::RemoveItem(id)).await.unwrap();
+                break;
             }
+            Err(_) => break,
         }
     }
-
-    fn view(
-        &self,
-        tx: &Transmitter<Self::ModelMsg>,
-        rx: &Receiver<Self::ViewMsg>,
-    ) -> ViewBuilder<Self::DomNode> {
-        let clicks_to_string = |clicks| match clicks {
-            1 => "1 click".to_string(),
-            n => format!("{} clicks", n),
-        };
-        builder! {
-            <li>
-                <button style:cursor="pointer" on:click=tx.contra_map(|_| ItemIn::Click)>"Increment"</button>
-                <button style:cursor="pointer" on:click=tx.contra_map(|_| ItemIn::Remove)>"Remove"</button>
-                " "
-                <span>
-                {(
-                    clicks_to_string(self.clicks),
-                    rx.branch_filter_map(move |msg| match msg {
-                        ItemOut::Clicked(clicks) => Some(clicks_to_string(*clicks)),
-                        _ => None
-                    })
-                )}
-                </span>
-            </li>
-        }
-    }
+    log::info!("item {} logic loop is done", id);
 }
 
-struct List {
-    next_id: usize,
-    items: Vec<Gizmo<Item>>,
+async fn item_view(
+    clicks: impl Stream<Item = u32> + Sendable,
+    to_logic: broadcast::Sender<ItemMsg>,
+) -> ViewBuilder<Dom> {
+    let bldr = builder! {
+        <li>
+            <button
+                style:cursor="pointer"
+                on:click=to_logic.sink().with(|_| async{Ok(ItemMsg::Click)})>
+                "Increment"
+            </button>
+            <button
+                style:cursor="pointer"
+                on:click=to_logic.sink().with(|_| async{Ok(ItemMsg::Remove)})>
+                "Remove"
+            </button>
+            " "
+            <span>
+            {
+                ViewBuilder::text(clicks.map(|clicks| match clicks {
+                    1 => "1 click".to_string(),
+                    n => format!("{} clicks", n),
+                }))
+            }
+            </span>
+        </li>
+    };
+    log::info!("created item builder");
+    bldr
 }
 
 #[derive(Clone)]
-enum ListIn {
+enum ListMsg {
     /// Create a new item
     NewItem,
-    /// Remove the item at the given index
+    /// Remove the item with the given id
     RemoveItem(usize),
 }
 
-#[derive(Clone)]
-enum ListOut {
-    /// Patch the list of items
-    PatchItem(Patch<View<HtmlElement>>),
-}
+/// Launch the logic loop of our list of items.
+fn launch_list_loops(
+    input: broadcast::Receiver<ListMsg>,
+) -> impl Stream<Item = ListPatch<ViewBuilder<Dom>>> + Sendable {
+    let mut items: ListPatchModel<Item> = ListPatchModel::new();
 
-impl Component for List {
-    type ModelMsg = ListIn;
-    type ViewMsg = ListOut;
-    type DomNode = HtmlElement;
-
-    fn update(&mut self, msg: &ListIn, tx: &Transmitter<ListOut>, sub: &Subscriber<ListIn>) {
-        match msg {
-            ListIn::NewItem => {
-                let item: Item = Item { id: self.next_id, clicks: 0 };
-                self.next_id += 1;
-
-                let gizmo: Gizmo<Item> = Gizmo::from(item);
-                sub.subscribe_filter_map(&gizmo.recv, |child_msg: &ItemOut| match child_msg {
-                    ItemOut::Remove(index) => Some(ListIn::RemoveItem(*index)),
-                    _ => None
+    let (to_list, from_items) = broadcast::<ListMsg>(1);
+    let item_stream = items.stream().then(move |patch| {
+        let to_list = to_list.clone();
+        patch.map_future(move |Item { id, clicks }: Item| {
+            let to_list = to_list.clone();
+            let item_clicks = clicks.clone();
+            async move {
+                let (to_logic, from_view) = broadcast(1);
+                mogwai::spawn::spawn(async move {
+                    item_logic_loop(id, item_clicks, from_view, to_list).await
                 });
-
-                let view: View<HtmlElement> = View::from(gizmo.view_builder());
-                tx.send(&ListOut::PatchItem(Patch::PushBack { value: view }));
-                self.items.push(gizmo);
+                item_view(clicks.stream(), to_logic).await
             }
-            ListIn::RemoveItem(id) => {
-                let mut may_index = None;
-                'find_item_by_id: for (item, index) in self.items.iter().zip(0..) {
-                    if &item.state_ref().id == id {
-                        may_index = Some(index);
-                        tx.send(&ListOut::PatchItem(Patch::Remove{ index }));
-                        break 'find_item_by_id;
+        })
+    });
+
+    let mut input = futures::stream::select_all(vec![input, from_items]);
+    mogwai::spawn::spawn(async move {
+        let mut next_id = 0;
+        loop {
+            match input.next().await {
+                Some(ListMsg::NewItem) => {
+                    let item: Item = Item {
+                        id: next_id,
+                        clicks: Model::new(0),
+                    };
+                    next_id += 1;
+                    items.list_patch_push(item);
+                }
+                Some(ListMsg::RemoveItem(id)) => {
+                    let mut may_index = None;
+                    'find_item_by_id: for (item, index) in items.read().await.iter().zip(0..) {
+                        if item.id == id {
+                            may_index = Some(index);
+                            break 'find_item_by_id;
+                        }
+                    }
+
+                    if let Some(index) = may_index {
+                        let _ = items.list_patch_remove(index);
                     }
                 }
-                if let Some(index) = may_index {
-                    self.items.remove(index);
-                }
+                _ => break,
             }
         }
-    }
+    });
 
-    fn view(&self, tx: &Transmitter<ListIn>, rx: &Receiver<ListOut>) -> ViewBuilder<HtmlElement> {
-        builder! {
+    item_stream
+}
+
+fn list_view<T>(to_logic: broadcast::Sender<ListMsg>, children: T) -> ViewBuilder<Dom>
+where
+    T: Stream<Item = ListPatch<ViewBuilder<Dom>>> + Sendable,
+{
+    builder! {
+        <fieldset>
+            <legend>"A List of Gizmos"</legend>
+                <button style:cursor="pointer" on:click=to_logic.sink().with(|_| async{Ok(ListMsg::NewItem)})>
+                "Create a new item"
+            </button>
             <fieldset>
-                <legend>"A List of Gizmos"</legend>
-                <button style:cursor="pointer" on:click=tx.contra_map(|_| ListIn::NewItem)>
-                    "Create a new item"
-                </button>
-                <fieldset>
-                    <legend>"Items"</legend>
-                    <ol patch:children=rx.branch_map(|ListOut::PatchItem(patch)| patch.clone())>
-                    </ol>
-                </fieldset>
+                <legend>"Items"</legend>
+                <ol patch:children=children>
+                </ol>
             </fieldset>
-        }
+        </fieldset>
     }
 }
 
@@ -162,14 +180,19 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    let gizmo = Gizmo::from(List { items: vec![], next_id: 0 });
-    let view = View::from(gizmo.view_builder());
-    if let Some(id) = parent_id {
-        let parent = utils::document()
-            .get_element_by_id(&id)
-            .unwrap();
-        view.run_in_container(&parent)
-    } else {
-        view.run()
-    }
+    mogwai::spawn::spawn(async {
+        let (list_logic_tx, list_logic_rx) = broadcast(1);
+        let children = launch_list_loops(list_logic_rx);
+        let view: View<Dom> = list_view(list_logic_tx, children).try_into().unwrap();
+
+        if let Some(id) = parent_id {
+            let parent = mogwai::utils::document().get_element_by_id(&id).unwrap();
+            view.run_in_container(&parent)
+        } else {
+            view.run()
+        }
+        .unwrap()
+    });
+
+    Ok(())
 }

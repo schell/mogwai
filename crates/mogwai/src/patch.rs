@@ -5,6 +5,8 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
+use futures::Future;
+
 fn clone_bound<T: Copy>(bound: Bound<&T>) -> Bound<T> {
     match bound {
         Bound::Included(b) => Bound::Included(*b),
@@ -68,6 +70,26 @@ impl<T> ListPatch<T> {
                 replace_with: replace_with.into_iter().map(f).collect::<Vec<_>>(),
             },
             ListPatch::Push(value) => ListPatch::Push(f(value)),
+            ListPatch::Pop => ListPatch::Pop,
+        }
+    }
+
+    /// Map the patch from `T` to `X` using a function that returns a future that produces
+    /// an `X`.
+    pub async fn map_future<F, X, Fut>(self, f: F) -> ListPatch<X>
+    where
+        F: Fn(T) -> Fut,
+        Fut: Future<Output = X>
+    {
+        match self {
+            ListPatch::Splice {
+                range,
+                replace_with,
+            } => ListPatch::Splice {
+                range,
+                replace_with: futures::future::join_all(replace_with.into_iter().map(f)).await,
+            },
+            ListPatch::Push(value) => ListPatch::Push(f(value).await),
             ListPatch::Pop => ListPatch::Pop,
         }
     }

@@ -7,7 +7,7 @@
 </div>
 
 
-> **m**inimalist, **o**bvious, **g**raphical **w**eb **a**pplication **i**nterface
+> **m**inimal, **o**bvious, **g**raphical **w**eb **a**pplication **i**nterface
 
 release: [![Crates.io][ci]][cl] ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=release)
 
@@ -16,7 +16,7 @@ master: ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch
 [ci]: https://img.shields.io/crates/v/mogwai.svg
 [cl]: https://crates.io/crates/mogwai/
 
-`mogwai` is a frontend DOM library for creating web applications.
+`mogwai` is a view library for creating GUI applications.
 It is written in Rust and runs in your browser and has enough functionality server-side
 to do rendering. It is an alternative to React, Backbone, Ember, Elm, Purescript, etc.
 
@@ -36,7 +36,7 @@ to do rendering. It is an alternative to React, Backbone, Ember, Elm, Purescript
 * provide a declarative approach to creating and managing DOM nodes
 * encapsulate component state and compose components easily
 * explicate DOM updates
-* be small and fast (snappy af)
+* be small and fast (aka keep it snappy)
 
 If mogwai achieves these goals, which I think it does, then maintaining
 application state, composing widgets and reasoning about your program will be
@@ -55,7 +55,8 @@ The main concepts behind `mogwai` are
   When a `View` goes out of scope and is dropped in Rust, it is also dropped from the DOM.
   `Views` may be constructed and nested using plain Rust functions or an RSX macro.
 
-* **widgets are folds over input messages** - the user interface widget in `mogwai` is a `Gizmo`.
+* **widgets are folds over input messages** - the user interface widget in `mogwai` is a `View`
+  with a logic loop.
   The `Gizmo` type holds an internally mutable state and can communicate messages to its `View`,
   which may live out in the DOM. Its `View` can send messages back to the `Gizmo`, which triggers
   the `Gizmo`'s update function. The `Gizmo`'s update function can mutate the state variable and

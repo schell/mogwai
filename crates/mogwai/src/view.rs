@@ -197,7 +197,7 @@ impl Dom {
             } else {
                 crate::utils::document()
                     .create_element(tag)
-                    .map_err(|_| "could not create element".to_string())
+                    .map_err(|e| format!("could not create {} element: {:#?}", tag, e))
             }?
             .into(),
         ));
