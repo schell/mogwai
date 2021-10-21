@@ -5,7 +5,6 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
-
 fn clone_bound<T: Copy>(bound: Bound<&T>) -> Bound<T> {
     match bound {
         Bound::Included(b) => Bound::Included(*b),
@@ -34,6 +33,27 @@ pub enum ListPatch<T> {
 }
 
 impl<T> ListPatch<T> {
+    /// Construct a ListPatch that splices the given range with the given replacements.
+    pub fn splice(range: impl RangeBounds<usize>, replace_with: impl Iterator<Item = T>) -> Self {
+        ListPatch::Splice {
+            range: (
+                clone_bound(range.start_bound()),
+                clone_bound(range.end_bound()),
+            ),
+            replace_with: replace_with.collect(),
+        }
+    }
+
+    /// Construct a ListPatch that pushes the given item onto the end of the list.
+    pub fn push(item: T) -> Self {
+        ListPatch::Push(item)
+    }
+
+    /// Construct a ListPatch that pops the last item.
+    pub fn pop() -> Self {
+        ListPatch::Pop
+    }
+
     /// Map the patch from `T` to `X`
     pub fn map<F, X>(self, f: F) -> ListPatch<X>
     where
@@ -147,25 +167,42 @@ impl ListPatchApply for web_sys::Node {
         match patch {
             crate::patch::ListPatch::Splice {
                 range,
-                mut replace_with,
+                replace_with,
             } => {
+                let mut replace_with = replace_with.into_iter();
                 let list: web_sys::NodeList = self.child_nodes();
-                for i in 0..list.length() {
-                    if range.contains(&(i as usize)) {
-                        if let Some(old) = list.get(i) {
-                            let may_replacement = if replace_with.is_empty() {
-                                None
+                let children: Vec<web_sys::Node> =
+                    (0..list.length()).filter_map(|i| list.get(i)).collect();
+
+                let start_index = match range.0 {
+                    Bound::Included(i) => i,
+                    Bound::Excluded(i) => i,
+                    Bound::Unbounded => 0,
+                };
+                let end_index = match range.1 {
+                    Bound::Included(i) => i,
+                    Bound::Excluded(i) => i,
+                    Bound::Unbounded => list.length() as usize - 1,
+                };
+
+                let mut child_after = None;
+                for i in start_index..=end_index {
+                    if let Some(old_child) = children.get(i) {
+                        if range.contains(&i) {
+                            if let Some(new_child) = replace_with.next() {
+                                self.replace_child(&new_child, &old_child).unwrap();
                             } else {
-                                Some(replace_with.remove(0))
-                            };
-                            if let Some(new_node) = may_replacement {
-                                self.replace_child(&new_node, &old).unwrap();
-                            } else {
-                                let _ = self.remove_child(&old).unwrap();
+                                self.remove_child(&old_child).unwrap();
                             }
-                            removed.push(old);
+                            removed.push(old_child.clone());
+                        } else {
+                            child_after = Some(old_child);
                         }
                     }
+                }
+
+                for child in replace_with {
+                    self.insert_before(&child, child_after).unwrap();
                 }
             }
             crate::patch::ListPatch::Push(new_node) => {
@@ -185,6 +222,20 @@ impl ListPatchApply for web_sys::Node {
 #[cfg(test)]
 mod list {
     use super::*;
+
+    #[test]
+    fn splice_sanity() {
+        let mut vs = vec![0, 1, 2];
+        let is = vs.splice(0..0, vec![3]).collect::<Vec<_>>();
+        assert!(is.is_empty());
+        assert_eq!(vs, vec![3, 0, 1, 2]);
+    }
+
+    #[test]
+    fn range_sanity() {
+        let range = 0..0;
+        assert!(!range.contains(&0));
+    }
 
     #[test]
     fn vec_patching() {
@@ -213,7 +264,7 @@ mod list {
 }
 
 /// Variants used to patch the items in a hash map.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum HashPatch<K, V> {
     /// Insert value `V` at key `K`
     Insert(K, V),
@@ -231,6 +282,16 @@ pub trait HashPatchApply {
     /// Apply a patch to a hash map.
     fn hash_patch_apply(&mut self, patch: HashPatch<Self::Key, Self::Value>)
         -> Option<Self::Value>;
+
+    /// Insert.
+    fn hash_patch_insert(&mut self, k: Self::Key, v: Self::Value) -> Option<Self::Value> {
+        self.hash_patch_apply(HashPatch::Insert(k, v))
+    }
+
+    /// Get.
+    fn hash_patch_remove(&mut self, k: Self::Key) -> Option<Self::Value> {
+        self.hash_patch_apply(HashPatch::Remove(k))
+    }
 }
 
 impl<K, V> HashPatchApply for HashMap<K, V>

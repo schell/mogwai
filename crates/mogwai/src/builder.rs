@@ -1,16 +1,71 @@
 //! A low cost intermediate structure for creating views.
 use crate::{
-    channel::SinkError,
-    patch::{HashPatch, ListPatch, ListPatchApply},
-    ssr::SsrElement,
-    view::View,
+    patch::{HashPatch, ListPatch},
+    spawn::{PostBuild, Sendable, Sinkable, SinkingWith, Streamable, Streaming},
+    view::{Dom, View},
 };
-use futures::{Sink, SinkExt, Stream, StreamExt};
-use std::{convert::TryFrom, marker::PhantomData, pin::Pin};
-use wasm_bindgen::JsCast;
+use futures::{Stream, StreamExt};
+use std::{
+    convert::TryFrom,
+    pin::Pin,
+    sync::{Arc, RwLock},
+    task::{RawWaker, Wake, Waker},
+};
+
+struct DummyWaker;
+
+impl Wake for DummyWaker {
+    fn wake(self: std::sync::Arc<Self>) {}
+}
+
+/// Exhaust a stream until polling returns pending.
+///
+/// Returns the stream and the gathered items.
+///
+/// Useful for getting the starting value of a view.
+pub fn exhaust<T, St>(mut stream: St) -> (St, Vec<T>)
+where
+    St: Stream<Item = T> + Sendable + Unpin,
+{
+    let raw_waker = RawWaker::from(Arc::new(DummyWaker));
+    let waker = unsafe { Waker::from_raw(raw_waker) };
+    let mut cx = std::task::Context::from_waker(&waker);
+    let mut items = vec![];
+    while let std::task::Poll::Ready(Some(t)) = stream.poll_next_unpin(&mut cx) {
+        items.push(t);
+    }
+    (stream, items)
+}
+
+#[cfg(test)]
+mod exhaust {
+    use crate::builder::exhaust;
+    use futures::StreamExt;
+
+    #[test]
+    fn exhaust_items() {
+        let stream = Box::pin(
+            futures::stream::iter(vec![0, 1, 2])
+                .chain(futures::stream::once(async { 3 }))
+                .chain(futures::stream::once(async { 4 }))
+                .chain(futures::stream::once(async {
+                    let _ = crate::time::wait_approx(2.0).await;
+                    5
+                })),
+        );
+
+        let (stream, items) = exhaust(stream);
+        assert_eq!(items, vec![0, 1, 2, 3, 4]);
+
+        futures::executor::block_on(async move {
+            let n = stream.ready_chunks(100).next().await.unwrap();
+            assert_eq!(n, vec![5]);
+        });
+    }
+}
 
 /// A text/string stream.
-pub type TextStream = Pin<Box<dyn Stream<Item = String> + 'static>>;
+pub type TextStream = Pin<Box<Streaming<String>>>;
 
 /// An enumeration of string-like values that [`ViewBuilder`]s accept.
 pub enum MogwaiValue<'a, S, St> {
@@ -26,71 +81,68 @@ pub enum MogwaiValue<'a, S, St> {
     RefAndStream(&'a S, St),
 }
 
-impl<'a> From<&'a str> for MogwaiValue<'a, String, Pin<Box<dyn Stream<Item = String>>>> {
+impl<'a> From<&'a str> for MogwaiValue<'a, String, TextStream> {
     fn from(s: &'a str) -> Self {
         MogwaiValue::Owned(s.into())
     }
 }
 
-impl From<String> for MogwaiValue<'static, String, Pin<Box<dyn Stream<Item = String>>>> {
+impl From<String> for MogwaiValue<'static, String, TextStream> {
     fn from(s: String) -> Self {
         MogwaiValue::Owned(s)
     }
 }
 
-impl<S: 'static, St: Stream<Item = S>> From<St> for MogwaiValue<'static, S, St> {
+impl<S: Sendable, St: Streamable<S>> From<St> for MogwaiValue<'static, S, St> {
     fn from(s: St) -> Self {
         MogwaiValue::Stream(s)
     }
 }
 
-impl<S: 'static, St: Stream<Item = String>> From<(S, St)> for MogwaiValue<'static, S, St> {
+impl<S: Sendable, St: Streamable<S>> From<(S, St)> for MogwaiValue<'static, S, St> {
     fn from(s: (S, St)) -> Self {
         MogwaiValue::OwnedAndStream(s.0, s.1)
     }
 }
 
-impl<'a, St: Stream<Item = String>> From<(&'a str, St)> for MogwaiValue<'a, String, St> {
+impl<'a, St: Streamable<String>> From<(&'a str, St)> for MogwaiValue<'a, String, St> {
     fn from(s: (&'a str, St)) -> Self {
         MogwaiValue::OwnedAndStream(s.0.to_string(), s.1)
     }
 }
 
-impl<'a, S: Clone + 'static, St: Stream<Item = S> + 'static> From<MogwaiValue<'a, S, St>>
-    for Pin<Box<dyn Stream<Item = S>>>
+impl<'a, S: Clone + Sendable, St: Streamable<S>> From<MogwaiValue<'a, S, St>>
+    for Pin<Box<Streaming<S>>>
 {
     fn from(v: MogwaiValue<'a, S, St>) -> Self {
         match v {
             MogwaiValue::Ref(s) => {
                 let s = s.clone();
-                futures::stream::once(async move { s }).boxed_local()
+                Box::pin(futures::stream::once(async move { s }))
             }
-            MogwaiValue::Owned(s) => futures::stream::once(async move { s }).boxed_local(),
-            MogwaiValue::Stream(s) => s.boxed_local(),
-            MogwaiValue::OwnedAndStream(s, st) => futures::stream::once(async move { s })
-                .chain(st)
-                .boxed_local(),
-
+            MogwaiValue::Owned(s) => Box::pin(futures::stream::once(async move { s })),
+            MogwaiValue::Stream(s) => Box::pin(s),
+            MogwaiValue::OwnedAndStream(s, st) => {
+                Box::pin(futures::stream::once(async move { s }).chain(st))
+            }
             MogwaiValue::RefAndStream(s, st) => {
                 let s = s.clone();
-                futures::stream::once(async move { s })
-                    .chain(st)
-                    .boxed_local()
+                Box::pin(futures::stream::once(async move { s }).chain(st))
             }
         }
     }
 }
 
-type BoolStream = Pin<Box<dyn Stream<Item = bool> + 'static>>;
+type BoolStream = Pin<Box<Streaming<bool>>>;
 
 /// HashPatch updates for String attributes.
-pub type AttribStream = Pin<Box<dyn Stream<Item = HashPatch<String, String>> + 'static>>;
+pub type AttribStream = Pin<Box<Streaming<HashPatch<String, String>>>>;
 
 /// HashPatch updates for boolean attributes.
-pub type BooleanAttribStream = Pin<Box<dyn Stream<Item = HashPatch<String, bool>> + 'static>>;
+pub type BooleanAttribStream = Pin<Box<Streaming<HashPatch<String, bool>>>>;
 
 /// HashPatch updates for style key value pairs.
-pub type StyleStream = Pin<Box<dyn Stream<Item = HashPatch<String, String>> + 'static>>;
+pub type StyleStream = Pin<Box<Streaming<HashPatch<String, String>>>>;
 
 /// An event target declaration.
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -103,33 +155,52 @@ pub enum EventTargetType {
     Document,
 }
 
-/// An output event declaration.
-pub struct EventCmd<Event> {
-    /// The target of the event.
-    /// In other words this is the target that a listener will be placed on.
-    pub type_is: EventTargetType,
-    /// The event name.
-    pub name: String,
-    /// The [`Sender`] that the event should be sent on.
-    pub transmitter: Pin<Box<dyn Sink<Event, Error = SinkError>>>,
-}
-
 /// Child patching declaration.
-pub type ChildStream<T> = Pin<Box<dyn Stream<Item = ListPatch<T>>>>;
+pub type ChildStream<T> = Pin<Box<Streaming<ListPatch<T>>>>;
+
+/// The constituent values and streams of a [`ViewBuilder`].
+///
+/// The values have been [`exhaust`]ed from the streams to be used
+/// for initialization.
+///
+/// This is an intermediate state between a [`ViewBuilder`] and a [`View`].
+pub struct DecomposedViewBuilder<T> {
+    /// Construction argument string.
+    pub construct_with: String,
+    /// Optional namespace.
+    pub ns: Option<String>,
+    /// The view's initial text declarations.
+    pub texts: Vec<String>,
+    /// The view's future text stream.
+    pub text_stream: TextStream,
+    /// This view's initial attribute declarations.
+    pub attribs: Vec<HashPatch<String, String>>,
+    /// The view's future attribute stream.
+    pub attrib_stream: AttribStream,
+    /// The view's initial boolean attribute declarations.
+    pub bool_attribs: Vec<HashPatch<String, bool>>,
+    /// The view's future boolean attribute stream.
+    pub bool_attrib_stream: BooleanAttribStream,
+    /// This view's style declarations.
+    pub styles: Vec<HashPatch<String, String>>,
+    /// The view's future style stream.
+    pub style_stream: StyleStream,
+    /// This view's child patch declarations.
+    pub children: Vec<ListPatch<ViewBuilder<T>>>,
+    /// This view's future child stream.
+    pub child_stream: ChildStream<ViewBuilder<T>>,
+    /// This view's post build operations.
+    pub ops: Vec<Box<PostBuild<T>>>,
+}
 
 /// An un-built mogwai view.
 /// A ViewBuilder is the most generic view representation in the mogwai library.
 /// It is the the blueprint of a view - everything needed to create, hydrate or serialize the view.
-pub struct ViewBuilder<T, Child, Event> {
-    _type_is: PhantomData<T>,
+pub struct ViewBuilder<T> {
     /// Construction argument string.
     construct_with: String,
     /// Optional namespace.
     ns: Option<String>,
-    /// Ready sink.
-    ///
-    /// Sends the update count.
-    ready: Option<Pin<Box<dyn Sink<u8, Error = SinkError>>>>,
     /// This view's text declarations.
     texts: Vec<TextStream>,
     /// This view's attribute declarations.
@@ -139,24 +210,22 @@ pub struct ViewBuilder<T, Child, Event> {
     /// This view's style declarations.
     styles: Vec<StyleStream>,
     /// This view's child patch declarations.
-    patches: Vec<ChildStream<ViewBuilder<Child, Child, Event>>>,
-    /// This view's output events.
-    events: Vec<EventCmd<Event>>,
+    patches: Vec<ChildStream<ViewBuilder<T>>>,
+    /// This view's post build operations.
+    ops: Vec<Box<PostBuild<T>>>,
 }
 
-impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
+impl<T: Sendable> ViewBuilder<T> {
     /// Create a new element builder.
     pub fn element(tag: &str) -> Self {
         ViewBuilder {
-            _type_is: PhantomData,
             construct_with: tag.to_string(),
             ns: None,
-            ready: None,
             texts: vec![],
             attribs: vec![],
             bool_attribs: vec![],
             styles: vec![],
-            events: vec![],
+            ops: vec![],
             patches: vec![],
         }
     }
@@ -164,8 +233,8 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
     /// Create a new text builder.
     pub fn text<'a, Mv, St>(mv: Mv) -> Self
     where
-        Mv: Into<MogwaiValue<'a, String, St>>,
-        St: Stream<Item = String> + 'static,
+        MogwaiValue<'a, String, St>: From<Mv>,
+        St: Streamable<String>,
     {
         ViewBuilder::element("").with_text_stream(mv)
     }
@@ -176,26 +245,14 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
         self
     }
 
-    /// Add a sink to send ready notifications.
-    ///
-    /// A ready notification is sent when all "ready" updates have
-    /// been performed in the current cycle.
-    ///
-    /// Calling this more than once **replaces** the sink that is
-    /// currently set.
-    pub fn with_ready_sink(mut self, sink: impl Sink<u8, Error = SinkError> + 'static) -> Self {
-        self.ready = Some(Box::pin(sink));
-        self
-    }
-
     /// Add a stream to set the text of this builder.
     pub fn with_text_stream<'a, Mv, St>(mut self, mv: Mv) -> Self
     where
-        Mv: Into<MogwaiValue<'a, String, St>>,
-        St: Stream<Item = String> + 'static,
+        MogwaiValue<'a, String, St>: From<Mv>,
+        St: Streamable<String>,
     {
         let s: MogwaiValue<'a, String, St> = mv.into();
-        let mut t = TextStream::from(s);
+        let t: Pin<Box<Streaming<String>>> = s.into();
         self.texts.push(t);
         self
     }
@@ -203,9 +260,9 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
     /// Add a stream to patch the attributes of this builder.
     pub fn with_attrib_stream<St>(mut self, st: St) -> Self
     where
-        St: Stream<Item = HashPatch<String, String>> + 'static,
+        St: Streamable<HashPatch<String, String>>,
     {
-        self.attribs.push(st.boxed_local());
+        self.attribs.push(Box::pin(st));
         self
     }
 
@@ -213,22 +270,23 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
     pub fn with_single_attrib_stream<'a, S, Mv, St>(mut self, s: S, mv: Mv) -> Self
     where
         S: Into<String>,
-        Mv: Into<MogwaiValue<'a, String, St>>,
-        St: Stream<Item = String> + 'static,
+        MogwaiValue<'a, String, St>: From<Mv>,
+        St: Streamable<String>,
     {
         let k = s.into();
         let s: MogwaiValue<'a, String, St> = mv.into();
-        let t = TextStream::from(s).map(move |v| HashPatch::Insert(k.clone(), v));
-        self.attribs.push(t.boxed_local());
+        let t: TextStream = s.into();
+        let t = t.map(move |v| HashPatch::Insert(k.clone(), v));
+        self.attribs.push(Box::pin(t));
         self
     }
 
     /// Add a stream to patch the boolean attributes of this builder.
     pub fn with_bool_attrib_stream<St>(mut self, st: St) -> Self
     where
-        St: Stream<Item = HashPatch<String, bool>> + 'static,
+        St: Streamable<HashPatch<String, bool>>,
     {
-        self.bool_attribs.push(st.boxed_local());
+        self.bool_attribs.push(Box::pin(st));
         self
     }
 
@@ -237,21 +295,36 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
     where
         S: Into<String>,
         Mv: Into<MogwaiValue<'a, bool, St>>,
-        St: Stream<Item = bool> + 'static,
+        St: Streamable<bool>,
     {
         let k = s.into();
         let s: MogwaiValue<'a, bool, St> = mv.into();
         let t = BoolStream::from(s).map(move |v| HashPatch::Insert(k.clone(), v));
-        self.bool_attribs.push(t.boxed_local());
+        self.bool_attribs.push(Box::pin(t));
         self
     }
 
     /// Add a stream to patch the styles of this builder.
-    pub fn with_style_stream<St>(mut self, st: St) -> Self
+    pub fn with_style_stream<'a, St, Mv>(mut self, mv: Mv) -> Self
     where
-        St: Stream<Item = HashPatch<String, String>> + 'static,
+        Mv: Into<MogwaiValue<'a, String, St>>,
+        St: Streamable<String>,
     {
-        self.styles.push(st.boxed_local());
+        let s: MogwaiValue<'a, String, St> = mv.into();
+        let t = TextStream::from(s).flat_map(|v: String| {
+            let kvs = v
+                .split(';')
+                .filter_map(|style| {
+                    let (k, v) = style.split_once(':')?;
+                    Some(HashPatch::Insert(
+                        k.trim().to_string(),
+                        v.trim().to_string(),
+                    ))
+                })
+                .collect::<Vec<_>>();
+            futures::stream::iter(kvs)
+        });
+        self.styles.push(Box::pin(t));
         self
     }
 
@@ -260,508 +333,266 @@ impl<T, Child: 'static, Event: 'static> ViewBuilder<T, Child, Event> {
     where
         S: Into<String>,
         Mv: Into<MogwaiValue<'a, String, St>>,
-        St: Stream<Item = String> + 'static,
+        St: Streamable<String>,
     {
         let k = s.into();
         let s: MogwaiValue<'a, String, St> = mv.into();
         let t = TextStream::from(s).map(move |v| HashPatch::Insert(k.clone(), v));
-        self.styles.push(t.boxed_local());
+        self.styles.push(Box::pin(t));
         self
     }
 
     /// Add a stream to patch the list of children of this builder.
-    pub fn with_child_stream(
-        mut self,
-        s: impl Stream<Item = ListPatch<ViewBuilder<Child, Child, Event>>> + 'static,
-    ) -> Self {
-        self.patches.push(s.boxed_local());
+    pub fn with_child_stream(mut self, s: impl Streamable<ListPatch<ViewBuilder<T>>>) -> Self {
+        self.patches.push(Box::pin(s));
         self
     }
 
     /// Add a single child.
     ///
     /// This is a convenient short-hand for calling [`ViewBuilder::with_child_stream`] with
-    pub fn with_child(mut self, child: ViewBuilder<Child, Child, Event>) -> Self {
+    /// a single child, right now - instead of a stream later.
+    pub fn with_child(self, child: ViewBuilder<T>) -> Self {
         self.with_child_stream(futures::stream::once(async move { ListPatch::Push(child) }))
     }
 
-    /// Add a sink into which view events of the given name will be sent.
-    pub fn with_event(
-        mut self,
-        name: &str,
-        tx: impl Sink<Event, Error = SinkError> + 'static,
-    ) -> Self {
-        self.events.push(EventCmd {
-            type_is: EventTargetType::Myself,
-            name: name.into(),
-            transmitter: Box::pin(tx),
-        });
+    /// Add an operation to perform after the view has been built.
+    pub fn with_post_build<F>(mut self, run: F) -> Self
+    where
+        F: FnOnce(&mut T) + Sendable,
+    {
+        self.ops.push(Box::new(run));
         self
+    }
+}
+
+impl ViewBuilder<Dom> {
+    /// Add a sink into which view events of the given name will be sent.
+    pub fn with_event(self, name: &str, tx: impl Sinkable<web_sys::Event>) -> Self {
+        log::info!("requested set '{}' event", name);
+        let name = name.to_string();
+        self.with_post_build(move |dom| {
+            log::info!("setting '{}' event", &name);
+            dom.set_event(EventTargetType::Myself, &name, Box::pin(tx));
+        })
     }
 
     /// Add a sink into which window events of the given name will be sent.
-    pub fn with_window_event(
-        mut self,
-        name: &str,
-        tx: impl Sink<Event, Error = SinkError> + 'static,
-    ) -> Self {
-        self.events.push(EventCmd {
-            type_is: EventTargetType::Window,
-            name: name.into(),
-            transmitter: Box::pin(tx),
-        });
-        self
+    pub fn with_window_event(self, name: &str, tx: impl Sinkable<web_sys::Event>) -> Self {
+        let name = name.to_string();
+        self.with_post_build(move |dom| {
+            dom.set_event(EventTargetType::Window, &name, Box::pin(tx));
+        })
     }
 
     /// Add a sink into which document events of the given name will be sent.
-    pub fn with_document_event(
-        mut self,
-        name: &str,
-        tx: impl Sink<Event, Error = SinkError> + 'static,
-    ) -> Self {
-        self.events.push(EventCmd {
-            type_is: EventTargetType::Document,
-            name: name.into(),
-            transmitter: Box::pin(tx),
-        });
-        self
+    pub fn with_document_event(self, name: &str, tx: impl Sinkable<web_sys::Event>) -> Self {
+        let name = name.to_string();
+        self.with_post_build(move |dom| {
+            dom.set_event(EventTargetType::Document, &name, Box::pin(tx));
+        })
     }
+}
 
-    /// Cast the underlying view type of this builder.
-    pub fn with_type<V>(self) -> ViewBuilder<V, Child, Event> {
-        let ViewBuilder {
-            _type_is: _,
-            construct_with,
-            ns,
-            ready,
-            texts,
-            attribs,
-            bool_attribs,
-            styles,
-            patches,
-            events,
-        } = self;
+impl<C: Sendable> From<&String> for ViewBuilder<C> {
+    fn from(s: &String) -> Self {
+        ViewBuilder::text(s.as_str())
+    }
+}
+
+impl<C: Sendable> From<String> for ViewBuilder<C> {
+    fn from(s: String) -> Self {
+        ViewBuilder::text(s.as_str())
+    }
+}
+
+impl<C:Sendable, St: Streamable<String>> From<(&str, St)> for ViewBuilder<C> {
+    fn from(sst: (&str, St)) -> Self {
+        ViewBuilder::text(sst)
+    }
+}
+
+impl<C: 'static> From<ViewBuilder<C>> for DecomposedViewBuilder<C> {
+    fn from(
         ViewBuilder {
-            _type_is: PhantomData,
             construct_with,
             ns,
-            ready,
             texts,
             attribs,
             bool_attribs,
             styles,
             patches,
-            events,
+            ops,
+        }: ViewBuilder<C>,
+    ) -> Self {
+        let (text_stream, texts) = exhaust(Box::pin(futures::stream::select_all(texts)));
+        let (attrib_stream, attribs) = exhaust(Box::pin(futures::stream::select_all(attribs)));
+        let (bool_attrib_stream, bool_attribs) =
+            exhaust(Box::pin(futures::stream::select_all(bool_attribs)));
+        let (style_stream, styles) = exhaust(Box::pin(futures::stream::select_all(styles)));
+        let (child_stream, children) = exhaust(Box::pin(futures::stream::select_all(patches)));
+        DecomposedViewBuilder {
+            construct_with,
+            ns,
+            texts,
+            text_stream,
+            attribs,
+            attrib_stream,
+            bool_attribs,
+            bool_attrib_stream,
+            styles,
+            style_stream,
+            children,
+            child_stream,
+            ops,
         }
     }
 }
 
-/// Used for sending update ticks.
-#[derive(Clone)]
-pub struct ReadyTx {
-    /// The underlying sender.
-    pub tx: Option<async_channel::Sender<()>>,
-}
-
-impl ReadyTx {
-    /// Send an update notification if anyone is listening.
-    pub async fn tick(&mut self) {
-        if let Some(tx) = self.tx.take() {
-            match tx.send(()).await {
-                Ok(()) => {
-                    self.tx = Some(tx);
-                }
-                Err(async_channel::SendError(())) => {}
-            }
-        }
-    }
-}
-
-impl<T> TryFrom<ViewBuilder<T, web_sys::Node, web_sys::Event>> for View<T>
+/// We can transform a ViewBuilder<T, _, _> into any View<T> when
+/// T can be created from a DecomposedViewBuilder.
+impl<C> TryFrom<ViewBuilder<C>> for View<C>
 where
-    T: JsCast,
+    C: 'static,
+    View<C>: TryFrom<DecomposedViewBuilder<C>>,
 {
-    type Error = String;
+    type Error = <View<C> as TryFrom<DecomposedViewBuilder<C>>>::Error;
 
-    fn try_from(
-        builder: ViewBuilder<T, web_sys::Node, web_sys::Event>,
-    ) -> Result<Self, Self::Error> {
-        let ViewBuilder {
-            _type_is: _,
-            construct_with,
-            ns,
-            ready,
-            attribs,
-            bool_attribs,
-            styles,
-            events,
-            patches,
-            texts,
-        } = builder;
-
-        let ready_sink = ready;
-        let (ready_tx, ready_rx) = if ready_sink.is_some() {
-            let (tx, rx) = async_channel::unbounded::<()>();
-            (ReadyTx { tx: Some(tx) }, Some(rx))
-        } else {
-            (ReadyTx { tx: None }, None)
-        };
-
-        let el: T = if !texts.is_empty() {
-            let node = web_sys::Text::new().unwrap();
-            let stream = futures::stream::select_all(texts)
-                .map(|t| Ok(t))
-                .boxed_local();
-            let sink = futures::sink::unfold::<(web_sys::Text, ReadyTx), _, _, String, ()>(
-                (node.clone(), ready_tx.clone()),
-                |(node, mut ready), text: String| async move {
-                    node.set_data(&text);
-                    ready.tick().await;
-                    Ok((node, ready))
-                },
-            );
-            wasm_bindgen_futures::spawn_local(async move {
-                stream.forward(sink).await.unwrap();
-            });
-            node.dyn_into::<T>()
-                .map_err(|e| format!("could not cast to {}: {:?}", std::any::type_name::<T>(), e))?
-        } else if let Some(ns) = ns {
-            let window: web_sys::Window = web_sys::window().unwrap();
-            let document: web_sys::Document = window.document().unwrap();
-            let node = document
-                .create_element_ns(Some(&ns), &construct_with)
-                .unwrap();
-            node.dyn_into::<T>()
-                .map_err(|e| format!("could not cast to {}: {:?}", std::any::type_name::<T>(), e))?
-        } else {
-            let window: web_sys::Window = web_sys::window().unwrap();
-            let document: web_sys::Document = window.document().unwrap();
-            let node = document.create_element(&construct_with).unwrap();
-            node.dyn_into::<T>()
-                .map_err(|e| format!("could not cast to {}: {:?}", std::any::type_name::<T>(), e))?
-        };
-
-        if !attribs.is_empty() {
-            let stream: Pin<Box<dyn Stream<Item = Result<HashPatch<String, String>, ()>>>> =
-                futures::stream::select_all(attribs).map(Ok).boxed_local();
-            let sink = futures::sink::unfold::<
-                (web_sys::HtmlElement, ReadyTx),
-                _,
-                _,
-                HashPatch<String, String>,
-                _,
-            >(
-                (
-                    el.dyn_ref::<web_sys::HtmlElement>()
-                        .ok_or_else(|| "could not cast to HtmlElement".to_string())?
-                        .clone(),
-                    ready_tx.clone(),
-                ),
-                |(view, mut ready), patch| async move {
-                    match patch {
-                        crate::patch::HashPatch::Insert(k, v) => {
-                            view.set_attribute(&k, &v).map_err(|_| ())?;
-                        }
-                        crate::patch::HashPatch::Remove(k) => {
-                            view.remove_attribute(&k).map_err(|_| ())?;
-                        }
-                    }
-                    ready.tick().await;
-                    Ok((view, ready))
-                },
-            );
-            wasm_bindgen_futures::spawn_local(async move {
-                futures::pin_mut!(sink);
-                let _ = stream.forward(&mut sink).await;
-            });
-        }
-
-        if !bool_attribs.is_empty() {
-            let stream: Pin<Box<dyn Stream<Item = Result<HashPatch<String, bool>, ()>>>> =
-                futures::stream::select_all(bool_attribs)
-                    .map(Ok)
-                    .boxed_local();
-            let sink = futures::sink::unfold::<
-                (web_sys::HtmlElement, ReadyTx),
-                _,
-                _,
-                HashPatch<String, bool>,
-                _,
-            >(
-                (
-                    el.dyn_ref::<web_sys::HtmlElement>()
-                        .ok_or_else(|| "could not cast to HtmlElement".to_string())?
-                        .clone(),
-                    ready_tx.clone(),
-                ),
-                |(view, mut ready), patch| async move {
-                    match patch {
-                        crate::patch::HashPatch::Insert(k, v) => {
-                            if v {
-                                view.set_attribute(&k, "").map_err(|_| ())?;
-                            } else {
-                                view.remove_attribute(&k).map_err(|_| ())?;
-                            }
-                        }
-                        crate::patch::HashPatch::Remove(k) => {
-                            view.remove_attribute(&k).map_err(|_| ())?;
-                        }
-                    }
-                    ready.tick().await;
-                    Ok((view, ready))
-                },
-            );
-            wasm_bindgen_futures::spawn_local(async move {
-                futures::pin_mut!(sink);
-                let _ = stream.forward(&mut sink).await;
-            })
-        }
-
-        if !styles.is_empty() {
-            let stream: Pin<Box<dyn Stream<Item = Result<HashPatch<String, String>, ()>>>> =
-                futures::stream::select_all(styles).map(Ok).boxed_local();
-            let sink = futures::sink::unfold::<
-                (web_sys::CssStyleDeclaration, ReadyTx),
-                _,
-                _,
-                HashPatch<String, String>,
-                _,
-            >(
-                (
-                    el.dyn_ref::<web_sys::HtmlElement>()
-                        .ok_or_else(|| "could not cast to HtmlElement".to_string())?
-                        .style(),
-                    ready_tx.clone(),
-                ),
-                |(style, mut ready), patch| async move {
-                    match patch {
-                        crate::patch::HashPatch::Insert(k, v) => {
-                            style.set_property(&k, &v).map_err(|_| ())?;
-                        }
-                        crate::patch::HashPatch::Remove(k) => {
-                            style.remove_property(&k).map_err(|_| ())?;
-                        }
-                    }
-                    ready.tick().await;
-                    Ok((style, ready))
-                },
-            );
-            wasm_bindgen_futures::spawn_local(async move {
-                futures::pin_mut!(sink);
-                let _ = stream.forward(&mut sink).await;
-            });
-        }
-
-        if !events.is_empty() {
-            let target = el
-                .dyn_ref::<web_sys::EventTarget>()
-                .ok_or_else(|| "could not cast to EventTarget".to_string())?;
-            for EventCmd {
-                type_is,
-                name,
-                transmitter,
-            } in events.into_iter()
-            {
-                match type_is {
-                    EventTargetType::Myself => {
-                        crate::event::add_event(&name, target, transmitter);
-                    }
-                    EventTargetType::Window => {
-                        crate::event::add_event(&name, &web_sys::window().unwrap(), transmitter);
-                    }
-                    EventTargetType::Document => {
-                        crate::event::add_event(
-                            &name,
-                            &web_sys::window().unwrap().document().unwrap(),
-                            transmitter,
-                        );
-                    }
-                }
-            }
-        }
-
-        if !patches.is_empty() {
-            let stream: Pin<Box<dyn Stream<Item = Result<ListPatch<_>, ()>>>> =
-                futures::stream::select_all(patches).map(Ok).boxed_local();
-            let sink = futures::sink::unfold::<(web_sys::Node, ReadyTx), _, _, _, _>(
-                (
-                    el.dyn_ref::<web_sys::Node>()
-                        .ok_or_else(|| "could not cast to Node".to_string())?
-                        .clone(),
-                    ready_tx.clone(),
-                ),
-                |(mut view, mut ready), patch: ListPatch<ViewBuilder<_, _, _>>| async move {
-                    let patch = patch.map(|vb| {
-                        let view: View<web_sys::Node> = View::try_from(vb).unwrap();
-                        view.inner
-                    });
-                    let _ = view.list_patch_apply(patch);
-                    ready.tick().await;
-                    Ok((view, ready))
-                },
-            );
-            wasm_bindgen_futures::spawn_local(async move {
-                futures::pin_mut!(sink);
-                let _ = stream.forward(&mut sink).await;
-            });
-        }
-
-        // This allows us to tell downstream listeners when our view has processed all
-        // "ready" streams (streams that have values waiting in them)
-        if let Some(mut sink) = ready_sink {
-            if let Some(rx) = ready_rx {
-                wasm_bindgen_futures::spawn_local(async move {
-                    // start out our ready signal to allow some time for processing any immediate changes.
-                    let rx = futures::stream::once(async {
-                        let _ = crate::utils::wait_approximately(1.0).await;
-                    })
-                    .chain(rx)
-                    .boxed_local();
-                    let mut rx = rx.ready_chunks(u8::MAX as usize);
-                    loop {
-                        match rx.next().await {
-                            Some(updates) => match sink.send(updates.len() as u8).await {
-                                Ok(()) => {}
-                                Err(err) => match err {
-                                    SinkError::Closed => break,
-                                    SinkError::Full => panic!("ready sink is full"),
-                                },
-                            },
-                            None => break,
-                        }
-                    }
-                });
-            }
-        }
-
-        Ok(View { inner: el })
+    fn try_from(value: ViewBuilder<C>) -> Result<Self, Self::Error> {
+        let decomp: DecomposedViewBuilder<C> = value.into();
+        View::try_from(decomp)
     }
 }
 
-impl<Event: 'static> TryFrom<ViewBuilder<SsrElement<Event>, SsrElement<Event>, Event>>
-    for View<SsrElement<Event>>
-{
+impl TryFrom<DecomposedViewBuilder<Dom>> for View<Dom> {
     type Error = String;
 
     fn try_from(
-        builder: ViewBuilder<SsrElement<Event>, SsrElement<Event>, Event>,
-    ) -> Result<Self, Self::Error> {
-        let ViewBuilder {
-            _type_is: _,
+        DecomposedViewBuilder {
             construct_with,
             ns,
-            ready,
-            attribs,
-            bool_attribs,
-            styles,
-            events,
-            patches,
             texts,
-        } = builder;
-
-        let mut el: SsrElement<Event> = if !texts.is_empty() {
-            let node = SsrElement::text("");
-            let stream = futures::stream::select_all(texts).map(Ok).boxed_local();
-            let sink = futures::sink::unfold::<SsrElement<_>, _, _, String, ()>(
-                node.clone(),
-                |node, text: String| async move { node.with_text(text).await },
-            );
-            wasm_bindgen_futures::spawn_local(async move {
-                futures::pin_mut!(sink);
-                let _ = stream.forward(&mut sink).await;
+            text_stream,
+            attribs,
+            attrib_stream,
+            bool_attribs,
+            bool_attrib_stream,
+            styles,
+            style_stream,
+            children,
+            child_stream,
+            ops,
+        }: DecomposedViewBuilder<Dom>,
+    ) -> Result<Self, Self::Error> {
+        let mut el: Dom = if !texts.is_empty() {
+            let node = Dom::text("")?;
+            for text in texts.into_iter() {
+                node.set_text(&text)?;
+            }
+            let text_stream: Pin<Box<Streaming<Result<String, String>>>> =
+                Box::pin(text_stream.map(Ok));
+            let text_sink: Pin<Box<SinkingWith<String, String>>> =
+                Box::pin(futures::sink::unfold::<Dom, _, _, String, _>(
+                    node.clone(),
+                    |node, text: String| async move {
+                        node.set_text(&text)?;
+                        Ok(node)
+                    },
+                ));
+            crate::spawn::spawn(async move {
+                futures::pin_mut!(text_sink);
+                let _ = text_stream.forward(text_sink).await;
             });
             node
         } else {
-            SsrElement::element(&construct_with)
+            Dom::element(&construct_with, ns.as_deref())?
         };
-        if let Some(ns) = ns {
-            el = futures::executor::block_on(async move {
-                el.with_attrib("xmlns".to_string(), Some(ns)).await.unwrap()
-            });
+
+        for patch in attribs.into_iter() {
+            el.patch_attribs(patch)?;
         }
-        if !attribs.is_empty() {
-            let stream = futures::stream::select_all(attribs).map(|v| Ok(v));
-            let sink = futures::sink::unfold(
+        let attrib_stream: Pin<Box<Streaming<Result<HashPatch<String, String>, String>>>> =
+            Box::pin(attrib_stream.map(Ok));
+        let attrib_sink: Pin<Box<SinkingWith<HashPatch<String, String>, String>>> = Box::pin(
+            futures::sink::unfold::<_, _, _, HashPatch<String, String>, _>(
                 el.clone(),
-                |el, patch: HashPatch<String, String>| async move {
-                    match patch {
-                        crate::patch::HashPatch::Insert(k, v) => el.with_attrib(k, Some(v)).await,
-                        crate::patch::HashPatch::Remove(k) => el.without_attrib(k).await,
-                    }
+                |view, patch| async move {
+                    view.patch_attribs(patch)?;
+                    Ok(view)
                 },
-            );
-            wasm_bindgen_futures::spawn_local(async move {
-                futures::pin_mut!(sink);
-                let _ = stream.forward(&mut sink).await;
-            });
+            ),
+        );
+        crate::spawn::spawn(async move {
+            futures::pin_mut!(attrib_sink);
+            let _ = attrib_stream.forward(&mut attrib_sink).await;
+        });
+
+        for patch in bool_attribs.into_iter() {
+            el.patch_bool_attribs(patch)?;
         }
 
-        if !bool_attribs.is_empty() {
-            let stream: Pin<Box<dyn Stream<Item = Result<HashPatch<String, bool>, ()>>>> =
-                futures::stream::select_all(bool_attribs)
-                    .map(Ok)
-                    .boxed_local();
-            let sink = futures::sink::unfold(el.clone(), |el, patch| async move {
-                match patch {
-                    crate::patch::HashPatch::Insert(k, v) => {
-                        if v {
-                            el.with_attrib(k, None).await
-                        } else {
-                            el.without_attrib(k).await
-                        }
-                    }
-                    crate::patch::HashPatch::Remove(k) => el.without_attrib(k).await,
-                }
-            });
-            wasm_bindgen_futures::spawn_local(async move {
-                futures::pin_mut!(sink);
-                let _ = stream.forward(&mut sink).await;
-            });
+        let bool_attrib_stream: Pin<Box<Streaming<Result<HashPatch<String, bool>, String>>>> =
+            Box::pin(bool_attrib_stream.map(Ok));
+        let bool_attrib_sink: Pin<Box<SinkingWith<HashPatch<_, _>, String>>> = Box::pin(
+            futures::sink::unfold::<_, _, _, HashPatch<String, bool>, _>(
+                el.clone(),
+                |view, patch| async move {
+                    view.patch_bool_attribs(patch)?;
+                    Ok(view)
+                },
+            ),
+        );
+        crate::spawn::spawn(async move {
+            futures::pin_mut!(bool_attrib_sink);
+            let _ = bool_attrib_stream.forward(&mut bool_attrib_sink).await;
+        });
+
+        for patch in styles.into_iter() {
+            el.patch_styles(patch)?;
+        }
+        let style_stream: Pin<Box<Streaming<Result<HashPatch<String, String>, String>>>> =
+            Box::pin(style_stream.map(Ok));
+        let style_sink: Pin<Box<SinkingWith<HashPatch<_, _>, String>>> = Box::pin(
+            futures::sink::unfold::<_, _, _, HashPatch<String, String>, _>(
+                el.clone(),
+                |view, patch| async move {
+                    view.patch_styles(patch)?;
+                    Ok(view)
+                },
+            ),
+        );
+        crate::spawn::spawn(async move {
+            futures::pin_mut!(style_sink);
+            let _ = style_stream.forward(&mut style_sink).await;
+        });
+
+        for op in ops.into_iter() {
+            (op)(&mut el);
         }
 
-        if !styles.is_empty() {
-            let stream = futures::stream::select_all(styles).map(Ok);
-            let sink = futures::sink::unfold(el.clone(), |el, patch| async move {
-                match patch {
-                    crate::patch::HashPatch::Insert(k, v) => el.with_style(k, v).await,
-                    crate::patch::HashPatch::Remove(k) => el.without_style(k).await,
-                }
-            });
-            wasm_bindgen_futures::spawn_local(async move {
-                futures::pin_mut!(sink);
-                let _ = stream.forward(&mut sink).await;
-            });
+        for patch in children.into_iter() {
+            let patch = patch.map(|vb| View::try_from(vb).unwrap().into_inner());
+            el.patch_children(patch)?;
         }
+        let child_stream: Pin<Box<Streaming<Result<ListPatch<_>, String>>>> =
+            Box::pin(child_stream.map(Ok));
+        let child_sink: Pin<Box<SinkingWith<ListPatch<_>, String>>> =
+            Box::pin(futures::sink::unfold(
+                el.clone(),
+                |view, patch: ListPatch<ViewBuilder<_>>| async move {
+                    let patch = patch.map(|vb| View::try_from(vb).unwrap().into_inner());
+                    view.patch_children(patch)?;
+                    Ok(view)
+                },
+            ));
+        crate::spawn::spawn(async move {
+            futures::pin_mut!(child_sink);
+            let _ = child_stream.forward(&mut child_sink).await;
+        });
 
-        if !events.is_empty() {
-            for EventCmd {
-                type_is,
-                name,
-                transmitter,
-            } in events.into_iter()
-            {
-                el = futures::executor::block_on(async {
-                    el.with_event(type_is, name, transmitter)
-                        .await
-                        .map_err(|()| "could not add event".to_string())
-                })?;
-            }
-        }
-
-        if !patches.is_empty() {
-            let stream: Pin<Box<dyn Stream<Item = Result<ListPatch<SsrElement<Event>>, ()>>>> =
-                futures::stream::select_all(patches)
-                    .map(|patch| Ok(patch.map(|vb| View::try_from(vb).unwrap().inner)))
-                    .boxed_local();
-            let sink = futures::sink::unfold(el.clone(), |el, patch| async move {
-                el.with_patch_children(patch).await
-            });
-            wasm_bindgen_futures::spawn_local(async move {
-                futures::pin_mut!(sink);
-                let _ = stream.forward(&mut sink).await;
-            });
-        }
-
-        Ok(View { inner: el })
+        Ok(View {
+            inner: el,
+            detach: Arc::new(RwLock::new(Box::new(|t| t.detach()))),
+        })
     }
 }

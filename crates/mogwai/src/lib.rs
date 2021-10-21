@@ -16,72 +16,197 @@ pub mod channel;
 pub mod event;
 pub mod model;
 pub mod patch;
-//pub mod component;
-//pub mod gizmo;
-//pub mod prelude;
+pub mod spawn;
 pub mod ssr;
-//pub mod txrx;
+pub mod time;
 pub mod utils;
 pub mod view;
 
-#[cfg(doctest)]
-doc_comment::doctest!("../../README.md");
+pub mod macros {
+    //! RSX style macros for building DOM views.
+    pub use mogwai_html_macro::{builder, view};
+}
 
-#[cfg(test)]
+//#[cfg(doctest)]
+//doc_comment::doctest!("../../../README.md");
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
-    use futures::{stream::once, StreamExt};
-    use mogwai_html_macro::{builder, target_arch_is_wasm32};
+    use crate::{self as mogwai, channel::broadcast, ssr::SsrElement};
+    use mogwai::{
+        channel::broadcast::*,
+        macros::*,
+        view::{Dom, View},
+    };
+    use web_sys::Event;
+
+    #[test]
+    fn cast_type_in_builder() {
+        let _div = builder! {
+            <div cast:type=mogwai::view::Dom id="hello">"Inner Text"</div>
+        };
+    }
+
+    #[test]
+    fn post_build_manual() {
+        let (tx, _rx) = broadcast::<()>(1);
+
+        let _div = mogwai::builder::ViewBuilder::element("div")
+            .with_single_attrib_stream("id", "hello")
+            .with_post_build(move |_: &mut Dom| {
+                let _ = tx.try_broadcast(()).unwrap();
+            })
+            .with_child(mogwai::builder::ViewBuilder::text("Hello"));
+    }
+
+    #[test]
+    fn post_build_rsx() {
+        let (tx, mut rx) = broadcast::<()>(1);
+
+        let _div = view! {
+            <div id="hello" post:build=move |_| {
+                let _ = tx.try_broadcast(()).unwrap();
+            }>
+                "Hello"
+            </div>
+        };
+
+        smol::block_on(async move {
+            rx.recv().await.unwrap();
+        });
+    }
+
+    #[test]
+    fn can_construct_text_builder_from_tuple() {
+        let (_tx, rx) = broadcast::<String>(1);
+        let _div: View<Dom> = view! {
+            <div>{("initial", rx)}</div>
+        };
+    }
+
+    #[test]
+    fn ssr_properties_overwrite() {
+        let el: SsrElement<Event> = mogwai::ssr::SsrElement::element("div");
+        el.set_style("float", "right").unwrap();
+        assert_eq!(el.html_string(), r#"<div style="float: right;"></div>"#);
+
+        el.set_style("float", "left").unwrap();
+        assert_eq!(el.html_string(), r#"<div style="float: left;"></div>"#);
+
+        el.set_style("width", "100px").unwrap();
+        assert_eq!(
+            el.html_string(),
+            r#"<div style="float: left; width: 100px;"></div>"#
+        );
+    }
+
+    #[test]
+    fn ssr_attrib_overwrite() {
+        let el: SsrElement<Event> = mogwai::ssr::SsrElement::element("div");
+
+        el.set_attrib("class", Some("my_class")).unwrap();
+        assert_eq!(el.html_string(), r#"<div class="my_class"></div>"#);
+
+        el.set_attrib("class", Some("your_class")).unwrap();
+        assert_eq!(el.html_string(), r#"<div class="your_class"></div>"#);
+    }
+
+    #[test]
+    pub fn can_alter_ssr_views() {
+        let (tx_text, rx_text) = broadcast::<String>(1);
+        let (tx_style, rx_style) = broadcast::<String>(1);
+        let (tx_class, rx_class) = broadcast::<String>(1);
+        let view = view! {
+            <div style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
+        };
+        assert_eq!(
+            String::from(&view),
+            r#"<div style="float: left;"><p class="p_class">here</p></div>"#
+        );
+
+        let _ = tx_text.try_broadcast("there".to_string()).unwrap();
+        smol::block_on(async { broadcast::until_empty(&tx_text).await });
+
+        assert_eq!(
+            String::from(&view),
+            r#"<div style="float: left;"><p class="p_class">there</p></div>"#
+        );
+
+        let _ = tx_style.try_broadcast("right".to_string()).unwrap();
+        smol::block_on(async { broadcast::until_empty(&tx_style).await });
+
+        assert_eq!(
+            String::from(&view),
+            r#"<div style="float: right;"><p class="p_class">there</p></div>"#
+        );
+
+        let _ = tx_class.try_broadcast("my_p_class".to_string()).unwrap();
+        smol::block_on(async { broadcast::until_empty(&tx_class).await });
+
+        assert_eq!(
+            String::from(&view),
+            r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#
+        );
+    }
+}
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod test {
+    use async_broadcast::broadcast;
+    use futures::stream::once;
     use std::{
-        cell::Ref,
         convert::{TryFrom, TryInto},
-        ops::Deref,
+        ops::Bound,
     };
     use wasm_bindgen::JsCast;
     use wasm_bindgen_test::*;
-    use web_sys::Element;
+    use web_sys::HtmlElement;
 
-    use crate::{self as mogwai, builder::ViewBuilder, ssr::SsrElement, utils, view::View};
+    use crate::{
+        self as mogwai,
+        builder::ViewBuilder,
+        channel::{self, bounded, IntoSenderSink, StreamExt},
+        macros::*,
+        patch::ListPatch,
+        view::{Dom, EitherExt, View},
+    };
 
     wasm_bindgen_test_configure!(run_in_browser);
 
-    #[wasm_bindgen_test]
-    fn this_arch_is_wasm32() {
-        assert!(target_arch_is_wasm32! {});
-    }
+    type DomBuilder = ViewBuilder<Dom>;
 
     #[wasm_bindgen_test]
     fn can_create_text_view_node_from_str() {
-        let _view: View<web_sys::Text> = ViewBuilder::text("Hello!").try_into().unwrap();
+        let _view: View<Dom> = ViewBuilder::text("Hello!").try_into().unwrap();
     }
 
     #[wasm_bindgen_test]
     fn can_create_text_view_node_from_string() {
-        let _view: View<web_sys::Text> =
-            ViewBuilder::text("Hello!".to_string()).try_into().unwrap();
+        let _view: View<Dom> = ViewBuilder::text("Hello!".to_string()).try_into().unwrap();
     }
 
     #[wasm_bindgen_test]
     fn can_create_text_view_node_from_stream() {
         let s = once(async { "Hello!".to_string() });
-        let _view: View<web_sys::Text> = ViewBuilder::text(s).try_into().unwrap();
+        let _view: View<Dom> = ViewBuilder::text(s).try_into().unwrap();
     }
 
     #[wasm_bindgen_test]
     fn can_create_text_view_node_from_string_and_stream() {
         let s = "Hello!".to_string();
         let st = once(async { "Goodbye!".to_string() });
-        let _view: View<web_sys::Text> = ViewBuilder::text((s, st)).try_into().unwrap();
+        let _view: View<Dom> = ViewBuilder::text((s, st)).try_into().unwrap();
     }
 
     #[wasm_bindgen_test]
     fn can_create_text_view_node_from_str_and_stream() {
         let st = once(async { "Goodbye!".to_string() });
-        let _view: View<web_sys::Text> = ViewBuilder::text(("Hello!", st)).try_into().unwrap();
+        let _view: View<Dom> = ViewBuilder::text(("Hello!", st)).try_into().unwrap();
     }
 
     #[wasm_bindgen_test]
     async fn can_nest_created_text_view_node() {
-        let view: View<web_sys::HtmlElement> = ViewBuilder::element("div")
+        let view: View<Dom> = ViewBuilder::element("div")
             .with_child(ViewBuilder::text("Hello!"))
             .with_single_attrib_stream("id", "view1")
             .with_single_style_stream("color", "red")
@@ -91,8 +216,6 @@ mod test {
             )
             .try_into()
             .unwrap();
-
-        let _ = utils::wait_approximately(2.0).await;
 
         assert_eq!(
             String::from(&view).as_str(),
@@ -102,7 +225,7 @@ mod test {
 
     #[wasm_bindgen_test]
     async fn ssr_can_nest_created_text_view_node() {
-        let view: View<SsrElement<()>> = ViewBuilder::element("div")
+        let view: View<Dom> = ViewBuilder::element("div")
             .with_child(ViewBuilder::text("Hello!"))
             .with_single_attrib_stream("id", "view1")
             .with_single_style_stream("color", "red")
@@ -113,418 +236,402 @@ mod test {
             .try_into()
             .unwrap();
 
-        let _ = utils::wait_approximately(2.0).await;
-        let node = view.inner.node.lock().await;
-
         assert_eq!(
-            String::from(node.deref()).as_str(),
-            r#"<div id="view1" style="width: 100px; color: red;">Hello!</div>"#
+            String::from(&view).as_str(),
+            r#"<div id="view1" style="color: red; width: 100px;">Hello!</div>"#
         );
     }
 
     #[wasm_bindgen_test]
     async fn can_use_rsx_to_make_builder() {
-        console_log::init_with_level(log::Level::Trace).unwrap();
-        let (ready_tx, mut ready_rx) = mogwai::channel::unbounded();
         let (tx, _) = mogwai::channel::bounded::<web_sys::Event>(1);
 
-        let rsx: ViewBuilder<web_sys::HtmlElement, web_sys::Node, web_sys::Event> = builder! {
-            <div id="view_zero" style:background_color="red" ready:sink=ready_tx.clone()>
-                <pre on:click=tx ready:sink=ready_tx>"this has text"</pre>
+        let rsx: DomBuilder = builder! {
+            <div id="view_zero" style:background_color="red">
+                <pre on:click=tx.sink()>"this has text"</pre>
             </div>
         };
         let rsx_view = View::try_from(rsx).unwrap();
-        let count = ready_rx.next().await.unwrap();
-        log::info!("{} rsx updates", count);
 
-        let (ready_tx, mut ready_rx) = mogwai::channel::unbounded();
-        let (tx, _) = mogwai::channel::bounded::<web_sys::Event>(1);
-        let manual: ViewBuilder<web_sys::HtmlElement, web_sys::Node, web_sys::Event> =
-            mogwai::builder::ViewBuilder::element("div")
-                .with_ready_sink(ready_tx.clone())
-                .with_single_attrib_stream("id", "view_zero")
-                .with_single_style_stream("background_color", "red")
-                .with_child(
-                    mogwai::builder::ViewBuilder::element("pre")
-                        .with_ready_sink(ready_tx)
-                        .with_event("click", tx.clone())
-                        .with_child(mogwai::builder::ViewBuilder::text("this has text")),
-                );
-
+        let manual: DomBuilder = mogwai::builder::ViewBuilder::element("div")
+            .with_single_attrib_stream("id", "view_zero")
+            .with_single_style_stream("background-color", "red")
+            .with_child(
+                mogwai::builder::ViewBuilder::element("pre")
+                    .with_event("click", tx.sink())
+                    .with_child(mogwai::builder::ViewBuilder::text("this has text")),
+            );
         let manual_view = View::try_from(manual).unwrap();
-        let count = ready_rx.next().await.unwrap();
-        log::info!("{} man updates", count);
 
         assert_eq!(String::from(&rsx_view), String::from(&manual_view));
     }
 
-    //#[wasm_bindgen_test]
-    //fn gizmo_ref_as_child() {
-    //    // Since the pre tag is dropped after the scope block the last assert should
-    //    // show that the div tag has no children.
-    //    let div = {
-    //        let pre = view! { <pre>"this has text"</pre> };
-    //        let div = view! { <div id="parent"></div> };
-    //        div.dom_ref().append_child(&pre.dom_ref()).unwrap();
-    //        assert!(
-    //            div.dom_ref().first_child().is_some(),
-    //            "parent does not contain in-scope child"
-    //        );
-    //        //console::log_1(&"dropping pre".into());
-    //        div
+    #[wasm_bindgen_test]
+    async fn viewbuilder_child_order() {
+        let v: View<Dom> = view! {
+            <div>
+                <p id="one">"i am 1"</p>
+                <p id="two">"i am 2"</p>
+                <p id="three">"i am 3"</p>
+            </div>
+        };
+
+        let val = v.inner.inner_read().left().unwrap();
+        let nodes = val.dyn_ref::<web_sys::Node>().unwrap().child_nodes();
+        let len = nodes.length();
+        assert_eq!(len, 3);
+        let mut ids = vec![];
+        for i in 0..len {
+            let el = nodes
+                .get(i)
+                .unwrap()
+                .dyn_into::<web_sys::Element>()
+                .unwrap();
+            ids.push(el.id());
+        }
+
+        assert_eq!(ids.as_slice(), ["one", "two", "three"]);
+    }
+
+    #[wasm_bindgen_test]
+    fn gizmo_ref_as_child() {
+        // Since the pre tag is dropped after the scope block the last assert should
+        // show that the div tag has no children.
+        let div = {
+            let pre: View<Dom> = view! { <pre>"this has text"</pre> };
+            let pre_inner = pre.inner.inner_read().left().unwrap();
+            let pre_node = pre_inner.dyn_ref::<web_sys::Node>().unwrap();
+            let div: View<Dom> = view! { <div id="parent"></div> };
+            let div_inner = div.inner.inner_read().left().unwrap();
+            let div_node = div_inner.dyn_ref::<web_sys::Node>().unwrap();
+            div_node.append_child(pre_node).unwrap();
+            assert!(
+                div_node.first_child().is_some(),
+                "parent does not contain in-scope child"
+            );
+            drop(div_inner);
+            div
+        };
+
+        let div_inner = div.inner.inner_read().left().unwrap();
+        assert!(
+            div_inner
+                .dyn_ref::<web_sys::Node>()
+                .unwrap()
+                .first_child()
+                .is_none(),
+            "parent contains out-of-scope child"
+        );
+    }
+
+    #[wasm_bindgen_test]
+    fn gizmo_as_child() {
+        // Since the pre tag is *not* dropped after the scope block the last assert
+        // should show that the div tag has a child.
+        let div = {
+            let div = view! {
+                <div id="parent-div">
+                    <pre>"some text"</pre>
+                    </div>
+            };
+            assert!(
+                div.clone_as::<web_sys::HtmlElement>()
+                    .unwrap()
+                    .first_child()
+                    .is_some(),
+                "could not add child gizmo"
+            );
+            div
+        };
+        assert!(
+            div.clone_as::<web_sys::HtmlElement>()
+                .unwrap()
+                .first_child()
+                .is_some(),
+            "could not keep hold of child gizmo"
+        );
+        assert_eq!(
+            div.clone_as::<web_sys::HtmlElement>()
+                .unwrap()
+                .child_nodes()
+                .length(),
+            1,
+            "parent is missing static_gizmo"
+        );
+    }
+
+    #[wasm_bindgen_test]
+    fn gizmo_tree() {
+        let root = view! {
+            <div id="root">
+                <div id="branch">
+                    <div id="leaf">
+                        "leaf"
+                    </div>
+                </div>
+            </div>
+        };
+        let el = root.clone_as::<web_sys::HtmlElement>().unwrap();
+        if let Some(branch) = el.first_child() {
+            if let Some(leaf) = branch.first_child() {
+                if let Some(leaf) = leaf.dyn_ref::<web_sys::Element>() {
+                    assert_eq!(leaf.id(), "leaf");
+                } else {
+                    panic!("leaf is not an Element");
+                }
+            } else {
+                panic!("branch has no leaf");
+            }
+        } else {
+            panic!("root has no branch");
+        }
+    }
+
+    #[wasm_bindgen_test]
+    fn gizmo_texts() {
+        let div = view! {
+            <div>
+                "here is some text "
+            // i can use comments, yay!
+            {&format!("{}", 66)}
+            " <- number"
+                </div>
+        };
+        assert_eq!(
+            &div.clone_as::<web_sys::Element>().unwrap().outer_html(),
+            "<div>here is some text 66 &lt;- number</div>"
+        );
+    }
+
+    #[wasm_bindgen_test]
+    async fn rx_attribute_jsx() {
+        let (tx, rx) = bounded::<String>(1);
+        let div = view! {
+            <div class=("now", rx) />
+        };
+        let div_el: web_sys::HtmlElement = div.clone_as::<web_sys::HtmlElement>().unwrap();
+        assert_eq!(div_el.outer_html(), r#"<div class="now"></div>"#);
+
+        tx.send("later".to_string()).await.unwrap();
+        mogwai::channel::until_empty(&tx).await;
+
+        assert_eq!(div_el.outer_html(), r#"<div class="later"></div>"#);
+    }
+
+    #[wasm_bindgen_test]
+    async fn rx_style_jsx() {
+        let (tx, rx) = broadcast::<String>(1);
+        let div = view! { <div style:display=("block", rx) /> };
+        let div_el = div.clone_as::<web_sys::HtmlElement>().unwrap();
+        assert_eq!(
+            div_el.outer_html(),
+            r#"<div style="display: block;"></div>"#
+        );
+
+        tx.broadcast("none".to_string()).await.unwrap();
+        mogwai::channel::broadcast::until_empty(&tx).await;
+
+        assert_eq!(div_el.outer_html(), r#"<div style="display: none;"></div>"#);
+    }
+
+    #[wasm_bindgen_test]
+    async fn contra_map_events() {
+        let (tx, mut rx) = broadcast::<()>(1);
+        let _div = view! {
+            <div id="hello" post:build=move |_| {
+                let _ = tx.try_broadcast(()).unwrap();
+            }>
+                "Hello there"
+            </div>
+        };
+
+        let () = rx.recv().await.unwrap();
+    }
+
+    #[wasm_bindgen_test]
+    pub async fn rx_text() {
+        let (tx, rx) = broadcast::<String>(1);
+
+        let div: View<Dom> = view! {
+            <div>{("initial", rx)}</div>
+        };
+
+        let el = div.clone_as::<web_sys::HtmlElement>().unwrap();
+        assert_eq!(el.inner_text().as_str(), "initial");
+
+        tx.broadcast("after".into()).await.unwrap();
+        mogwai::channel::broadcast::until_empty(&tx).await;
+
+        assert_eq!(el.inner_text(), "after");
+    }
+
+    #[wasm_bindgen_test]
+    async fn tx_on_click() {
+        let (tx, rx) = broadcast(1);
+
+        log::info!("test!");
+        let rx = rx.scan(0, |n: &mut i32, _: web_sys::Event| {
+            log::info!("event!");
+            *n += 1;
+            let r = Some(if *n == 1 {
+                "Clicked 1 time".to_string()
+            } else {
+                format!("Clicked {} times", *n)
+            });
+            futures::future::ready(r)
+        });
+
+        let button = view! {
+            <button on:click=tx.sink()>{("Clicked 0 times", rx)}</button>
+        };
+
+        let el = button.clone_as::<web_sys::HtmlElement>().unwrap();
+        assert_eq!(el.inner_html(), "Clicked 0 times");
+
+        el.click();
+        mogwai::channel::broadcast::until_empty(&tx).await;
+        let _ = mogwai::time::wait_approx(1000.0).await;
+
+        assert_eq!(el.inner_html(), "Clicked 1 time");
+    }
+
+    //fn nice_compiler_error() {
+    //    let _div = view! {
+    //        <div unknown:colon:thing="not ok" />
     //    };
-    //    assert!(
-    //        div.dom_ref().first_child().is_none(),
-    //        "parent does not maintain out-of-scope child"
-    //    );
-    //    //console::log_1(&"dropping parent".into());
     //}
 
-    //#[wasm_bindgen_test]
-    //fn gizmo_as_child() {
-    //    // Since the pre tag is *not* dropped after the scope block the last assert
-    //    // should show that the div tag has a child.
-    //    let div = {
-    //        let div = view! {
-    //            <div id="parent-div">
-    //                <pre>"some text"</pre>
-    //                </div>
-    //        };
-    //        assert!(
-    //            div.dom_ref().first_child().is_some(),
-    //            "could not add child gizmo"
-    //        );
-    //        div
-    //    };
-    //    assert!(
-    //        div.dom_ref().first_child().is_some(),
-    //        "could not keep hold of child gizmo"
-    //    );
-    //    assert_eq!(
-    //        div.dom_ref().child_nodes().length(),
-    //        1,
-    //        "parent is missing static_gizmo"
-    //    );
-    //    //console::log_1(&"dropping div and pre".into());
-    //}
+    #[wasm_bindgen_test]
+    async fn can_wait_approximately() {
+        let millis_waited = mogwai::time::wait_approx(22.0).await;
+        assert!(millis_waited >= 21.0);
+    }
 
-    //#[wasm_bindgen_test]
-    //fn gizmo_tree() {
-    //    let root = view! {
-    //        <div id="root">
-    //            <div id="branch">
-    //                <div id="leaf">
-    //                    "leaf"
-    //                </div>
-    //            </div>
-    //        </div>
-    //    };
-    //    let el = root.dom_ref();
-    //    if let Some(branch) = el.first_child() {
-    //        if let Some(leaf) = branch.first_child() {
-    //            if let Some(leaf) = leaf.dyn_ref::<Element>() {
-    //                assert_eq!(leaf.id(), "leaf");
-    //            } else {
-    //                panic!("leaf is not an Element");
-    //            }
-    //        } else {
-    //            panic!("branch has no leaf");
-    //        }
-    //    } else {
-    //        panic!("root has no branch");
-    //    }
-    //}
+    #[wasm_bindgen_test]
+    async fn can_patch_children() {
+        let (tx, rx) = bounded::<ListPatch<ViewBuilder<Dom>>>(1);
+        let view = view! {
+            <ol id="main" patch:children=rx>
+                <li>"Zero"</li>
+                <li>"One"</li>
+            </ol>
+        };
 
-    //#[wasm_bindgen_test]
-    //fn gizmo_texts() {
-    //    let div = view! {
-    //        <div>
-    //            "here is some text "
-    //        // i can use comments, yay!
-    //        {&format!("{}", 66)}
-    //        " <- number"
-    //            </div>
-    //    };
-    //    assert_eq!(
-    //        &div.dom_ref().outer_html(),
-    //        "<div>here is some text 66 &lt;- number</div>"
-    //    );
-    //}
+        let dom: HtmlElement = view.clone_as::<HtmlElement>().unwrap();
+        view.run().unwrap();
 
-    //#[wasm_bindgen_test]
-    //fn rx_attribute_jsx() {
-    //    let (tx, rx) = txrx::<String>();
-    //    let div = view! {
-    //        <div class=("now", rx) />
-    //    };
-    //    let div_el: Ref<HtmlElement> = div.dom_ref();
-    //    assert_eq!(div_el.outer_html(), r#"<div class="now"></div>"#);
+        assert_eq!(
+            dom.outer_html().as_str(),
+            r#"<ol id="main"><li>Zero</li><li>One</li></ol>"#
+        );
 
-    //    tx.send(&"later".to_string());
-    //    assert_eq!(div_el.outer_html(), r#"<div class="later"></div>"#);
-    //}
+        tx.try_send(ListPatch::push(builder! {<li>"Two"</li>}))
+            .unwrap();
+        channel::until_empty(&tx).await;
+        assert_eq!(
+            dom.outer_html().as_str(),
+            r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
+        );
 
-    //#[wasm_bindgen_test]
-    //fn rx_style_plain() {
-    //    let (tx, rx) = txrx::<String>();
+        tx.try_send(ListPatch::splice(0..1, None.into_iter()))
+            .unwrap();
+        channel::until_empty(&tx).await;
+        assert_eq!(
+            dom.outer_html().as_str(),
+            r#"<ol id="main"><li>One</li><li>Two</li></ol>"#
+        );
 
-    //    let mut div: View<HtmlElement> = View::element("div");
-    //    div.style("display", ("block", rx));
+        tx.try_send(ListPatch::splice(
+            0..0,
+            Some(builder! {<li>"Zero"</li>}).into_iter(),
+        ))
+        .unwrap();
+        channel::until_empty(&tx).await;
+        assert_eq!(
+            dom.outer_html().as_str(),
+            r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
+        );
 
-    //    let div_el: Ref<HtmlElement> = div.dom_ref();
-    //    assert_eq!(
-    //        div_el.outer_html(),
-    //        r#"<div style="display: block;"></div>"#
-    //    );
+        tx.try_send(ListPatch::splice(2..3, None.into_iter()))
+            .unwrap();
+        channel::until_empty(&tx).await;
+        assert_eq!(
+            dom.outer_html().as_str(),
+            r#"<ol id="main"><li>Zero</li><li>One</li></ol>"#
+        );
 
-    //    tx.send(&"none".to_string());
-    //    assert_eq!(div_el.outer_html(), r#"<div style="display: none;"></div>"#);
-    //}
+        tx.try_send(ListPatch::splice(
+            0..0,
+            Some(builder! {<li>"Negative One"</li>}).into_iter(),
+        ))
+        .unwrap();
+        channel::until_empty(&tx).await;
+        assert_eq!(
+            dom.outer_html().as_str(),
+            r#"<ol id="main"><li>Negative One</li><li>Zero</li><li>One</li></ol>"#
+        );
 
-    //#[wasm_bindgen_test]
-    //fn rx_style_jsx() {
-    //    let (tx, rx) = txrx::<String>();
-    //    let div = view! { <div style:display=("block", rx) /> };
-    //    let div_el: Ref<HtmlElement> = div.dom_ref();
-    //    assert_eq!(
-    //        div_el.outer_html(),
-    //        r#"<div style="display: block;"></div>"#
-    //    );
+        tx.try_send(ListPatch::Pop).unwrap();
+        channel::until_empty(&tx).await;
+        assert_eq!(
+            dom.outer_html().as_str(),
+            r#"<ol id="main"><li>Negative One</li><li>Zero</li></ol>"#
+        );
 
-    //    tx.send(&"none".to_string());
-    //    assert_eq!(div_el.outer_html(), r#"<div style="display: none;"></div>"#);
-    //}
+        tx.try_send(ListPatch::splice(
+            1..2,
+            Some(builder! {<li>"One"</li>}).into_iter(),
+        ))
+        .unwrap();
+        channel::until_empty(&tx).await;
+        assert_eq!(
+            dom.outer_html().as_str(),
+            r#"<ol id="main"><li>Negative One</li><li>One</li></ol>"#
+        );
 
-    //#[wasm_bindgen_test]
-    //pub fn rx_text() {
-    //    let (tx, rx) = txrx::<String>();
+        use std::ops::RangeBounds;
+        let range = 0..;
+        let (start, end) = (range.start_bound(), range.end_bound());
+        assert_eq!(start, Bound::Included(&0));
+        assert_eq!(end, Bound::Unbounded);
+        assert!((start, end).contains(&1));
 
-    //    let mut div: View<HtmlElement> = View::element("div");
-    //    div.with(View::from(("initial", rx)));
+        tx.try_send(ListPatch::splice(0.., None.into_iter()))
+            .unwrap();
+        channel::until_empty(&tx).await;
+        assert_eq!(dom.outer_html().as_str(), r#"<ol id="main"></ol>"#);
+    }
 
-    //    let el: Ref<HtmlElement> = div.dom_ref();
-    //    assert_eq!(el.inner_text().as_str(), "initial");
-    //    tx.send(&"after".into());
-    //    assert_eq!(el.inner_text(), "after");
-    //}
+    #[wasm_bindgen_test]
+    async fn can_patch_children_into() {
+        let (tx, rx) = bounded::<ListPatch<String>>(1);
+        let view = view! {
+            <p id="main" patch:children=rx.map(|p| p.map(|s| ViewBuilder::text(s)))>
+                "Zero ""One"
+            </p>
+        };
 
-    //#[wasm_bindgen_test]
-    //fn tx_on_click_plain() {
-    //    let (tx, rx) = txrx_fold(0, |n: &mut i32, _: &Event| -> String {
-    //        *n += 1;
-    //        if *n == 1 {
-    //            "Clicked 1 time".to_string()
-    //        } else {
-    //            format!("Clicked {} times", *n)
-    //        }
-    //    });
+        let dom: HtmlElement = view.clone_as().unwrap();
+        view.run().unwrap();
 
-    //    let mut button: View<HtmlElement> = View::element("button");
-    //    button.with(View::from(("Clicked 0 times", rx)));
-    //    button.on("click", tx);
+        assert_eq!(dom.outer_html().as_str(), r#"<p id="main">Zero One</p>"#);
 
-    //    let el: Ref<HtmlElement> = button.dom_ref();
-    //    assert_eq!(el.inner_html(), "Clicked 0 times");
-    //    el.click();
-    //    assert_eq!(el.inner_html(), "Clicked 1 time");
-    //}
+        tx.send(ListPatch::splice(
+            0..0,
+            std::iter::once("First ".to_string()),
+        ))
+        .await
+        .unwrap();
+        mogwai::channel::until_empty(&tx).await;
+        assert_eq!(
+            dom.outer_html().as_str(),
+            r#"<p id="main">First Zero One</p>"#
+        );
 
-    //#[wasm_bindgen_test]
-    //fn tx_on_click_jsx() {
-    //    let (tx, rx) = txrx_fold(0, |n: &mut i32, _: &Event| -> String {
-    //        *n += 1;
-    //        if *n == 1 {
-    //            "Clicked 1 time".to_string()
-    //        } else {
-    //            format!("Clicked {} times", *n)
-    //        }
-    //    });
-
-    //    let button = view! { <button on:click=tx>{("Clicked 0 times", rx)}</button> };
-    //    let el: Ref<HtmlElement> = button.dom_ref();
-
-    //    assert_eq!(el.inner_html(), "Clicked 0 times");
-    //    el.click();
-    //    assert_eq!(el.inner_html(), "Clicked 1 time");
-    //}
-
-    //#[wasm_bindgen_test]
-    //fn tx_window_on_click_jsx() {
-    //    let (tx, rx) = txrx();
-    //    let _button = view! {
-    //        <button window:load=tx>
-    //        {(
-    //            "Waiting...",
-    //            rx.branch_map(|_| "Loaded!".into())
-    //        )}
-    //        </button>
-    //    };
-    //}
-
-    ////fn nice_compiler_error() {
-    ////    let _div = view! {
-    ////        <div unknown:colon:thing="not ok" />
-    ////    };
-    ////}
-
-    //#[test]
-    //#[wasm_bindgen_test]
-    //pub fn can_i_alter_views_on_the_server() {
-    //    let (tx_text, rx_text) = txrx::<String>();
-    //    let (tx_style, rx_style) = txrx::<String>();
-    //    let (tx_class, rx_class) = txrx::<String>();
-    //    let view = view! {
-    //        <div style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
-    //    };
-    //    assert_eq!(
-    //        &view.clone().html_string(),
-    //        r#"<div style="float: left;"><p class="p_class">here</p></div>"#
-    //    );
-
-    //    tx_text.send(&"there".to_string());
-    //    assert_eq!(
-    //        &view.clone().html_string(),
-    //        r#"<div style="float: left;"><p class="p_class">there</p></div>"#
-    //    );
-
-    //    tx_style.send(&"right".to_string());
-    //    assert_eq!(
-    //        &view.clone().html_string(),
-    //        r#"<div style="float: right;"><p class="p_class">there</p></div>"#
-    //    );
-
-    //    tx_class.send(&"my_p_class".to_string());
-    //    assert_eq!(
-    //        &view.clone().html_string(),
-    //        r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#
-    //    );
-    //}
-
-    //#[wasm_bindgen_test]
-    //async fn can_wait_approximately() {
-    //    let millis_waited = utils::wait_approximately(22.0).await;
-    //    log::trace!("21 !>= {}", millis_waited);
-    //    assert!(millis_waited >= 21.0);
-    //}
-
-    //#[wasm_bindgen_test]
-    //async fn can_patch_children() {
-    //    let (tx, rx) = txrx::<Patch<View<HtmlElement>>>();
-    //    let view = view! {
-    //        <ol id="main" patch:children=rx>
-    //            <li>"Zero"</li>
-    //            <li>"One"</li>
-    //        </ol>
-    //    };
-
-    //    let dom: HtmlElement = view.dom_ref().clone();
-    //    view.run().unwrap();
-
-    //    assert_eq!(
-    //        dom.outer_html().as_str(),
-    //        r#"<ol id="main"><li>Zero</li><li>One</li></ol>"#
-    //    );
-
-    //    let two = view! {
-    //        <li>"Two"</li>
-    //    };
-
-    //    tx.send(&Patch::PushBack { value: two });
-    //    assert_eq!(
-    //        dom.outer_html().as_str(),
-    //        r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
-    //    );
-
-    //    tx.send(&Patch::PopFront);
-    //    assert_eq!(
-    //        dom.outer_html().as_str(),
-    //        r#"<ol id="main"><li>One</li><li>Two</li></ol>"#
-    //    );
-
-    //    tx.send(&Patch::Insert {
-    //        index: 0,
-    //        value: view! {<li>"Zero"</li>},
-    //    });
-    //    assert_eq!(
-    //        dom.outer_html().as_str(),
-    //        r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
-    //    );
-
-    //    tx.send(&Patch::Remove { index: 2 });
-    //    assert_eq!(
-    //        dom.outer_html().as_str(),
-    //        r#"<ol id="main"><li>Zero</li><li>One</li></ol>"#
-    //    );
-
-    //    tx.send(&Patch::PushFront {
-    //        value: view! {<li>"Negative One"</li>},
-    //    });
-    //    assert_eq!(
-    //        dom.outer_html().as_str(),
-    //        r#"<ol id="main"><li>Negative One</li><li>Zero</li><li>One</li></ol>"#
-    //    );
-
-    //    tx.send(&Patch::PopBack);
-    //    assert_eq!(
-    //        dom.outer_html().as_str(),
-    //        r#"<ol id="main"><li>Negative One</li><li>Zero</li></ol>"#
-    //    );
-
-    //    tx.send(&Patch::Replace {
-    //        index: 1,
-    //        value: view! {<li>"One"</li>},
-    //    });
-    //    assert_eq!(
-    //        dom.outer_html().as_str(),
-    //        r#"<ol id="main"><li>Negative One</li><li>One</li></ol>"#
-    //    );
-
-    //    tx.send(&Patch::RemoveAll);
-    //    assert_eq!(dom.outer_html().as_str(), r#"<ol id="main"></ol>"#);
-    //}
-
-    //#[wasm_bindgen_test]
-    //fn can_patch_children_into() {
-    //    let (tx, rx) = txrx::<Patch<String>>();
-    //    let view = view! {
-    //        <p id="main" patch:children=rx>
-    //            "Zero ""One"
-    //        </p>
-    //    };
-
-    //    let dom: HtmlElement = view.dom_ref().clone();
-    //    view.run().unwrap();
-
-    //    assert_eq!(dom.outer_html().as_str(), r#"<p id="main">Zero One</p>"#);
-
-    //    tx.send(&Patch::PushFront {
-    //        value: "First ".to_string(),
-    //    });
-    //    assert_eq!(
-    //        dom.outer_html().as_str(),
-    //        r#"<p id="main">First Zero One</p>"#
-    //    );
-
-    //    tx.send(&Patch::RemoveAll);
-    //    assert_eq!(dom.outer_html().as_str(), r#"<p id="main"></p>"#);
-    //}
-
-    //#[wasm_bindgen_test]
-    //fn can_add_children_as_vec() {
-    //    // Unfortunately this doesn't mix well with RSX. To remedy this:
-    //    // TODO: Add ParentView impls instead of calling
-    //    // `ViewBuilder::from` on everything passed to `with`.
-    //    let mut view = view! {<ul></ul>};
-    //    let children = (0..3)
-    //        .map(|i| {
-    //            view! { <li>{format!("{}", i)}</li> }
-    //        })
-    //        .collect::<Vec<_>>();
-    //    view.with(children);
-
-    //    assert_eq!(
-    //        view.dom_ref().outer_html().as_str(),
-    //        "<ul><li>0</li><li>1</li><li>2</li></ul>"
-    //    );
-    //}
+        tx.send(ListPatch::splice(.., std::iter::empty()))
+            .await
+            .unwrap();
+        mogwai::channel::until_empty(&tx).await;
+        assert_eq!(dom.outer_html().as_str(), r#"<p id="main"></p>"#);
+    }
 }

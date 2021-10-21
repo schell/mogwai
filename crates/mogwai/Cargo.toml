@@ -15,14 +15,20 @@ categories = ["gui", "wasm", "web-programming"]
 default = []
 
 [dependencies]
+async-broadcast = "^0.3"
 async-channel = "^1.6"
+async-lock = "^2.4"
 console_log = "^0.1"
 futures = "^0.3"
 js-sys = "0.3.44"
+lazy_static = "^1.4"
 log = "^0.4"
 mogwai-html-macro = { path = "../mogwai-html-macro", version = "^0.3" }
 wasm-bindgen = "^0.2"
 wasm-bindgen-futures = "^0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+smol = "^1.2"
 
 [dependencies.web-sys]
 version = "^0.3"

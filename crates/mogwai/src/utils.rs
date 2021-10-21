@@ -1,14 +1,4 @@
 //! Helpers and utilities.
-#[cfg(target_arch = "wasm32")]
-use js_sys::Function;
-use std::{
-    cell::{Cell, RefCell},
-    collections::VecDeque,
-    future::Future,
-    pin::Pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
 use wasm_bindgen::{closure::Closure, JsCast, JsValue, UnwrapThrowExt};
 use web_sys;
 
@@ -42,55 +32,6 @@ pub fn set_checkup_interval(millis: i32, f: &Closure<dyn FnMut()>) -> i32 {
         .expect("should register `setInterval` OK")
 }
 
-/// Schedule the given closure to be run as soon as possible.
-///
-/// On wasm32 this schedules the closure to run async at the next "frame". Any other
-/// target sees the closure called immediately.
-pub fn set_immediate<F>(f: F)
-where
-    F: FnOnce() + 'static,
-{
-    if cfg!(target_arch = "wasm32") {
-        // `setTimeout(0, callback)` does not run the callback immediately, there is a minimum delay of ~4ms
-        // https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/setTimeout#Reasons_for_delays_longer_than_specified
-        // browsers do not have a native `setImmediate(callback)` function, so we have to use a hack :(
-        thread_local! {
-            static PENDING: RefCell<VecDeque<Box<dyn FnOnce()>>> = Default::default();
-            static CALLBACK: Closure<dyn Fn()> = Closure::wrap(Box::new(on_message));
-            static SCHEDULED: Cell<bool> = Cell::new(false);
-            static PORT_TO_SELF: web_sys::MessagePort = {
-                let channel = web_sys::MessageChannel::new().unwrap_throw();
-                CALLBACK.with(|callback| {
-                    channel.port2().set_onmessage(Some(callback.as_ref().unchecked_ref()));
-                });
-                channel.port1()
-            };
-        }
-
-        fn on_message() {
-            SCHEDULED.with(|scheduled| scheduled.set(false));
-            PENDING.with(|pending| {
-                // callbacks can (and do) schedule more callbacks;
-                // to ensure that we yield to the event loop between each batch,
-                // only dequeue callbacks that were scheduled before we started running this batch
-                let initial_len = pending.borrow().len();
-                for _ in 0..initial_len {
-                    let f = pending.borrow_mut().pop_front().unwrap_throw();
-                    f();
-                }
-            })
-        }
-
-        PENDING.with(|pending| pending.borrow_mut().push_back(Box::new(f)));
-        let was_scheduled = SCHEDULED.with(|scheduled| scheduled.replace(true));
-        if !was_scheduled {
-            PORT_TO_SELF.with(|port| port.post_message(&JsValue::NULL).unwrap_throw());
-        }
-    } else {
-        f()
-    }
-}
-
 /// Sets a static rust closure to be called after a given amount of milliseconds.
 /// The given function may return whether or not this timeout should be rescheduled.
 /// If the function returns `true` it will be rescheduled. Otherwise it will not.
@@ -99,7 +40,7 @@ where
     F: FnMut() -> bool + 'static,
 {
     // https://rustwasm.github.io/wasm-bindgen/examples/request-animation-frame.html#srclibrs
-    let f = Rc::new(RefCell::new(None));
+    let f = std::rc::Rc::new(std::cell::RefCell::new(None));
     let g = f.clone();
 
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
@@ -131,7 +72,7 @@ where
     F: FnMut(f64) -> bool + 'static,
 {
     // https://rustwasm.github.io/wasm-bindgen/examples/request-animation-frame.html#srclibrs
-    let f = Rc::new(RefCell::new(None));
+    let f = std::rc::Rc::new(std::cell::RefCell::new(None));
     let g = f.clone();
 
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move |ts_val:JsValue| {
@@ -143,47 +84,4 @@ where
     }) as Box<dyn FnMut(JsValue)>));
 
     req_animation_frame(g.borrow().as_ref().unwrap_throw());
-}
-
-struct WaitFuture {
-    start: f64,
-    millis: f64,
-    waker: Rc<RefCell<Option<Waker>>>,
-}
-
-impl Future for WaitFuture {
-    type Output = f64;
-
-    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-        let future: &mut WaitFuture = self.get_mut();
-        let now = window().performance().expect("no performance object").now();
-        let elapsed = now - future.start;
-        if elapsed >= future.millis {
-            Poll::Ready(elapsed)
-        } else {
-            *future.waker.borrow_mut() = Some(ctx.waker().clone());
-            Poll::Pending
-        }
-    }
-}
-
-/// Wait approximately the given number of milliseconds.
-/// Returns a [`Future`] that yields the actual number of milliseconds waited.
-pub fn wait_approximately(millis: f64) -> impl Future<Output = f64> {
-    let waker: Rc<RefCell<Option<Waker>>> = Rc::new(RefCell::new(None));
-    let waker2 = waker.clone();
-    let start = window().performance().expect("no performance object").now();
-    timeout(millis as i32, move || {
-        waker2
-            .borrow_mut()
-            .take()
-            .into_iter()
-            .for_each(|waker| waker.wake());
-        false
-    });
-    WaitFuture {
-        start,
-        waker,
-        millis,
-    }
 }

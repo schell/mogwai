@@ -21,7 +21,6 @@ struct WebCallback {
 
 impl Drop for WebCallback {
     fn drop(&mut self) {
-        log::info!("dropping {}", self.name);
         if let Some(closure) = self.closure.take() {
             self.target
                 .remove_event_listener_with_callback(
@@ -44,23 +43,6 @@ impl Stream for WebCallback {
         let data = self.get_mut();
         data.waker.replace(Some(cx.waker().clone()));
 
-        if data.closure.is_none() {
-            info!("creating closure for {}", data.name);
-            // We haven't added the event listener yet, add it and populate the waker
-            let waker = data.waker.clone();
-            let event = data.event.clone();
-            let closure = Closure::wrap(Box::new(move |val: JsValue| {
-                log::info!("fired");
-                let ev = val.unchecked_into();
-                event.replace(Some(ev));
-                waker.borrow_mut().take().unwrap().wake();
-            }) as Box<dyn FnMut(JsValue)>);
-            data.target
-                .add_event_listener_with_callback(&data.name, closure.as_ref().unchecked_ref())
-                .unwrap();
-            data.closure = Some(closure);
-        }
-
         if let Some(event) = data.event.borrow_mut().take() {
             std::task::Poll::Ready(Some(event))
         } else {
@@ -76,12 +58,30 @@ pub fn event_stream(
     ev_name: &str,
     target: &web_sys::EventTarget,
 ) -> impl Stream<Item = web_sys::Event> {
+    let waker: Rc<RefCell<Option<Waker>>> = Default::default();
+    let waker_here = waker.clone();
+
+    let event: Rc<RefCell<Option<web_sys::Event>>> = Default::default();
+    let event_here = event.clone();
+
+    let closure = Closure::wrap(Box::new(move |val: JsValue| {
+        let ev = val.unchecked_into();
+        event.replace(Some(ev));
+        if let Some(waker) = waker.borrow_mut().take() {
+            waker.wake()
+        }
+    }) as Box<dyn FnMut(JsValue)>);
+
+    target
+        .add_event_listener_with_callback(ev_name, closure.as_ref().unchecked_ref())
+        .unwrap();
+
     WebCallback {
         target: target.clone(),
         name: ev_name.to_string(),
-        closure: None,
-        event: Default::default(),
-        waker: Default::default(),
+        closure: Some(closure),
+        event: event_here,
+        waker: waker_here,
     }
 }
 

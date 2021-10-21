@@ -1,17 +1,18 @@
 //! Provides string rendering for server-side mogwai nodes.
 
-use futures::{lock::Mutex, Sink, SinkExt};
+use futures::SinkExt;
 use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use crate::{
     builder::EventTargetType,
     channel::SinkError,
     patch::{ListPatch, ListPatchApply},
+    spawn::Sinking,
 };
 
 // Only certain nodes can be "void" - which means written as <tag /> when
@@ -133,10 +134,8 @@ impl<Event> From<&SsrNode<Event>> for String {
                     let kids = children
                         .into_iter()
                         .map(|k| {
-                            futures::executor::block_on(async {
-                                let node = k.node.lock().await;
-                                String::from(node.deref()).trim().to_string()
-                            })
+                            let node = k.node.lock().unwrap();
+                            String::from(node.deref()).trim().to_string()
                         })
                         .collect::<Vec<String>>()
                         .join(" ");
@@ -156,9 +155,16 @@ pub struct SsrElement<Event> {
     /// The underlying node.
     pub node: Arc<Mutex<SsrNode<Event>>>,
     /// A map of events registered with this element.
-    pub events: Arc<
-        Mutex<HashMap<(EventTargetType, String), Pin<Box<dyn Sink<Event, Error = SinkError>>>>>,
-    >,
+    pub events: Arc<Mutex<HashMap<(EventTargetType, String), Pin<Box<Sinking<Event>>>>>>,
+}
+
+#[cfg(test)]
+mod ssr {
+    #[test]
+    fn ssrelement_sendable() {
+        fn sendable<T: crate::spawn::Sendable>() {}
+        sendable::<super::SsrElement<web_sys::Event>>()
+    }
 }
 
 impl<Event> Clone for SsrElement<Event> {
@@ -174,7 +180,12 @@ impl<Event> SsrElement<Event> {
     /// Creates a text node.
     pub fn text(s: &str) -> Self {
         SsrElement {
-            node: Arc::new(Mutex::new(SsrNode::Text(s.into()))),
+            node: Arc::new(Mutex::new(SsrNode::Text(
+                s.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .into(),
+            ))),
             events: Default::default(),
         }
     }
@@ -195,104 +206,90 @@ impl<Event> SsrElement<Event> {
     /// Set the text.
     ///
     /// Fails if this element is not a text node.
-    pub async fn with_text(self, text: String) -> Result<Self, ()> {
-        let mut lock = self.node.lock().await;
+    pub fn set_text(&self, text: &str) -> Result<(), ()> {
+        let mut lock = self.node.lock().unwrap();
         if let SsrNode::Text(prev) = lock.deref_mut() {
-            *prev = text;
+            *prev = text
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .to_string();
         } else {
             return Err(());
         }
-        drop(lock);
-        Ok(self)
+        Ok(())
     }
 
     /// Add an attribute.
     ///
     /// Fails if this element is not a container.
-    pub async fn with_attrib(self, key: String, value: Option<String>) -> Result<Self, ()> {
-        let mut lock = self.node.lock().await;
+    pub fn set_attrib(&self, key: &str, value: Option<&str>) -> Result<(), ()> {
+        let mut lock = self.node.lock().unwrap();
         if let SsrNode::Container { attributes, .. } = lock.deref_mut() {
-            let mut index = None;
-            for ((pkey, _), i) in attributes.iter().zip(0..) {
+            for (pkey, pval) in attributes.iter_mut() {
                 if pkey == &key {
-                    index = Some(i);
-                    break;
+                    *pval = value.map(String::from);
+                    return Ok(());
                 }
             }
 
-            let index = index.unwrap_or(0);
-            attributes.insert(index, (key, value))
+            attributes.push((key.to_string(), value.map(|v| v.to_string())));
         } else {
             return Err(());
         }
-        drop(lock);
-        Ok(self)
+        Ok(())
     }
 
     /// Remove an attribute.
     ///
     /// Fails if this is not a container element.
-    pub async fn without_attrib(self, key: String) -> Result<Self, ()> {
-        let mut lock = self.node.lock().await;
+    pub fn remove_attrib(&self, key: &str) -> Result<(), ()> {
+        let mut lock = self.node.lock().unwrap();
         if let SsrNode::Container { attributes, .. } = lock.deref_mut() {
             attributes.retain(|p| p.0 != key);
         } else {
             return Err(());
         }
-        drop(lock);
-        Ok(self)
+        Ok(())
     }
 
     /// Add a style property.
     ///
     /// Fails if this is not a container element.
-    pub async fn with_style(self, key: String, value: String) -> Result<Self, ()> {
-        let mut lock = self.node.lock().await;
+    pub fn set_style(&self, key: &str, value: &str) -> Result<(), ()> {
+        let mut lock = self.node.lock().unwrap();
         if let SsrNode::Container { styles, .. } = lock.deref_mut() {
-            let mut index = None;
-            for ((pkey, _), i) in styles.iter().zip(0..) {
+            for (pkey, pval) in styles.iter_mut() {
                 if pkey == &key {
-                    index = Some(i);
-                    break;
+                    *pval = value.to_string();
+                    return Ok(());
                 }
             }
 
-            let index = index.unwrap_or(0);
-            styles.insert(index, (key, value));
+            styles.push((key.to_string(), value.to_string()));
         } else {
             return Err(());
         }
-        drop(lock);
-        Ok(self)
+        Ok(())
     }
 
     /// Remove a style property.
     ///
     /// Fails if this not a container element.
-    pub async fn without_style(self, key: String) -> Result<Self, ()> {
-        let mut lock = self.node.lock().await;
+    pub fn remove_style(&self, key: &str) -> Result<(), ()> {
+        let mut lock = self.node.lock().unwrap();
         if let SsrNode::Container { styles, .. } = lock.deref_mut() {
             styles.retain(|p| p.0 != key);
         } else {
             return Err(());
         }
-        drop(lock);
-        Ok(self)
+        Ok(())
     }
 
     /// Add an event.
-    ///
-    /// Does not fail. `Ok` is returned to simplify the API.
-    pub async fn with_event(
-        self,
-        type_is: EventTargetType,
-        name: String,
-        tx: Pin<Box<dyn Sink<Event, Error = SinkError>>>,
-    ) -> Result<Self, ()> {
-        let mut lock = self.events.lock().await;
-        let _ = lock.insert((type_is, name), tx);
-        drop(lock);
-        Ok(self)
+    pub fn set_event(&self, type_is: EventTargetType, name: &str, tx: Pin<Box<Sinking<Event>>>) {
+        let mut lock = self.events.lock().unwrap();
+        let _ = lock.insert((type_is, name.to_string()), tx);
     }
 
     /// Fires an event downstream to any listening [`Stream`]s.
@@ -305,32 +302,36 @@ impl<Event> SsrElement<Event> {
         event: Event,
     ) -> Result<(), futures::future::Either<(), SinkError>> {
         use futures::future::Either;
-        let mut events = self.events.lock().await;
-        let sink = events.get_mut(&(type_is, name)).ok_or(Either::Left(()))?;
+        let mut events = self.events.lock().unwrap();
+        let sink = events
+            .deref_mut()
+            .get_mut(&(type_is, name))
+            .ok_or(Either::Left(()))?;
         sink.send(event).await.map_err(Either::Right)
     }
 
     /// Removes an event.
-    ///
-    /// Does not fail. `Ok` is returned to simplify the API.
-    pub async fn without_event(self, type_is: EventTargetType, name: String) -> Result<Self, ()> {
-        let mut lock = self.events.lock().await;
-        let _ = lock.remove(&(type_is, name));
-        drop(lock);
-        Ok(self)
+    pub fn remove_event(&self, type_is: EventTargetType, name: &str) {
+        let mut lock = self.events.lock().unwrap();
+        let _ = lock.remove(&(type_is, name.to_string()));
     }
 
     /// Patches child nodes.
     ///
     /// Fails if this is not a container element.
-    pub async fn with_patch_children(self, patch: ListPatch<Self>) -> Result<Self, ()> {
-        let mut lock = self.node.lock().await;
+    pub fn patch_children(&self, patch: ListPatch<Self>) -> Result<(), ()> {
+        let mut lock = self.node.lock().unwrap();
         if let SsrNode::Container { children, .. } = lock.deref_mut() {
             let _ = children.list_patch_apply(patch);
         } else {
             return Err(());
         }
-        drop(lock);
-        Ok(self)
+        Ok(())
+    }
+
+    /// String value
+    pub fn html_string(&self) -> String {
+        let lock = self.node.lock().unwrap();
+        String::from(lock.deref())
     }
 }

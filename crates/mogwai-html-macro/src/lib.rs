@@ -13,8 +13,9 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
     if let Some(key) = node.name_as_string() {
         if let Some(expr) = node.value {
             match key.split(':').collect::<Vec<_>>().as_slice() {
-                ["ready", "sink"] => Ok(quote! {
-                    .with_ready_sink(#expr)
+                ["cast", "type"] => Ok(quote! {}),
+                ["post", "build"] => Ok(quote! {
+                    .with_post_build(#expr)
                 }),
                 ["xmlns"] => Ok(quote! {
                     .with_namespace(#expr)
@@ -43,9 +44,6 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
                 }),
                 ["patch", "children"] => Ok(quote! {
                     .with_child_stream(#expr)
-                }),
-                ["cast", "type"] => Ok(quote! {
-                    .with_type::<#expr>()
                 }),
                 [attribute_name] => {
                     let name = under_to_dash(attribute_name);
@@ -109,6 +107,22 @@ where
             Some(tag) => {
                 let mut errs: Vec<Error> = vec![];
 
+                let mut may_type = None;
+                for attr_node in node.attributes.iter() {
+                    if let Some(key) = attr_node.name_as_string() {
+                        if let Some(expr) = attr_node.value.as_ref() {
+                            match key.split(':').collect::<Vec<_>>().as_slice() {
+                                ["cast", "type"] => {
+                                    may_type =
+                                        Some(quote! { as mogwai::builder::ViewBuilder<#expr> });
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                let type_is = may_type
+                    .unwrap_or_else(|| quote! {as mogwai::builder::ViewBuilder<mogwai::view::Dom>});
                 let (attribute_tokens, attribute_errs) =
                     partition_unzip(node.attributes, attribute_to_token_stream);
                 errs.extend(attribute_errs);
@@ -130,6 +144,7 @@ where
                         #create
                             #(#attribute_tokens)*
                             #(#child_tokens)*
+                            #type_is
                     })
                 }
             }
@@ -147,7 +162,12 @@ where
         }
         NodeType::Block => {
             if let Some(value) = node.value {
-                Ok(quote! {ViewBuilder::try_from(#value).ok()})
+                Ok(quote! {
+                    mogwai::builder::ViewBuilder::from(
+                        #[allow(unused_braces)]
+                        #value
+                    )
+                })
             } else {
                 Err(Error::new(
                     Span::call_site(),
@@ -215,16 +235,38 @@ fn walk_dom(
 /// Uses an html description to construct a `ViewBuilder`.
 ///
 /// ```rust
-/// # extern crate mogwai;
+/// extern crate mogwai;
 ///
-/// let my_div = builder! {
-///     <div id="main">
+/// let my_div = mogwai::macros::builder! {
+///     <div cast:type=mogwai::view::Dom id="main">
 ///         <p>"Trolls are real"</p>
 ///     </div>
 /// };
 /// ```
 pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(walk_dom(input, node_to_builder_token_stream))
+}
+
+#[proc_macro]
+/// Uses an html description to construct a `View`.
+///
+/// This is the same as the following:
+/// ```rust
+/// extern crate mogwai;
+///
+/// let my_div = mogwai::macros::view! {
+///     <div cast:type=mogwai::view::Dom id="main">
+///         <p>"Trolls are real"</p>
+///     </div>
+/// };
+/// ```
+pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let builder = walk_dom(input, node_to_builder_token_stream);
+    let token = quote! {{
+        use std::convert::TryFrom;
+        mogwai::view::View::try_from(#builder).unwrap()
+    }};
+    proc_macro::TokenStream::from(token)
 }
 
 #[proc_macro]

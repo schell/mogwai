@@ -1,4 +1,8 @@
-//! An asynchronous multi-producer multi-consumer channel.
+//! An async multi-producer multi-consumer channel, where each message can be received by only
+//! one of all existing consumers.
+//!
+//! For channels where each message is received by _all_ consumers see [`broadcast`].
+//!
 //!
 //! Mogwai uses channels to communicate between views and logic loops.
 //!
@@ -12,7 +16,7 @@
 //! When all [`Sender`]s or all [`Receiver`]s are dropped, the channel becomes closed. When a
 //! channel is closed, no more messages can be sent, but remaining messages can still be received.
 //!
-//! Additionally, [`Sender`] implements [`Sink`] and [`Receiver`] implements [`Stream`], both of
+//! Additionally, [`Sender`] can be turned into a [`Sink`] and [`Receiver`] implements [`Stream`], both of
 //! which are used extensively by [`builder::ViewBuilder`] to
 //! set up communication into and out of views. Please see the documentation for [`StreamExt`] and
 //! [`SinkExt`] to get acquanted with the various operations available when using channels.
@@ -20,12 +24,12 @@
 //! # Examples
 //!
 //! ```
-//! # futures_lite::future::block_on(async {
-//! let (s, r) = async_channel::unbounded();
+//! futures::executor::block_on(async {
+//!     let (s, r) = async_channel::unbounded();
 //!
-//! assert_eq!(s.send("Hello").await, Ok(()));
-//! assert_eq!(r.recv().await, Ok("Hello"));
-//! # });
+//!     assert_eq!(s.send("Hello").await, Ok(()));
+//!     assert_eq!(r.recv().await, Ok("Hello"));
+//! });
 //! ```
 pub use futures::{Sink, SinkExt, Stream, StreamExt};
 use std::{
@@ -33,26 +37,32 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-/// The sending side of a channel.
-///
-/// A simple wrapper around [`async_channel::Sender`] to help implement `Sink`.
-///
-/// Senders can be cloned and shared among threads. When all senders associated with a channel are
-/// dropped, the channel becomes closed.
-///
-/// Senders implement the [`Sink`] trait.
-pub struct Sender<T> {
-    sender: async_channel::Sender<T>,
-    sending_msgs: Arc<Mutex<VecDeque<T>>>,
-}
+pub use async_channel::*;
 
-impl<T> Clone for Sender<T> {
-    fn clone(&self) -> Self {
-        Sender {
-            sender: self.sender.clone(),
-            sending_msgs: self.sending_msgs.clone(),
+pub mod broadcast {
+    //! Broadcast channels.
+    pub use async_broadcast::*;
+
+    /// Waits until the channel of the given `Sender` is empty.
+    pub async fn until_empty<T>(tx: &Sender<T>) {
+        while !tx.is_empty() {
+            let _ = crate::time::wait_approx(0.01).await;
         }
     }
+}
+
+/// Waits until the channel of the given `Sender` is empty.
+pub async fn until_empty<T>(tx: &Sender<T>) {
+    while !tx.is_empty() {
+        let _ = crate::time::wait_approx(0.01).await;
+    }
+}
+
+/// A simple wrapper around an async `Sender` to help implement `Sink`.
+#[derive(Clone)]
+pub struct SenderSink<S, T> {
+    sender: S,
+    sending_msgs: Arc<Mutex<VecDeque<T>>>,
 }
 
 /// Errors returned when using [`Sink`] operations.
@@ -64,7 +74,7 @@ pub enum SinkError {
     Full,
 }
 
-impl<T: 'static> Sender<T> {
+impl<T: 'static> SenderSink<async_channel::Sender<T>, T> {
     fn flush_sink(&mut self) -> Result<(), SinkError> {
         if self.sender.is_closed() {
             return Err(SinkError::Closed);
@@ -92,7 +102,32 @@ impl<T: 'static> Sender<T> {
     }
 }
 
-impl<T: Unpin + 'static> Sink<T> for Sender<T> {
+impl<T: Clone> SenderSink<async_broadcast::Sender<T>, T> {
+    fn flush_sink(&mut self) -> std::task::Poll<Result<(), SinkError>> {
+        if let Some(item) = self.sending_msgs.lock().unwrap().pop_front() {
+            match self.sender.try_broadcast(item) {
+                Ok(_) => {}
+                Err(err) => {
+                    let closed = err.is_closed();
+                    let item = err.into_inner();
+                    self.sending_msgs.lock().unwrap().push_front(item);
+                    if closed {
+                        return std::task::Poll::Ready(Err(SinkError::Closed));
+                    }
+                }
+            }
+        }
+
+        self.sender.set_capacity(1 + self.sender.len());
+        if self.sender.is_empty() {
+            std::task::Poll::Ready(Ok(()))
+        } else {
+            std::task::Poll::Pending
+        }
+    }
+}
+
+impl<T: Unpin + 'static> Sink<T> for SenderSink<async_channel::Sender<T>, T> {
     type Error = SinkError;
 
     fn poll_ready(
@@ -169,94 +204,73 @@ impl<T: Unpin + 'static> Sink<T> for Sender<T> {
     }
 }
 
-/// The receiving side of a channel.
-///
-/// A simple wrapper around [`async_channel::Receiver`].
-///
-/// Receivers can be cloned and shared among threads. When all receivers associated with a channel are
-/// dropped, the channel becomes closed.
-///
-/// Receivers implement the [`Stream`] trait.
-pub struct Receiver<T>(async_channel::Receiver<T>);
+impl<T: Clone + Unpin + 'static> Sink<T> for SenderSink<async_broadcast::Sender<T>, T> {
+    type Error = SinkError;
 
-impl<T> Clone for Receiver<T> {
-    fn clone(&self) -> Self {
-        Receiver(self.0.clone())
+    fn poll_ready(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+        if self.sender.len() < self.sender.capacity() {
+            std::task::Poll::Ready(Ok(()))
+        } else {
+            std::task::Poll::Pending
+        }
+    }
+
+    fn start_send(self: std::pin::Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+        let data = self.get_mut();
+        match data.sender.try_broadcast(item) {
+            Ok(_) => Ok(()),
+            Err(err) => match err {
+                async_broadcast::TrySendError::Full(item) => {
+                    let len = data.sender.len();
+                    data.sender.set_capacity(1 + len);
+                    data.sending_msgs.lock().unwrap().push_back(item);
+                    Ok(())
+                }
+                async_broadcast::TrySendError::Closed(_) => Err(SinkError::Closed),
+                async_broadcast::TrySendError::Inactive(_) => Ok(()),
+            }
+        }
+    }
+
+    fn poll_flush(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+        let data = self.get_mut();
+        data.flush_sink()
+    }
+
+    fn poll_close(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+        let data = self.get_mut();
+        let poll = data.flush_sink();
+        data.sender.close();
+        poll
     }
 }
 
-impl<T> Stream for Receiver<T> {
-    type Item = <async_channel::Receiver<T> as Stream>::Item;
+/// An extension trait that adds the ability for [`async_channel::Sender`] and
+/// [`async_broadcast::Sender`] to ergonomically create [`Sink`]s.
+pub trait IntoSenderSink<T>
+where
+    Self: Sized
+{
+    /// Create a [`Sink`].
+    fn sink(&self) -> SenderSink<Self, T>;
+}
 
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        self.0.poll_next_unpin(cx)
+impl<T> IntoSenderSink<T> for async_channel::Sender<T> {
+    fn sink(&self) -> SenderSink<Self, T> {
+        SenderSink {
+            sender: self.clone(),
+            sending_msgs: Default::default(),
+        }
     }
 }
 
-/// Creates a bounded channel.
-///
-/// The created channel has space to hold at most `cap` messages at a time.
-///
-/// # Panics
-///
-/// Capacity must be a positive number. If `cap` is zero, this function will panic.
-///
-/// # Examples
-///
-/// ```
-/// # futures_lite::future::block_on(async {
-/// use async_channel::{bounded, TryRecvError, TrySendError};
-///
-/// let (s, r) = bounded(1);
-///
-/// assert_eq!(s.send(10).await, Ok(()));
-/// assert_eq!(s.try_send(20), Err(TrySendError::Full(20)));
-///
-/// assert_eq!(r.recv().await, Ok(10));
-/// assert_eq!(r.try_recv(), Err(TryRecvError::Empty));
-/// # });
-pub fn bounded<T>(cap: usize) -> (Sender<T>, Receiver<T>) {
-    let (tx, rx) = async_channel::bounded::<T>(cap);
-    (
-        Sender {
-            sender: tx,
+impl<T> IntoSenderSink<T> for async_broadcast::Sender<T> {
+    fn sink(&self) -> SenderSink<Self, T> {
+        SenderSink {
+            sender: self.clone(),
             sending_msgs: Default::default(),
-        },
-        Receiver(rx),
-    )
-}
-
-/// Creates an unbounded channel.
-///
-/// The created channel can hold an unlimited number of messages.
-///
-/// # Examples
-///
-/// ```
-/// # futures_lite::future::block_on(async {
-/// use async_channel::{unbounded, TryRecvError};
-///
-/// let (s, r) = unbounded();
-///
-/// assert_eq!(s.send(10).await, Ok(()));
-/// assert_eq!(s.send(20).await, Ok(()));
-///
-/// assert_eq!(r.recv().await, Ok(10));
-/// assert_eq!(r.recv().await, Ok(20));
-/// assert_eq!(r.try_recv(), Err(TryRecvError::Empty));
-/// # });
-pub fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
-    let (tx, rx) = async_channel::unbounded::<T>();
-    (
-        Sender {
-            sender: tx,
-            sending_msgs: Default::default(),
-        },
-        Receiver(rx),
-    )
+        }
+    }
 }
 
 #[cfg(test)]
@@ -268,9 +282,9 @@ mod test {
 
     #[wasm_bindgen_test]
     async fn channel_sinks_and_streams() {
-        let (mut f32tx, f32rx) = bounded::<f32>(3);
+        let (f32tx, f32rx) = bounded::<f32>(3);
         let f32stream = f32rx.map(|f| format!("{:.2}", f)).boxed();
-        let (mut u32tx, u32rx) = bounded::<u32>(3);
+        let (u32tx, u32rx) = bounded::<u32>(3);
         let u32stream = u32rx.map(|u| format!("{}", u)).boxed();
         let formatted = futures::stream::select_all(vec![u32stream, f32stream]);
 
