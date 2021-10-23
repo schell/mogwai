@@ -1,10 +1,11 @@
 [workspace]
 
 members = [
-  #"cookbook",
+  "cookbook",
   "crates/mogwai",
   "crates/mogwai-html-macro",
   #"crates/mogwai-hydrator"
+  "examples/counter",
   #"examples/focus-follower",
   "examples/list-of-gizmos",
   #"examples/multipage",

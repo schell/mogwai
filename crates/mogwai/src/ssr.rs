@@ -1,6 +1,5 @@
 //! Provides string rendering for server-side mogwai nodes.
 
-use futures::SinkExt;
 use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
@@ -10,7 +9,7 @@ use std::{
 
 use crate::{
     builder::EventTargetType,
-    channel::SinkError,
+    futures::{SinkExt, SinkError},
     patch::{ListPatch, ListPatchApply},
     spawn::Sinking,
 };

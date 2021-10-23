@@ -2,11 +2,8 @@
 use log::Level;
 use mogwai::{
     builder::ViewBuilder,
-    channel::{
-        broadcast::{self, broadcast},
-        IntoSenderSink, SinkExt, Stream, StreamExt,
-    },
-    futures,
+    channel::broadcast,
+    futures::{self, IntoSenderSink, SinkExt, Stream, StreamExt},
     macros::builder,
     model::{ListPatchApply, ListPatchModel, Model},
     patch::ListPatch,
@@ -106,14 +103,14 @@ fn launch_list_loops(
 ) -> impl Stream<Item = ListPatch<ViewBuilder<Dom>>> + Sendable {
     let mut items: ListPatchModel<Item> = ListPatchModel::new();
 
-    let (to_list, from_items) = broadcast::<ListMsg>(1);
+    let (to_list, from_items) = broadcast::bounded::<ListMsg>(1);
     let item_stream = items.stream().then(move |patch| {
         let to_list = to_list.clone();
         patch.map_future(move |Item { id, clicks }: Item| {
             let to_list = to_list.clone();
             let item_clicks = clicks.clone();
             async move {
-                let (to_logic, from_view) = broadcast(1);
+                let (to_logic, from_view) = broadcast::bounded(1);
                 mogwai::spawn::spawn(async move {
                     item_logic_loop(id, item_clicks, from_view, to_list).await
                 });
@@ -181,7 +178,7 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     console_log::init_with_level(Level::Trace).unwrap();
 
     mogwai::spawn::spawn(async {
-        let (list_logic_tx, list_logic_rx) = broadcast(1);
+        let (list_logic_tx, list_logic_rx) = broadcast::bounded(1);
         let children = launch_list_loops(list_logic_rx);
         let view: View<Dom> = list_view(list_logic_tx, children).try_into().unwrap();
 

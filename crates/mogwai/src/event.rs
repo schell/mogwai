@@ -9,7 +9,7 @@ use std::{cell::RefCell, pin::Pin, rc::Rc, task::Waker};
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::EventTarget;
 
-use crate::channel::SinkError;
+use crate::futures::SinkError;
 
 struct WebCallback {
     target: EventTarget,

@@ -55,7 +55,11 @@ pub struct View<T> {
     /// The underlying domain-specific view type.
     pub inner: T,
 
+    #[cfg(target_arch = "wasm32")]
     pub(crate) detach: Arc<RwLock<Box<dyn FnOnce(&T)>>>,
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) detach: Arc<RwLock<Box<dyn FnOnce(&T) + Send + Sync + 'static>>>,
 }
 
 impl From<&View<Dom>> for String {
@@ -433,10 +437,16 @@ impl Dom {
 }
 
 #[cfg(test)]
-mod dom {
+mod test {
+    fn sendable<T: crate::spawn::Sendable>() {}
+
     #[test]
     fn dom_sendable() {
-        fn sendable<T: crate::spawn::Sendable>() {}
         sendable::<super::Dom>(); // compiles only if true
+    }
+
+    #[test]
+    fn view_sendable() {
+        sendable::<super::View<super::Dom>>(); // compiles only if true
     }
 }

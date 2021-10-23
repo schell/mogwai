@@ -24,7 +24,233 @@ pub mod view;
 
 pub mod futures {
     //! A re-export of the `futures` crate.
+    use std::{collections::VecDeque, sync::{Arc, Mutex}};
+
     pub use futures::*;
+
+    /// A simple wrapper around an async `Sender` to help implement `Sink`.
+    #[derive(Clone)]
+    pub struct SenderSink<S, T> {
+        sender: S,
+        sending_msgs: Arc<Mutex<VecDeque<T>>>,
+    }
+
+    /// Errors returned when using [`Sink`] operations.
+    #[derive(Debug)]
+    pub enum SinkError {
+        /// Receiver is closed.
+        Closed,
+        /// The channel is full
+        Full,
+    }
+
+    impl<T: 'static> SenderSink<async_channel::Sender<T>, T> {
+        fn flush_sink(&mut self) -> Result<(), SinkError> {
+            if self.sender.is_closed() {
+                return Err(SinkError::Closed);
+            }
+
+            let mut msgs = self.sending_msgs.lock().unwrap();
+            while let Some(item) = msgs.pop_front() {
+                match self.sender.try_send(item) {
+                    Ok(()) => {}
+                    Err(err) => match err {
+                        async_channel::TrySendError::Full(t) => {
+                            msgs.push_front(t);
+                            return Err(SinkError::Full);
+                        }
+                        async_channel::TrySendError::Closed(t) => {
+                            msgs.push_front(t);
+                            return Err(SinkError::Closed);
+                        }
+                    },
+                }
+            }
+
+            assert!(msgs.is_empty());
+            Ok(())
+        }
+    }
+
+    impl<T: Clone> SenderSink<async_broadcast::Sender<T>, T> {
+        fn flush_sink(&mut self) -> std::task::Poll<Result<(), SinkError>> {
+            if let Some(item) = self.sending_msgs.lock().unwrap().pop_front() {
+                match self.sender.try_broadcast(item) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        let closed = err.is_closed();
+                        let item = err.into_inner();
+                        self.sending_msgs.lock().unwrap().push_front(item);
+                        if closed {
+                            return std::task::Poll::Ready(Err(SinkError::Closed));
+                        }
+                    }
+                }
+            }
+
+            self.sender.set_capacity(1 + self.sender.len());
+            if self.sender.is_empty() {
+                std::task::Poll::Ready(Ok(()))
+            } else {
+                std::task::Poll::Pending
+            }
+        }
+    }
+
+    impl<T: Unpin + 'static> Sink<T> for SenderSink<async_channel::Sender<T>, T> {
+        type Error = SinkError;
+
+        fn poll_ready(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            if self.sender.is_closed() {
+                return std::task::Poll::Ready(Err(SinkError::Closed));
+            }
+
+            let cap = self.sender.capacity();
+
+            let msgs = self.sending_msgs.lock().unwrap();
+            if cap.is_none() || cap.unwrap() > msgs.len() {
+                std::task::Poll::Ready(Ok(()))
+            } else {
+                // There are already messages in the queue
+                std::task::Poll::Pending
+            }
+        }
+
+        fn start_send(self: std::pin::Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+            if self.sender.is_closed() {
+                return Err(SinkError::Closed);
+            }
+
+            let mut msgs = self.sending_msgs.lock().unwrap();
+            let item = {
+                msgs.push_back(item);
+                msgs.pop_front().unwrap()
+            };
+
+            match self.sender.try_send(item) {
+                Ok(()) => Ok(()),
+                Err(async_channel::TrySendError::Full(t)) => {
+                    msgs.push_front(t);
+                    Ok(())
+                }
+                Err(async_channel::TrySendError::Closed(t)) => {
+                    msgs.push_front(t);
+                    Err(SinkError::Closed)
+                }
+            }
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            let data = self.get_mut();
+            match data.flush_sink() {
+                Ok(()) => std::task::Poll::Ready(Ok(())),
+                Err(err) => match err {
+                    SinkError::Closed => std::task::Poll::Ready(Err(SinkError::Closed)),
+                    SinkError::Full => std::task::Poll::Pending,
+                },
+            }
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            let data = self.get_mut();
+            let poll = match data.flush_sink() {
+                Ok(()) => std::task::Poll::Ready(Ok(())),
+                Err(err) => match err {
+                    SinkError::Closed => std::task::Poll::Ready(Err(SinkError::Closed)),
+                    SinkError::Full => std::task::Poll::Pending,
+                },
+            };
+            data.sender.close();
+            poll
+        }
+    }
+
+    impl<T: Clone + Unpin + 'static> Sink<T> for SenderSink<async_broadcast::Sender<T>, T> {
+        type Error = SinkError;
+
+        fn poll_ready(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            if self.sender.len() < self.sender.capacity() {
+                std::task::Poll::Ready(Ok(()))
+            } else {
+                std::task::Poll::Pending
+            }
+        }
+
+        fn start_send(self: std::pin::Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+            let data = self.get_mut();
+            match data.sender.try_broadcast(item) {
+                Ok(_) => Ok(()),
+                Err(err) => match err {
+                    async_broadcast::TrySendError::Full(item) => {
+                        let len = data.sender.len();
+                        data.sender.set_capacity(1 + len);
+                        data.sending_msgs.lock().unwrap().push_back(item);
+                        Ok(())
+                    }
+                    async_broadcast::TrySendError::Closed(_) => Err(SinkError::Closed),
+                    async_broadcast::TrySendError::Inactive(_) => Ok(()),
+                },
+            }
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            let data = self.get_mut();
+            data.flush_sink()
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            let data = self.get_mut();
+            let poll = data.flush_sink();
+            data.sender.close();
+            poll
+        }
+    }
+
+    /// An extension trait that adds the ability for [`async_channel::Sender`] and
+    /// [`async_broadcast::Sender`] to ergonomically create [`Sink`]s.
+    pub trait IntoSenderSink<T>
+    where
+        Self: Sized,
+    {
+        /// Create a [`Sink`].
+        fn sink(&self) -> SenderSink<Self, T>;
+    }
+
+    impl<T> IntoSenderSink<T> for async_channel::Sender<T> {
+        fn sink(&self) -> SenderSink<Self, T> {
+            SenderSink {
+                sender: self.clone(),
+                sending_msgs: Default::default(),
+            }
+        }
+    }
+
+    impl<T> IntoSenderSink<T> for async_broadcast::Sender<T> {
+        fn sink(&self) -> SenderSink<Self, T> {
+            SenderSink {
+                sender: self.clone(),
+                sending_msgs: Default::default(),
+            }
+        }
+    }
 }
 
 pub mod macros {
@@ -159,7 +385,7 @@ mod test {
 
     #[test]
     pub fn can_use_string_stream_as_child() {
-        use mogwai::channel::StreamExt;
+        use mogwai::futures::StreamExt;
         let clicks = futures::stream::iter(vec![0, 1, 2]);
         let bldr = builder! {
             <span>

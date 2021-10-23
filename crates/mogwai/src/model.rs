@@ -23,7 +23,7 @@ pub use crate::patch::{HashPatchApply, ListPatchApply};
 ///
 /// ```rust
 /// use mogwai::model::*;
-/// use mogwai::channel::StreamExt;
+/// use mogwai::futures::StreamExt;
 ///
 /// smol::block_on(async {
 ///     let model_a = Model::new("hello".to_string());
