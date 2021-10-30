@@ -1,11 +1,10 @@
-//! Spawn async operations.
-use std::future::Future;
+//! Support for async operations depending on the target.
 use futures::{Sink, Stream};
 
 /// Marker trait for sending async messages.
 #[cfg(target_arch = "wasm32")]
 mod send {
-    use futures::{Stream, Sink};
+    use futures::{Future, Sink, Stream};
 
     /// Marker trait for sending async messages.
     pub trait Sendable: 'static {}
@@ -25,12 +24,16 @@ mod send {
 
     /// FnMut to perform after a view type has been contstructed
     pub type PostBuild<T> = dyn FnOnce(&mut T) + 'static;
+
+    /// Marker trait for futures that can be spawned.
+    pub trait Spawnable: Future<Output = ()> + 'static {}
+    impl<T: Future<Output = ()> + 'static> Spawnable for T {}
 }
 
 /// Marker trait for sending async messages.
 #[cfg(not(target_arch = "wasm32"))]
 mod send {
-    use futures::{Sink, Stream};
+    use futures::{Future, Sink, Stream};
 
     /// Marker trait for streaming async messages.
     pub trait Sendable: Sized + Send + 'static {}
@@ -50,6 +53,10 @@ mod send {
 
     /// FnMut to perform after a view type has been contstructed
     pub type PostBuild<T> = dyn FnOnce(&mut T) + Send + 'static;
+
+    /// Marker trait for futures that can be spawned.
+    pub trait Spawnable: Future<Output = ()> + Send + 'static {}
+    impl<T: Future<Output = ()> + Send + 'static> Spawnable for T {}
 }
 
 pub use send::*;
@@ -71,7 +78,7 @@ impl<T, C: Sink<T, Error = SinkError> + Sendable> Sinkable<T> for C {}
 #[cfg(target_arch = "wasm32")]
 pub fn spawn<Fut>(fut: Fut)
 where
-    Fut: Future<Output = ()> + 'static
+    Fut: Spawnable,
 {
     wasm_bindgen_futures::spawn_local(fut)
 }
@@ -80,7 +87,7 @@ where
 /// Spawn an async operation.
 pub fn spawn<Fut>(fut: Fut)
 where
-    Fut: Future<Output = ()> + Send + 'static
+    Fut: Spawnable,
 {
     let task = smol::spawn(fut);
     task.detach();

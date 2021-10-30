@@ -10,7 +10,7 @@ use web_sys::Event;
 use crate::{
     builder::EventTargetType,
     patch::{HashPatch, ListPatch, ListPatchApply},
-    spawn::Sinking,
+    target::Sinking,
     ssr::SsrElement,
 };
 
@@ -434,11 +434,26 @@ impl Dom {
             _ => None,
         }
     }
+
+    /// Visits the inner raw node with a function for each target.
+    pub fn visit_as<T: JsCast, F, G>(&self, f: F, g: G)
+    where
+        F: FnOnce(&T),
+        G: FnOnce(&SsrElement<Event>)
+    {
+        match self.inner_read() {
+            Either::Left(val) => {
+                let el: Option<&T> = val.dyn_ref::<T>();
+                el.map(f);
+            },
+            Either::Right(ssr) => g(ssr),
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
-    fn sendable<T: crate::spawn::Sendable>() {}
+    fn sendable<T: crate::target::Sendable>() {}
 
     #[test]
     fn dom_sendable() {

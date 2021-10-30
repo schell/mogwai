@@ -1,7 +1,7 @@
 //! A low cost intermediate structure for creating views.
 use crate::{
     patch::{HashPatch, ListPatch},
-    spawn::{PostBuild, Sendable, Sinkable, SinkingWith, Streamable, Streaming},
+    target::{PostBuild, Sendable, Sinkable, SinkingWith, Streamable, Streaming},
     view::{Dom, View},
 };
 use futures::{Stream, StreamExt};
@@ -503,7 +503,7 @@ impl TryFrom<DecomposedViewBuilder<Dom>> for View<Dom> {
                         Ok(node)
                     },
                 ));
-            crate::spawn::spawn(async move {
+            crate::spawn(async move {
                 futures::pin_mut!(text_sink);
                 let _ = text_stream.forward(text_sink).await;
             });
@@ -526,7 +526,7 @@ impl TryFrom<DecomposedViewBuilder<Dom>> for View<Dom> {
                 },
             ),
         );
-        crate::spawn::spawn(async move {
+        crate::spawn(async move {
             futures::pin_mut!(attrib_sink);
             let _ = attrib_stream.forward(&mut attrib_sink).await;
         });
@@ -546,7 +546,7 @@ impl TryFrom<DecomposedViewBuilder<Dom>> for View<Dom> {
                 },
             ),
         );
-        crate::spawn::spawn(async move {
+        crate::spawn(async move {
             futures::pin_mut!(bool_attrib_sink);
             let _ = bool_attrib_stream.forward(&mut bool_attrib_sink).await;
         });
@@ -565,7 +565,7 @@ impl TryFrom<DecomposedViewBuilder<Dom>> for View<Dom> {
                 },
             ),
         );
-        crate::spawn::spawn(async move {
+        crate::spawn(async move {
             futures::pin_mut!(style_sink);
             let _ = style_stream.forward(&mut style_sink).await;
         });
@@ -589,7 +589,7 @@ impl TryFrom<DecomposedViewBuilder<Dom>> for View<Dom> {
                     Ok(view)
                 },
             ));
-        crate::spawn::spawn(async move {
+        crate::spawn(async move {
             futures::pin_mut!(child_sink);
             let _ = child_stream.forward(&mut child_sink).await;
         });

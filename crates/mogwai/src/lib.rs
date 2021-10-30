@@ -13,14 +13,24 @@
 //pub mod an_introduction;
 pub mod builder;
 pub mod channel;
+pub mod component;
 pub mod event;
 pub mod model;
 pub mod patch;
-pub mod spawn;
+pub mod prelude;
+pub mod target;
 pub mod ssr;
 pub mod time;
 pub mod utils;
 pub mod view;
+
+pub use target::spawn;
+
+pub mod lock {
+    //! Asynchronous locking mechanisms (re-exports).
+    pub use futures::lock::*;
+    pub use async_lock::*;
+}
 
 pub mod futures {
     //! A re-export of the `futures` crate.

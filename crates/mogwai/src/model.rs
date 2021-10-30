@@ -7,7 +7,7 @@ use async_lock::{RwLock, RwLockReadGuard};
 
 use crate::{
     patch::{HashPatch, ListPatch},
-    spawn::{Sendable, Syncable},
+    target::{Sendable, Syncable},
 };
 
 pub use crate::patch::{HashPatchApply, ListPatchApply};
@@ -121,7 +121,7 @@ pub struct ListPatchModel<T> {
 }
 
 impl<T: Clone> ListPatchModel<T> {
-    /// Create a new ListPatchModel with the given channel capacity, or `None` for unbounded.
+    /// Create a new, empty ListPatchModel.
     pub fn new() -> Self {
         let downstream = broadcast::<ListPatch<T>>(4);
         ListPatchModel {

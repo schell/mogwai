@@ -1,15 +1,6 @@
 #![allow(unused_braces)]
 use log::Level;
-use mogwai::{
-    builder::ViewBuilder,
-    channel::broadcast,
-    futures::{self, IntoSenderSink, SinkExt, Stream, StreamExt},
-    macros::builder,
-    model::{ListPatchApply, ListPatchModel, Model},
-    patch::ListPatch,
-    spawn::Sendable,
-    view::{Dom, View},
-};
+use mogwai::{futures, prelude::*};
 use std::{convert::TryInto, panic};
 use wasm_bindgen::prelude::*;
 
@@ -111,16 +102,16 @@ fn launch_list_loops(
             let item_clicks = clicks.clone();
             async move {
                 let (to_logic, from_view) = broadcast::bounded(1);
-                mogwai::spawn::spawn(async move {
-                    item_logic_loop(id, item_clicks, from_view, to_list).await
-                });
+                mogwai::spawn(
+                    async move { item_logic_loop(id, item_clicks, from_view, to_list).await },
+                );
                 item_view(clicks.stream(), to_logic).await
             }
         })
     });
 
     let mut input = futures::stream::select_all(vec![input, from_items]);
-    mogwai::spawn::spawn(async move {
+    mogwai::spawn(async move {
         let mut next_id = 0;
         loop {
             match input.next().await {
@@ -177,7 +168,7 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    mogwai::spawn::spawn(async {
+    mogwai::spawn(async {
         let (list_logic_tx, list_logic_rx) = broadcast::bounded(1);
         let children = launch_list_loops(list_logic_rx);
         let view: View<Dom> = list_view(list_logic_tx, children).try_into().unwrap();

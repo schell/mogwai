@@ -1,10 +1,6 @@
 #![allow(unused_braces)]
 use log::Level;
-use mogwai::{
-    builder::ViewBuilder,
-    view::{Dom, View},
-    futures::{IntoSenderSink, SinkExt, StreamExt},
-};
+use mogwai::prelude::*;
 use std::{convert::TryInto, panic};
 use wasm_bindgen::prelude::*;
 
@@ -19,7 +15,7 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    mogwai::spawn::spawn(async {
+    mogwai::spawn(async {
         let (to_logic, mut from_view) = mogwai::channel::broadcast::bounded::<()>(1);
         let (to_view, from_logic) = mogwai::channel::broadcast::bounded::<String>(1);
         let bldr: ViewBuilder<Dom> = mogwai::macros::builder! {

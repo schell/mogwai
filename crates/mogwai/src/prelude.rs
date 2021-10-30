@@ -1,14 +1,16 @@
 //! All of Mogwai in one easy place.
-pub use super::{
-    component::{subscriber::Subscriber, *},
-    gizmo::*,
-    txrx::*,
+pub use crate::{
+    builder::*,
+    channel::*,
+    component::*,
+    futures::*,
+    model::*,
+    patch::*,
+    target::*,
     utils::*,
-    view::{builder::*, dom::*, interface::*, *},
-    *,
+    view::*,
 };
-pub use mogwai_chan::model::*;
-pub use mogwai_html_macro::{builder, hydrate, view};
+pub use mogwai_html_macro::{builder, view};
 pub use std::convert::TryFrom;
 pub use wasm_bindgen::JsCast;
 pub use wasm_bindgen_futures::JsFuture;

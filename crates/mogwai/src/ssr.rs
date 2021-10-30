@@ -11,7 +11,7 @@ use crate::{
     builder::EventTargetType,
     futures::{SinkExt, SinkError},
     patch::{ListPatch, ListPatchApply},
-    spawn::Sinking,
+    target::Sinking,
 };
 
 // Only certain nodes can be "void" - which means written as <tag /> when
@@ -161,7 +161,7 @@ pub struct SsrElement<Event> {
 mod ssr {
     #[test]
     fn ssrelement_sendable() {
-        fn sendable<T: crate::spawn::Sendable>() {}
+        fn sendable<T: crate::target::Sendable>() {}
         sendable::<super::SsrElement<web_sys::Event>>()
     }
 }
