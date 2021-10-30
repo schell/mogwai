@@ -1,4 +1,3 @@
-use log::trace;
 use mogwai::prelude::*;
 use std::{convert::TryInto, panic};
 use wasm_bindgen::prelude::*;

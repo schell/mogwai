@@ -49,6 +49,15 @@ impl Todo {
         )
     }
 
+    pub async fn as_item(&self) -> crate::store::Item {
+        let (tx, rx) = mpmc::bounded(1);
+        self.tx_logic
+            .broadcast(ItemLogic::QueryItem(tx))
+            .await
+            .unwrap();
+        rx.recv().await.unwrap()
+    }
+
     pub async fn filter(&self, fs: FilterShow) {
         let (tx, rx) = mpmc::bounded(1);
         self.tx_logic
@@ -58,6 +67,7 @@ impl Todo {
         rx.recv().await.unwrap();
     }
 
+    /// Return whether this todo has been marked done.
     pub async fn is_done(&self) -> bool {
         let (tx, rx) = mpmc::bounded::<bool>(1);
         self.tx_logic
@@ -70,7 +80,8 @@ impl Todo {
     pub async fn set_complete(&self, complete: bool) {
         self.tx_logic
             .broadcast(ItemLogic::SetCompletion(complete))
-            .await.unwrap();
+            .await
+            .unwrap();
     }
 
     pub fn has_changed_completion(&self) -> impl Stream<Item = bool> {
@@ -108,10 +119,10 @@ enum ItemLogic {
     ToggleCompletion,
     SetCompletion(bool),
     QueryIsDone(mpmc::Sender<bool>),
+    QueryItem(mpmc::Sender<crate::store::Item>),
     StartEditing,
     StopEditing(EditEvent),
     SetFilterShow(FilterShow, mpmc::Sender<()>),
-    SetVisible(bool),
     Remove,
 }
 
@@ -121,7 +132,6 @@ enum ItemView {
     UpdateEditComplete(bool, bool),
     SetName(String),
     SetVisible(bool),
-    Remove,
 }
 
 impl ItemView {
@@ -169,6 +179,14 @@ async fn logic(
             Some(ItemLogic::QueryIsDone(tx)) => {
                 tx.send(is_done).await.unwrap();
             }
+            Some(ItemLogic::QueryItem(tx)) => {
+                tx.send(crate::store::Item {
+                    title: name.clone(),
+                    completed: is_done,
+                })
+                .await
+                .unwrap();
+            }
             Some(ItemLogic::SetFilterShow(show, tx)) => {
                 let is_visible = show == FilterShow::All
                     || (show == FilterShow::Completed && is_done)
@@ -179,16 +197,14 @@ async fn logic(
                     .unwrap();
                 tx.send(()).await.unwrap();
             }
-            Some(ItemLogic::SetVisible(visible)) => {
-                tx_view
-                    .broadcast(ItemView::SetVisible(visible))
-                    .await
-                    .unwrap();
-            }
             Some(ItemLogic::ToggleCompletion) => {
                 is_done = !is_done;
                 tx_view
                     .broadcast(ItemView::UpdateEditComplete(is_editing, is_done))
+                    .await
+                    .unwrap();
+                tx_out
+                    .broadcast(ItemOut::IsComplete(is_done))
                     .await
                     .unwrap();
             }
@@ -276,8 +292,8 @@ fn view(
             <div class="view">
                 <input class="toggle" type="checkbox" style:cursor="pointer"
                  post:build=move |dom:&mut Dom| {
-                        send_completion_toggle_input.try_send(dom.clone()).unwrap();
-                    }
+                     send_completion_toggle_input.try_send(dom.clone()).unwrap();
+                 }
                  on:click=tx.sink().with(|_| async{Ok(ItemLogic::ToggleCompletion)})
                 />
                 <label on:dblclick=tx.sink().with(|_| async{Ok(ItemLogic::StartEditing)})>

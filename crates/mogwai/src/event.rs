@@ -4,7 +4,6 @@
 //! consumed by logic loops. When an event stream
 //! is dropped, its resources are cleaned up automatically.
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use log::info;
 use std::{cell::RefCell, pin::Pin, rc::Rc, task::Waker};
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::EventTarget;
@@ -39,7 +38,6 @@ impl Stream for WebCallback {
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        log::info!("polling {}", self.name);
         let data = self.get_mut();
         data.waker.replace(Some(cx.waker().clone()));
 
@@ -92,30 +90,18 @@ pub fn add_event(
     target: &web_sys::EventTarget,
     mut tx: Pin<Box<dyn Sink<web_sys::Event, Error = SinkError> + 'static>>,
 ) {
-    log::info!("adding event {}", ev_name);
     let mut stream = event_stream(ev_name, target);
-    let ev_name = ev_name.to_string();
     wasm_bindgen_futures::spawn_local(async move {
         loop {
-            log::info!("event loop");
             match stream.next().await {
                 Some(event) => {
-                    info!("'{}' got event {:?}", ev_name, event);
                     match tx.send(event).await {
-                        Ok(()) => {
-                            info!("sent");
-                        }
+                        Ok(()) => {}
                         Err(SinkError::Full) => panic!("event sink is full"),
-                        Err(SinkError::Closed) => {
-                            info!("closed, breaking");
-                            break;
-                        }
+                        Err(SinkError::Closed) => break,
                     }
                 }
-                None => {
-                    info!("event {} stream ended, breaking", ev_name);
-                    break;
-                }
+                None => break,
             }
         }
     });

@@ -373,10 +373,8 @@ impl<T: Sendable> ViewBuilder<T> {
 impl ViewBuilder<Dom> {
     /// Add a sink into which view events of the given name will be sent.
     pub fn with_event(self, name: &str, tx: impl Sinkable<web_sys::Event>) -> Self {
-        log::info!("requested set '{}' event", name);
         let name = name.to_string();
         self.with_post_build(move |dom| {
-            log::info!("setting '{}' event", &name);
             dom.set_event(EventTargetType::Myself, &name, Box::pin(tx));
         })
     }
