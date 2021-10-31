@@ -1,9 +1,5 @@
 //! Wrapped views.
-use std::{
-    ops::{Deref, DerefMut},
-    pin::Pin,
-    sync::{Arc, RwLock, RwLockReadGuard},
-};
+use std::{convert::TryFrom, ops::{Deref, DerefMut}, pin::Pin, sync::{Arc, RwLock, RwLockReadGuard}};
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Event;
 
@@ -89,6 +85,15 @@ impl From<View<Dom>> for String {
     }
 }
 
+impl From<Dom> for View<Dom> {
+    fn from(dom: Dom) -> Self {
+        View {
+            inner: dom,
+            detach: Arc::new(RwLock::new(Box::new(|t| t.detach()))),
+        }
+    }
+}
+
 impl View<Dom> {
     /// Run this view in a parent container forever, never dropping it.
     pub fn run_in_container(self, container: &web_sys::Node) -> Result<(), JsValue> {
@@ -151,6 +156,32 @@ pub struct Dom {
     node: Arc<RwLock<JsValue>>,
     #[cfg(not(target_arch = "wasm32"))]
     node: SsrElement<web_sys::Event>,
+}
+
+impl TryFrom<JsValue> for Dom {
+    type Error = JsValue;
+
+    #[cfg(target_arch = "wasm32")]
+    fn try_from(node: JsValue) -> Result<Self, Self::Error> {
+        Ok(Dom{ node: Arc::new(RwLock::new(node)) })
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn try_from(node: JsValue) -> Result<Self, Self::Error> {
+        Err(node)
+    }
+}
+
+impl TryFrom<SsrElement<Event>> for Dom {
+    type Error = SsrElement<Event>;
+
+    #[cfg(target_arch = "wasm32")]
+    fn try_from(node: SsrElement<Event>) -> Result<Self, Self::Error> {
+        Err(node)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn try_from(node: SsrElement<Event>) -> Result<Self, Self::Error> {
+        Ok(Dom{ node })
+    }
 }
 
 impl Dom {

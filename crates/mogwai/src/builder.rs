@@ -8,7 +8,7 @@ use futures::{Stream, StreamExt};
 use std::{
     convert::TryFrom,
     pin::Pin,
-    sync::{Arc, RwLock},
+    sync::Arc,
     task::{RawWaker, Wake, Waker},
 };
 
@@ -408,7 +408,7 @@ impl<C: Sendable> From<String> for ViewBuilder<C> {
     }
 }
 
-impl<C:Sendable, St: Streamable<String>> From<(&str, St)> for ViewBuilder<C> {
+impl<C: Sendable, St: Streamable<String>> From<(&str, St)> for ViewBuilder<C> {
     fn from(sst: (&str, St)) -> Self {
         ViewBuilder::text(sst)
     }
@@ -466,6 +466,128 @@ where
     }
 }
 
+/// Set all the initial values of a Dom node.
+pub fn set_initial_values(
+    node: &Dom,
+    texts: impl Iterator<Item = String>,
+    attribs: impl Iterator<Item = HashPatch<String, String>>,
+    bool_attribs: impl Iterator<Item = HashPatch<String, bool>>,
+    styles: impl Iterator<Item = HashPatch<String, String>>,
+    children: impl Iterator<Item = ListPatch<ViewBuilder<Dom>>>,
+) -> Result<(), String> {
+    for text in texts {
+        node.set_text(&text)?;
+    }
+
+    for patch in attribs {
+        node.patch_attribs(patch)?;
+    }
+
+    for patch in bool_attribs {
+        node.patch_bool_attribs(patch)?;
+    }
+
+    for patch in styles {
+        node.patch_styles(patch)?;
+    }
+
+    for patch in children {
+        let patch = patch.map(|vb| View::try_from(vb).unwrap().into_inner());
+        node.patch_children(patch)?;
+    }
+
+    Ok(())
+}
+
+/// Set all the streaming values of a Dom node.
+pub fn set_streaming_values(
+    node: &Dom,
+    text_stream: TextStream,
+    attrib_stream: AttribStream,
+    bool_attrib_stream: BooleanAttribStream,
+    style_stream: StyleStream,
+    child_stream: ChildStream<ViewBuilder<Dom>>,
+) -> Result<(), String> {
+    let text_stream: Pin<Box<Streaming<Result<String, String>>>> = Box::pin(text_stream.map(Ok));
+    let text_sink: Pin<Box<SinkingWith<String, String>>> =
+        Box::pin(futures::sink::unfold::<Dom, _, _, String, _>(
+            node.clone(),
+            |node, text: String| async move {
+                node.set_text(&text)?;
+                Ok(node)
+            },
+        ));
+    crate::spawn(async move {
+        futures::pin_mut!(text_sink);
+        let _ = text_stream.forward(text_sink).await;
+    });
+
+    let attrib_stream: Pin<Box<Streaming<Result<HashPatch<String, String>, String>>>> =
+        Box::pin(attrib_stream.map(Ok));
+    let attrib_sink: Pin<Box<SinkingWith<HashPatch<String, String>, String>>> = Box::pin(
+        futures::sink::unfold::<_, _, _, HashPatch<String, String>, _>(
+            node.clone(),
+            |view, patch| async move {
+                view.patch_attribs(patch)?;
+                Ok(view)
+            },
+        ),
+    );
+    crate::spawn(async move {
+        futures::pin_mut!(attrib_sink);
+        let _ = attrib_stream.forward(&mut attrib_sink).await;
+    });
+
+    let bool_attrib_stream: Pin<Box<Streaming<Result<HashPatch<String, bool>, String>>>> =
+        Box::pin(bool_attrib_stream.map(Ok));
+    let bool_attrib_sink: Pin<Box<SinkingWith<HashPatch<_, _>, String>>> = Box::pin(
+        futures::sink::unfold::<_, _, _, HashPatch<String, bool>, _>(
+            node.clone(),
+            |view, patch| async move {
+                view.patch_bool_attribs(patch)?;
+                Ok(view)
+            },
+        ),
+    );
+    crate::spawn(async move {
+        futures::pin_mut!(bool_attrib_sink);
+        let _ = bool_attrib_stream.forward(&mut bool_attrib_sink).await;
+    });
+
+    let style_stream: Pin<Box<Streaming<Result<HashPatch<String, String>, String>>>> =
+        Box::pin(style_stream.map(Ok));
+    let style_sink: Pin<Box<SinkingWith<HashPatch<_, _>, String>>> = Box::pin(
+        futures::sink::unfold::<_, _, _, HashPatch<String, String>, _>(
+            node.clone(),
+            |view, patch| async move {
+                view.patch_styles(patch)?;
+                Ok(view)
+            },
+        ),
+    );
+    crate::spawn(async move {
+        futures::pin_mut!(style_sink);
+        let _ = style_stream.forward(&mut style_sink).await;
+    });
+
+    let child_stream: Pin<Box<Streaming<Result<ListPatch<_>, String>>>> =
+        Box::pin(child_stream.map(Ok));
+    let child_sink: Pin<Box<SinkingWith<ListPatch<_>, String>>> = Box::pin(futures::sink::unfold(
+        node.clone(),
+        |view, patch: ListPatch<ViewBuilder<_>>| async move {
+            let patch = patch.map(|vb| View::try_from(vb).unwrap().into_inner());
+            view.patch_children(patch)?;
+            Ok(view)
+        },
+    ));
+    crate::spawn(async move {
+        futures::pin_mut!(child_sink);
+        let _ = child_stream.forward(&mut child_sink).await;
+    });
+
+    Ok(())
+}
+
 impl TryFrom<DecomposedViewBuilder<Dom>> for View<Dom> {
     type Error = String;
 
@@ -488,113 +610,32 @@ impl TryFrom<DecomposedViewBuilder<Dom>> for View<Dom> {
     ) -> Result<Self, Self::Error> {
         let mut el: Dom = if !texts.is_empty() || construct_with.is_empty() {
             let node = Dom::text("")?;
-            for text in texts.into_iter() {
-                node.set_text(&text)?;
-            }
-            let text_stream: Pin<Box<Streaming<Result<String, String>>>> =
-                Box::pin(text_stream.map(Ok));
-            let text_sink: Pin<Box<SinkingWith<String, String>>> =
-                Box::pin(futures::sink::unfold::<Dom, _, _, String, _>(
-                    node.clone(),
-                    |node, text: String| async move {
-                        node.set_text(&text)?;
-                        Ok(node)
-                    },
-                ));
-            crate::spawn(async move {
-                futures::pin_mut!(text_sink);
-                let _ = text_stream.forward(text_sink).await;
-            });
             node
         } else {
             Dom::element(&construct_with, ns.as_deref())?
         };
 
-        for patch in attribs.into_iter() {
-            el.patch_attribs(patch)?;
-        }
-        let attrib_stream: Pin<Box<Streaming<Result<HashPatch<String, String>, String>>>> =
-            Box::pin(attrib_stream.map(Ok));
-        let attrib_sink: Pin<Box<SinkingWith<HashPatch<String, String>, String>>> = Box::pin(
-            futures::sink::unfold::<_, _, _, HashPatch<String, String>, _>(
-                el.clone(),
-                |view, patch| async move {
-                    view.patch_attribs(patch)?;
-                    Ok(view)
-                },
-            ),
-        );
-        crate::spawn(async move {
-            futures::pin_mut!(attrib_sink);
-            let _ = attrib_stream.forward(&mut attrib_sink).await;
-        });
-
-        for patch in bool_attribs.into_iter() {
-            el.patch_bool_attribs(patch)?;
-        }
-
-        let bool_attrib_stream: Pin<Box<Streaming<Result<HashPatch<String, bool>, String>>>> =
-            Box::pin(bool_attrib_stream.map(Ok));
-        let bool_attrib_sink: Pin<Box<SinkingWith<HashPatch<_, _>, String>>> = Box::pin(
-            futures::sink::unfold::<_, _, _, HashPatch<String, bool>, _>(
-                el.clone(),
-                |view, patch| async move {
-                    view.patch_bool_attribs(patch)?;
-                    Ok(view)
-                },
-            ),
-        );
-        crate::spawn(async move {
-            futures::pin_mut!(bool_attrib_sink);
-            let _ = bool_attrib_stream.forward(&mut bool_attrib_sink).await;
-        });
-
-        for patch in styles.into_iter() {
-            el.patch_styles(patch)?;
-        }
-        let style_stream: Pin<Box<Streaming<Result<HashPatch<String, String>, String>>>> =
-            Box::pin(style_stream.map(Ok));
-        let style_sink: Pin<Box<SinkingWith<HashPatch<_, _>, String>>> = Box::pin(
-            futures::sink::unfold::<_, _, _, HashPatch<String, String>, _>(
-                el.clone(),
-                |view, patch| async move {
-                    view.patch_styles(patch)?;
-                    Ok(view)
-                },
-            ),
-        );
-        crate::spawn(async move {
-            futures::pin_mut!(style_sink);
-            let _ = style_stream.forward(&mut style_sink).await;
-        });
+        set_initial_values(
+            &el,
+            texts.into_iter(),
+            attribs.into_iter(),
+            bool_attribs.into_iter(),
+            styles.into_iter(),
+            children.into_iter(),
+        )?;
+        set_streaming_values(
+            &el,
+            text_stream,
+            attrib_stream,
+            bool_attrib_stream,
+            style_stream,
+            child_stream,
+        )?;
 
         for op in ops.into_iter() {
             (op)(&mut el);
         }
 
-        for patch in children.into_iter() {
-            let patch = patch.map(|vb| View::try_from(vb).unwrap().into_inner());
-            el.patch_children(patch)?;
-        }
-        let child_stream: Pin<Box<Streaming<Result<ListPatch<_>, String>>>> =
-            Box::pin(child_stream.map(Ok));
-        let child_sink: Pin<Box<SinkingWith<ListPatch<_>, String>>> =
-            Box::pin(futures::sink::unfold(
-                el.clone(),
-                |view, patch: ListPatch<ViewBuilder<_>>| async move {
-                    let patch = patch.map(|vb| View::try_from(vb).unwrap().into_inner());
-                    view.patch_children(patch)?;
-                    Ok(view)
-                },
-            ));
-        crate::spawn(async move {
-            futures::pin_mut!(child_sink);
-            let _ = child_stream.forward(&mut child_sink).await;
-        });
-
-        Ok(View {
-            inner: el,
-            detach: Arc::new(RwLock::new(Box::new(|t| t.detach()))),
-        })
+        Ok(View::from(el))
     }
 }

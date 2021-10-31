@@ -4,7 +4,7 @@ members = [
   "cookbook",
   "crates/mogwai",
   "crates/mogwai-html-macro",
-  #"crates/mogwai-hydrator"
+  "crates/mogwai-hydrator",
   "examples/counter",
   "examples/nested-components",
   #"examples/focus-follower",

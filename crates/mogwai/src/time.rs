@@ -69,6 +69,8 @@ impl Future for WaitFuture {
 
 /// Wait approximately the given number of milliseconds.
 /// Returns a [`Future`] that yields the actual number of milliseconds waited.
+///
+// TODO: Change wait_approx to take a u64 of millis because it works better that way
 pub fn wait_approx(millis: f64) -> impl Future<Output = f64> {
     let waker: Arc<Mutex<Option<Waker>>> = Default::default();
     let waker2 = waker.clone();

@@ -426,7 +426,8 @@ mod test {
     use crate::{
         self as mogwai,
         builder::ViewBuilder,
-        channel::{self, bounded, IntoSenderSink, StreamExt},
+        channel::{self, mpmc::bounded},
+        futures::{StreamExt, IntoSenderSink},
         macros::*,
         patch::ListPatch,
         view::{Dom, EitherExt, View},
@@ -505,7 +506,7 @@ mod test {
 
     #[wasm_bindgen_test]
     async fn can_use_rsx_to_make_builder() {
-        let (tx, _) = mogwai::channel::bounded::<web_sys::Event>(1);
+        let (tx, _) = mogwai::channel::mpmc::bounded::<web_sys::Event>(1);
 
         let rsx: DomBuilder = builder! {
             <div id="view_zero" style:background_color="red">
@@ -674,7 +675,7 @@ mod test {
         assert_eq!(div_el.outer_html(), r#"<div class="now"></div>"#);
 
         tx.send("later".to_string()).await.unwrap();
-        mogwai::channel::until_empty(&tx).await;
+        mogwai::channel::mpmc::until_empty(&tx).await;
 
         assert_eq!(div_el.outer_html(), r#"<div class="later"></div>"#);
     }
@@ -728,7 +729,8 @@ mod test {
 
     #[wasm_bindgen_test]
     async fn tx_on_click() {
-        let (tx, rx) = broadcast(1);
+        use mogwai::futures::StreamExt;
+        let (tx, rx) = mogwai::channel::mpmc::bounded(1);
 
         log::info!("test!");
         let rx = rx.scan(0, |n: &mut i32, _: web_sys::Event| {
@@ -750,7 +752,7 @@ mod test {
         assert_eq!(el.inner_html(), "Clicked 0 times");
 
         el.click();
-        mogwai::channel::broadcast::until_empty(&tx).await;
+        mogwai::channel::mpmc::until_empty(&tx).await;
         let _ = mogwai::time::wait_approx(1000.0).await;
 
         assert_eq!(el.inner_html(), "Clicked 1 time");
@@ -788,7 +790,7 @@ mod test {
 
         tx.try_send(ListPatch::push(builder! {<li>"Two"</li>}))
             .unwrap();
-        channel::until_empty(&tx).await;
+        channel::mpmc::until_empty(&tx).await;
         assert_eq!(
             dom.outer_html().as_str(),
             r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
@@ -796,7 +798,7 @@ mod test {
 
         tx.try_send(ListPatch::splice(0..1, None.into_iter()))
             .unwrap();
-        channel::until_empty(&tx).await;
+        channel::mpmc::until_empty(&tx).await;
         assert_eq!(
             dom.outer_html().as_str(),
             r#"<ol id="main"><li>One</li><li>Two</li></ol>"#
@@ -807,7 +809,7 @@ mod test {
             Some(builder! {<li>"Zero"</li>}).into_iter(),
         ))
         .unwrap();
-        channel::until_empty(&tx).await;
+        channel::mpmc::until_empty(&tx).await;
         assert_eq!(
             dom.outer_html().as_str(),
             r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
@@ -815,7 +817,7 @@ mod test {
 
         tx.try_send(ListPatch::splice(2..3, None.into_iter()))
             .unwrap();
-        channel::until_empty(&tx).await;
+        channel::mpmc::until_empty(&tx).await;
         assert_eq!(
             dom.outer_html().as_str(),
             r#"<ol id="main"><li>Zero</li><li>One</li></ol>"#
@@ -826,14 +828,14 @@ mod test {
             Some(builder! {<li>"Negative One"</li>}).into_iter(),
         ))
         .unwrap();
-        channel::until_empty(&tx).await;
+        channel::mpmc::until_empty(&tx).await;
         assert_eq!(
             dom.outer_html().as_str(),
             r#"<ol id="main"><li>Negative One</li><li>Zero</li><li>One</li></ol>"#
         );
 
         tx.try_send(ListPatch::Pop).unwrap();
-        channel::until_empty(&tx).await;
+        channel::mpmc::until_empty(&tx).await;
         assert_eq!(
             dom.outer_html().as_str(),
             r#"<ol id="main"><li>Negative One</li><li>Zero</li></ol>"#
@@ -844,7 +846,7 @@ mod test {
             Some(builder! {<li>"One"</li>}).into_iter(),
         ))
         .unwrap();
-        channel::until_empty(&tx).await;
+        channel::mpmc::until_empty(&tx).await;
         assert_eq!(
             dom.outer_html().as_str(),
             r#"<ol id="main"><li>Negative One</li><li>One</li></ol>"#
@@ -859,7 +861,7 @@ mod test {
 
         tx.try_send(ListPatch::splice(0.., None.into_iter()))
             .unwrap();
-        channel::until_empty(&tx).await;
+        channel::mpmc::until_empty(&tx).await;
         assert_eq!(dom.outer_html().as_str(), r#"<ol id="main"></ol>"#);
     }
 
@@ -883,7 +885,7 @@ mod test {
         ))
         .await
         .unwrap();
-        mogwai::channel::until_empty(&tx).await;
+        mogwai::channel::mpmc::until_empty(&tx).await;
         assert_eq!(
             dom.outer_html().as_str(),
             r#"<p id="main">First Zero One</p>"#
@@ -892,7 +894,7 @@ mod test {
         tx.send(ListPatch::splice(.., std::iter::empty()))
             .await
             .unwrap();
-        mogwai::channel::until_empty(&tx).await;
+        mogwai::channel::mpmc::until_empty(&tx).await;
         assert_eq!(dom.outer_html().as_str(), r#"<p id="main"></p>"#);
     }
 

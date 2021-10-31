@@ -38,7 +38,7 @@ pub mod mpmc {
     /// Waits until the channel of the given `Sender` is empty.
     pub async fn until_empty<T>(tx: &Sender<T>) {
         while !tx.is_empty() {
-            let _ = crate::time::wait_approx(0.01).await;
+            let _ = crate::time::wait_approx(1.0).await;
         }
     }
 }
