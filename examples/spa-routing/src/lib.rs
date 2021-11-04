@@ -87,11 +87,11 @@ impl From<Route> for String {
     }
 }
 
-/// We can convert a route into a ViewBuilder in order to embed it in a gizmo.
+/// We can convert a route into a ViewBuilder in order to embed it in a component.
 /// This is just a suggestion for this specific example. The general idea is
 /// to use the route to inform your app that it needs to change the page. This
 /// is just one of many ways to accomplish that.
-impl From<&Route> for ViewBuilder<HtmlElement> {
+impl From<&Route> for ViewBuilder<Dom> {
     fn from(route: &Route) -> Self {
         match route {
             Route::Home => builder! {
@@ -123,12 +123,6 @@ impl From<&Route> for ViewBuilder<HtmlElement> {
     }
 }
 
-impl From<&Route> for View<HtmlElement> {
-    fn from(route: &Route) -> Self {
-        ViewBuilder::from(route).into()
-    }
-}
-
 /// Here we'll define some helpers for displaying information about the current route.
 impl Route {
     pub fn nav_home_class(&self) -> String {
@@ -156,114 +150,102 @@ impl Route {
     }
 }
 
-struct App {
-    route: Route,
-}
-
 #[derive(Clone)]
 enum AppModel {
     HashChange(String),
 }
 
 #[derive(Clone)]
-enum AppView {
-    PatchPage(Patch<View<HtmlElement>>),
-    Error(String),
-}
+struct AppError(String);
 
-impl AppView {
-    fn error(&self) -> Option<String> {
-        match self {
-            AppView::Error(msg) => Some(msg.clone()),
-            _ => None,
-        }
-    }
-
-    /// If the message is a new route, convert it into a patch to replace the current main page.
-    fn patch_page(&self) -> Option<Patch<View<HtmlElement>>> {
-        match self {
-            AppView::PatchPage(patch) => Some(patch.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl Component for App {
-    type DomNode = HtmlElement;
-    type ModelMsg = AppModel;
-    type ViewMsg = AppView;
-
-    fn update(&mut self, msg: &AppModel, tx: &Transmitter<AppView>, _sub: &Subscriber<AppModel>) {
-        match msg {
-            AppModel::HashChange(hash) => {
+async fn logic(
+    mut route: Route,
+    mut rx_logic: broadcast::Receiver<AppModel>,
+    tx_view: broadcast::Sender<AppError>,
+    tx_route_patch: mpmc::Sender<ListPatch<ViewBuilder<Dom>>>,
+) {
+    loop {
+        match rx_logic.next().await {
+            Some(AppModel::HashChange(hash)) => {
                 // When we get a hash change, attempt to convert it into one of our routes
                 match Route::try_from(hash.as_str()) {
                     // If we can't, let's send an error message to the view
-                    Err(msg) => tx.send(&AppView::Error(msg)),
+                    Err(msg) => {
+                        tx_view.broadcast(AppError(msg)).await.unwrap();
+                    }
                     // If we _can_, create a new view from the route and send a patch message to
                     // the view
-                    Ok(route) => {
-                        if route != self.route {
-                            let view = View::from(ViewBuilder::from(&route));
-                            self.route = route;
-                            tx.send(&AppView::PatchPage(Patch::Replace {
-                                index: 2,
-                                value: view,
-                            }));
+                    Ok(new_route) => {
+                        trace!("got new route: {:?}", new_route);
+                        if new_route != route {
+                            let builder = ViewBuilder::from(&new_route);
+                            route = new_route;
+                            let patch = ListPatch::replace(2, builder);
+                            tx_route_patch.send(patch).await.unwrap();
                         }
+                        tx_view.broadcast(AppError("".to_string())).await.unwrap();
                     }
                 }
             }
-        }
-    }
-
-    fn view(&self, tx: &Transmitter<AppModel>, rx: &Receiver<AppView>) -> ViewBuilder<HtmlElement> {
-        let username: String = "Reasonable-Human".into();
-        builder! {
-            <slot
-                window:hashchange=tx.contra_filter_map(|ev:&Event| {
-                    let hev = ev.dyn_ref::<HashChangeEvent>().unwrap().clone();
-                    let hash = hev.new_url();
-                    Some(AppModel::HashChange(hash))
-                })
-                patch:children=rx.branch_filter_map(AppView::patch_page)>
-                <nav>
-                    <ul>
-                        <li class=self.route.nav_home_class()>
-                            <a href=String::from(Route::Home)>"Home"</a>
-                        </li>
-                        <li class=self.route.nav_settings_class()>
-                            <a href=String::from(Route::Settings)>"Settings"</a>
-                        </li>
-                        <li class=self.route.nav_settings_class()>
-                            <a href=String::from(Route::Profile {
-                                username: username.clone(),
-                                is_favorites: true
-                            })>
-                                {format!("{}'s Profile", username)}
-                            </a>
-                        </li>
-                    </ul>
-                </nav>
-                <pre>{rx.branch_filter_map(AppView::error)}</pre>
-                {ViewBuilder::from(&self.route)}
-            </slot>
+            None => break,
         }
     }
 }
 
+fn view(
+    route: &Route,
+    tx_logic: broadcast::Sender<AppModel>,
+    rx_view: broadcast::Receiver<AppError>,
+    rx_route_patch: mpmc::Receiver<ListPatch<ViewBuilder<Dom>>>,
+) -> ViewBuilder<Dom> {
+    let username: String = "Reasonable-Human".into();
+    builder! {
+        <slot
+            window:hashchange=tx_logic.sink().contra_map(|ev:Event| {
+                let hev = ev.dyn_ref::<HashChangeEvent>().unwrap().clone();
+                let hash = hev.new_url();
+                AppModel::HashChange(hash)
+            })
+            patch:children=rx_route_patch>
+            <nav>
+                <ul>
+                    <li class=route.nav_home_class()>
+                        <a href=String::from(Route::Home)>"Home"</a>
+                    </li>
+                    <li class=route.nav_settings_class()>
+                        <a href=String::from(Route::Settings)>"Settings"</a>
+                    </li>
+                    <li class=route.nav_settings_class()>
+                        <a href=String::from(Route::Profile {
+                            username: username.clone(),
+                            is_favorites: true
+                        })>
+                            {format!("{}'s Profile", username)}
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+            <pre>{("", rx_view.map(|AppError(msg)| msg))}</pre>
+            {route}
+        </slot>
+    }
+}
 
 #[wasm_bindgen]
 pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    let gizmo = Gizmo::from(App { route: Route::Home });
-    let view = View::from(gizmo.view_builder());
+    let route = Route::Home;
+    let (tx_logic, rx_logic) = broadcast::bounded(1);
+    let (tx_view, rx_view) = broadcast::bounded(1);
+    let (tx_route_patch, rx_route_patch) = mpmc::bounded(1);
+    let component = Component::from(view(&route, tx_logic, rx_view, rx_route_patch))
+        .with_logic(logic(route, rx_logic, tx_view, tx_route_patch));
+    let view = component.build().unwrap();
+
     if let Some(id) = parent_id {
-        let parent = utils::document()
-            .get_element_by_id(&id)
-            .unwrap();
+        let parent = utils::document().get_element_by_id(&id).unwrap();
         view.run_in_container(&parent)
     } else {
         view.run()

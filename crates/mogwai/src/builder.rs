@@ -420,6 +420,15 @@ impl<C: Sendable, St: Streamable<String>> From<(String, St)> for ViewBuilder<C> 
     }
 }
 
+impl<C: Sendable, V> From<Option<V>> for ViewBuilder<C>
+where
+    ViewBuilder<C>: From<V>
+{
+    fn from(may_vb: Option<V>) -> Self {
+        may_vb.map(ViewBuilder::from).unwrap_or_else(|| ViewBuilder::text(""))
+    }
+}
+
 impl<C: 'static> From<ViewBuilder<C>> for DecomposedViewBuilder<C> {
     fn from(
         ViewBuilder {

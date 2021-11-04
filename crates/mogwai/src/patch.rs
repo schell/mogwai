@@ -46,6 +46,11 @@ impl<T> ListPatch<T> {
         }
     }
 
+    /// Construct a ListPatch that replaces the given index with the given item.
+    pub fn replace(index: usize, item: T) -> Self {
+        Self::splice(index..=index, std::iter::once(item))
+    }
+
     /// Construct a ListPatch that pushes the given item onto the end of the list.
     pub fn push(item: T) -> Self {
         ListPatch::Push(item)

@@ -328,7 +328,7 @@ pub mod futures {
 
     impl<S: Sized, T> Contravariant<T> for S where S: Sink<T> {}
 
-    #[cfg(test)]
+    #[cfg(all(not(target_arch = "wasm32"), test))]
     mod test {
         use super::{ContraMap, Contravariant, IntoSenderSink, SinkExt};
 
