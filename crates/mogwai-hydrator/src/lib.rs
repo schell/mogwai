@@ -1,9 +1,5 @@
 //! Types and [`TryFrom`] instances that can 're-animate' views or portions of views from the DOM.
-use mogwai::{
-    builder::{DecomposedViewBuilder, ViewBuilder},
-    prelude::{HashPatch, HashPatchApply, ListPatchApply},
-    view::{Dom, EitherExt, View},
-};
+use mogwai::{builder::{DecomposedViewBuilder, ViewBuilder}, prelude::{Component, HashPatch, HashPatchApply, ListPatchApply}, view::{Dom, EitherExt, View}};
 use snafu::{OptionExt, Snafu, ensure};
 use std::collections::HashMap;
 pub use std::{convert::TryFrom, ops::Deref};
@@ -138,6 +134,15 @@ pub struct Hydrator {
 impl From<Hydrator> for View<Dom> {
     fn from(Hydrator { inner }: Hydrator) -> Self {
         View::from(inner)
+    }
+}
+
+impl TryFrom<Component<Dom>> for Hydrator {
+    type Error = Error;
+
+    fn try_from(comp: Component<Dom>) -> Result<Self, Self::Error> {
+        let builder = ViewBuilder::from(comp);
+        Hydrator::try_from(builder)
     }
 }
 

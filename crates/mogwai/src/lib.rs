@@ -18,8 +18,8 @@ pub mod event;
 pub mod model;
 pub mod patch;
 pub mod prelude;
-pub mod target;
 pub mod ssr;
+pub mod target;
 pub mod time;
 pub mod utils;
 pub mod view;
@@ -28,15 +28,20 @@ pub use target::spawn;
 
 pub mod lock {
     //! Asynchronous locking mechanisms (re-exports).
-    pub use futures::lock::*;
     pub use async_lock::*;
+    pub use futures::lock::*;
 }
 
 pub mod futures {
     //! A re-export of the `futures` crate.
-    use std::{collections::VecDeque, sync::{Arc, Mutex}};
+    use std::{
+        collections::VecDeque,
+        sync::{Arc, Mutex},
+    };
 
     pub use futures::*;
+
+    use crate::target::Sendable;
 
     /// A simple wrapper around an async `Sender` to help implement `Sink`.
     #[derive(Clone)]
@@ -84,26 +89,27 @@ pub mod futures {
 
     impl<T: Clone> SenderSink<async_broadcast::Sender<T>, T> {
         fn flush_sink(&mut self) -> std::task::Poll<Result<(), SinkError>> {
-            if let Some(item) = self.sending_msgs.lock().unwrap().pop_front() {
+            let closed = if let Some(item) = self.sending_msgs.lock().unwrap().pop_front() {
                 match self.sender.try_broadcast(item) {
-                    Ok(_) => {}
+                    Ok(_) => false,
                     Err(err) => {
                         let closed = err.is_closed();
                         let item = err.into_inner();
                         self.sending_msgs.lock().unwrap().push_front(item);
-                        if closed {
-                            return std::task::Poll::Ready(Err(SinkError::Closed));
-                        }
+                        closed
                     }
                 }
-            }
+            } else {
+                false
+            };
 
             self.sender.set_capacity(1 + self.sender.len());
-            if self.sender.is_empty() {
-                std::task::Poll::Ready(Ok(()))
+
+            std::task::Poll::Ready(if closed {
+                Err(SinkError::Closed)
             } else {
-                std::task::Poll::Pending
-            }
+                Ok(())
+            })
         }
     }
 
@@ -259,6 +265,88 @@ pub mod futures {
                 sender: self.clone(),
                 sending_msgs: Default::default(),
             }
+        }
+    }
+
+    /// Type for supporting contravariant mapped sinks.
+    pub struct ContraMap<S, X, Y> {
+        sink: S,
+        #[cfg(target_arch = "wasm32")]
+        map: Box<dyn Fn(X) -> Y + 'static>,
+
+        #[cfg(not(target_arch = "wasm32"))]
+        map: Box<dyn Fn(X) -> Y + Send + 'static>,
+    }
+
+    impl<S: Sink<Y> + Unpin, X, Y> Sink<X> for ContraMap<S, X, Y> {
+        type Error = <S as Sink<Y>>::Error;
+
+        fn poll_ready(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut task::Context<'_>,
+        ) -> task::Poll<Result<(), Self::Error>> {
+            futures::ready!(self.get_mut().sink.poll_ready_unpin(cx))?;
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn start_send(self: std::pin::Pin<&mut Self>, item: X) -> Result<(), Self::Error> {
+            let data = self.get_mut();
+            let item = (data.map)(item);
+            data.sink.start_send_unpin(item)?;
+            Ok(())
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut task::Context<'_>,
+        ) -> task::Poll<Result<(), Self::Error>> {
+            futures::ready!(self.get_mut().sink.poll_flush_unpin(cx))?;
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut task::Context<'_>,
+        ) -> task::Poll<Result<(), Self::Error>> {
+            self.get_mut().sink.poll_close_unpin(cx)
+        }
+    }
+
+    /// Contravariant functor extensions for types that implement [`Sink`].
+    pub trait Contravariant<T>: Sink<T> + Sized {
+        /// Extend this sink using a map function.
+        ///
+        /// This composes the map function _in front of the sink_, much like [`SinkExt::with`]
+        /// but without async and without the option of failure.
+        fn contra_map<S>(self, f: impl Fn(S) -> T + Sendable) -> ContraMap<Self, S, T> {
+            ContraMap {
+                map: Box::new(f),
+                sink: self,
+            }
+        }
+    }
+
+    impl<S: Sized, T> Contravariant<T> for S where S: Sink<T> {}
+
+    #[cfg(test)]
+    mod test {
+        use super::{ContraMap, Contravariant, IntoSenderSink, SinkExt};
+
+        #[test]
+        fn can_contra_map() {
+            smol::block_on(async {
+                let (tx, mut rx) = crate::channel::broadcast::bounded::<String>(1);
+
+                // sanity
+                tx.broadcast("blah".to_string()).await.unwrap();
+                let _ = rx.recv().await.unwrap();
+
+                let mut tx: ContraMap<_, u32, String> =
+                    tx.sink().contra_map(|n: u32| format!("{}", n));
+                tx.send(42).await.unwrap();
+                let s = rx.recv().await.unwrap();
+                assert_eq!(s.as_str(), "42");
+            });
         }
     }
 }
@@ -427,7 +515,7 @@ mod test {
         self as mogwai,
         builder::ViewBuilder,
         channel::{self, mpmc::bounded},
-        futures::{StreamExt, IntoSenderSink},
+        futures::{IntoSenderSink, StreamExt},
         macros::*,
         patch::ListPatch,
         view::{Dom, EitherExt, View},

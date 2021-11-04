@@ -10,7 +10,7 @@ members = [
   #"examples/focus-follower",
   "examples/list-of-gizmos",
   #"examples/multipage",
-  #"examples/sandbox",
+  "examples/sandbox",
   #"examples/spa-routing",
   "examples/svg",
   "examples/todomvc",

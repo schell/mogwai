@@ -4,8 +4,10 @@ use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
+
+use async_lock::Mutex;
 
 use crate::{
     builder::EventTargetType,
@@ -133,7 +135,7 @@ impl<Event> From<&SsrNode<Event>> for String {
                     let kids = children
                         .into_iter()
                         .map(|k| {
-                            let node = k.node.lock().unwrap();
+                            let node = k.node.try_lock().unwrap();
                             String::from(node.deref()).trim().to_string()
                         })
                         .collect::<Vec<String>>()
@@ -206,7 +208,7 @@ impl<Event> SsrElement<Event> {
     ///
     /// Fails if this element is not a text node.
     pub fn set_text(&self, text: &str) -> Result<(), ()> {
-        let mut lock = self.node.lock().unwrap();
+        let mut lock = self.node.try_lock().unwrap();
         if let SsrNode::Text(prev) = lock.deref_mut() {
             *prev = text
                 .replace("&", "&amp;")
@@ -223,7 +225,7 @@ impl<Event> SsrElement<Event> {
     ///
     /// Fails if this element is not a container.
     pub fn set_attrib(&self, key: &str, value: Option<&str>) -> Result<(), ()> {
-        let mut lock = self.node.lock().unwrap();
+        let mut lock = self.node.try_lock().unwrap();
         if let SsrNode::Container { attributes, .. } = lock.deref_mut() {
             for (pkey, pval) in attributes.iter_mut() {
                 if pkey == &key {
@@ -239,11 +241,26 @@ impl<Event> SsrElement<Event> {
         Ok(())
     }
 
+    /// Get an attribute
+    pub fn get_attrib(&self, key: &str) -> Result<Option<String>, String> {
+        let mut lock = self.node.try_lock().unwrap();
+        if let SsrNode::Container { attributes, .. } = lock.deref_mut() {
+            for (pkey, pval) in attributes.iter() {
+                if pkey == &key {
+                    return Ok(pval.as_ref().cloned());
+                }
+            }
+            Err("no such attribute".to_string())
+        } else {
+            Err("not an Element".to_string())
+        }
+    }
+
     /// Remove an attribute.
     ///
     /// Fails if this is not a container element.
     pub fn remove_attrib(&self, key: &str) -> Result<(), ()> {
-        let mut lock = self.node.lock().unwrap();
+        let mut lock = self.node.try_lock().unwrap();
         if let SsrNode::Container { attributes, .. } = lock.deref_mut() {
             attributes.retain(|p| p.0 != key);
         } else {
@@ -256,7 +273,7 @@ impl<Event> SsrElement<Event> {
     ///
     /// Fails if this is not a container element.
     pub fn set_style(&self, key: &str, value: &str) -> Result<(), ()> {
-        let mut lock = self.node.lock().unwrap();
+        let mut lock = self.node.try_lock().unwrap();
         if let SsrNode::Container { styles, .. } = lock.deref_mut() {
             for (pkey, pval) in styles.iter_mut() {
                 if pkey == &key {
@@ -276,7 +293,7 @@ impl<Event> SsrElement<Event> {
     ///
     /// Fails if this not a container element.
     pub fn remove_style(&self, key: &str) -> Result<(), ()> {
-        let mut lock = self.node.lock().unwrap();
+        let mut lock = self.node.try_lock().unwrap();
         if let SsrNode::Container { styles, .. } = lock.deref_mut() {
             styles.retain(|p| p.0 != key);
         } else {
@@ -287,7 +304,7 @@ impl<Event> SsrElement<Event> {
 
     /// Add an event.
     pub fn set_event(&self, type_is: EventTargetType, name: &str, tx: Pin<Box<Sinking<Event>>>) {
-        let mut lock = self.events.lock().unwrap();
+        let mut lock = self.events.try_lock().unwrap();
         let _ = lock.insert((type_is, name.to_string()), tx);
     }
 
@@ -301,7 +318,7 @@ impl<Event> SsrElement<Event> {
         event: Event,
     ) -> Result<(), futures::future::Either<(), SinkError>> {
         use futures::future::Either;
-        let mut events = self.events.lock().unwrap();
+        let mut events = self.events.lock().await;
         let sink = events
             .deref_mut()
             .get_mut(&(type_is, name))
@@ -311,7 +328,7 @@ impl<Event> SsrElement<Event> {
 
     /// Removes an event.
     pub fn remove_event(&self, type_is: EventTargetType, name: &str) {
-        let mut lock = self.events.lock().unwrap();
+        let mut lock = self.events.try_lock().unwrap();
         let _ = lock.remove(&(type_is, name.to_string()));
     }
 
@@ -319,7 +336,7 @@ impl<Event> SsrElement<Event> {
     ///
     /// Fails if this is not a container element.
     pub fn patch_children(&self, patch: ListPatch<Self>) -> Result<(), ()> {
-        let mut lock = self.node.lock().unwrap();
+        let mut lock = self.node.try_lock().unwrap();
         if let SsrNode::Container { children, .. } = lock.deref_mut() {
             let _ = children.list_patch_apply(patch);
         } else {
@@ -330,7 +347,7 @@ impl<Event> SsrElement<Event> {
 
     /// String value
     pub fn html_string(&self) -> String {
-        let lock = self.node.lock().unwrap();
+        let lock = self.node.try_lock().unwrap();
         String::from(lock.deref())
     }
 }

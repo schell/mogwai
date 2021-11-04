@@ -37,7 +37,7 @@ pub fn main() -> Result<(), JsValue> {
         }
 
         // Get the hash for "routing"
-        let hash = window().location().hash().unwrap();
+        let hash = mogwai::utils::window().location().hash().unwrap();
         if let Some(filter) = app::url_to_filter(hash) {
             app.filter(filter).await;
         }

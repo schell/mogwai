@@ -414,6 +414,12 @@ impl<C: Sendable, St: Streamable<String>> From<(&str, St)> for ViewBuilder<C> {
     }
 }
 
+impl<C: Sendable, St: Streamable<String>> From<(String, St)> for ViewBuilder<C> {
+    fn from(sst: (String, St)) -> Self {
+        ViewBuilder::text(sst)
+    }
+}
+
 impl<C: 'static> From<ViewBuilder<C>> for DecomposedViewBuilder<C> {
     fn from(
         ViewBuilder {

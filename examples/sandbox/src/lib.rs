@@ -7,82 +7,101 @@ use mogwai::prelude::*;
 use mogwai_hydrator::Hydrator;
 use std::panic;
 use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use web_sys::{Request, RequestInit, RequestMode, Response};
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
-pub fn new_button_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
-    // Create a receiver for our button to get its text from.
-    let rx_text = Receiver::<String>::new();
+pub fn new_button(click_chan: &broadcast::Channel<()>) -> Component<Dom> {
+    // Create a channel for our button to get its text from.
+    let (tx_text, rx_text) = broadcast::bounded::<String>(1);
 
-    // Create the button that gets its text from our receiver.
+    // Create the button view builder that gets its text from our receiver.
     //
     // The button text will start out as "Click me" and then change to whatever
     // comes in on the receiver.
-    let button = view! {
+    let builder = builder! {
         // The button has a style and transmits its clicks
-        <button style="cursor: pointer;" on:click=tx_click.clone()>
+        <button
+         style="cursor: pointer;"
+         on:click=click_chan.sender().sink().with(|_| async{Ok(())})>
             // The text starts with "Click me" and receives updates
-            {("Click me", rx_text.branch())}
+            {("Click me", rx_text)}
         </button>
     };
 
-    // Now that the routing is done, we can define how the signal changes from
+    // Now that the view routing is done, we can define how the signal changes from
     // transmitter to receiver over each occurance.
-    // We do this by wiring the two together, along with some internal state in the
-    // form of a fold function.
-    tx_click.wire_fold(
-        &rx_text,
-        true, // our initial folding state
-        |is_red, _| {
-            let out = if *is_red {
-                "Turn me blue".into()
-            } else {
-                "Turn me red".into()
-            };
+    // We do this by wiring the two channels together, along with some internal state in the
+    // form of a logic loop which we spawn into the target's runtime.
+    let mut rx_click = click_chan.receiver();
+    let logic = async move {
+        let mut is_red = true;
+        loop {
+            match rx_click.next().await {
+                Some(()) => {
+                    tx_text
+                        .broadcast(
+                            if is_red {
+                                "Turn me blue"
+                            } else {
+                                "Turn me red"
+                            }
+                            .to_string(),
+                        )
+                        .await
+                        .unwrap();
+                    is_red = !is_red;
+                }
+                None => break,
+            }
+        }
+    };
 
-            *is_red = !*is_red;
-            out
-        },
-    );
-
-    button
+    // Bundle them together to use later in a tree of widgets
+    Component::from(builder).with_logic(logic)
 }
 
 /// Creates a h1 heading that changes its color.
-pub fn new_h1_view(tx_click: Transmitter<Event>) -> View<HtmlElement> {
+pub fn new_h1(click_chan: &broadcast::Channel<()>) -> Component<Dom> {
     // Create a receiver for our heading to get its color from.
-    let rx_color = Receiver::<String>::new();
+    let (tx_color, rx_color) = broadcast::bounded::<String>(1);
 
-    // Create the view for our heading, giving it the receiver.
-    let h1 = view! {
+    // Create the builder for our view, giving it the receiver.
+    let builder = builder! {
         <h1 id="header" class="my-header"
-            // set style.color with an initial value and then update it whenever
-            // we get a message on rx_color
-            style:color=("green", rx_color.branch())
-            >
+         // set style.color with an initial value and then update it whenever
+         // we get a message on rx_color
+         style:color=("green", rx_color.clone())>
             "Hello from mogwai!"
         </h1>
     };
 
-    // Now that the view is done, let's define the logic
+    // Now that the view builder is done, let's define the logic
     // The h1's color will change every click back and forth between blue and red
     // after the initial green.
-    tx_click.wire_fold(
-        &rx_color,
-        false, // the intial value for is_red
-        |is_red, _| {
-            let out = if *is_red { "blue".into() } else { "red".into() };
-            *is_red = !*is_red;
-            out
-        },
-    );
+    let mut rx_click = click_chan.receiver();
+    let logic = async move {
+        let mut is_red = false;
+        loop {
+            match rx_click.next().await {
+                Some(()) => {
+                    let msg = if is_red { "blue" } else { "red" }.to_string();
+                    tx_color.broadcast(msg).await.unwrap();
+                    is_red = !is_red;
+                }
+                None => break,
+            }
+        }
+    };
 
-    h1
+    // Wrap it up into a component
+    Component::from(builder).with_logic(logic)
 }
 
+#[cfg(target_arch = "wasm32")]
 async fn request_to_text(req: Request) -> Result<String, String> {
-    let resp: Response = JsFuture::from(window().fetch_with_request(&req))
+    let resp: Response = JsFuture::from(utils::window().fetch_with_request(&req))
         .await
         .map_err(|_| "request failed".to_string())?
         .dyn_into()
@@ -95,6 +114,7 @@ async fn request_to_text(req: Request) -> Result<String, String> {
     Ok(text)
 }
 
+#[cfg(target_arch = "wasm32")]
 async fn click_to_text() -> Option<String> {
     let mut opts = RequestInit::new();
     opts.method("GET");
@@ -112,74 +132,65 @@ async fn click_to_text() -> Option<String> {
     };
     Some(result)
 }
+#[cfg(not(target_arch = "wasm32"))]
+async fn click_to_text() -> Option<String> {
+    None
+}
 
 /// Creates a button that when clicked requests the time in london and sends
 /// it down a receiver.
-pub fn time_req_button_and_pre() -> View<HtmlElement> {
-    let (req_tx, req_rx) = txrx::<Event>();
-    let (resp_tx, resp_rx) = txrx::<String>();
+pub fn time_req_button_and_pre() -> Component<Dom> {
+    // In the time it takes to send a request to the time server and get a response
+    // back, the user can click the button again and again, so we'll let the channel
+    // handle more than one click at a time by increasing our bounds a bit.
+    let (req_tx, req_rx) = broadcast::bounded::<()>(5);
+    let (resp_tx, resp_rx) = broadcast::bounded::<String>(1);
 
-    req_rx.forward_filter_fold_async(
-        &resp_tx,
-        false,
-        |is_in_flight: &mut bool, _| {
-            // When we receive a click event from the button and we're not already
-            // sending a request, we'll set one up and send it.
-            if !*is_in_flight {
-                // Change the state to tell later invocations that a request is in
-                // flight
-                *is_in_flight = true;
-                // Return a future to be excuted which possibly produces a value to
-                // send downstream to resp_tx
-                wrap_future(async { click_to_text().await })
-            } else {
-                // Don't change the state and don't send anything downstream to
-                // resp_tx
-                None
-            }
-        },
-        |is_in_flight, _| {
-            // the cleanup function reports that the request is no longer in flight
-            *is_in_flight = false;
-        },
-    );
-
-    view! {
+    Component::from(builder! {
         <div>
             <button
-                style="cursor: pointer;"
-                on:click=req_tx >
+            style="cursor: pointer;"
+            on:click=req_tx.sink().contra_map(|_| ()) >
 
                 "Get the time (london)"
             </button>
             <pre>{("(waiting)", resp_rx)}</pre>
         </div>
-    }
+    })
+    .with_logic(async move {
+        // Here we use `ready_chunks`, which batches all the messages that are waiting
+        // in the channel (max capacity).
+        let mut rx = req_rx.ready_chunks(5);
+        loop {
+            match rx.next().await {
+                Some(_) => {
+                    if let Some(london_time_text) = click_to_text().await {
+                        resp_tx.broadcast(london_time_text).await.unwrap();
+                    }
+                }
+                None => break,
+            }
+        }
+    })
 }
 
 /// Creates a view that ticks a count upward every second.
-pub fn counter() -> View<HtmlElement> {
-    // Create a transmitter to send ticks every second
-    let tx = Transmitter::<()>::new();
+pub fn counter() -> Component<Dom> {
+    // Create a channel for a string to accept our counter's text
+    let (tx_txt, rx_txt) = broadcast::bounded::<String>(1);
 
-    // Create a receiver for a string to accept our counter's text
-    let rx = Receiver::<String>::new();
-
-    let timeout_tx = tx.clone();
-    timeout(1000, move || {
-        // Once a second send a unit down the pipe
-        timeout_tx.send(&());
-        // Always reschedule this timeout
-        true
-    });
-
-    // Wire the tx to the rx using a fold function
-    tx.wire_fold(&rx, 0, |n: &mut i32, &()| {
-        *n += 1;
-        format!("Count: {}", *n)
-    });
-
-    view! { <h3>{("Awaiting first count", rx)}</h3> }
+    Component::from(builder! { <h3>{("Awaiting first count", rx_txt)}</h3> })
+        // The logic loop waits a second and then increments a counter,
+        // then send a message.
+        .with_logic(async move {
+            let mut n = 0;
+            loop {
+                let _ = mogwai::time::wait_approx(1000.0).await;
+                n += 1;
+                let msg = format!("Count: {}", n);
+                tx_txt.broadcast(msg).await.unwrap();
+            }
+        })
 }
 
 #[wasm_bindgen(start)]
@@ -187,10 +198,10 @@ pub fn main() -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap_throw();
 
-    // Create a transmitter to send button clicks into.
-    let tx_click = Transmitter::new();
-    let h1 = new_h1_view(tx_click.clone());
-    let btn = new_button_view(tx_click);
+    // Create a channel to send button clicks into.
+    let click_chan = broadcast::Channel::new(1);
+    let h1 = new_h1(&click_chan);
+    let btn = new_button(&click_chan);
     let req = time_req_button_and_pre();
     let counter = counter();
 
@@ -199,7 +210,7 @@ pub fn main() -> Result<(), JsValue> {
         <div>
             {h1}
             {btn}
-            {Gizmo::from(elm_button::Button { clicks: 0 })}
+            {elm_button::Button { clicks: 0 }.to_component()}
             <br />
             <br />
             {req}
@@ -217,39 +228,77 @@ pub fn main() -> Result<(), JsValue> {
             .unwrap_throw()
             .dyn_into::<HtmlElement>()
             .unwrap_throw();
-        section.set_inner_html(r#"<div id="my_div"><p class="my_p">This is pre-existing text that will be hydrated</p></div>"#);
+        section.set_inner_html(r#"<div id="my_div"><p data-count="42" class="my_p">This is pre-existing text that will be hydrated</p></div>"#);
 
         body.append_child(&section).unwrap_throw();
     }
 
     // Now we'll attempt to hydrate a view from the pre-existing DOM and then
-    // update the inner text of the child `p` node.
-    let (tx, rx) = txrx_fold(0, |count: &mut u32, _: &()| -> String {
-        *count += 1;
-        if *count == 1 {
-            "Sent 1 message".into()
-        } else {
-            format!("Sent {} messages", *count)
-        }
-    });
-    {
-        let builder = builder! {
-            <div id="my_div">
-                <p class="my_p">{("blah", rx)}</p>
-            </div>
+    // update the view.
+
+    // We will need a channel to send view messages.
+    let (tx_view, rx_view) = broadcast::bounded::<u32>(1);
+    // Create a channel for getting the count state from the DOM after hydration.
+    let (tx_p, mut rx_p) = mpmc::bounded(1);
+    // Create a builder that matches the pre-existing DOM (this builder would be how we create it server-side).
+    let builder = builder! {
+        <div id="my_div">
+            <p
+             data-count=rx_view.clone().map(|n| format!("{}", n))
+             post:build=move |dom: &mut Dom| { tx_p.try_send(dom.clone()).unwrap() }
+             class="my_p">
+                 {("Waiting",
+                   rx_view.map(|n| if n == 1 {
+                       "Sent 1 message".to_string()
+                   } else {
+                       format!("Sent {} messages", n)
+                   })
+                 )}
+            </p>
+        </div>
+    };
+    // Create a channel for driving updates.
+    let (tx, mut rx) = broadcast::bounded::<()>(1);
+    let logic = async move {
+        // we can get the stored count from the DOM
+        let mut count = {
+            // first get the p tag
+            let dom: Dom = rx_p.next().await.unwrap();
+            let s = dom.get_attribute("data-count").unwrap().unwrap();
+            s.parse::<u32>().unwrap()
         };
-        let hydrator = Hydrator::from(builder);
-        let view = View::try_from(hydrator).unwrap();
-        view.forget().unwrap_throw();
+        loop {
+            match rx.next().await {
+                Some(()) => {
+                    count += 1;
+                    tx_view.broadcast(count).await.unwrap();
+                }
+                None => break,
+            }
+        }
+    };
+    let component = Component::from(builder).with_logic(logic);
+
+    {
+        let hydrator = Hydrator::try_from(component).unwrap();
+        let view = View::from(hydrator);
+        // Since this view is already attached, we don't have to `run` it.
+        // Instead we can convert it to its inner type to keep it from detaching
+        // on drop, and then forget about it.
+        let _ = view.into_inner();
     };
 
-    tx.send(&());
-    tx.send(&());
-    tx.send(&());
-    utils::timeout(3000, move || {
-        tx.send(&());
-        true
+    // Pump the hydrated widget a few times.
+    spawn(async move {
+        let mut times = 3;
+        while times > 0 {
+            tx.broadcast(()).await.unwrap();
+            times -= 1;
+        }
     });
+
+    // Since we hydrated the count as 42, then sent 3 more messages,
+    // the count should now be 45.
 
     Ok(())
 }

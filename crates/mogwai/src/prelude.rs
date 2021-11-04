@@ -3,11 +3,11 @@ pub use crate::{
     builder::*,
     channel::*,
     component::*,
-    futures::*,
+    futures::{self, *},
     model::*,
     patch::*,
     target::*,
-    utils::*,
+    utils,
     view::*,
 };
 pub use mogwai_html_macro::{builder, view};

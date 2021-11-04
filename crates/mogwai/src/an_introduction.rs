@@ -2,11 +2,19 @@
 //! An introduction to the minimal, obvious, graphical web application interface.
 //!
 //! # Welcome!
-//! Mogwai is a cute little library for building browser interfaces. It is
+//! Mogwai is a cute little library for building interfaces. It is
 //! cognitively small and runtime fast. It acheives these goals by doing very few
 //! things, but doing those things well.
 //!
 //! The following is a short introduction to the concepts of Mogwai.
+//!
+//! ## Channels
+//!
+//! Async channels are used for communication between views and logic. There are
+//! two types of channels bundled by Mogwai:
+//!
+//! - [`channel::mpmc::bounded`], exported from `async-channel`
+//! - [`channel::broadcast::`]
 //!
 //! ## Constructing DOM Nodes
 //!

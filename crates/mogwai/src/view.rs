@@ -1,13 +1,18 @@
 //! Wrapped views.
-use std::{convert::TryFrom, ops::{Deref, DerefMut}, pin::Pin, sync::{Arc, RwLock, RwLockReadGuard}};
+use std::{
+    convert::TryFrom,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+    sync::{Arc, RwLock, RwLockReadGuard},
+};
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Event;
 
 use crate::{
     builder::EventTargetType,
     patch::{HashPatch, ListPatch, ListPatchApply},
-    target::Sinking,
     ssr::SsrElement,
+    target::Sinking,
 };
 
 pub use futures::future::Either;
@@ -72,7 +77,7 @@ impl From<&View<Dom>> for String {
                 panic!("Dom reference {:#?} could not be turned into a string", val);
             }
             Either::Right(ssr) => {
-                let lock = ssr.node.lock().unwrap();
+                let lock = ssr.node.try_lock().unwrap();
                 String::from(lock.deref())
             }
         }
@@ -163,7 +168,9 @@ impl TryFrom<JsValue> for Dom {
 
     #[cfg(target_arch = "wasm32")]
     fn try_from(node: JsValue) -> Result<Self, Self::Error> {
-        Ok(Dom{ node: Arc::new(RwLock::new(node)) })
+        Ok(Dom {
+            node: Arc::new(RwLock::new(node)),
+        })
     }
     #[cfg(not(target_arch = "wasm32"))]
     fn try_from(node: JsValue) -> Result<Self, Self::Error> {
@@ -180,7 +187,7 @@ impl TryFrom<SsrElement<Event>> for Dom {
     }
     #[cfg(not(target_arch = "wasm32"))]
     fn try_from(node: SsrElement<Event>) -> Result<Self, Self::Error> {
-        Ok(Dom{ node })
+        Ok(Dom { node })
     }
 }
 
@@ -470,14 +477,31 @@ impl Dom {
     pub fn visit_as<T: JsCast, F, G>(&self, f: F, g: G)
     where
         F: FnOnce(&T),
-        G: FnOnce(&SsrElement<Event>)
+        G: FnOnce(&SsrElement<Event>),
     {
         match self.inner_read() {
             Either::Left(val) => {
                 let el: Option<&T> = val.dyn_ref::<T>();
                 el.map(f);
-            },
+            }
             Either::Right(ssr) => g(ssr),
+        }
+    }
+
+    /// Attempt to get an attribute value.
+    pub fn get_attribute(&self, key: &str) -> Result<Option<String>, String> {
+        match self.inner_read() {
+            Either::Left(val) => {
+                let el = val
+                    .dyn_ref::<web_sys::Element>()
+                    .ok_or_else(|| "not an Element".to_string())?;
+                if el.has_attribute(key) {
+                    Ok(el.get_attribute(key))
+                } else {
+                    Err("no such attribute".to_string())
+                }
+            }
+            Either::Right(ssr) => ssr.get_attrib(key),
         }
     }
 }

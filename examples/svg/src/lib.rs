@@ -34,7 +34,7 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     let view = View::try_from(my_circle())?;
 
     if let Some(id) = parent_id {
-        let parent = document()
+        let parent = utils::document()
             .get_element_by_id(&id)
             .unwrap();
         view.run_in_container(&parent)
