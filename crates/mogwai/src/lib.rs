@@ -312,6 +312,51 @@ pub mod futures {
         }
     }
 
+    /// Type for supporting contravariant filter-mapped sinks.
+    pub struct ContraFilterMap<S, X, Y> {
+        sink: S,
+        #[cfg(target_arch = "wasm32")]
+        map: Box<dyn Fn(X) -> Option<Y> + 'static>,
+
+        #[cfg(not(target_arch = "wasm32"))]
+        map: Box<dyn Fn(X) -> Option<Y> + Send + 'static>,
+    }
+
+    impl<S: Sink<Y> + Unpin, X, Y> Sink<X> for ContraFilterMap<S, X, Y> {
+        type Error = <S as Sink<Y>>::Error;
+
+        fn poll_ready(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut task::Context<'_>,
+        ) -> task::Poll<Result<(), Self::Error>> {
+            futures::ready!(self.get_mut().sink.poll_ready_unpin(cx))?;
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn start_send(self: std::pin::Pin<&mut Self>, item: X) -> Result<(), Self::Error> {
+            let data = self.get_mut();
+            if let Some(item) = (data.map)(item) {
+                data.sink.start_send_unpin(item)?;
+            }
+            Ok(())
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut task::Context<'_>,
+        ) -> task::Poll<Result<(), Self::Error>> {
+            futures::ready!(self.get_mut().sink.poll_flush_unpin(cx))?;
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut task::Context<'_>,
+        ) -> task::Poll<Result<(), Self::Error>> {
+            self.get_mut().sink.poll_close_unpin(cx)
+        }
+    }
+
     /// Contravariant functor extensions for types that implement [`Sink`].
     pub trait Contravariant<T>: Sink<T> + Sized {
         /// Extend this sink using a map function.
@@ -320,6 +365,17 @@ pub mod futures {
         /// but without async and without the option of failure.
         fn contra_map<S>(self, f: impl Fn(S) -> T + Sendable) -> ContraMap<Self, S, T> {
             ContraMap {
+                map: Box::new(f),
+                sink: self,
+            }
+        }
+
+        /// Extend this sink using a filtering map function.
+        ///
+        /// This composes the map function _in front of the sink_, much like [`SinkExt::with_flat_map`]
+        /// but without async and without the option of failure.
+        fn contra_filter_map<S>(self, f: impl Fn(S) -> Option<T> + Sendable) -> ContraFilterMap<Self, S, T> {
+            ContraFilterMap {
                 map: Box::new(f),
                 sink: self,
             }
