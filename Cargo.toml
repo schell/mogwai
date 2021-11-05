@@ -9,7 +9,7 @@ members = [
   "examples/nested-components",
   "examples/focus-follower",
   "examples/list-of-gizmos",
-  #"examples/multipage",
+  "examples/multipage",
   "examples/sandbox",
   "examples/spa-routing",
   "examples/svg",

@@ -3,6 +3,7 @@ mod routes;
 
 use crate::app::App;
 use mogwai::prelude::*;
+use mogwai_hydrator::Hydrator;
 use wasm_bindgen::prelude::*;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -18,16 +19,15 @@ pub enum Route {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn view<T>(path: T) -> String
+/// On the server we create our app's view using the an initial route
+/// and then we stringify the view.
+pub fn view<T>(path: T) -> Result<String, String>
 where
     T: AsRef<str>,
 {
     let initial_route: Route = path.into();
-    // Create our app's view by hydrating a gizmo from an initial state
-    let root: Gizmo<App> = App::gizmo(initial_route);
-    let builder = root.view_builder();
-    let view = View::from(builder);
-    view.html_string()
+    let view: View<Dom> = App::component(initial_route).build()?;
+    Ok(String::from(view))
 }
 
 #[wasm_bindgen(start)]
@@ -43,15 +43,13 @@ pub fn main() -> Result<(), JsValue> {
 
     let initial_route = Route::from(utils::window().location().pathname().unwrap_throw());
     // Create our app's view by hydrating a gizmo from an initial state
-    let root: Gizmo<App> = App::gizmo(initial_route);
+    let root: Component<Dom> = App::component(initial_route);
 
-    // Hand the app's view ownership to the window so it never
-    // goes out of scope
-    let hydrator = mogwai_hydrator::Hydrator::from(root.view_builder());
-    match View::try_from(hydrator) {
-        Ok(view) => view.run(),
-        Err(err) => Err(JsValue::from(err.to_string())),
-    }
+    // Hydrate the view and hand the app's view ownership to the window so it never
+    // goes out of scope.
+    let hydrator = Hydrator::try_from(root).map_err(|e| JsValue::from(format!("{}", e)))?;
+    let view = View::from(hydrator);
+    view.run()
 }
 
 mod route_dispatch {
@@ -100,8 +98,8 @@ impl<T: AsRef<str>> From<T> for Route {
     }
 }
 
-impl From<&Route> for ViewBuilder<HtmlElement> {
-    fn from(route: &Route) -> ViewBuilder<HtmlElement> {
+impl From<&Route> for ViewBuilder<Dom> {
+    fn from(route: &Route) -> ViewBuilder<Dom> {
         match route {
             Route::Home => routes::home(),
             Route::NotFound => routes::not_found(),
