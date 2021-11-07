@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use mogwai_html_macro::{builder, view};
-use mogwai::{builder::{DecomposedViewBuilder, ViewBuilder}, patch::HashPatch, view::{View, Dom}};
+use mogwai::{builder::{DecomposedViewBuilder, ViewBuilder}, channel::broadcast, patch::HashPatch, target::Streamable, view::{View, Dom}};
 
 #[test]
 fn node_self_closing() {
@@ -102,4 +102,61 @@ fn allow_attributes_on_next_line() {
         </div>
     }
     .into();
+}
+
+#[test]
+fn rsx_cookbook() {
+    let (_tx, rx) = broadcast::bounded::<String>(1);
+    let _ = signed_in_view_builder(&User{username: "oona".to_string(), o_image: None}, rx.clone(), rx.clone(), rx.clone(), rx);
+}
+
+struct User {
+    username: String,
+    o_image: Option<String>
+}
+
+fn signed_in_view_builder(
+    user: &User,
+    home_class: impl Streamable<String>,
+    editor_class: impl Streamable<String>,
+    settings_class: impl Streamable<String>,
+    profile_class: impl Streamable<String>,
+) -> ViewBuilder<Dom> {
+    let o_image: Option<ViewBuilder<Dom>> = user
+        .o_image
+        .as_ref()
+        .map(|image| {
+            if image.is_empty() {
+                None
+            } else {
+                Some(builder! { <img class="user-pic" src=image /> })
+            }
+        })
+        .flatten();
+
+    builder! {
+        <ul class="nav navbar-nav pull-xs-right">
+            <li class="nav-item">
+                <a class=home_class href="#/">" Home"</a>
+            </li>
+            <li class="nav-item">
+            <a class=editor_class href="#/editor">
+                <i class="ion-compose"></i>
+                " New Post"
+                </a>
+            </li>
+            <li class="nav-item">
+            <a class=settings_class href="#/settings">
+                <i class="ion-gear-a"></i>
+                " Settings"
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class=profile_class href=format!("#/profile/{}", user.username)>
+                    {o_image}
+                    {format!(" {}", user.username)}
+                </a>
+            </li>
+        </ul>
+    }
 }

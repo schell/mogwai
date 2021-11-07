@@ -1,5 +1,6 @@
 //! A low cost intermediate structure for creating views.
 use crate::{
+    component::{ElmComponent, Component},
     patch::{HashPatch, ListPatch},
     target::{PostBuild, Sendable, Sinkable, SinkingWith, Streamable, Streaming},
     view::{Dom, View},
@@ -90,6 +91,12 @@ impl<'a> From<&'a str> for MogwaiValue<'a, String, TextStream> {
     }
 }
 
+impl<'a> From<&String> for MogwaiValue<'a, String, TextStream> {
+    fn from(s: &String) -> Self {
+        MogwaiValue::Owned(s.into())
+    }
+}
+
 impl From<String> for MogwaiValue<'static, String, TextStream> {
     fn from(s: String) -> Self {
         MogwaiValue::Owned(s)
@@ -160,7 +167,76 @@ pub enum EventTargetType {
 }
 
 /// Child patching declaration.
-pub type ChildStream<T> = Pin<Box<Streaming<ListPatch<T>>>>;
+pub type ChildStream<T> = Pin<Box<Streaming<ListPatch<ViewBuilder<T>>>>>;
+
+/// An enumeration of types that can be appended as children to [`ViewBuilder`].
+pub enum AppendArg<T, St> {
+    /// A single static child.
+    Single(ViewBuilder<T>),
+    /// A collection of static children.
+    Iter(Vec<ViewBuilder<T>>),
+    /// A stream of child patches.
+    PatchStream(St),
+}
+
+impl<T: Sendable, St> From<St> for AppendArg<T, St>
+where
+    St: Streamable<ListPatch<ViewBuilder<T>>>
+{
+    fn from(patches: St) -> Self {
+        AppendArg::PatchStream(patches)
+    }
+}
+
+impl<T: Sendable, S> From<S> for AppendArg<T, ChildStream<T>>
+where
+    ViewBuilder<T>: From<S>
+{
+    fn from(s: S) -> Self {
+        AppendArg::Single(ViewBuilder::from(s))
+    }
+}
+
+impl<T: Sendable, S, L, V> From<ElmComponent<T, S, L, V>> for AppendArg<T, ChildStream<T>>
+where
+    View<T>: TryFrom<ViewBuilder<T>>,
+{
+    fn from(c: ElmComponent<T, S, L, V>) -> Self {
+        let c: Component<T> = c.into();
+        let v: ViewBuilder<T> = c.into();
+        AppendArg::Single(v)
+    }
+}
+
+impl<T> From<Vec<ViewBuilder<T>>> for AppendArg<T, ChildStream<T>> {
+    fn from(bldrs: Vec<ViewBuilder<T>>) -> Self {
+        AppendArg::Iter(bldrs)
+    }
+}
+
+impl<T: Sendable> From<&String> for AppendArg<T, ChildStream<T>> {
+    fn from(s: &String) -> Self {
+        AppendArg::Single(ViewBuilder::text(s.as_str()))
+    }
+}
+
+impl<T: Sendable> From<String> for AppendArg<T, ChildStream<T>> {
+    fn from(s: String) -> Self {
+        AppendArg::Single(ViewBuilder::text(s.as_str()))
+    }
+}
+
+impl<T: Sendable, St: Streamable<String>> From<(&str, St)> for AppendArg<T, ChildStream<T>> {
+    fn from(sst: (&str, St)) -> Self {
+        AppendArg::Single(ViewBuilder::text(sst))
+    }
+}
+
+impl<T: Sendable, St: Streamable<String>> From<(String, St)> for AppendArg<T, ChildStream<T>> {
+    fn from(sst: (String, St)) -> Self {
+        AppendArg::Single(ViewBuilder::text(sst))
+    }
+}
 
 /// The constituent values and streams of a [`ViewBuilder`].
 ///
@@ -192,7 +268,7 @@ pub struct DecomposedViewBuilder<T> {
     /// This view's child patch declarations.
     pub children: Vec<ListPatch<ViewBuilder<T>>>,
     /// This view's future child stream.
-    pub child_stream: ChildStream<ViewBuilder<T>>,
+    pub child_stream: ChildStream<T>,
     /// This view's post build operations.
     pub ops: Vec<Box<PostBuild<T>>>,
 }
@@ -214,7 +290,7 @@ pub struct ViewBuilder<T> {
     /// This view's style declarations.
     styles: Vec<StyleStream>,
     /// This view's child patch declarations.
-    patches: Vec<ChildStream<ViewBuilder<T>>>,
+    patches: Vec<ChildStream<T>>,
     /// This view's post build operations.
     ops: Vec<Box<PostBuild<T>>>,
 }
@@ -360,6 +436,33 @@ impl<T: Sendable> ViewBuilder<T> {
         self.with_child_stream(futures::stream::once(async move { ListPatch::Push(child) }))
     }
 
+    /// Add a list of children.
+    ///
+    /// This is a convenient short-hand for calling [`ViewBuilder::with_child_stream`] with
+    /// an iterator of children, right now - instead of a stream later.
+    pub fn with_children(self, children: impl Iterator<Item = ViewBuilder<T>>) -> Self {
+        let children = children.map(|child| ListPatch::Push(child)).collect::<Vec<_>>();
+        self.with_child_stream(futures::stream::iter(children))
+    }
+
+    /// Append a child or stream of children.
+    pub fn append<A, St>(self, children: A) -> Self
+    where
+        AppendArg<T, St>: From<A>,
+        St: Streamable<ListPatch<ViewBuilder<T>>>,
+    {
+        let arg = children.into();
+        match arg {
+            AppendArg::Single(bldr) => {
+                self.with_child_stream(futures::stream::iter(std::iter::once(ListPatch::push(bldr))))
+            }
+            AppendArg::Iter(bldrs) => {
+                self.with_child_stream(futures::stream::iter(bldrs.into_iter().map(ListPatch::push)))
+            }
+            AppendArg::PatchStream(stream) => self.with_child_stream(stream),
+        }
+    }
+
     /// Add an operation to perform after the view has been built.
     pub fn with_post_build<F>(mut self, run: F) -> Self
     where
@@ -393,30 +496,6 @@ impl ViewBuilder<Dom> {
         self.with_post_build(move |dom| {
             dom.set_event(EventTargetType::Document, &name, Box::pin(tx));
         })
-    }
-}
-
-impl<C: Sendable> From<&String> for ViewBuilder<C> {
-    fn from(s: &String) -> Self {
-        ViewBuilder::text(s.as_str())
-    }
-}
-
-impl<C: Sendable> From<String> for ViewBuilder<C> {
-    fn from(s: String) -> Self {
-        ViewBuilder::text(s.as_str())
-    }
-}
-
-impl<C: Sendable, St: Streamable<String>> From<(&str, St)> for ViewBuilder<C> {
-    fn from(sst: (&str, St)) -> Self {
-        ViewBuilder::text(sst)
-    }
-}
-
-impl<C: Sendable, St: Streamable<String>> From<(String, St)> for ViewBuilder<C> {
-    fn from(sst: (String, St)) -> Self {
-        ViewBuilder::text(sst)
     }
 }
 
@@ -521,7 +600,7 @@ pub fn set_streaming_values(
     attrib_stream: AttribStream,
     bool_attrib_stream: BooleanAttribStream,
     style_stream: StyleStream,
-    child_stream: ChildStream<ViewBuilder<Dom>>,
+    child_stream: ChildStream<Dom>,
 ) -> Result<(), String> {
     let text_stream: Pin<Box<Streaming<Result<String, String>>>> = Box::pin(text_stream.map(Ok));
     let text_sink: Pin<Box<SinkingWith<String, String>>> =

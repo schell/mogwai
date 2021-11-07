@@ -1,25 +1,13 @@
-[structviewbuilder]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/builder/struct.ViewBuilder.html
+[structviewbuilder]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/builder/struct.ViewBuilder.html
+[enummogwaivalue]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/builder/enum.MogwaiValue.html
 
-[structview]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/dom/struct.View.html
-
-[structgizmo]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/gizmo/struct.Gizmo.html
-[structgizmo_implfromt]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/gizmo/struct.Gizmo.html#impl-From%3CT%3E
+[structview]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/struct.View.html
+[structdom]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/struct.Dom.html
 
 [modulecomponent]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/index.html
-[traitcomponent]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/trait.Component.html
-[traitcomponent_methodupdate]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/trait.Component.html#tymethod.update
-[traitcomponent_methodview]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/trait.Component.html#tymethod.view
-[traitcomponent_atypemodelmsg]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/trait.Component.html#associatedtype.ModelMsg
-[traitcomponent_atypeviewmsg]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/trait.Component.html#associatedtype.ViewMsg
-[traitcomponent_atypedomnode]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/trait.Component.html#associatedtype.DomNode
+[structcomponent]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/struct.Component.html
 
-[structtransmitter]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/txrx/struct.Transmitter.html
+[enumlistpatch]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/patch/enum.ListPatch.html
+[enumhashpatch]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/patch/enum.HashPatch.html
 
-[structreceiver]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/txrx/struct.Receiver.html
-
-[structsubscriber]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/subscriber/struct.Subscriber.html
-[structsubscriber_methodsend_async]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/subscriber/struct.Subscriber.html#method.send_async
-
-[enumpatch]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/interface/enum.Patch.html
-
-[enumeffect]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/view/enum.Effect.html
+[traitcontravariant]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/futures/trait.Contravariant.html

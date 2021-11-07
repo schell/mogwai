@@ -10,6 +10,66 @@ use wasm_bindgen::prelude::*;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
+#[cfg(test)]
+mod test {
+    use mogwai::prelude::*;
+
+    #[test]
+    fn can_component_from_viewbuilder() {
+        let _comp = Component::from(builder! {
+            <div id="my_component">
+                <p>"Hello!"</p>
+            </div>
+        });
+    }
+
+    #[test]
+    fn can_component_logic() {
+        let (tx, rx) = broadcast::bounded::<u32>(1);
+        let comp = Component::from(builder! {
+            <div id="my_component">
+                <p>
+                    {("initial value", rx.map(|n| format!("got message: {}", n)))}
+                </p>
+            </div>
+        }).with_logic(async move {
+            tx.broadcast(1).await.unwrap();
+            tx.broadcast(42).await.unwrap();
+        });
+        let view: View<Dom> = comp.build().unwrap();
+        view.run().unwrap();
+    }
+
+    #[test]
+    fn can_more_component_logic() {
+        let (tx_logic, mut rx_logic) = broadcast::bounded::<()>(1);
+        let (tx_view, rx_view) = broadcast::bounded::<u32>(1);
+
+        let comp = Component::from(builder! {
+            <div id="my_component" on:click=tx_logic.sink().contra_map(|_| ())>
+                <p>
+                    {("initial value", rx_view.map(|n| format!("got clicks: {}", n)))}
+                </p>
+            </div>
+        }).with_logic(async move {
+            let mut clicks = 0;
+            tx_view.broadcast(clicks).await.unwrap();
+
+            loop {
+                match rx_logic.next().await {
+                    Some(()) => {
+                        clicks += 1;
+                        tx_view.broadcast(clicks).await.unwrap();
+                    }
+                    None => break,
+                }
+            }
+        });
+        let view: View<Dom> = comp.build().unwrap();
+        view.run().unwrap();
+    }
+}
+
 mod counter {
     use mogwai::prelude::{stream::select_all, *};
 

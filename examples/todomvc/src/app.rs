@@ -54,28 +54,27 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> (App, ViewBuilder<Dom>) {
+    pub fn new() -> (App, Component<Dom>) {
         let (tx_logic, rx_logic) = broadcast::bounded(1);
         let (tx_view, rx_view) = broadcast::bounded(1);
         let (tx_todo_input, rx_todo_input) = mpmc::bounded(1);
         let (tx_toggle_input, rx_toggle_input) = mpmc::bounded(1);
         let (tx_patch_items, rx_patch_items) = mpmc::bounded(1);
 
-        let view_builder = view(
+        let component = Component::from(view(
             tx_todo_input,
             tx_toggle_input,
             tx_logic.clone(),
             rx_view,
             rx_patch_items,
-        );
-        spawn(logic(
+        )).with_logic(logic(
             rx_logic,
             rx_todo_input,
             rx_toggle_input,
             tx_view,
             tx_patch_items,
         ));
-        (App { tx_logic }, view_builder)
+        (App { tx_logic }, component)
     }
 
     pub async fn add_item(&self, item: Item) {
@@ -93,18 +92,6 @@ impl App {
             .unwrap();
         rx.recv().await.unwrap();
     }
-    //
-    //    fn items(&self) -> Vec<Item> {
-    //        self.todos
-    //            .iter()
-    //            .map(|component| {
-    //                component.with_state(|todo| Item {
-    //                    title: todo.name.clone(),
-    //                    completed: todo.is_done,
-    //                })
-    //            })
-    //            .collect()
-    //    }
 }
 
 fn filter_selected(msg: AppView, show: FilterShow) -> Option<String> {

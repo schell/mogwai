@@ -107,13 +107,18 @@ impl View<Dom> {
             let _ = container.append_child(&node);
             Ok(())
         } else {
-            Err("running gizmos is only supported on wasm".into())
+            Err("running views attached to the document is only supported on wasm".into())
         }
     }
 
     /// Run this gizmo in the document body forever, never dropping it.
     pub fn run(self) -> Result<(), JsValue> {
-        self.run_in_container(&crate::utils::body())
+        if cfg!(target_arch = "wasm32") {
+            self.run_in_container(&crate::utils::body())
+        } else {
+            let _dom = self.into_inner();
+            Ok(())
+        }
     }
 }
 

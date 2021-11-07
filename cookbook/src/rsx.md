@@ -2,22 +2,22 @@
 
 Consider this variable declaration:
 
-```rust
+```rust, no_run
 # use mogwai::prelude::*;
 let element = builder!{ <h1>"Hello, world!"</h1> };
 ```
 
-This funny tag syntax is neither a string nor HTML - it is a `ViewBuilder<HtmlElement>`.
+This funny tag syntax is neither a string nor HTML - it is a [`ViewBuilder<Dom>`][structviewbuilder].
 
 The macro `builder!` is using RSX, which is a "**R**ust **S**yntax E**x**tension".
-Similarly there is a `view!` macro that creates `View<HtmlElement>`.
+Similarly there is a `view!` macro that creates [`View<Dom>`][structview].
 
-```rust
+```rust, no_run
 # use mogwai::prelude::*;
-let my_builder: ViewBuilder<HtmlElement> = builder!{ <h1>"Hello, world!"</h1> };
-let my_view: View<HtmlElement> = view!{ <h1>"Hello, world!"</h1> };
+let my_builder: ViewBuilder<Dom> = builder!{ <h1>"Hello, world!"</h1> };
+let my_view: View<dom> = view!{ <h1>"Hello, world!"</h1> };
 
-let my_identical_view: View<HtmlElement> = View::from(my_builder);
+let my_identical_view: View<Dom> = View::try_from(my_builder).unwrap();
 ```
 
 We recommend using these macros in mogwai to describe the DOM nodes used by your
@@ -25,10 +25,19 @@ components.
 RSX cuts down on the amount of boilerplate you have to type when writing components.
 RSX may remind you of a template language, but it comes with the full power of Rust.
 
-## Tags
-You may use any tags you wish when writing RSX.
+You can always write your components without RSX - here is the same example above
+written out manually:
 
-```html
+```rust, no_run
+#use mogwai::prelude::*;
+let my_builder: ViewBuilder<Dom> = ViewBuilder::element("h1")
+    .with_child(ViewBuilder::text("Hello, world!");
+```
+
+## Tags
+You may use any html tags you wish when writing RSX.
+
+```rust, no_run
 # use mogwai::prelude::*;
 builder! {
     <p>"Once upon a time in a galaxy far, far away..."</p>
@@ -36,7 +45,7 @@ builder! {
 ```
 ## Attributes
 Adding attributes happens the way you expect it to.
-```html
+```rust, no_run
 # use mogwai::prelude::*;
 builder! {
     <p id="starwars">"Once upon a time in a galaxy far, far away..."</p>
@@ -45,11 +54,14 @@ builder! {
 All html attributes are supported.
 
 ### Special Mogwai Attributes
-Additionally there are some `mogwai` specific
-attributes that do special things. These are all denoted by two words separated by
-a colon.
+Additionally there are some `mogwai` specific attributes that do special things.
+These are all denoted by two words separated by
+a colon, with an expression on the right hand side. In most cases the right hand
+side is allowed to be a `String`, an `&str`, an `impl Stream<Item = String>` or a
+tuple of a stringy type and a string stream. See [MogwaiValue][enummogwaivalue]
+for more details about types that can be turned into streams.
 
-- **style:{name}** `= {expr: Into<Effect<String>>}`
+- **style:{name}** = `impl Into<MogwaiValue<'a, String or &'a str, Stream<Item = String>>`
 
   Declares a single style.
   ```rust,no_run
@@ -59,41 +71,43 @@ a colon.
   };
   ```
 
-- **on:{event}** `= {tx: &Transmitter<Event>}`
+- **on:{event}** = `impl Sink<Event>`
 
-  Declares that the element's matching events should be sent on the given transmitter.
+  Declares that the events of a certain type (`event`) occurring on the element should
+  be sent on the given sender. Since `web_sys::Event` is `!Send` and `!Sync` you will
+  often see the use of [Contravariant][traitcontravariant] in this position, which
+  allows passing around a channel that is `Send`.
   ```rust,no_run
   # use mogwai::prelude::*;
-  let (tx, _rx) = txrx::<()>();
+  let (tx, _rx) = broadcast::bounded::<()>(1);
   let _ = builder! {
-      <div on:click=tx.contra_map(|_:&Event| ())>"Click me!"</div>
+      <div on:click=tx.sink().contra_map(|_:Event| ())>"Click me!"</div>
   };
   ```
 
-- **window:{event}** = `= {tx: &Transmitter<Event>}`
+- **window:{event}** = `impl Sink<Event>`
 
-  Declares that the windows's matching events should be sent on the given transmitter.
+  Declares that the windows's matching events should be sent on the given sender.
   ```rust,no_run
   # use mogwai::prelude::*;
-  let (tx, rx) = txrx::<()>();
+  let (tx, rx) = broadcast::bounded::<()>(1);
   let _ = builder! {
-      <div window:load=tx.contra_map(|_:&Event| ())>{rx.branch_map(|_:&()| "Loaded!".to_string())}</div>
+      <div window:load=tx.sink().contra_map(|_:Event| ())>{rx.map(|()| "Loaded!".to_string())}</div>
   };
   ```
 
-
-- **document:{event}** = `= {tx: &Transmitter<Event>}`
+- **document:{event}** = `impl Sink<Event>`
 
   Declares that the document's matching events should be sent on the given transmitter.
   ```rust,no_run
   # use mogwai::prelude::*;
-  let (tx, rx) = txrx::<Event>();
+  let (tx, rx) = broadcast::bounded::<Event>(1);
   let _ = builder! {
       <div document:keyup=tx>{rx.branch_map(|ev| format!("{:#?}", ev))}</div>
   };
   ```
 
-- **boolean:{name}** `= {expr: Into<Effect<bool>}`
+- **boolean:{name}** = `impl Into<MogwaiValue<'a, bool, Stream<Item = bool>>`
 
   Declares a boolean attribute with the given name.
   ```rust,no_run
@@ -103,72 +117,42 @@ a colon.
   };
   ```
 
-- **patch:children** `= {expr: Receiver<Patch<View<_>>>}`
+- **patch:children** = `impl Stream<ListPatch<ViewBuilder<Dom>>>`
 
-  Declares that this element's children will be updated with [Patch][enumpatch] messages received on
-  the given [Receiver][structreceiver].
+  Declares that this element's children will be updated with a stream of [ListPatch][enumlistpatch].
+  #### Note
+  [ViewBuilder][structviewbuilder] is not `Clone`. For this reason we cannot use `mogwai::channel::broadcast::{Sender, Receiver}`
+  channels to send patches, because a broadcast channel requires its messages to be `Clone`. Instead use
+  `mogwai::channel::mpmc::{Sender, Receiver}` channels, which have no such requirement. Just remember that even though
+  the channels are technically "multi-producer and multi-consumer", if a `mpmc::Sender` has more than one `mpmc::Receiver`
+  listening, only one will receive the message and the winning `Receiver` seems to alternate in round-robin style. So you
+  are advised to use the `mpmc` channel as a "multi-producer, _single_ consumer" alternative to the broadcast channel.
   ```rust
   # use mogwai::prelude::*;
-  let (tx, rx) = txrx();
+  let (tx, rx) = mpmc::bounded(1);
   let my_view = view! {
       <div id="main" patch:children=rx>"Waiting for a patch message..."</div>
   };
-  tx.send(&Patch::RemoveAll);
+  tx.try_send(ListPatch::drain()).unwrap();
 
-  let other_view = view! {
+  let other_viewbuilder = builder! {
       <h1>"Hello!"</h1>
   };
-  tx.send(&Patch::PushBack { value: other_view });
+  tx.try_send(ListPatch::push(other_viewbuilder)).unwrap();
 
-  assert_eq!(my_view.html_string(), r#"<div id="main"><h1>Hello!</h1></div>"#);
+  assert_eq!(String::from(my_view), r#"<div id="main"><h1>Hello!</h1></div>"#);
   ```
 
-- **cast:type** `= web_sys::{type}`
+- **cast:type** = Any domain specific inner view type, eg `Dom`
 
-  Declares that this element's underlying [DomNode][traitcomponent_atypedomnode] is the given type.
+  Declares the inner type of the resulting [ViewBuilder][structviewbuilder]. By default this is
+  [Dom][structdom].
   ```rust,no_run
   # use mogwai::prelude::*;
-  let my_input: ViewBuilder<web_sys::HtmlInputElement> = builder! {
-        <input cast:type=web_sys::HtmlInputElement />
+  let my_input: ViewBuilder<MyCustomInnerView> = builder! {
+        <input cast:type=MyCustomInnerView />
   };
   ```
-
-## Transmitters, Receivers and Effects
-[Transmitter][structtransmitter]s and [Receiver][structreceiver]s are the key to reactivity in
-`mogwai`.
-
-### Transmitters
-
-[Transmitter][structtransmitter]s are given to a [View][structview] so that [View][structview]
-can transmit DOM events out to any [Receiver][structreceiver]s. In most cases the
-[Receiver][structreceiver] will be wired to the [Component::update][traitcomponent_methodupdate]
-function. In turn, this function can send messages back out to that same [View][structview]'s
-[Receiver][structreceiver]s.
-
-### Receivers
-
-[Receiver][structreceiver]s are responsible for the majority of DOM updates. It's possible to
-patch the DOM by hand in the [Component::update][traitcomponent_methodupdate] function but in
-most cases it's not necessary. [Receiver][structreceiver]s can be used as attribute values and
-child nodes. When a message is received, that attribute will update its value, or that child node
-will be replaced with the new message value.
-
-### Effects
-An [Effect][enumeffect] is either a value now or some values later, or both. We can declare
-text nodes and attributes to have a value now and some values later using anything that can
-be converted into an [Effect][enumeffect]. In most cases we'll use a tuple:
-```rust,no_run
-# use mogwai::prelude::*;
-let (tx, rx_later) = txrx();
-let _ = builder! {
-    <div>
-      <p>{("Value now!", rx_later.clone())}</p>
-      <p>{"Only a value now!"}</p>
-      <p>{rx_later}</p>
-    </div>
-};
-tx.send(&"Value later".to_string());
-```
 
 ## Expressions
 Rust expressions can be used as the values of attributes and as child nodes.
@@ -188,191 +172,100 @@ let _ = builder! {
 };
 ```
 
-## Casting the inner DOM element
-You can cast the inner DOM element of a `View` or `ViewBuilder` using the special attribute `cast:type`:
-
-```rust
-use mogwai::prelude::*;
-use web_sys::HtmlInputElement;
-
-let name_input: View<HtmlInputElement> = view! {
-    <input type="text" placeholder="Your Name" cast:type=web_sys::HtmlInputElement />
-};
-```
-
-Without this explicit casting all DOM nodes assume the type `HtmlElement`;
-
 ## Conditionally include DOM
 
+Within a tag or at the top level of an RSX macro, anything inside literal brackets is interpreted and used
+as `Into<ViewBuilder<T>>`. Any type that can be converted into a [ViewBuilder][structviewbuilder]
+can be used to construct a node including `Option<impl Into<ViewBuilder<T>>`. When the value is `None`,
+an empty node is created.
+
+Below we display a user's image if they have one:
+
 ```rust
-use mogwai::prelude::*;
-
-struct User {
-    username: String,
-    o_image: Option<String>
-}
-
-fn signed_in_view_builder(
-    user: &User,
-    home_class: Effect<String>,
-    editor_class: Effect<String>,
-    settings_class: Effect<String>,
-    profile_class: Effect<String>,
-) -> ViewBuilder<HtmlElement> {
-    let o_image: Option<ViewBuilder<HtmlElement>> = user
-        .o_image
-        .as_ref()
-        .map(|image| {
-            if image.is_empty() {
-                None
-            } else {
-                Some(builder! { <img class="user-pic" src=image /> })
-            }
-        })
-        .flatten();
-
-    builder! {
-        <ul class="nav navbar-nav pull-xs-right">
-            <li class="nav-item">
-                <a class=home_class href="#/">" Home"</a>
-            </li>
-            <li class="nav-item">
-            <a class=editor_class href="#/editor">
-                <i class="ion-compose"></i>
-                " New Post"
-                </a>
-            </li>
-            <li class="nav-item">
-            <a class=settings_class href="#/settings">
-                <i class="ion-gear-a"></i>
-                " Settings"
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class=profile_class href=format!("#/profile/{}", user.username)>
-                    {o_image}
-                    {format!(" {}", user.username)}
-                </a>
-            </li>
-        </ul>
-    }
-}
+{{#include ../../crates/mogwai-html-macro/tests/integration_test.rs:113:162}}
 ```
 
 ## Without RSX
 
+It is possible and easy to create mogwai views without RSX by using the
+API provided by [ViewBuilder][structviewbuilder].
+
 Here is the definition of `signed_in_user` above, written without RSX:
 
-```rust
-use mogwai::prelude::*;
-
-struct User {
-    username: String,
-    o_image: Option<String>
-}
-
+```rust, no_run
 fn signed_in_view_builder(
     user: &User,
-    home_class: Effect<String>,
-    editor_class: Effect<String>,
-    settings_class: Effect<String>,
-    profile_class: Effect<String>,
-) -> ViewBuilder<HtmlElement> {
-    let o_image: Option<ViewBuilder<HtmlElement>> = user
+    home_class: impl Streamable<String>,
+    editor_class: impl Streamable<String>,
+    settings_class: impl Streamable<String>,
+    profile_class: impl Streamable<String>,
+) -> ViewBuilder<Dom> {
+    let o_image: Option<ViewBuilder<Dom>> = user
         .o_image
         .as_ref()
         .map(|image| {
             if image.is_empty() {
                 None
             } else {
-                Some({
-                    let mut __mogwai_node = (ViewBuilder::element("img")
-                        as ViewBuilder<web_sys::HtmlElement>);
-                    __mogwai_node.attribute("class", "user-pic");
-                    __mogwai_node.attribute("src", image);
-                    __mogwai_node
-                })
+                Some(
+                    mogwai::builder::ViewBuilder::element("img")
+                        .with_single_attrib_stream("class", "user-pic")
+                        .with_single_attrib_stream("src", image)
+                )
             }
         })
         .flatten();
-    {
-        let mut __mogwai_node = (ViewBuilder::element("ul")
-            as ViewBuilder<web_sys::HtmlElement>);
-        __mogwai_node.attribute("class", "nav navbar-nav pull-xs-right");
-        __mogwai_node.with({
-            let mut __mogwai_node = (ViewBuilder::element("li")
-                as ViewBuilder<web_sys::HtmlElement>);
-            __mogwai_node.attribute("class", "nav-item");
-            __mogwai_node.with({
-                let mut __mogwai_node = (ViewBuilder::element("a")
-                    as ViewBuilder<web_sys::HtmlElement>);
-                __mogwai_node.attribute("class", home_class);
-                __mogwai_node.attribute("href", "#/");
-                __mogwai_node.with(ViewBuilder::from(" Home"));
-                __mogwai_node
-            });
-            __mogwai_node
-        });
-        __mogwai_node.with({
-            let mut __mogwai_node = (ViewBuilder::element("li")
-                as ViewBuilder<web_sys::HtmlElement>);
-            __mogwai_node.attribute("class", "nav-item");
-            __mogwai_node.with({
-                let mut __mogwai_node = (ViewBuilder::element("a")
-                    as ViewBuilder<web_sys::HtmlElement>);
-                __mogwai_node.attribute("class", editor_class);
-                __mogwai_node.attribute("href", "#/editor");
-                __mogwai_node.with({
-                    let mut __mogwai_node = (ViewBuilder::element("i")
-                        as ViewBuilder<web_sys::HtmlElement>);
-                    __mogwai_node.attribute("class", "ion-compose");
-                    __mogwai_node
-                });
-                __mogwai_node.with(ViewBuilder::from(" New Post"));
-                __mogwai_node
-            });
-            __mogwai_node
-        });
-        __mogwai_node.with({
-            let mut __mogwai_node = (ViewBuilder::element("li")
-                as ViewBuilder<web_sys::HtmlElement>);
-            __mogwai_node.attribute("class", "nav-item");
-            __mogwai_node.with({
-                let mut __mogwai_node = (ViewBuilder::element("a")
-                    as ViewBuilder<web_sys::HtmlElement>);
-                __mogwai_node.attribute("class", settings_class);
-                __mogwai_node.attribute("href", "#/settings");
-                __mogwai_node.with({
-                    let mut __mogwai_node = (ViewBuilder::element("i")
-                        as ViewBuilder<web_sys::HtmlElement>);
-                    __mogwai_node.attribute("class", "ion-gear-a");
-                    __mogwai_node
-                });
-                __mogwai_node.with(ViewBuilder::from(" Settings"));
-                __mogwai_node
-            });
-            __mogwai_node
-        });
-        __mogwai_node.with({
-            let mut __mogwai_node = (ViewBuilder::element("li")
-                as ViewBuilder<web_sys::HtmlElement>);
-            __mogwai_node.attribute("class", "nav-item");
-            __mogwai_node.with({
-                let mut __mogwai_node = (ViewBuilder::element("a")
-                    as ViewBuilder<web_sys::HtmlElement>);
-                __mogwai_node.attribute("class", profile_class);
-                __mogwai_node.attribute("href", format!("#/profile/{}", user.username));
-                __mogwai_node.with(ViewBuilder::try_from({ o_image }).ok());
-                __mogwai_node.with(
-                    ViewBuilder::try_from(format!(" {}", user.username))
-                    .ok(),
-                );
-                __mogwai_node
-            });
-            __mogwai_node
-        });
-        __mogwai_node
-    }
+    mogwai::builder::ViewBuilder::element("ul")
+        .with_single_attrib_stream("class", "nav navbar-nav pull-xs-right")
+        .with_child(
+            mogwai::builder::ViewBuilder::element("li")
+                .with_single_attrib_stream("class", "nav-item")
+                .with_child(
+                    mogwai::builder::ViewBuilder::element("a")
+                        .with_single_attrib_stream("class", home_class)
+                        .with_single_attrib_stream("href", "#/")
+                        .with_child(mogwai::builder::ViewBuilder::text(" Home"))
+                ),
+        )
+        .with_child(
+            mogwai::builder::ViewBuilder::element("li")
+                .with_single_attrib_stream("class", "nav-item")
+                .with_child(
+                    mogwai::builder::ViewBuilder::element("a")
+                        .with_single_attrib_stream("class", editor_class)
+                        .with_single_attrib_stream("href", "#/editor")
+                        .with_child(
+                            mogwai::builder::ViewBuilder::element("i")
+                                .with_single_attrib_stream("class", "ion-compose")
+                        )
+                        .with_child(mogwai::builder::ViewBuilder::text(" New Post"))
+                ),
+        )
+        .with_child(
+            mogwai::builder::ViewBuilder::element("li")
+                .with_single_attrib_stream("class", "nav-item")
+                .with_child(
+                    mogwai::builder::ViewBuilder::element("a")
+                        .with_single_attrib_stream("class", settings_class)
+                        .with_single_attrib_stream("href", "#/settings")
+                        .with_child(
+                            mogwai::builder::ViewBuilder::element("i")
+                                .with_single_attrib_stream("class", "ion-gear-a"),
+                        )
+                        .with_child(mogwai::builder::ViewBuilder::text(" Settings"))
+                ),
+        )
+        .with_child(
+            mogwai::builder::ViewBuilder::element("li")
+                .with_single_attrib_stream("class", "nav-item")
+                .with_child(
+                    mogwai::builder::ViewBuilder::element("a")
+                        .with_single_attrib_stream("class", profile_class)
+                        .with_single_attrib_stream("href", format!("#/profile/{}", user.username))
+                        .with_child(mogwai::builder::ViewBuilder::from(o_image))
+                        .with_child(mogwai::builder::ViewBuilder::from(format!(" {}", user.username))),
+                ),
+        )
 }
 ```
 

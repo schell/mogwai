@@ -13,7 +13,7 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
     if let Some(key) = node.name_as_string() {
         if let Some(expr) = node.value {
             match key.split(':').collect::<Vec<_>>().as_slice() {
-                ["cast", "type"] => Ok(quote! {}),
+                ["cast", "type"] => Ok(quote! {}), // handled by a preprocessor
                 ["post", "build"] => Ok(quote! {
                     .with_post_build(#expr)
                 }),
@@ -130,7 +130,7 @@ where
                 let (child_tokens, child_errs) = partition_unzip(node.children, node_fn);
                 let child_tokens = child_tokens.into_iter().map(|child| {
                     quote! {
-                            .with_child(#child)
+                            .append(#child)
                     }
                 });
                 errs.extend(child_errs);
@@ -163,10 +163,8 @@ where
         NodeType::Block => {
             if let Some(value) = node.value {
                 Ok(quote! {
-                    mogwai::builder::ViewBuilder::from(
-                        #[allow(unused_braces)]
-                        #value
-                    )
+                    #[allow(unused_braces)]
+                    #value
                 })
             } else {
                 Err(Error::new(

@@ -61,6 +61,11 @@ impl<T> ListPatch<T> {
         ListPatch::Pop
     }
 
+    /// Construct a ListPatch that drains/removes the entire list.
+    pub fn drain() -> Self {
+        ListPatch::splice(.., std::iter::empty())
+    }
+
     /// Map the patch from `T` to `X`
     pub fn map<F, X>(self, f: F) -> ListPatch<X>
     where

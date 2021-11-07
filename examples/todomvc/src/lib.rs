@@ -1,5 +1,5 @@
 use mogwai::prelude::*;
-use std::{convert::TryInto, panic};
+use std::panic;
 use wasm_bindgen::prelude::*;
 
 mod store;
@@ -26,8 +26,8 @@ pub fn main() -> Result<(), JsValue> {
     }
 
     spawn(async {
-        let (app, view_builder) = App::new();
-        let view: View<Dom> = view_builder.try_into().unwrap();
+        let (app, component) = App::new();
+        let view: View<Dom> = component.build().unwrap();
         view.run().unwrap();
 
         // Get the any items stored from a previous visit and add them
