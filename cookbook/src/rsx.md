@@ -147,7 +147,7 @@ for more details about types that can be turned into streams.
 
   Declares the inner type of the resulting [ViewBuilder][structviewbuilder]. By default this is
   [Dom][structdom].
-  ```rust,no_run
+  ```rust,ignore
   # use mogwai::prelude::*;
   let my_input: ViewBuilder<MyCustomInnerView> = builder! {
         <input cast:type=MyCustomInnerView />

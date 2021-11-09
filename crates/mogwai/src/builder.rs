@@ -1,6 +1,6 @@
 //! A low cost intermediate structure for creating views.
 use crate::{
-    component::{ElmComponent, Component},
+    component::{Component, ElmComponent},
     patch::{HashPatch, ListPatch},
     target::{PostBuild, Sendable, Sinkable, SinkingWith, Streamable, Streaming},
     view::{Dom, View},
@@ -72,71 +72,65 @@ pub type ValueStream<T> = Pin<Box<Streaming<T>>>;
 pub type TextStream = Pin<Box<Streaming<String>>>;
 
 /// An enumeration of string-like values that [`ViewBuilder`]s accept.
-pub enum MogwaiValue<'a, S, St> {
-    /// A reference to a string.
-    Ref(&'a S),
+pub enum MogwaiValue<S, St> {
     /// An owned string.
     Owned(S),
     /// A stream of values.
     Stream(St),
     /// An owned value and a stream of values.
     OwnedAndStream(S, St),
-    /// A reference to a value and a stream of values.
-    RefAndStream(&'a S, St),
 }
 
-impl<'a> From<&'a str> for MogwaiValue<'a, String, TextStream> {
+impl From<bool> for MogwaiValue<bool, BoolStream> {
+    fn from(b: bool) -> Self {
+        MogwaiValue::Owned(b)
+    }
+}
+
+impl<'a> From<&'a str> for MogwaiValue<String, TextStream> {
     fn from(s: &'a str) -> Self {
         MogwaiValue::Owned(s.into())
     }
 }
 
-impl<'a> From<&String> for MogwaiValue<'a, String, TextStream> {
+impl From<&String> for MogwaiValue<String, TextStream> {
     fn from(s: &String) -> Self {
         MogwaiValue::Owned(s.into())
     }
 }
 
-impl From<String> for MogwaiValue<'static, String, TextStream> {
+impl From<String> for MogwaiValue<String, TextStream> {
     fn from(s: String) -> Self {
         MogwaiValue::Owned(s)
     }
 }
 
-impl<S: Sendable, St: Streamable<S>> From<St> for MogwaiValue<'static, S, St> {
+impl<S: Sendable, St: Streamable<S>> From<St> for MogwaiValue<S, St> {
     fn from(s: St) -> Self {
         MogwaiValue::Stream(s)
     }
 }
 
-impl<S: Sendable, St: Streamable<S>> From<(S, St)> for MogwaiValue<'static, S, St> {
+impl<S: Sendable, St: Streamable<S>> From<(S, St)> for MogwaiValue<S, St> {
     fn from(s: (S, St)) -> Self {
         MogwaiValue::OwnedAndStream(s.0, s.1)
     }
 }
 
-impl<'a, St: Streamable<String>> From<(&'a str, St)> for MogwaiValue<'a, String, St> {
+impl<'a, St: Streamable<String>> From<(&'a str, St)> for MogwaiValue<String, St> {
     fn from(s: (&'a str, St)) -> Self {
         MogwaiValue::OwnedAndStream(s.0.to_string(), s.1)
     }
 }
 
-impl<'a, S: Clone + Sendable, St: Streamable<S>> From<MogwaiValue<'a, S, St>>
+impl<'a, S: Clone + Sendable, St: Streamable<S>> From<MogwaiValue<S, St>>
     for Pin<Box<Streaming<S>>>
 {
-    fn from(v: MogwaiValue<'a, S, St>) -> Self {
+    fn from(v: MogwaiValue<S, St>) -> Self {
         match v {
-            MogwaiValue::Ref(s) => {
-                let s = s.clone();
-                Box::pin(futures::stream::once(async move { s }))
-            }
             MogwaiValue::Owned(s) => Box::pin(futures::stream::once(async move { s })),
             MogwaiValue::Stream(s) => Box::pin(s),
             MogwaiValue::OwnedAndStream(s, st) => {
-                Box::pin(futures::stream::once(async move { s }).chain(st))
-            }
-            MogwaiValue::RefAndStream(s, st) => {
-                let s = s.clone();
                 Box::pin(futures::stream::once(async move { s }).chain(st))
             }
         }
@@ -170,34 +164,23 @@ pub enum EventTargetType {
 pub type ChildStream<T> = Pin<Box<Streaming<ListPatch<ViewBuilder<T>>>>>;
 
 /// An enumeration of types that can be appended as children to [`ViewBuilder`].
-pub enum AppendArg<T, St> {
+pub enum AppendArg<T> {
     /// A single static child.
     Single(ViewBuilder<T>),
     /// A collection of static children.
     Iter(Vec<ViewBuilder<T>>),
-    /// A stream of child patches.
-    PatchStream(St),
 }
 
-impl<T: Sendable, St> From<St> for AppendArg<T, St>
+impl<T: Sendable, S> From<S> for AppendArg<T>
 where
-    St: Streamable<ListPatch<ViewBuilder<T>>>
-{
-    fn from(patches: St) -> Self {
-        AppendArg::PatchStream(patches)
-    }
-}
-
-impl<T: Sendable, S> From<S> for AppendArg<T, ChildStream<T>>
-where
-    ViewBuilder<T>: From<S>
+    ViewBuilder<T>: From<S>,
 {
     fn from(s: S) -> Self {
         AppendArg::Single(ViewBuilder::from(s))
     }
 }
 
-impl<T: Sendable, S, L, V> From<ElmComponent<T, S, L, V>> for AppendArg<T, ChildStream<T>>
+impl<T: Sendable, S, L, V> From<ElmComponent<T, S, L, V>> for AppendArg<T>
 where
     View<T>: TryFrom<ViewBuilder<T>>,
 {
@@ -208,33 +191,42 @@ where
     }
 }
 
-impl<T> From<Vec<ViewBuilder<T>>> for AppendArg<T, ChildStream<T>> {
-    fn from(bldrs: Vec<ViewBuilder<T>>) -> Self {
-        AppendArg::Iter(bldrs)
+impl<T, V> From<Vec<V>> for AppendArg<T>
+where
+    ViewBuilder<T>: From<V>,
+{
+    fn from(bldrs: Vec<V>) -> Self {
+        AppendArg::Iter(bldrs.into_iter().map(ViewBuilder::from).collect())
     }
 }
 
-impl<T: Sendable> From<&String> for AppendArg<T, ChildStream<T>> {
+impl<T: Sendable> From<&String> for AppendArg<T> {
     fn from(s: &String) -> Self {
         AppendArg::Single(ViewBuilder::text(s.as_str()))
     }
 }
 
-impl<T: Sendable> From<String> for AppendArg<T, ChildStream<T>> {
+impl<T: Sendable> From<String> for AppendArg<T> {
     fn from(s: String) -> Self {
         AppendArg::Single(ViewBuilder::text(s.as_str()))
     }
 }
 
-impl<T: Sendable, St: Streamable<String>> From<(&str, St)> for AppendArg<T, ChildStream<T>> {
+impl<T: Sendable, St: Streamable<String>> From<(&str, St)> for AppendArg<T> {
     fn from(sst: (&str, St)) -> Self {
         AppendArg::Single(ViewBuilder::text(sst))
     }
 }
 
-impl<T: Sendable, St: Streamable<String>> From<(String, St)> for AppendArg<T, ChildStream<T>> {
+impl<T: Sendable, St: Streamable<String>> From<(String, St)> for AppendArg<T> {
     fn from(sst: (String, St)) -> Self {
         AppendArg::Single(ViewBuilder::text(sst))
+    }
+}
+
+impl<T: Sendable, St: Streamable<String>> From<St> for AppendArg<T> {
+    fn from(_: St) -> Self {
+        todo!()
     }
 }
 
@@ -313,7 +305,7 @@ impl<T: Sendable> ViewBuilder<T> {
     /// Create a new text builder.
     pub fn text<'a, Mv, St>(mv: Mv) -> Self
     where
-        MogwaiValue<'a, String, St>: From<Mv>,
+        MogwaiValue<String, St>: From<Mv>,
         St: Streamable<String>,
     {
         ViewBuilder::element("").with_text_stream(mv)
@@ -328,10 +320,10 @@ impl<T: Sendable> ViewBuilder<T> {
     /// Add a stream to set the text of this builder.
     pub fn with_text_stream<'a, Mv, St>(mut self, mv: Mv) -> Self
     where
-        MogwaiValue<'a, String, St>: From<Mv>,
+        MogwaiValue<String, St>: From<Mv>,
         St: Streamable<String>,
     {
-        let s: MogwaiValue<'a, String, St> = mv.into();
+        let s: MogwaiValue<String, St> = mv.into();
         let t: Pin<Box<Streaming<String>>> = s.into();
         self.texts.push(t);
         self
@@ -350,11 +342,11 @@ impl<T: Sendable> ViewBuilder<T> {
     pub fn with_single_attrib_stream<'a, S, Mv, St>(mut self, s: S, mv: Mv) -> Self
     where
         S: Into<String>,
-        MogwaiValue<'a, String, St>: From<Mv>,
+        MogwaiValue<String, St>: From<Mv>,
         St: Streamable<String>,
     {
         let k = s.into();
-        let s: MogwaiValue<'a, String, St> = mv.into();
+        let s: MogwaiValue<String, St> = mv.into();
         let t: TextStream = s.into();
         let t = t.map(move |v| HashPatch::Insert(k.clone(), v));
         self.attribs.push(Box::pin(t));
@@ -374,11 +366,11 @@ impl<T: Sendable> ViewBuilder<T> {
     pub fn with_single_bool_attrib_stream<'a, S, Mv, St>(mut self, s: S, mv: Mv) -> Self
     where
         S: Into<String>,
-        Mv: Into<MogwaiValue<'a, bool, St>>,
+        Mv: Into<MogwaiValue<bool, St>>,
         St: Streamable<bool>,
     {
         let k = s.into();
-        let s: MogwaiValue<'a, bool, St> = mv.into();
+        let s: MogwaiValue<bool, St> = mv.into();
         let t = BoolStream::from(s).map(move |v| HashPatch::Insert(k.clone(), v));
         self.bool_attribs.push(Box::pin(t));
         self
@@ -387,10 +379,10 @@ impl<T: Sendable> ViewBuilder<T> {
     /// Add a stream to patch the styles of this builder.
     pub fn with_style_stream<'a, St, Mv>(mut self, mv: Mv) -> Self
     where
-        Mv: Into<MogwaiValue<'a, String, St>>,
+        Mv: Into<MogwaiValue<String, St>>,
         St: Streamable<String>,
     {
-        let s: MogwaiValue<'a, String, St> = mv.into();
+        let s: MogwaiValue<String, St> = mv.into();
         let t = TextStream::from(s).flat_map(|v: String| {
             let kvs = v
                 .split(';')
@@ -412,11 +404,11 @@ impl<T: Sendable> ViewBuilder<T> {
     pub fn with_single_style_stream<'a, S, Mv, St>(mut self, s: S, mv: Mv) -> Self
     where
         S: Into<String>,
-        Mv: Into<MogwaiValue<'a, String, St>>,
+        Mv: Into<MogwaiValue<String, St>>,
         St: Streamable<String>,
     {
         let k = s.into();
-        let s: MogwaiValue<'a, String, St> = mv.into();
+        let s: MogwaiValue<String, St> = mv.into();
         let t = TextStream::from(s).map(move |v| HashPatch::Insert(k.clone(), v));
         self.styles.push(Box::pin(t));
         self
@@ -441,25 +433,25 @@ impl<T: Sendable> ViewBuilder<T> {
     /// This is a convenient short-hand for calling [`ViewBuilder::with_child_stream`] with
     /// an iterator of children, right now - instead of a stream later.
     pub fn with_children(self, children: impl Iterator<Item = ViewBuilder<T>>) -> Self {
-        let children = children.map(|child| ListPatch::Push(child)).collect::<Vec<_>>();
+        let children = children
+            .map(|child| ListPatch::Push(child))
+            .collect::<Vec<_>>();
         self.with_child_stream(futures::stream::iter(children))
     }
 
     /// Append a child or stream of children.
-    pub fn append<A, St>(self, children: A) -> Self
+    pub fn append<A>(self, children: A) -> Self
     where
-        AppendArg<T, St>: From<A>,
-        St: Streamable<ListPatch<ViewBuilder<T>>>,
+        AppendArg<T>: From<A>,
     {
         let arg = children.into();
         match arg {
-            AppendArg::Single(bldr) => {
-                self.with_child_stream(futures::stream::iter(std::iter::once(ListPatch::push(bldr))))
-            }
-            AppendArg::Iter(bldrs) => {
-                self.with_child_stream(futures::stream::iter(bldrs.into_iter().map(ListPatch::push)))
-            }
-            AppendArg::PatchStream(stream) => self.with_child_stream(stream),
+            AppendArg::Single(bldr) => self.with_child_stream(futures::stream::iter(
+                std::iter::once(ListPatch::push(bldr)),
+            )),
+            AppendArg::Iter(bldrs) => self.with_child_stream(futures::stream::iter(
+                bldrs.into_iter().map(ListPatch::push),
+            )),
         }
     }
 
@@ -501,10 +493,12 @@ impl ViewBuilder<Dom> {
 
 impl<C: Sendable, V> From<Option<V>> for ViewBuilder<C>
 where
-    ViewBuilder<C>: From<V>
+    ViewBuilder<C>: From<V>,
 {
     fn from(may_vb: Option<V>) -> Self {
-        may_vb.map(ViewBuilder::from).unwrap_or_else(|| ViewBuilder::text(""))
+        may_vb
+            .map(ViewBuilder::from)
+            .unwrap_or_else(|| ViewBuilder::text(""))
     }
 }
 

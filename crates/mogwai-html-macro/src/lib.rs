@@ -38,10 +38,12 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
                 ["document", event] => Ok(quote! {
                     .with_document_event(#event, #expr)
                 }),
-                ["boolean", name] => Ok(quote! {
+                ["boolean", name] => {
                     let name = under_to_dash(name);
-                    .with_single_bool_attrib_stream(#name, #expr)
-                }),
+                    Ok(quote! {
+                        .with_single_bool_attrib_stream(#name, #expr)
+                    })
+                }
                 ["patch", "children"] => Ok(quote! {
                     .with_child_stream(#expr)
                 }),

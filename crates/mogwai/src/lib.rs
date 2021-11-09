@@ -47,6 +47,7 @@ mod test {
 
     use crate::{self as mogwai, channel::broadcast, ssr::SsrElement};
     use mogwai::{
+        futures::{StreamExt, IntoSenderSink, Contravariant},
         builder::ViewBuilder,
         channel::broadcast::*,
         macros::*,
@@ -72,6 +73,21 @@ mod test {
                     .with_single_attrib_stream("fill", "yellow")
                     as mogwai::builder::ViewBuilder<mogwai::view::Dom>,
             ) as mogwai::builder::ViewBuilder<mogwai::view::Dom>;
+    }
+
+    #[test]
+    fn input() {
+        let _ = builder! {
+            <input boolean:checked=true />
+        };
+    }
+
+    #[test]
+    fn this() {
+        let (tx, rx) = broadcast::bounded::<()>(1);
+        let _ = builder! {
+            <div window:load=tx.sink().contra_map(|_:Event| ())>{rx.map(|()| "Loaded!".to_string())}</div>
+        };
     }
 
     #[test]
