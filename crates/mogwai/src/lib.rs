@@ -43,13 +43,13 @@ pub mod macros {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
-    use std::convert::TryFrom;
+    use std::convert::{TryFrom, TryInto};
 
     use crate::{self as mogwai, channel::broadcast, ssr::SsrElement};
     use mogwai::{
-        futures::{StreamExt, IntoSenderSink, Contravariant},
         builder::ViewBuilder,
         channel::broadcast::*,
+        futures::{Contravariant, IntoSenderSink, StreamExt},
         macros::*,
         view::{Dom, View},
     };
@@ -99,29 +99,32 @@ mod test {
 
     #[test]
     fn can_append_vec() {
-        let _div: ViewBuilder<Dom> = ViewBuilder::element("div")
-            .append(vec![ViewBuilder::element("p")]);
+        let _div: ViewBuilder<Dom> =
+            ViewBuilder::element("div").append(vec![ViewBuilder::element("p")]);
     }
 
     #[test]
     fn can_append_option() {
-        let _div: ViewBuilder<Dom> = ViewBuilder::element("div")
-            .append(None as Option<ViewBuilder<Dom>>);
+        let _div: ViewBuilder<Dom> =
+            ViewBuilder::element("div").append(None as Option<ViewBuilder<Dom>>);
     }
 
     #[test]
     fn fragments() {
-        let vs:Vec<ViewBuilder<Dom>> = builder! {
+        let vs: Vec<ViewBuilder<Dom>> = builder! {
             <div>"hello"</div>
             <div>"hola"</div>
             <div>"kia ora"</div>
         };
 
-        let _:ViewBuilder<Dom> = builder! {
-            <section>
-                {vs}
-            </section>
+        let s: ViewBuilder<Dom> = builder! {
+            <section>{vs}</section>
         };
+        let view: View<Dom> = s.try_into().unwrap();
+        assert_eq!(
+            String::from(view).as_str(),
+            "<section><div>hello</div> <div>hola</div> <div>kia ora</div></section>"
+        );
     }
 
     #[test]

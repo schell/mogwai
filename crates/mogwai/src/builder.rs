@@ -171,12 +171,6 @@ pub enum AppendArg<T> {
     Iter(Vec<ViewBuilder<T>>),
 }
 
-impl<T: Sendable> From<ViewBuilder<T>> for AppendArg<T> {
-    fn from(s: ViewBuilder<T>) -> Self {
-        AppendArg::Single(s)
-    }
-}
-
 impl<T: Sendable, S, L, V> From<ElmComponent<T, S, L, V>> for AppendArg<T>
 where
     View<T>: TryFrom<ViewBuilder<T>>,
@@ -217,6 +211,12 @@ where
 {
     fn from((s, st): (S, St)) -> Self {
         ViewBuilder::text(s.as_ref()).with_text_stream(st)
+    }
+}
+
+impl<T: Sendable, V: Into<ViewBuilder<T>>> From<V> for AppendArg<T> {
+    fn from(v: V) -> Self {
+        AppendArg::Single(v.into())
     }
 }
 

@@ -165,10 +165,8 @@ where
         NodeType::Block => {
             if let Some(value) = node.value {
                 Ok(quote! {
-                    mogwai::builder::ViewBuilder::from(
-                        #[allow(unused_braces)]
-                        #value
-                    )
+                    #[allow(unused_braces)]
+                    #value
                 })
             } else {
                 Err(Error::new(
