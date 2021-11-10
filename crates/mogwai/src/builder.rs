@@ -171,12 +171,9 @@ pub enum AppendArg<T> {
     Iter(Vec<ViewBuilder<T>>),
 }
 
-impl<T: Sendable, S> From<S> for AppendArg<T>
-where
-    ViewBuilder<T>: From<S>,
-{
-    fn from(s: S) -> Self {
-        AppendArg::Single(ViewBuilder::from(s))
+impl<T: Sendable> From<ViewBuilder<T>> for AppendArg<T> {
+    fn from(s: ViewBuilder<T>) -> Self {
+        AppendArg::Single(s)
     }
 }
 
@@ -200,33 +197,26 @@ where
     }
 }
 
-impl<T: Sendable> From<&String> for AppendArg<T> {
+impl<T: Sendable> From<&String> for ViewBuilder<T> {
     fn from(s: &String) -> Self {
-        AppendArg::Single(ViewBuilder::text(s.as_str()))
+        ViewBuilder::text(s.as_str())
     }
 }
 
-impl<T: Sendable> From<String> for AppendArg<T> {
+impl<T: Sendable> From<String> for ViewBuilder<T> {
     fn from(s: String) -> Self {
-        AppendArg::Single(ViewBuilder::text(s.as_str()))
+        ViewBuilder::text(s.as_str())
     }
 }
 
-impl<T: Sendable, St: Streamable<String>> From<(&str, St)> for AppendArg<T> {
-    fn from(sst: (&str, St)) -> Self {
-        AppendArg::Single(ViewBuilder::text(sst))
-    }
-}
-
-impl<T: Sendable, St: Streamable<String>> From<(String, St)> for AppendArg<T> {
-    fn from(sst: (String, St)) -> Self {
-        AppendArg::Single(ViewBuilder::text(sst))
-    }
-}
-
-impl<T: Sendable, St: Streamable<String>> From<St> for AppendArg<T> {
-    fn from(_: St) -> Self {
-        todo!()
+impl<T, S, St> From<(S, St)> for ViewBuilder<T>
+where
+    T: Sendable,
+    S: AsRef<str>,
+    St: Streamable<String>,
+{
+    fn from((s, st): (S, St)) -> Self {
+        ViewBuilder::text(s.as_ref()).with_text_stream(st)
     }
 }
 
@@ -491,14 +481,17 @@ impl ViewBuilder<Dom> {
     }
 }
 
-impl<C: Sendable, V> From<Option<V>> for ViewBuilder<C>
+impl<T: Sendable, V> From<Option<V>> for AppendArg<T>
 where
-    ViewBuilder<C>: From<V>,
+    ViewBuilder<T>: From<V>,
 {
     fn from(may_vb: Option<V>) -> Self {
-        may_vb
-            .map(ViewBuilder::from)
-            .unwrap_or_else(|| ViewBuilder::text(""))
+        AppendArg::Iter(
+            may_vb
+                .into_iter()
+                .map(ViewBuilder::from)
+                .collect::<Vec<_>>()
+        )
     }
 }
 

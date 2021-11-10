@@ -83,10 +83,10 @@ mod test {
     }
 
     #[test]
-    fn this() {
+    fn append_works() {
         let (tx, rx) = broadcast::bounded::<()>(1);
         let _ = builder! {
-            <div window:load=tx.sink().contra_map(|_:Event| ())>{rx.map(|()| "Loaded!".to_string())}</div>
+            <div window:load=tx.sink().contra_map(|_:Event| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
         };
     }
 
@@ -94,6 +94,33 @@ mod test {
     fn cast_type_in_builder() {
         let _div = builder! {
             <div cast:type=mogwai::view::Dom id="hello">"Inner Text"</div>
+        };
+    }
+
+    #[test]
+    fn can_append_vec() {
+        let _div: ViewBuilder<Dom> = ViewBuilder::element("div")
+            .append(vec![ViewBuilder::element("p")]);
+    }
+
+    #[test]
+    fn can_append_option() {
+        let _div: ViewBuilder<Dom> = ViewBuilder::element("div")
+            .append(None as Option<ViewBuilder<Dom>>);
+    }
+
+    #[test]
+    fn fragments() {
+        let vs:Vec<ViewBuilder<Dom>> = builder! {
+            <div>"hello"</div>
+            <div>"hola"</div>
+            <div>"kia ora"</div>
+        };
+
+        let _:ViewBuilder<Dom> = builder! {
+            <section>
+                {vs}
+            </section>
         };
     }
 
