@@ -9,7 +9,10 @@
 [structcomponent]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/struct.Component.html
 [structelmcomponent]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/struct.ElmComponent.html
 
+[structlistpatchmodel]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/model/struct.ListPatchModel.html
+
 [enumlistpatch]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/patch/enum.ListPatch.html
 [enumhashpatch]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/patch/enum.HashPatch.html
 
 [traitcontravariant]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/futures/trait.Contravariant.html
+[traitiselmcomponent]: https://docs.rs/mogwai/{{mogwai_docs_version}}/mogwai/component/trait.IsElmComponent.html

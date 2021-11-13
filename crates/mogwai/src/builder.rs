@@ -203,6 +203,12 @@ impl<T: Sendable> From<String> for ViewBuilder<T> {
     }
 }
 
+impl<T: Sendable> From<&str> for ViewBuilder<T> {
+    fn from(s: &str) -> Self {
+        ViewBuilder::text(s)
+    }
+}
+
 impl<T, S, St> From<(S, St)> for ViewBuilder<T>
 where
     T: Sendable,
@@ -418,18 +424,7 @@ impl<T: Sendable> ViewBuilder<T> {
         self.with_child_stream(futures::stream::once(async move { ListPatch::Push(child) }))
     }
 
-    /// Add a list of children.
-    ///
-    /// This is a convenient short-hand for calling [`ViewBuilder::with_child_stream`] with
-    /// an iterator of children, right now - instead of a stream later.
-    pub fn with_children(self, children: impl Iterator<Item = ViewBuilder<T>>) -> Self {
-        let children = children
-            .map(|child| ListPatch::Push(child))
-            .collect::<Vec<_>>();
-        self.with_child_stream(futures::stream::iter(children))
-    }
-
-    /// Append a child or stream of children.
+    /// Append a child or iterator of children.
     pub fn append<A>(self, children: A) -> Self
     where
         AppendArg<T>: From<A>,

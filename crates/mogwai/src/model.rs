@@ -47,6 +47,12 @@ pub struct Model<T> {
     chan: (Sender<T>, Receiver<T>),
 }
 
+impl<T> std::fmt::Debug for Model<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(&format!("Model<{}>", std::any::type_name::<T>())).finish()
+    }
+}
+
 impl<T> Clone for Model<T> {
     fn clone(&self) -> Self {
         Model {

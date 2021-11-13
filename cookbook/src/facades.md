@@ -4,14 +4,19 @@ Components talk within themselves from the view to the logic and vice versa, but
 are often stakeholders outside the component that would like to make queries, inject state,
 or otherwise communicate with the internals of the component.
 
-Because of this, a common pattern emerges where a struct type will contain a `Sender<LogicMsg>`
-and will provide an async API to its owner.
+Because of this, a common pattern emerges where a helper struct type will contain a `Sender<LogicMsg>`
+(where `LogicMsg` is the component's logic message type) and the helper struct will provide an async
+API to its owner.
 
-```rust
+```rust, ignore
 {{#include ../../examples/todomvc/src/app/item.rs:7:11}}
 ```
 
-```rust
+Above you can see a helper struct that contains a private field `tx_logic`. Below you'll see how
+the `tx_logic` channel is used to send a query with a response `Sender` to the component that it's
+helping.
+
+```rust, ignore
 {{#include ../../examples/todomvc/src/app/item.rs:70:78}}
 ```
 
@@ -20,10 +25,10 @@ object sends messages to the logic loop that may contain a query and a response 
 It awaits a response from the logic loop and then relays the message back as the result
 of its own async function.
 
-```rust
+```rust, ignore
 {{#include ../../examples/todomvc/src/app/item.rs:179:181}}
 ```
 
 Whoever owns the facade has a way to communicate directly with the logic loop, without having
 to expose the entire logic message type to the public. It's also possible to share data between
-the logic loop and a facade with the use of the various locks and mutexes.
+the logic loop and a facade with the use of various reference counters, locks and mutexes.

@@ -5,12 +5,17 @@ This includes:
 - [ViewBuilder][structviewbuilder]
 - [Component][structcomponent]
 - [ElmComponent][structelmcomponent]
-- `Option<impl Into<ViewBuilder<T>>>`
-- `Vec<impl Into<ViewBuilder<T>>>`
 - `String`
 - `&str`
 - `(String, impl Stream<Item = String>)`
 - `(&str, impl Stream<Item = String>)`
+
+Additionally some container/iterator types can be nested, with slightly different behavior:
+
+- `Option<impl Into<ViewBuilder<T>>>` - if `None`, no child is added, otherwise if `Some(viewbuilder)`,
+  `viewbuilder` is added. See [conditionally adding DOM](rsx.md#conditionally-include-dom).
+- `Vec<impl Into<ViewBuilder<T>>>` - all children are appended one after another.
+  See [including fragments](rsx.md#including-fragments)
 
 To nest a child component within a parent, simply include it as a node using RSX brackets:
 
@@ -29,7 +34,8 @@ let parent = ViewBuilder::element("div")
     .append(child);
 ```
 
-If there is a `std` type that you feel should have an `impl Into<ViewBuilder<T>>` please open
+If there is a `std` type that you feel should have an `impl Into<ViewBuilder<T>>` or a container/iterator
+that you'd like `mogwai` to support with regards to appending children, please open
 an issue at [the mogwai github repo](https://github.com/schell/mogwai/issues).
 
 {{#include reflinks.md}}

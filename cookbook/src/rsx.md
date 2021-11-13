@@ -15,7 +15,7 @@ Similarly there is a `view!` macro that creates [`View<Dom>`][structview].
 ```rust, no_run
 # use mogwai::prelude::*;
 let my_builder: ViewBuilder<Dom> = builder!{ <h1>"Hello, world!"</h1> };
-let my_view: View<dom> = view!{ <h1>"Hello, world!"</h1> };
+let my_view: View<Dom> = view!{ <h1>"Hello, world!"</h1> };
 
 let my_identical_view: View<Dom> = View::try_from(my_builder).unwrap();
 ```
@@ -29,9 +29,9 @@ You can always write your components without RSX - here is the same example abov
 written out manually:
 
 ```rust, no_run
-#use mogwai::prelude::*;
+# use mogwai::prelude::*;
 let my_builder: ViewBuilder<Dom> = ViewBuilder::element("h1")
-    .with_child(ViewBuilder::text("Hello, world!");
+    .with_child(ViewBuilder::text("Hello, world!"));
 ```
 
 ## Tags
@@ -39,19 +39,21 @@ You may use any html tags you wish when writing RSX.
 
 ```rust, no_run
 # use mogwai::prelude::*;
-builder! {
+let _: ViewBuilder<Dom> = builder! {
     <p>"Once upon a time in a galaxy far, far away..."</p>
-}
+};
 ```
 ## Attributes
 Adding attributes happens the way you expect it to.
 ```rust, no_run
 # use mogwai::prelude::*;
-builder! {
+let _: ViewBuilder<Dom> = builder! {
     <p id="starwars">"Once upon a time in a galaxy far, far away..."</p>
-}
+};
 ```
 All html attributes are supported.
+
+Attributes that have hyphens should be written with underscores.
 
 ### Special Mogwai Attributes
 Additionally there are some `mogwai` specific attributes that do special things.
@@ -88,11 +90,11 @@ for more details about types that can be turned into streams.
 - **window:{event}** = `impl Sink<Event>`
 
   Declares that the windows's matching events should be sent on the given sender.
-  ```rust,no_run
+  ```rust, no_run
   # use mogwai::prelude::*;
   let (tx, rx) = broadcast::bounded::<()>(1);
   let _ = builder! {
-      <div window:load=tx.sink().contra_map(|_:Event| ())>{rx.map(|()| "Loaded!".to_string())}</div>
+      <div window:load=tx.sink().contra_map(|_:Event| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
   };
   ```
 
@@ -101,9 +103,9 @@ for more details about types that can be turned into streams.
   Declares that the document's matching events should be sent on the given transmitter.
   ```rust,no_run
   # use mogwai::prelude::*;
-  let (tx, rx) = broadcast::bounded::<Event>(1);
+  let (tx, rx) = broadcast::bounded::<String>(1);
   let _ = builder! {
-      <div document:keyup=tx>{rx.branch_map(|ev| format!("{:#?}", ev))}</div>
+      <div document:keyup=tx.sink().contra_map(|ev| format!("{:#?}", ev))>{("waiting for first event", rx)}</div>
   };
   ```
 
@@ -133,14 +135,22 @@ for more details about types that can be turned into streams.
   let my_view = view! {
       <div id="main" patch:children=rx>"Waiting for a patch message..."</div>
   };
-  tx.try_send(ListPatch::drain()).unwrap();
+
+  smol::block_on(async {
+    tx.send(ListPatch::drain()).await.unwrap();
+    mpmc::until_empty(&tx).await; // just for testing - after this line the view has mutated the DOM
+  });
+  assert_eq!(String::from(&my_view), r#"<div id="main"></div>"#);
 
   let other_viewbuilder = builder! {
       <h1>"Hello!"</h1>
   };
-  tx.try_send(ListPatch::push(other_viewbuilder)).unwrap();
 
-  assert_eq!(String::from(my_view), r#"<div id="main"><h1>Hello!</h1></div>"#);
+  smol::block_on(async {
+    tx.send(ListPatch::push(other_viewbuilder)).await.unwrap();
+    mpmc::until_empty(&tx).await;
+  });
+  assert_eq!(String::from(&my_view), r#"<div id="main"><h1>Hello!</h1></div>"#);
   ```
 
 - **cast:type** = Any domain specific inner view type, eg `Dom`
@@ -156,7 +166,7 @@ for more details about types that can be turned into streams.
 
 ## Expressions
 Rust expressions can be used as the values of attributes and as child nodes.
-```rust,no_run
+```rust, no_run
 # use mogwai::prelude::*;
 let is_cool = true;
 let _ = builder! {
@@ -181,8 +191,27 @@ an empty node is created.
 
 Below we display a user's image if they have one:
 
-```rust
+```rust, ignore, no_run
 {{#include ../../crates/mogwai-html-macro/tests/integration_test.rs:113:162}}
+```
+
+## Including fragments
+
+You can use RSX to build more than one view at a time:
+
+```rust, no_run
+# use mogwai::prelude::*;
+// Create a vector with three builders in it.
+let builders: Vec<ViewBuilder<Dom>> = builder! {
+    <div>"hello"</div>
+    <div>"hola"</div>
+    <div>"kia ora"</div>
+};
+
+// Then add them all into a parent tag just like any component
+let parent: ViewBuilder<Dom> = builder! {
+    <section>{builders}</section>
+};
 ```
 
 ## Without RSX
@@ -193,6 +222,11 @@ API provided by [ViewBuilder][structviewbuilder].
 Here is the definition of `signed_in_user` above, written without RSX:
 
 ```rust, no_run
+# use mogwai::prelude::*;
+# struct User {
+#    username: String,
+#    o_image: Option<String>
+# }
 fn signed_in_view_builder(
     user: &User,
     home_class: impl Streamable<String>,
@@ -217,53 +251,53 @@ fn signed_in_view_builder(
         .flatten();
     mogwai::builder::ViewBuilder::element("ul")
         .with_single_attrib_stream("class", "nav navbar-nav pull-xs-right")
-        .with_child(
+        .append(
             mogwai::builder::ViewBuilder::element("li")
                 .with_single_attrib_stream("class", "nav-item")
-                .with_child(
+                .append(
                     mogwai::builder::ViewBuilder::element("a")
                         .with_single_attrib_stream("class", home_class)
                         .with_single_attrib_stream("href", "#/")
-                        .with_child(mogwai::builder::ViewBuilder::text(" Home"))
-                ),
+                        .append(mogwai::builder::ViewBuilder::text(" Home"))
+                )
         )
-        .with_child(
+        .append(
             mogwai::builder::ViewBuilder::element("li")
                 .with_single_attrib_stream("class", "nav-item")
-                .with_child(
+                .append(
                     mogwai::builder::ViewBuilder::element("a")
                         .with_single_attrib_stream("class", editor_class)
                         .with_single_attrib_stream("href", "#/editor")
-                        .with_child(
+                        .append(
                             mogwai::builder::ViewBuilder::element("i")
                                 .with_single_attrib_stream("class", "ion-compose")
                         )
-                        .with_child(mogwai::builder::ViewBuilder::text(" New Post"))
-                ),
+                        .append(mogwai::builder::ViewBuilder::text(" New Post"))
+                )
         )
-        .with_child(
+        .append(
             mogwai::builder::ViewBuilder::element("li")
                 .with_single_attrib_stream("class", "nav-item")
-                .with_child(
+                .append(
                     mogwai::builder::ViewBuilder::element("a")
                         .with_single_attrib_stream("class", settings_class)
                         .with_single_attrib_stream("href", "#/settings")
-                        .with_child(
+                        .append(
                             mogwai::builder::ViewBuilder::element("i")
-                                .with_single_attrib_stream("class", "ion-gear-a"),
+                                .with_single_attrib_stream("class", "ion-gear-a")
                         )
-                        .with_child(mogwai::builder::ViewBuilder::text(" Settings"))
+                        .append(mogwai::builder::ViewBuilder::text(" Settings"))
                 ),
         )
-        .with_child(
+        .append(
             mogwai::builder::ViewBuilder::element("li")
                 .with_single_attrib_stream("class", "nav-item")
-                .with_child(
+                .append(
                     mogwai::builder::ViewBuilder::element("a")
                         .with_single_attrib_stream("class", profile_class)
                         .with_single_attrib_stream("href", format!("#/profile/{}", user.username))
-                        .with_child(mogwai::builder::ViewBuilder::from(o_image))
-                        .with_child(mogwai::builder::ViewBuilder::from(format!(" {}", user.username))),
+                        .append(o_image)
+                        .append(format!(" {}", user.username)),
                 ),
         )
 }

@@ -1,7 +1,7 @@
 #![allow(unused_braces)]
 use log::Level;
 use mogwai::{futures, prelude::*};
-use std::{convert::TryInto, panic};
+use std::panic;
 use wasm_bindgen::prelude::*;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -12,7 +12,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 /// An item widget.
 /// Keeps track of clicks.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Item {
     id: usize,
     clicks: Model<u32>,
@@ -28,7 +28,7 @@ enum ItemMsg {
 }
 
 /// One item's logic loop.
-async fn item_logic_loop(
+async fn item_logic(
     id: usize,
     clicks: Model<u32>,
     mut from_view: broadcast::Receiver<ItemMsg>,
@@ -49,35 +49,41 @@ async fn item_logic_loop(
     log::info!("item {} logic loop is done", id);
 }
 
-async fn item_view(
+// ANCHOR: item_view
+fn item_view(
     clicks: impl Stream<Item = u32> + Sendable,
     to_logic: broadcast::Sender<ItemMsg>,
 ) -> ViewBuilder<Dom> {
-    let bldr = builder! {
+    builder! {
         <li>
             <button
                 style:cursor="pointer"
-                on:click=to_logic.sink().with(|_| async{Ok(ItemMsg::Click)})>
+                on:click=to_logic.sink().contra_map(|_| ItemMsg::Click)>
                 "Increment"
             </button>
             <button
                 style:cursor="pointer"
-                on:click=to_logic.sink().with(|_| async{Ok(ItemMsg::Remove)})>
+                on:click=to_logic.sink().contra_map(|_| ItemMsg::Remove)>
                 "Remove"
             </button>
             " "
             <span>
             {
-                ViewBuilder::text(clicks.map(|clicks| match clicks {
+                ("", clicks.map(|clicks| match clicks {
                     1 => "1 click".to_string(),
                     n => format!("{} clicks", n),
                 }))
             }
             </span>
         </li>
-    };
-    log::info!("created item builder");
-    bldr
+    }
+}
+// ANCHOR_END: item_view
+
+/// Create a new item component.
+fn item(id: usize, clicks: Model<u32>, to_list: broadcast::Sender<ListMsg>) -> Component<Dom> {
+    let (tx, rx) = broadcast::bounded(1);
+    Component::from(item_view(clicks.stream(), tx)).with_logic(item_logic(id, clicks, rx, to_list))
 }
 
 #[derive(Clone)]
@@ -88,62 +94,80 @@ enum ListMsg {
     RemoveItem(usize),
 }
 
+// ANCHOR: list_logic_coms
 /// Launch the logic loop of our list of items.
-fn launch_list_loops(
+async fn list_logic(
     input: broadcast::Receiver<ListMsg>,
-) -> impl Stream<Item = ListPatch<ViewBuilder<Dom>>> + Sendable {
+    tx_patch_children: mpmc::Sender<ListPatch<ViewBuilder<Dom>>>,
+) {
+    // Set up our communication from items to this logic loop by
+    // * creating a list patch model
+    // * creating a channel to go from item to list logic (aka here)
+    // * creating a side-effect stream (for_each) that runs for each item patch
+    // * map patches of Item to patches of builders and send that to our view
+    //   through tx_patch_children
     let mut items: ListPatchModel<Item> = ListPatchModel::new();
-
     let (to_list, from_items) = broadcast::bounded::<ListMsg>(1);
-    let item_stream = items.stream().then(move |patch| {
+    let to_list = to_list.clone();
+    let all_item_patches = items.stream().map(move |patch| {
+        log::info!("mapping patch for item: {:?}", patch);
         let to_list = to_list.clone();
-        patch.map_future(move |Item { id, clicks }: Item| {
+        patch.map(move |Item { id, clicks }: Item| {
             let to_list = to_list.clone();
-            let item_clicks = clicks.clone();
-            async move {
-                let (to_logic, from_view) = broadcast::bounded(1);
-                mogwai::spawn(
-                    async move { item_logic_loop(id, item_clicks, from_view, to_list).await },
-                );
-                item_view(clicks.stream(), to_logic).await
-            }
+            let component = item(id, clicks, to_list);
+            let builder: ViewBuilder<Dom> = component.into();
+            builder
         })
-    });
-
-    let mut input = futures::stream::select_all(vec![input, from_items]);
-    mogwai::spawn(async move {
-        let mut next_id = 0;
-        loop {
-            match input.next().await {
-                Some(ListMsg::NewItem) => {
-                    let item: Item = Item {
-                        id: next_id,
-                        clicks: Model::new(0),
-                    };
-                    next_id += 1;
-                    items.list_patch_push(item);
-                }
-                Some(ListMsg::RemoveItem(id)) => {
-                    let mut may_index = None;
-                    'find_item_by_id: for (item, index) in items.read().await.iter().zip(0..) {
-                        if item.id == id {
-                            may_index = Some(index);
-                            break 'find_item_by_id;
-                        }
-                    }
-
-                    if let Some(index) = may_index {
-                        let _ = items.list_patch_remove(index);
-                    }
-                }
-                _ => break,
-            }
+    }).for_each(move |patch| {
+        let tx_patch_children = tx_patch_children.clone();
+        async move {
+            tx_patch_children.send(patch).await.unwrap();
         }
     });
+    mogwai::spawn(all_item_patches);
+    // ANCHOR_END: list_logic_coms
+    // ANCHOR: list_logic_loop
+    // Combine the input from our view with the input from our items
+    let mut input = futures::stream::select_all(vec![input, from_items]);
+    let mut next_id = 0;
+    loop {
+        match input.next().await {
+            Some(ListMsg::NewItem) => {
+                log::info!("creating a new item");
+                let item: Item = Item {
+                    id: next_id,
+                    clicks: Model::new(0),
+                };
+                next_id += 1;
+                // patch our items easily and _item_patch_stream's for_each runs automatically,
+                // keeping the list of item views in sync
+                items.list_patch_push(item);
+            }
+            Some(ListMsg::RemoveItem(id)) => {
+                log::info!("removing item: {}", id);
+                let mut may_index = None;
+                'find_item_by_id: for (item, index) in items.read().await.iter().zip(0..) {
+                    if item.id == id {
+                        may_index = Some(index);
+                        break 'find_item_by_id;
+                    }
+                }
 
-    item_stream
+                if let Some(index) = may_index {
+                    // patch our items to remove the item at the index
+                    let _ = items.list_patch_remove(index);
+                }
+            }
+            _ => {
+                log::error!("Leaving list logic loop - this shouldn't happen");
+                break;
+            },
+        }
+    }
+    // ANCHOR_END: list_logic_loop
 }
 
+// ANCHOR: list_view
 fn list_view<T>(to_logic: broadcast::Sender<ListMsg>, children: T) -> ViewBuilder<Dom>
 where
     T: Stream<Item = ListPatch<ViewBuilder<Dom>>> + Sendable,
@@ -151,7 +175,7 @@ where
     builder! {
         <fieldset>
             <legend>"A List of Gizmos"</legend>
-                <button style:cursor="pointer" on:click=to_logic.sink().with(|_| async{Ok(ListMsg::NewItem)})>
+                <button style:cursor="pointer" on:click=to_logic.sink().contra_map(|_| ListMsg::NewItem)>
                 "Create a new item"
             </button>
             <fieldset>
@@ -162,25 +186,27 @@ where
         </fieldset>
     }
 }
+// ANCHOR_END: list_view
+
+/// Create our list component.
+fn list() -> Component<Dom> {
+    let (logic_tx, logic_rx) = broadcast::bounded(1);
+    let (item_patch_tx, item_patch_rx) = mpmc::bounded(1);
+    Component::from(list_view(logic_tx, item_patch_rx))
+        .with_logic(list_logic(logic_rx, item_patch_tx))
+}
 
 #[wasm_bindgen]
 pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
+    let component = list();
+    let view = component.build().unwrap();
 
-    mogwai::spawn(async {
-        let (list_logic_tx, list_logic_rx) = broadcast::bounded(1);
-        let children = launch_list_loops(list_logic_rx);
-        let view: View<Dom> = list_view(list_logic_tx, children).try_into().unwrap();
-
-        if let Some(id) = parent_id {
-            let parent = mogwai::utils::document().get_element_by_id(&id).unwrap();
-            view.run_in_container(&parent)
-        } else {
-            view.run()
-        }
-        .unwrap()
-    });
-
-    Ok(())
+    if let Some(id) = parent_id {
+        let parent = mogwai::utils::document().get_element_by_id(&id).unwrap();
+        view.run_in_container(&parent)
+    } else {
+        view.run()
+    }
 }
