@@ -38,8 +38,8 @@ pub mod macros {
     pub use mogwai_html_macro::{builder, view};
 }
 
-//#[cfg(doctest)]
-//doc_comment::doctest!("../../../README.md");
+#[cfg(doctest)]
+doc_comment::doctest!("../../../README.md");
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {

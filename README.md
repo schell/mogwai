@@ -47,23 +47,14 @@ The main concepts behind `mogwai` are
 
 * **channels instead of callbacks** - view events like clicks, blurs, etc are transmitted
   into a channel instead of invoking a callback. Receiving ends of channels can be branched
-  and may have their output messages be mapped, filtered and folded. `mogwai`'s channels are
-  many-producer, many-consumer and are immediate - they do not perform buffering and do not
-  require polling.
+  and may have their output messages be mapped, filtered and folded.
 
 * **views are dumb** - a `View` is just a bit of DOM that receives and transmits messages.
   When a `View` goes out of scope and is dropped in Rust, it is also dropped from the DOM.
   `Views` may be constructed and nested using plain Rust functions or an RSX macro.
 
-* **widgets are folds over input messages** - the user interface widget in `mogwai` is a `View`
-  with a logic loop.
-  The `Gizmo` type holds an internally mutable state and can communicate messages to its `View`,
-  which may live out in the DOM. Its `View` can send messages back to the `Gizmo`, which triggers
-  the `Gizmo`'s update function. The `Gizmo`'s update function can mutate the state variable and
-  send output messages to the `View`, which in turn updates the DOM.
-
-* **communication is easy** - just `gizmo.send(&my_message)` to send a message into a gizmo
-  and the gizmo will run its update logic and patch the view accordingly.
+* **widgets are folds over input messages** - the user interface widget in `mogwai` is a
+  `ViewBuilder` with a logic loop.
 
 ## example
 Here is an example of a button that counts the number of times it has been clicked:
@@ -71,85 +62,63 @@ Here is an example of a button that counts the number of times it has been click
 ```rust
 use mogwai::prelude::*;
 
-pub struct Button {
-    pub clicks: i32
-}
-
-#[derive(Clone)]
-pub enum ButtonIn {
-    Click
-}
-
-#[derive(Clone)]
-pub enum ButtonOut {
-    Clicks(String)
-}
-
-impl Component for Button {
-    type ModelMsg = ButtonIn;
-    type ViewMsg = ButtonOut;
-    type DomNode = HtmlElement;
-
-    fn update(
-        &mut self,
-        msg: &ButtonIn,
-        tx_view: &Transmitter<ButtonOut>,
-        _subscriber: &Subscriber<ButtonIn>
-    ) {
-        match msg {
-            ButtonIn::Click => {
-                self.clicks += 1;
-                let text = if self.clicks == 1 {
+async fn logic(
+  mut rx_click: broadcast::Receiver<()>,
+  tx_text: broadcast::Sender<String>,
+) {
+    let mut clicks = 0;
+    loop {
+        match rx_click.next().await {
+            Some(()) => {
+                clicks += 1;
+                let text = if clicks == 1 {
                     "Clicked 1 time".to_string()
                 } else {
-                    format!("Clicked {} times", self.clicks)
+                    format!("Clicked {} times", clicks)
                 };
-                tx_view.send(&ButtonOut::Clicks(text))
+                tx_text.broadcast(text).await.unwrap();
             }
+            None => break,
         }
     }
-
-    // Notice that the `Component::view` function returns a `ViewBuilder<T>` and not
-    // a `View<T>`.
-    fn view(
-        &self,
-        tx: &Transmitter<ButtonIn>,
-        rx: &Receiver<ButtonOut>
-    ) -> ViewBuilder<HtmlElement> {
-        let tx_event = tx.contra_map(|_:&Event| ButtonIn::Click);
-        let rx_text = rx.branch_map(|ButtonOut::Clicks(text)| text.clone());
-
-        builder!(
-            // Create a button that transmits a message into tx_event on click.
-            <button on:click=tx_event>
-                // Using braces we can embed rust values in our DOM.
-                // Here we're creating a text node that starts with the
-                // string "Clicked 0 times" and then updates every time a
-                // message is received on rx_text.
-                {("Clicked 0 times", rx_text)}
-            </button>
-        )
-    }
-}
-// To create a new gizmo/widget/component we simply convert a value of the Button type
-// into a Gizmo...
-let gizmo = Gizmo::from(Button{ clicks: 0 });
-// ...and create a View from that gizmo's builder.
-let view = View::from(gizmo.view_builder());
-// Queue some messages for the component, as if the button had been clicked:
-gizmo.send(&ButtonIn::Click);
-gizmo.send(&ButtonIn::Click);
-
-assert_eq!(&view.html_string(), "<button>Clicked 2 times</button>");
-
-if cfg!(target_arch = "wasm32") {
-    // running a view adds its DOM to the document.body and ownership is passed to the window,
-    // so this only works in the browser
-    view.run().unwrap_throw()
 }
 
-// After handing off the view the gizmo itself may fall out of scope and be dropped. The
-// view is all that is needed for your app to run.
+fn view(
+    tx_click: broadcast::Sender<()>,
+    rx_text: broadcast::Receiver<String>
+) -> ViewBuilder<Dom> {
+    let tx_event = tx_click.sink().contra_map(|_:Event| ());
+
+    builder!(
+        // Create a button that transmits a message of `()` into tx_event on click.
+        <button on:click=tx_event>
+            // Using braces we can embed rust values in our DOM.
+            // Here we're creating a text node that starts with the
+            // string "Clicked 0 times" and then updates every time a
+            // message is received on rx_text.
+            {("Clicked 0 times", rx_text)}
+        </button>
+    )
+}
+
+let (tx_click, rx_click) = broadcast::bounded(2);
+let (tx_text, rx_text) = broadcast::bounded(1);
+let component: Component<Dom> = Component::from(view(tx_click.clone(), rx_text))
+    .with_logic(logic(rx_click, tx_text));
+
+let view: View<Dom> = component
+    .build()
+    .unwrap();
+view.run().unwrap();
+
+// Spawn asyncronous actions on any target with `mogwai::spawn`.
+mogwai::spawn(async move {
+    // Queue some messages for the view as if the button had been clicked:
+    tx_click.broadcast(()).await.unwrap();
+    tx_click.broadcast(()).await.unwrap();
+
+    // view's html is now "<button>Clicked 2 times</button>"
+});
 ```
 
 ## introduction
@@ -162,23 +131,24 @@ encorporate a virtual DOM with a magical update phase. Even in a language that
 has performance to spare this step can cause unwanted slowness and can be hard to
 reason about _what_ is updating, exactly.
 
-In `mogwai`, channel-like primitives and a declarative view builder are used to
-define components and then wire them together. Once the interface is defined and
-built, the channels are effectively erased and it's functions all the way down.
-There's no performance overhead from vdom, shadow dom, polling or patching. So if
-you prefer a functional style of programming with lots of maps and folds - or if
-you're looking to go _vroom!_ then maybe `mogwai` is right for you :)
+In `mogwai`, streams, sinks and a declarative view builder are used to
+define components and how they change over time.
+
+DOM mutation is explicit and happens as a result of views receiving messages, so there is no performance overhead from vdom diffing.
+
+If you prefer a functional style of programming with lots of maps and folds - or if you're looking to go _vroom!_ then maybe `mogwai` is right for you :)
 
 Please do keep in mind that `mogwai` is still in alpha and the API is actively
-changing - PRs, issues and questions are welcomed.
+changing - PRs, issues and questions are welcomed. As of the `0.5` release we
+expect that the API will be relatively backwards compatible.
 
 ### made for rustaceans, by a rustacean
 `mogwai` is a Rust first library. There is no requirement that you have `npm` or
 `node`. Getting your project up and running without writing any javascript is easy
 enough.
 
-### performance
-`mogwai` is snappy! Here is some very handwavey and sketchy todomvc benchmarketing:
+### benchmarketing
+`mogwai` is snappy! Here are some very handwavey and sketchy todomvc metrics:
 
 ![mogwai performance benchmarking](img/perf.png)
 
@@ -208,20 +178,17 @@ basic-http-server -a 127.0.0.1:8888
 Happy hacking! :coffee: :coffee: :coffee:
 
 ## more examples please
-For more examples, check out
-
-[the sandbox](https://github.com/schell/mogwai/blob/master/examples/sandbox/)
-
-[the todomvc app](https://github.com/schell/mogwai/blob/master/examples/todomvc)
-
-[the benchmark suite](https://github.com/schell/todo-mvc-bench/)
+Examples can be found in [the examples folder](https://github.com/schell/mogwai/blob/master/examples/).
 
 To build the examples use:
 ```shell
-cd examples/whatever && wasm-pack build --target web
+wasm-pack build --target web examples/{the example}
 ```
-### external examples
-[mogwai-realworld](https://github.com/schell/mogwai-realworld/) A "real world" app implementation (WIP)
+
+Additional external examples include:
+- [mogwai-realworld](https://github.com/schell/mogwai-realworld/) A "real world" app implementation (WIP)
+- [the benchmark suite](https://github.com/schell/todo-mvc-bench/)
+- your example here ;)
 
 ## cookbook
 :green_book: [Cooking with Mogwai](https://zyghost.com/guides/mogwai-cookbook/index.html) is a series

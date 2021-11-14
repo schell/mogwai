@@ -30,7 +30,7 @@ publish() {
     fi
 }
 
-DIRS="crates/mogwai-html-macro mogwai crates/mogwai-hydrator"
+DIRS="crates/mogwai-html-macro crates/mogwai crates/mogwai-hydrator"
 
 for DIR in $DIRS; do
     publish $DIR
