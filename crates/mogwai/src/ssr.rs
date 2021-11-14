@@ -308,7 +308,7 @@ impl<Event> SsrElement<Event> {
         let _ = lock.insert((type_is, name.to_string()), tx);
     }
 
-    /// Fires an event downstream to any listening [`Stream`]s.
+    /// Fires an event downstream to any listening [`Stream`][crate::futures::Stream]s.
     ///
     /// Fails if no such event exists or if sending to the sink encounters an error.
     pub async fn fire_event(

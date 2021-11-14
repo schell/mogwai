@@ -65,7 +65,7 @@ fn req_animation_frame(f: &Closure<dyn FnMut(JsValue)>) {
 /// If the function returns `true` it will be rescheduled. Otherwise it will not.
 /// The static rust closure takes one parameter which is a timestamp representing the
 /// number of milliseconds since the application's load.
-/// See https://developer.mozilla.org/en-US/docs/Web/API/DOMHighResTimeStamp
+/// See <https://developer.mozilla.org/en-US/docs/Web/API/DOMHighResTimeStamp>
 /// for more info.
 pub fn request_animation_frame<F>(mut logic: F)
 where

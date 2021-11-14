@@ -18,7 +18,7 @@ pub use crate::patch::{HashPatchApply, ListPatchApply};
 /// or can be used to stream updated values to observers.
 ///
 /// ## Warning
-/// If [`Model::write`] is called in quick succession, only the
+/// If [`Model::visit_mut`] is called in quick succession, only the
 /// latest, unique values will be sent to downstream observers.
 ///
 /// ```rust
@@ -100,7 +100,7 @@ impl<T: Clone + Sendable + Syncable + PartialEq> Model<T> {
     /// Produce a stream of updated values.
     ///
     /// You should not rely on receiving every update, only the most recent.
-    /// When a task mutates the model by calling [`Model::write`], an update
+    /// When a task mutates the model by calling [`Model::visit_mut`], an update
     /// is scheduled to be sent on the stream. If mutations happen in a fast
     /// succession, previous sends will be clobbered.
     pub fn stream(&self) -> impl Stream<Item = T> {

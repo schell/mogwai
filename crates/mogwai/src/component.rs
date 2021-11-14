@@ -61,7 +61,7 @@ where
 /// A component that facilitates an Elm-inspired type of composure.
 ///
 /// ## Types
-/// * `T` - Inner view type, eg [`Dom`]
+/// * `T` - Inner view type, eg [`crate::view::Dom`]
 /// * `S` - Logic state
 /// * `LogicMsg` - Message type sent to the logic
 /// * `ViewMsg` - Message type sent to the view
@@ -185,7 +185,7 @@ where
     /// Message type used to drive view DOM patching.
     type ViewMsg;
 
-    /// The `T` type in [`mogwai::builder::ViewBuilder<T>`], eg `mogwai::view::Dom`.
+    /// The `T` type in [`ViewBuilder<T>`], eg `mogwai::view::Dom`.
     type ViewNode;
 
     /// Update this component in response to any received logic messages.

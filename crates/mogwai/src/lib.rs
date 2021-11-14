@@ -10,7 +10,7 @@
 //!
 //! ## Learn more
 //! If you're new to Mogwai, check out the [introduction](an_introduction) module.
-//pub mod an_introduction;
+pub mod an_introduction;
 pub mod builder;
 pub mod channel;
 pub mod component;

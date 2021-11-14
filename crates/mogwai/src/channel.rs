@@ -6,9 +6,9 @@ pub mod mpmc {
     //! For this reason it is recommended to use this flavor of channel
     //! for messages which are not `Clone` and you must be careful not to depend
     //! on more than **one** [`Receiver`] reading messages from the channel. A
-    //! good use case for this channel is for sending [`ViewBuilder`]s to a parent
+    //! good use case for this channel is for sending [`ViewBuilder`][crate::builder::ViewBuilder]s to a parent
     //! view.
-    //! For channels where each message is received by _all_ consumers see [`broadcast`].
+    //! For channels where each message is received by _all_ consumers see [`super::broadcast`].
     //!
     //! There are two kinds of MPMC channel:
     //!
@@ -21,10 +21,10 @@ pub mod mpmc {
     //! When all [`Sender`]s or all [`Receiver`]s are dropped, the channel becomes closed. When a
     //! channel is closed, no more messages can be sent, but remaining messages can still be received.
     //!
-    //! Additionally, [`Sender`] can be turned into a [`Sink`] and [`Receiver`] implements [`Stream`], both of
-    //! which are used extensively by [`builder::ViewBuilder`] to set up communication into and out of views.
+    //! Additionally, [`Sender`] can be turned into a [`crate::futures::Sink`] and [`Receiver`] implements [`crate::futures::Stream`], both of
+    //! which are used extensively by [`crate::builder::ViewBuilder`] to set up communication into and out of views.
     //!
-    //! Please see the documentation for [`StreamExt`] and [`SinkExt`] to get acquanted with the various
+    //! Please see the documentation for [`crate::futures::StreamExt`] and [`crate::futures::SinkExt`] to get acquanted with the various
     //! operations available when using channels.
     //!
     //! # Examples
