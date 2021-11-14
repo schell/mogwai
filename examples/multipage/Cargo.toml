@@ -1,10 +1,10 @@
 [package]
 name = "multipage"
-description = "A multipage SPA, maybe with SSR?"
+description = "A multipage SPA with SSR"
 license = "MIT"
 repository = "https://github.com/schell/mogwai"
 version = "0.1.0"
-authors = ["Bryan Swift <bryan@bryanjswift.com>"]
+authors = ["Bryan Swift <bryan@bryanjswift.com>", "Schell Scivally <efsubenovex@gmail.com"]
 edition = "2018"
 
 [lib]
@@ -42,10 +42,12 @@ console_error_panic_hook = { version = "0.1.6", optional = true }
 wee_alloc = { version = "0.4.2", optional = true }
 
 [dependencies.mogwai]
-path = "../../mogwai"
+path = "../../crates/mogwai"
+version = "^0.5"
 
 [dependencies.mogwai-hydrator]
 path = "../../crates/mogwai-hydrator"
+version = "^0.2"
 
 [dependencies.wasm-bindgen]
 version = "^0.2"

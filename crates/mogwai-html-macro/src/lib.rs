@@ -4,23 +4,8 @@ use quote::quote;
 use syn::Error;
 use syn_rsx::{Node, NodeType};
 
-fn cast_type_attribute(node: &Node) -> Option<proc_macro2::TokenStream> {
-    let key = node.name_as_string()?;
-    let expr = node.value.as_ref()?;
-    match key.split(':').collect::<Vec<_>>().as_slice() {
-        ["cast", "type"] => Some(quote! {#expr}),
-        _ => None,
-    }
-}
-
-fn xmlns_attribute(node: &Node) -> Option<proc_macro2::TokenStream> {
-    let key = node.name_as_string()?;
-    let expr = node.value.as_ref()?;
-    if key.starts_with("xmlns") {
-        Some(quote! {#expr})
-    } else {
-        None
-    }
+fn under_to_dash(s: &str) -> String {
+    s.replace("_", "-")
 }
 
 fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
@@ -28,41 +13,57 @@ fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Err
     if let Some(key) = node.name_as_string() {
         if let Some(expr) = node.value {
             match key.split(':').collect::<Vec<_>>().as_slice() {
-                ["style", name] => Ok(quote! {
-                    __mogwai_node.style(#name, #expr);
+                ["cast", "type"] => Ok(quote! {}), // handled by a preprocessor
+                ["post", "build"] => Ok(quote! {
+                    .with_post_build(#expr)
                 }),
+                ["xmlns"] => Ok(quote! {
+                    .with_namespace(#expr)
+                }),
+                ["style"] => Ok(quote! {
+                    .with_style_stream(#expr)
+                }),
+                ["style", name] => {
+                    let name = under_to_dash(name);
+                    Ok(quote! {
+                        .with_single_style_stream(#name, #expr)
+                    })
+                }
                 ["on", event] => Ok(quote! {
-                    __mogwai_node.on(#event, #expr);
+                    .with_event(#event, #expr)
                 }),
                 ["window", event] => Ok(quote! {
-                    __mogwai_node.window_on(#event, #expr);
+                    .with_window_event(#event, #expr)
                 }),
                 ["document", event] => Ok(quote! {
-                    __mogwai_node.document_on(#event, #expr);
+                    .with_document_event(#event, #expr)
                 }),
-                ["post", "build"] => Ok(quote! {
-                    __mogwai_node.post_build(#expr);
-                }),
-                ["boolean", name] => Ok(quote! {
-                    __mogwai_node.boolean_attribute(#name, #expr);
-                }),
-                ["patch", "children"] => Ok(quote! {
-                    __mogwai_node.patch(#expr);
-                }),
-                ["cast", "type"] => Ok(quote! {}),
-                [attribute_name] => Ok(quote! {
-                    __mogwai_node.attribute(#attribute_name, #expr);
-                }),
-                keys => {
-                    let attribute_name = keys.join(":");
+                ["boolean", name] => {
+                    let name = under_to_dash(name);
                     Ok(quote! {
-                        __mogwai_node.attribute(#attribute_name, #expr);
+                        .with_single_bool_attrib_stream(#name, #expr)
+                    })
+                }
+                ["patch", "children"] => Ok(quote! {
+                    .with_child_stream(#expr)
+                }),
+                [attribute_name] => {
+                    let name = under_to_dash(attribute_name);
+                    Ok(quote! {
+                        .with_single_attrib_stream(#name, #expr)
+                    })
+                }
+                keys => {
+                    let attribute_name = under_to_dash(&keys.join(":"));
+                    Ok(quote! {
+                        .with_attrib_stream(#attribute_name, #expr)
                     })
                 }
             }
         } else {
+            let name = under_to_dash(&key);
             Ok(quote! {
-                __mogwai_node.boolean_attribute(#key, true);
+                .with_single_bool_attrib_stream(#name, true)
             })
         }
     } else {
@@ -106,45 +107,46 @@ where
     match node.node_type {
         NodeType::Element => match node.name_as_string() {
             Some(tag) => {
-                let mut type_is = quote! { web_sys::HtmlElement };
-                let mut namespace = None;
-                for att_node in node.attributes.iter() {
-                    if let Some(cast_type) = cast_type_attribute(att_node) {
-                        type_is = cast_type;
-                    }
-                    if let Some(ns) = xmlns_attribute(att_node) {
-                        namespace = Some(ns);
-                    }
-                }
-
                 let mut errs: Vec<Error> = vec![];
 
+                let mut may_type = None;
+                for attr_node in node.attributes.iter() {
+                    if let Some(key) = attr_node.name_as_string() {
+                        if let Some(expr) = attr_node.value.as_ref() {
+                            match key.split(':').collect::<Vec<_>>().as_slice() {
+                                ["cast", "type"] => {
+                                    may_type =
+                                        Some(quote! { as mogwai::builder::ViewBuilder<#expr> });
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                let type_is = may_type
+                    .unwrap_or_else(|| quote! {as mogwai::builder::ViewBuilder<mogwai::view::Dom>});
                 let (attribute_tokens, attribute_errs) =
                     partition_unzip(node.attributes, attribute_to_token_stream);
                 errs.extend(attribute_errs);
 
                 let (child_tokens, child_errs) = partition_unzip(node.children, node_fn);
-                let child_tokens = child_tokens
-                    .into_iter()
-                    .map(|child| quote! { __mogwai_node.with(#child); });
+                let child_tokens = child_tokens.into_iter().map(|child| {
+                    quote! {
+                            .append(#child)
+                    }
+                });
                 errs.extend(child_errs);
 
                 let may_error = combine_errors(errs);
                 if let Some(error) = may_error {
                     Err(error)
                 } else {
-                    let create = if let Some(ns) = namespace {
-                        quote! {#view_path::element_ns(#tag, #ns)}
-                    } else {
-                        quote! {#view_path::element(#tag)}
-                    };
+                    let create = quote! {#view_path::element(#tag)};
                     Ok(quote! {
-                        {
-                            let mut __mogwai_node = #create as #view_path<#type_is>;
+                        #create
                             #(#attribute_tokens)*
                             #(#child_tokens)*
-                            __mogwai_node
-                        }
+                            #type_is
                     })
                 }
             }
@@ -152,7 +154,7 @@ where
         },
         NodeType::Text => {
             if let Some(value) = node.value {
-                Ok(quote! {#view_path::from(#value)})
+                Ok(quote! {mogwai::builder::ViewBuilder::text(#value)})
             } else {
                 Err(Error::new(
                     Span::call_site(),
@@ -162,7 +164,10 @@ where
         }
         NodeType::Block => {
             if let Some(value) = node.value {
-                Ok(quote! {#view_path::try_from(#value).ok()})
+                Ok(quote! {
+                    #[allow(unused_braces)]
+                    #value
+                })
             } else {
                 Err(Error::new(
                     Span::call_site(),
@@ -178,25 +183,25 @@ where
     }
 }
 
-fn node_to_view_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
+fn _node_to_view_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
         quote! { mogwai::prelude::View },
-        node_to_view_token_stream,
+        _node_to_view_token_stream,
         node,
     )
 }
 
-fn node_to_hydrateview_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
+fn _node_to_hydrateview_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
         quote! { mogwai_hydrator::Hydrator },
-        node_to_hydrateview_token_stream,
+        _node_to_hydrateview_token_stream,
         node,
     )
 }
 
 fn node_to_builder_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
     walk_node(
-        quote! { mogwai::prelude::ViewBuilder },
+        quote! { mogwai::builder::ViewBuilder },
         node_to_builder_token_stream,
         node,
     )
@@ -227,57 +232,41 @@ fn walk_dom(
 }
 
 #[proc_macro]
-/// Uses an html description to construct a `View`.
-///
-/// ```rust
-/// # extern crate mogwai;
-/// use mogwai::prelude::*;
-///
-/// let my_div = view! {
-///     <div id="main">
-///         <p>"Trolls are real"</p>
-///     </div>
-/// };
-/// ```
-pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    proc_macro::TokenStream::from(walk_dom(input, node_to_view_token_stream))
-}
-
-#[proc_macro]
-/// Uses an html description to construct a `Hydrator`, which can then be converted
-/// into a `View` with [`std::convert::TryFrom`].
-///
-/// ```rust
-/// # extern crate mogwai;
-/// # extern crate mogwai_hydrator;
-/// use mogwai::prelude::*;
-/// use mogwai_hydrator::Hydrator;
-///
-/// let my_div = hydrate! {
-///     <div id="main">
-///         <p>"Trolls are real"</p>
-///     </div>
-/// };
-/// ```
-pub fn hydrate(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    proc_macro::TokenStream::from(walk_dom(input, node_to_hydrateview_token_stream))
-}
-
-#[proc_macro]
 /// Uses an html description to construct a `ViewBuilder`.
 ///
 /// ```rust
-/// # extern crate mogwai;
-/// use mogwai::prelude::*;
+/// extern crate mogwai;
 ///
-/// let my_div = builder! {
-///     <div id="main">
+/// let my_div = mogwai::macros::builder! {
+///     <div cast:type=mogwai::view::Dom id="main">
 ///         <p>"Trolls are real"</p>
 ///     </div>
 /// };
 /// ```
 pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     proc_macro::TokenStream::from(walk_dom(input, node_to_builder_token_stream))
+}
+
+#[proc_macro]
+/// Uses an html description to construct a `View`.
+///
+/// This is the same as the following:
+/// ```rust
+/// extern crate mogwai;
+///
+/// let my_div = mogwai::macros::view! {
+///     <div cast:type=mogwai::view::Dom id="main">
+///         <p>"Trolls are real"</p>
+///     </div>
+/// };
+/// ```
+pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let builder = walk_dom(input, node_to_builder_token_stream);
+    let token = quote! {{
+        use std::convert::TryFrom;
+        mogwai::view::View::try_from(#builder).unwrap()
+    }};
+    proc_macro::TokenStream::from(token)
 }
 
 #[proc_macro]

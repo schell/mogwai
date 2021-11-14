@@ -14,35 +14,36 @@ pub enum ButtonOut {
     Clicks(i32),
 }
 
-impl Component for Button {
-    type ModelMsg = ButtonIn;
+impl IsElmComponent for Button {
+    type LogicMsg = ButtonIn;
     type ViewMsg = ButtonOut;
-    type DomNode = HtmlElement;
+    type ViewNode = Dom;
 
-    fn update(
-        &mut self,
-        msg: &ButtonIn,
-        tx_view: &Transmitter<ButtonOut>,
-        _subscriber: &Subscriber<ButtonIn>,
-    ) {
+    fn update(&mut self, msg: ButtonIn, tx_view: broadcast::Sender<ButtonOut>) {
         match msg {
             ButtonIn::Click => {
                 self.clicks += 1;
-                tx_view.send(&ButtonOut::Clicks(self.clicks))
+                let out = ButtonOut::Clicks(self.clicks);
+                mogwai::spawn(async move {
+                    tx_view
+                        .broadcast(out)
+                        .await
+                        .unwrap();
+                });
             }
         }
     }
 
     fn view(
         &self,
-        tx: &Transmitter<ButtonIn>,
-        rx: &Receiver<ButtonOut>,
-    ) -> ViewBuilder<HtmlElement> {
+        tx: broadcast::Sender<ButtonIn>,
+        rx: broadcast::Receiver<ButtonOut>,
+    ) -> ViewBuilder<Dom> {
         builder! {
-            <button style="cursor: pointer;" on:click=tx.contra_map(|_| ButtonIn::Click)>
+            <button style="cursor: pointer;" on:click=tx.sink().with(|_| async {Ok(ButtonIn::Click)})>
                 {(
                     format!("Clicked {} times", self.clicks),
-                    rx.branch_map(|msg| match msg {
+                    rx.clone().map(|msg| match msg {
                         ButtonOut::Clicks(n) => format!("Clicked {} times", n),
                     })
                 )}

@@ -1,7 +1,7 @@
 # Multi Screen Example
 
 An example that serves multiple "routes". Each "route" changes the main `View`
-displayed by the `App` `Gizmo`.
+displayed by the `App` component.
 
 The example performs SSR by injecting the `App` contents for the `Route` into
 a [`tera`][tera] template. The SSR is not intended to be optimal, only

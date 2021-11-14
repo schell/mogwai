@@ -1,5 +1,7 @@
 #! /bin/bash
 
+echo "### Building"
+
 ROOT="$(git rev-parse --show-toplevel)"
 . $ROOT/scripts/common.sh
 
@@ -10,7 +12,7 @@ for DIR in examples/*/
 do
     echo ""
     EXAMPLE=`echo $DIR | cut -d'/' -f2`
-    echo "Building example project '${EXAMPLE}' from '${DIR}'"
+    echo " ## building example project '${EXAMPLE}' from '${DIR}'"
     wasm-pack build --debug --target web $DIR
     if [ $DIR = "examples/multipage/" ]; then
         continue
@@ -19,8 +21,8 @@ do
     mkdir -p $DEST
     cd $DIR
     cp -R index.html pkg $DEST || exit 1
-    cp style.css $DEST || echo "$DIR has no style.css file"
+    cp style.css $DEST || echo " ## $DIR has no style.css file"
     cd $ROOT
 done
 
-echo "Done building on ref ${GITHUB_REF}"
+echo "### Done building on ref ${GITHUB_REF}"

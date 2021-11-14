@@ -1,122 +1,41 @@
-# Nesting components
-A type implementing [Component][traitcomponent] is a node in a user interface graph.
-This type will naturally contain other types that represent other nodes in the graph.
-maintaining a [Gizmo][structgizmo] in your component. Then spawn a builder from that sub-component field in your
-component's [Component::view][traitcomponent_methodview] function to add the sub-component's view to your component's DOM.
+# Child components
+Any `impl Into<ViewBuilder<T>>` can be nested as a child node of another [ViewBuilder][structviewbuilder].
 
-```rust
-extern crate mogwai;
-extern crate web_sys;
+This includes:
+- [ViewBuilder][structviewbuilder]
+- [Component][structcomponent]
+- [ElmComponent][structelmcomponent]
+- `String`
+- `&str`
+- `(String, impl Stream<Item = String>)`
+- `(&str, impl Stream<Item = String>)`
 
-use mogwai::prelude::*;
+Additionally some container/iterator types can be nested, with slightly different behavior:
 
-#[derive(Clone)]
-enum CounterIn {
-    Click,
-    Reset
-}
+- `Option<impl Into<ViewBuilder<T>>>` - if `None`, no child is added, otherwise if `Some(viewbuilder)`,
+  `viewbuilder` is added. See [conditionally adding DOM](rsx.md#conditionally-include-dom).
+- `Vec<impl Into<ViewBuilder<T>>>` - all children are appended one after another.
+  See [including fragments](rsx.md#including-fragments)
 
-#[derive(Clone)]
-enum CounterOut {
-    DrawClicks(i32)
-}
+To nest a child component within a parent, simply include it as a node using RSX brackets:
 
-struct Counter {
-    num_clicks: i32,
-}
-
-impl Component for Counter {
-    type ModelMsg = CounterIn;
-    type ViewMsg = CounterOut;
-    type DomNode = HtmlElement;
-
-    fn view(&self, tx: &Transmitter<CounterIn>, rx: &Receiver<CounterOut>) -> ViewBuilder<HtmlElement> {
-        builder!{
-            <button on:click=tx.contra_map(|_| CounterIn::Click)>
-            {(
-                "clicks = 0",
-                rx.branch_map(|msg| {
-                    match msg {
-                        CounterOut::DrawClicks(n) => {
-                            format!("clicks = {}", n)
-                        }
-                    }
-                })
-            )}
-            </button>
-        }
-    }
-
-    fn update(&mut self, msg: &CounterIn, tx_view: &Transmitter<CounterOut>, _sub: &Subscriber<CounterIn>) {
-        match msg {
-            CounterIn::Click => {
-                self.num_clicks += 1;
-                tx_view.send(&CounterOut::DrawClicks(self.num_clicks));
-            }
-            CounterIn::Reset => {
-                self.num_clicks = 0;
-                tx_view.send(&CounterOut::DrawClicks(0));
-            }
-        }
-    }
-}
-
-
-#[derive(Clone)]
-enum In {
-    Click
-}
-
-
-#[derive(Clone)]
-enum Out {}
-
-
-struct App {
-    counter: Gizmo<Counter>
-}
-
-
-impl Default for App {
-    fn default() -> Self {
-        let counter: Gizmo<Counter> = Gizmo::from(Counter { num_clicks: 0 });
-        App{ counter }
-    }
-}
-
-
-impl Component for App {
-    type ModelMsg = In;
-    type ViewMsg = Out;
-    type DomNode = HtmlElement;
-
-    fn view(&self, tx: &Transmitter<In>, rx: &Receiver<Out>) -> ViewBuilder<HtmlElement> {
-        builder!{
-            <div>
-                {self.counter.view_builder()}
-                <button on:click=tx.contra_map(|_| In::Click)>"Click to reset"</button>
-            </div>
-        }
-    }
-
-    fn update(&mut self, msg: &In, tx_view: &Transmitter<Out>, _sub: &Subscriber<In>) {
-        match msg {
-            In::Click => {
-                self.counter.send(&CounterIn::Reset);
-            }
-        }
-    }
-}
-
-
-pub fn main() -> Result<(), JsValue> {
-    let view = View::from(Gizmo::from(App::default()));
-    if cfg!(target_arch = "wasm32") {
-        view.run()
-    } else {
-        Ok(())
-    }
-}
+```rust, no_run
+# use mogwai::prelude::*;
+let child = builder! {<p>"My paragraph"</p>};
+let parent = builder! {<div>{child}</div>};
 ```
+
+Or use the `ViewBuilder::append` function if you're not using RSX:
+```rust, no_run
+# use mogwai::prelude::*;
+let child: ViewBuilder<Dom> = ViewBuilder::element("p")
+    .append(ViewBuilder::text("My paragraph"));
+let parent = ViewBuilder::element("div")
+    .append(child);
+```
+
+If there is a `std` type that you feel should have an `impl Into<ViewBuilder<T>>` or a container/iterator
+that you'd like `mogwai` to support with regards to appending children, please open
+an issue at [the mogwai github repo](https://github.com/schell/mogwai/issues).
 
 {{#include reflinks.md}}

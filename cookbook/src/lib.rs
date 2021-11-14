@@ -10,6 +10,10 @@ doc_comment::doctest!("component.md", component);
 doc_comment::doctest!("nest_component.md", nest_component);
 #[cfg(doctest)]
 doc_comment::doctest!("rsx.md", rsx);
+#[cfg(doctest)]
+doc_comment::doctest!("logic_view_comms.md", logic_view_comms);
+#[cfg(doctest)]
+doc_comment::doctest!("view_capture.md", view_capture);
 
 /// A cookbook
 pub fn cookbook() {

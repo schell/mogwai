@@ -5,17 +5,16 @@
 //! [Component::update] function.
 //!
 //! For more info see [the Component module documentation][crate::component].
-use std::{
-    cell::{Ref, RefCell},
-    rc::Rc,
-};
+use std::sync::{Arc, Mutex, MutexGuard};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::Node;
 pub use web_sys::{Element, Event, EventTarget};
 
 use crate::{
-    prelude::{txrx, Component, IsDomNode, Receiver, Subscriber, Transmitter, ViewBuilder},
+    component::{subscriber::Subscriber, Component},
+    txrx::{channel, Receiver, Transmitter},
     utils,
+    view::{builder::ViewBuilder, IsDomNode},
 };
 
 /// A user interface component that can spawn views.
@@ -29,13 +28,14 @@ pub struct Gizmo<T: Component> {
     /// Clones of this receiver are owned by all of this gizmo's views.
     pub recv: Receiver<T::ViewMsg>,
     /// This gizmo's internal state.
-    pub state: Rc<RefCell<T>>,
+    pub state: Arc<Mutex<T>>,
 }
 
 impl<T> Gizmo<T>
 where
-    T: Component + 'static,
-    T::ViewMsg: Clone,
+    T: Component + Send + 'static,
+    T::ModelMsg: Send + Sync,
+    T::ViewMsg: Clone + Send + Sync,
     T::DomNode: JsCast + AsRef<Node> + Clone,
 {
     /// Create a new [`Gizmo`] from an initial state using
@@ -52,9 +52,9 @@ where
         let out_subscriber = Subscriber::new(&tx_out);
         init.bind(&in_subscriber, &out_subscriber);
 
-        let state = Rc::new(RefCell::new(init));
+        let state = Arc::new(Mutex::new(init));
 
-        let (tx_view, rx_view) = txrx();
+        let (tx_view, rx_view) = channel();
         rx_in.respond_shared(state.clone(), move |t: &mut T, msg: &T::ModelMsg| {
             t.update(msg, &tx_view, &in_subscriber);
         });
@@ -85,7 +85,7 @@ where
     /// This allows you to send the builder (or subsequent view) somewhere else while still
     /// maintaining the ability to update the view from afar.
     pub fn view_builder(&self) -> ViewBuilder<T::DomNode> {
-        self.state.as_ref().borrow().view(&self.trns, &self.recv)
+        self.state.lock().unwrap().view(&self.trns, &self.recv)
     }
 
     /// Update the component with the given message.
@@ -100,7 +100,7 @@ where
         A: 'static,
         F: FnOnce(&T) -> A,
     {
-        f(&self.state.borrow())
+        f(&self.state.lock().unwrap())
     }
 
     /// Access the underlying state.
@@ -108,7 +108,7 @@ where
     where
         F: Fn(&T) -> N,
     {
-        let t = self.state.borrow();
+        let t = self.state.lock().unwrap();
         f(&t)
     }
 
@@ -117,12 +117,12 @@ where
     /// This silently updates the state and doesn't trigger any messages
     /// and does *not* update the view.
     pub fn set_state(&mut self, t: T) {
-        *self.state.borrow_mut() = t;
+        *self.state.lock().unwrap() = t;
     }
 
-    /// Borrow a reference to the inner state.
-    pub fn state_ref(&self) -> Ref<T> {
-        self.state.borrow()
+    /// Get a MutexGuard to the inner state.
+    pub fn state_lock(&self) -> MutexGuard<T> {
+        self.state.lock().unwrap()
     }
 }
 

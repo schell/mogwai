@@ -1,13 +1,10 @@
-#[macro_use]
-extern crate lazy_static;
-
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use hyper::service::{make_service_fn, service_fn};
 use multipage::Route;
 
-lazy_static! {
+lazy_static::lazy_static! {
     /// Define the [`tera::Tera`] templates which can be used as the shell of the single page
     /// application. The templates are expected to have output for a `"contents"` key. The
     /// `"contents"` key (as defined in the [`html_view`] function) will be the output of rendering
@@ -30,6 +27,7 @@ lazy_static! {
 async fn main() {
     // We'll bind to 127.0.0.1:4001
     let addr = SocketAddr::from(([127, 0, 0, 1], 4001));
+    println!("Binding to {}", addr);
 
     // A `Service` is needed for every connection, so this
     // creates one from our `hello_world` function.
@@ -49,7 +47,7 @@ async fn main() {
 }
 
 fn html_view(route: &Route) -> Body {
-    let html = multipage::view(&route.to_string());
+    let html = multipage::view(&route.to_string()).unwrap();
     let mut context = tera::Context::new();
     context.insert("title", "Home");
     context.insert("contents", &html);

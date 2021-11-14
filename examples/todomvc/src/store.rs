@@ -4,7 +4,7 @@ use serde_json;
 use wasm_bindgen::JsValue;
 use web_sys::Storage;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Item {
     pub title: String,
     pub completed: bool,
@@ -25,9 +25,10 @@ pub fn write_items(items: Vec<Item>) -> Result<(), JsValue> {
     Ok(())
 }
 
-pub fn read_items() -> Result<Vec<Item>, JsValue> {
+pub fn read_items() -> Result<Vec<Item>, String> {
     let storage = utils::window()
-        .local_storage()?
+        .local_storage()
+        .map_err(|jsv| format!("{:#?}", jsv))?
         .expect("Could not get local storage");
 
     let may_item_str: Option<String> = storage.get_item(KEY).expect("Error using storage get_item");

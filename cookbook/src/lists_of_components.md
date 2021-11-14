@@ -10,26 +10,51 @@ definitions. In this example we'll use a `List` component and an `Item` componen
 
 ## Explanation
 
-The `List` defines its view to include a `button` to create new items and a `ul` to hold each item.
+The `List` defines its view to include a `button` to create new items and an `ol` to hold each item. Logic messages will be sent into a channel and child items are patched in using the `patch:children` RSX attribute, which we can fill in with anything that implements `Stream<Item = ListPatch<ViewBuilder<Dom>>`.
+
+```rust, ignore
+{{#include ../../examples/list-of-gizmos/src/lib.rs:list_view}}
+```
+
 Each item will have a unique `id` that will help us determine which items to remove. This `id` isn't
 strictly neccessary but it my experience it's a foolproof way to maintain a list of items with frequent splices.
 
-Each item contains a button to remove the item from the list. Click events on this button must be bound to
-the parent since it is the job of the parent to patch its child views.
-Each item will also maintain a count of clicks - just for fun.
+Each item contains a button to remove the item from the list as well as a button to increment a counter. Click events on these buttons will be sent on a channel.
 
-Both `List` and `Item` must define their own model and view messages - `ListIn`, `ListOut`, `ItemIn` and `ItemOut`,
-respectively. These messages encode all the interaction between the user/operator, the `List` and each `Item`.
+The view receives a count of the current number of clicks from a stream and uses that to display a nice message to the user.
 
-When the operator clicks an item's remove button the item's view sends an `ItemIn::Remove` message. The item's
-`Component::update` function then sends an `ItemOut::Remove(item.id)` message - which is bound to its parent
-`List` and mapped to `ListIn::Remove(id)`. This triggers the parent's `Component::update` function,
-which will search for the item that triggered the event, remove it from its items and also send an `ItemOut::PatchItem(...)`
-patch message to remove the item's view from the list's view.
+```rust, ignore
+{{#include ../../examples/list-of-gizmos/src/lib.rs:item_view}}
+```
 
-This is a good example of how `mogwai` separates component state from component views. The item gizmos don't own the
-view - the window does! Using the item gizmos we can communicate to the item views. Conversly the item views will
-communicate with our item gizmos, which will trickle up into the parent.
+Just like most other componens both `List` and `Item` have their own logic loops with enum messages -
+`ListMsg` and `ItemMsg` respectively, respectively. These messages encode all the interaction between
+the user/operator, the `List` and each `Item`.
+
+The real difference between this list of items and other less complex widgets is the way items communicate
+up to the parent list and how view updates are made to the parent list.
+
+Upstream communication from items to the list is set up in the list's logic loop, along with a patching mechanism for
+keeping the list in sync with its view:
+
+```rust, ignore
+{{#include ../../examples/list-of-gizmos/src/lib.rs:list_logic_coms}}
+```
+
+Above we use [`ListPatchModel`][structlistpatchmodel] to maintain our list if items. [`ListPatchModel`][structlistpatchmodel]
+is special in that every time it is patched it sends a clone of that patch to downstream listeners. This makes it easy to
+map the patch from `Item` to `ViewBuilder<Dom>` and use the resulting stream to patch the list's view.
+
+This is a good example of how `mogwai` separates component state from component views. The list logic doesn't own the
+view and doesn't maintain the list of DOM nodes. Instead, the list logic sets up a patching mechanism and then
+maintains a collection of `Item`s that it patches locally - triggering downstream patches to the view automatically.
+
+The rest of the logic loop is business as usual with the exception of where we get our logic messages. The special bit here
+is that we are waiting for messages on both a receiver from the logic's view _and_ all receivers given to the items:
+
+```rust, ignore
+{{#include ../../examples/list-of-gizmos/src/lib.rs:list_logic_loop}}
+```
 
 ## Notes
 
@@ -39,13 +64,8 @@ more explicit and less magical than its vdom counterparts.
 
 ## Code
 
-```rust, ignore
-{{#include ../../examples/list-of-gizmos/src/lib.rs}}
-```
-
-Notice that the `main` of this example takes an optional string. This allows us to pass the id
-of an element that we'd like to append our list/parent component to. This allows us to load the example on
-the page right here.
+You can see the code in its entirety at
+[mogwai's list of components example](https://github.com/schell/mogwai/blob/master/examples/list-of-gizmos/src/lib.rs).
 
 ## Play with it
 
@@ -57,3 +77,5 @@ the page right here.
       await main("app_example");
   });
 </script>
+
+{{#include reflinks.md}}
