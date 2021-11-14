@@ -27,5 +27,5 @@ for BIN in $CARGO_BINS; do
     fi
 done
 
-rustup toolchain install 1.46.0
-rustup default 1.46.0
+rustup toolchain install 1.56
+rustup default 1.56
