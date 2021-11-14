@@ -118,7 +118,7 @@
 //!         </div>
 //!     );
 //!
-//!     tx.broadcast(&"Gizmo's website".into()).await.unwrap();
+//!     tx.broadcast("Gizmo's website".to_string()).await.unwrap();
 //! });
 //! ```
 //!
@@ -166,12 +166,12 @@
 //!             </a>
 //!         </div>
 //!     };
-//!     tx.broadcast(&"Gizmo's website".into()).await.unwrap();
+//!     tx.broadcast("Gizmo's website".into()).await.unwrap();
 //!
-//!     let html = my_view.visit_as::<web_sys::HtmlElement>(
+//!     let html = my_view.visit_as(
 //!         |el:&HtmlElement| el.inner_html(), // closure ran on browser when compiled for wasm32
-//!         |el:&SsrElement<Event>| String::from(el), // closure ran server-side when compiled on other targets
-//!     );
+//!         |el:&mogwai::ssr::SsrElement<Event>| el.html_string(), // closure ran server-side when compiled on other targets
+//!     ).unwrap();
 //!     assert_eq!(
 //!         html,
 //!         r#"<a href="http://zyghost.com">Gizmo's website</a>"#

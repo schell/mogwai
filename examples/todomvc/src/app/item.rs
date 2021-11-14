@@ -172,7 +172,7 @@ async fn logic(
 
     let toggle_input = recv_toggle_input.next().await.unwrap();
     let edit_input = recv_edit_input.next().await.unwrap();
-    edit_input.visit_as::<HtmlInputElement, _, _>(|input| input.set_value(&name), |_| ());
+    edit_input.visit_as(|input: &HtmlInputElement| input.set_value(&name), |_| ());
 
     loop {
         match rx_logic.next().await {
@@ -210,8 +210,7 @@ async fn logic(
             }
             Some(ItemLogic::SetCompletion(completed)) => {
                 is_done = completed;
-                toggle_input
-                    .visit_as::<HtmlInputElement, _, _>(|i| i.set_checked(completed), |_| ());
+                toggle_input.visit_as(|i: &HtmlInputElement| i.set_checked(completed), |_| ());
                 tx_view
                     .broadcast(ItemView::UpdateEditComplete(is_editing, is_done))
                     .await
@@ -233,17 +232,19 @@ async fn logic(
                 is_editing = false;
 
                 match ev {
-                    EditEvent::Enter | EditEvent::Blur => edit_input.visit_as(
-                        |i: &HtmlInputElement| {
-                            if let Some(s) = utils::input_value(i) {
-                                name = s;
-                            }
-                        },
-                        |_| (),
-                    ),
-                    EditEvent::Escape => {
-                        edit_input.visit_as(|i: &HtmlInputElement| i.set_value(&name), |_| ());
-                    }
+                    EditEvent::Enter | EditEvent::Blur => edit_input
+                        .visit_as(
+                            |i: &HtmlInputElement| {
+                                if let Some(s) = utils::input_value(i) {
+                                    name = s;
+                                }
+                            },
+                            |_| (),
+                        )
+                        .unwrap(),
+                    EditEvent::Escape => edit_input
+                        .visit_as(|i: &HtmlInputElement| i.set_value(&name), |_| ())
+                        .unwrap(),
                     EditEvent::OtherKeydown => {}
                 }
 

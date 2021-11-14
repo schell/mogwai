@@ -153,12 +153,12 @@ async fn logic(
 ) {
     let todo_input = recv_todo_input.next().await.unwrap();
     let _ = mogwai::time::wait_approx(1.0).await;
-    todo_input.visit_as::<HtmlInputElement, _, _>(
-        |i| {
+    todo_input.visit_as(
+        |i: &HtmlElement| {
             i.focus().unwrap();
         },
         |_| {},
-    );
+    ).unwrap();
 
     let todo_toggle_input = recv_todo_toggle_input.next().await.unwrap();
 
@@ -201,8 +201,8 @@ async fn logic(
 
                 items.push(todo);
 
-                todo_input.visit_as::<HtmlInputElement, _, _>(
-                    |i| i.set_value(""),
+                todo_input.visit_as(
+                    |i: &HtmlInputElement| i.set_value(""),
                     |i| i.set_attrib("value", Some("")).unwrap(),
                 );
 

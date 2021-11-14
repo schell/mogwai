@@ -479,17 +479,17 @@ impl Dom {
     }
 
     /// Visits the inner raw node with a function for each target.
-    pub fn visit_as<T: JsCast, F, G>(&self, f: F, g: G)
+    pub fn visit_as<T: JsCast, F, G, A>(&self, f: F, g: G) -> Option<A>
     where
-        F: FnOnce(&T),
-        G: FnOnce(&SsrElement<Event>),
+        F: FnOnce(&T) -> A,
+        G: FnOnce(&SsrElement<Event>) -> A,
     {
         match self.inner_read() {
             Either::Left(val) => {
                 let el: Option<&T> = val.dyn_ref::<T>();
-                el.map(f);
+                el.map(f)
             }
-            Either::Right(ssr) => g(ssr),
+            Either::Right(ssr) => Some(g(ssr)),
         }
     }
 
