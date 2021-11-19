@@ -1,11 +1,10 @@
 <div align="center">
   <h1>
-      <img src="img/gizmo.svg" />
+      <img src="https://raw.githubusercontent.com/schell/mogwai/master/img/gizmo.svg" />
     <br />
     mogwai
   </h1>
 </div>
-
 
 > **m**inimal, **o**bvious, **g**raphical **w**eb **a**pplication **i**nterface
 
