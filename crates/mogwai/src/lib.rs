@@ -245,6 +245,38 @@ mod test {
         };
         let _ = View::try_from(bldr).unwrap();
     }
+
+    #[test]
+    fn test_use_tx_in_logic_loop() {
+        smol::block_on(async {
+            let (tx, mut rx) = broadcast::bounded::<()>(1);
+            let (tx_end, mut rx_end) = broadcast::bounded::<()>(1);
+            let tx_logic = tx.clone();
+            mogwai::spawn(async move {
+                let mut ticks = 0u32;
+                loop {
+                    match rx.next().await {
+                        Some(()) => {
+                            ticks += 1;
+                            match ticks {
+                                1 => {
+                                    // while in the loop, queue another
+                                    tx.broadcast(()).await.unwrap();
+                                }
+                                _ => break,
+                            }
+                        }
+
+                        None => break,
+                    }
+                }
+                assert_eq!(ticks, 2);
+                tx_end.broadcast(()).await.unwrap();
+            });
+            tx_logic.broadcast(()).await.unwrap();
+            rx_end.next().await.unwrap();
+        });
+    }
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]

@@ -1,6 +1,6 @@
 [package]
 name = "mogwai"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
 license = "MIT"

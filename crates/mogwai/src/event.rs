@@ -4,7 +4,7 @@
 //! consumed by logic loops. When an event stream
 //! is dropped, its resources are cleaned up automatically.
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use std::{cell::RefCell, pin::Pin, rc::Rc, task::Waker};
+use std::{sync::{Arc, Mutex}, pin::Pin, task::Waker};
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::EventTarget;
 
@@ -14,8 +14,8 @@ struct WebCallback {
     target: EventTarget,
     name: String,
     closure: Option<Closure<dyn FnMut(JsValue)>>,
-    waker: Rc<RefCell<Option<Waker>>>,
-    event: Rc<RefCell<Option<web_sys::Event>>>,
+    waker: Arc<Mutex<Option<Waker>>>,
+    event: Arc<Mutex<Option<web_sys::Event>>>,
 }
 
 impl Drop for WebCallback {
@@ -39,9 +39,9 @@ impl Stream for WebCallback {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         let data = self.get_mut();
-        data.waker.replace(Some(cx.waker().clone()));
+        *data.waker.lock().unwrap() = Some(cx.waker().clone());
 
-        if let Some(event) = data.event.borrow_mut().take() {
+        if let Some(event) = data.event.lock().unwrap().take() {
             std::task::Poll::Ready(Some(event))
         } else {
             std::task::Poll::Pending
@@ -56,16 +56,16 @@ pub fn event_stream(
     ev_name: &str,
     target: &web_sys::EventTarget,
 ) -> impl Stream<Item = web_sys::Event> {
-    let waker: Rc<RefCell<Option<Waker>>> = Default::default();
+    let waker: Arc<Mutex<Option<Waker>>> = Default::default();
     let waker_here = waker.clone();
 
-    let event: Rc<RefCell<Option<web_sys::Event>>> = Default::default();
+    let event: Arc<Mutex<Option<web_sys::Event>>> = Default::default();
     let event_here = event.clone();
 
     let closure = Closure::wrap(Box::new(move |val: JsValue| {
         let ev = val.unchecked_into();
-        event.replace(Some(ev));
-        if let Some(waker) = waker.borrow_mut().take() {
+        *event.lock().unwrap() = Some(ev);
+        if let Some(waker) = waker.lock().unwrap().take() {
             waker.wake()
         }
     }) as Box<dyn FnMut(JsValue)>);
