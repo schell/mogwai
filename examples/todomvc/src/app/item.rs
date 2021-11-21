@@ -105,7 +105,7 @@ impl Todo {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum EditEvent {
     Enter,
     Escape,
@@ -114,7 +114,7 @@ pub enum EditEvent {
 }
 
 /// Messages sent from the view to the logic loop.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum ItemLogic {
     ToggleCompletion,
     SetCompletion(bool),
@@ -162,7 +162,7 @@ async fn logic(
     name: String,
     mut recv_toggle_input: impl Stream<Item = Dom> + Unpin,
     mut recv_edit_input: impl Stream<Item = Dom> + Unpin,
-    mut rx_logic: impl Stream<Item = ItemLogic> + Unpin,
+    mut rx_logic: broadcast::Receiver<ItemLogic>,
     tx_view: broadcast::Sender<ItemView>,
     tx_out: broadcast::Sender<ItemOut>,
 ) {
@@ -174,12 +174,13 @@ async fn logic(
     let edit_input = recv_edit_input.next().await.unwrap();
     edit_input.visit_as(|input: &HtmlInputElement| input.set_value(&name), |_| ());
 
-    loop {
-        match rx_logic.next().await {
-            Some(ItemLogic::QueryIsDone(tx)) => {
+    while let Some(msg) = rx_logic.next().await {
+        log::trace!("item loop: {:?}", msg);
+        match msg {
+            ItemLogic::QueryIsDone(tx) => {
                 tx.send(is_done).await.unwrap();
             }
-            Some(ItemLogic::QueryItem(tx)) => {
+            ItemLogic::QueryItem(tx) => {
                 tx.send(crate::store::Item {
                     title: name.clone(),
                     completed: is_done,
@@ -187,7 +188,7 @@ async fn logic(
                 .await
                 .unwrap();
             }
-            Some(ItemLogic::SetFilterShow(show, tx)) => {
+            ItemLogic::SetFilterShow(show, tx) => {
                 let is_visible = show == FilterShow::All
                     || (show == FilterShow::Completed && is_done)
                     || (show == FilterShow::Active && !is_done);
@@ -197,7 +198,7 @@ async fn logic(
                     .unwrap();
                 tx.send(()).await.unwrap();
             }
-            Some(ItemLogic::ToggleCompletion) => {
+            ItemLogic::ToggleCompletion => {
                 is_done = !is_done;
                 tx_view
                     .broadcast(ItemView::UpdateEditComplete(is_editing, is_done))
@@ -208,7 +209,7 @@ async fn logic(
                     .await
                     .unwrap();
             }
-            Some(ItemLogic::SetCompletion(completed)) => {
+            ItemLogic::SetCompletion(completed) => {
                 is_done = completed;
                 toggle_input.visit_as(|i: &HtmlInputElement| i.set_checked(completed), |_| ());
                 tx_view
@@ -216,7 +217,7 @@ async fn logic(
                     .await
                     .unwrap();
             }
-            Some(ItemLogic::StartEditing) => {
+            ItemLogic::StartEditing => {
                 is_editing = true;
                 let _ = mogwai::time::wait_approx(1.0).await;
                 edit_input.visit_as(
@@ -228,7 +229,7 @@ async fn logic(
                     .await
                     .unwrap();
             }
-            Some(ItemLogic::StopEditing(ev)) => {
+            ItemLogic::StopEditing(ev) => {
                 is_editing = false;
 
                 match ev {
@@ -261,13 +262,17 @@ async fn logic(
                     .await
                     .unwrap_or_default();
             }
-            Some(ItemLogic::Remove) => {
+            ItemLogic::Remove => {
                 // The todo sends a message to the parent App to be removed.
+                log::trace!(".destroy was clicked");
                 tx_out.broadcast(ItemOut::Remove).await.unwrap();
+                rx_logic.close();
             }
-            None => break,
         }
+        log::trace!("  done.");
     }
+
+    log::warn!("leaving item loop");
 }
 
 fn view(
@@ -295,9 +300,9 @@ fn view(
                  post:build=move |dom:&mut Dom| {
                      send_completion_toggle_input.try_send(dom.clone()).unwrap();
                  }
-                 on:click=tx.sink().with(|_| async{Ok(ItemLogic::ToggleCompletion)})
+                 on:click=tx.sink().contra_map(|_| ItemLogic::ToggleCompletion)
                 />
-                <label on:dblclick=tx.sink().with(|_| async{Ok(ItemLogic::StartEditing)})>
+                <label on:dblclick=tx.sink().contra_map(|_| ItemLogic::StartEditing)>
                     {(
                         name,
                         rx.filter_map(|msg| async move {
@@ -311,7 +316,7 @@ fn view(
                 <button
                     class="destroy"
                     style="cursor: pointer;"
-                    on:click=tx.sink().with(|_| async{Ok(ItemLogic::Remove)}) />
+                    on:click=tx.sink().contra_map(|_| ItemLogic::Remove) />
             </div>
             <input
              class="edit"
@@ -319,19 +324,19 @@ fn view(
                  log::info!("sending edit input");
                  send_edit_input.try_send(dom.clone()).unwrap();
              }
-             on:blur=tx.sink().with(|_| async{Ok(ItemLogic::StopEditing(EditEvent::Blur))})
-             on:keyup=tx.sink().with(|ev: Event| {
+             on:blur=tx.sink().contra_map(|_| ItemLogic::StopEditing(EditEvent::Blur))
+             on:keyup=tx.sink().contra_filter_map(|ev: Event| {
                  // This came from a key event
                  let kev = ev.unchecked_ref::<KeyboardEvent>();
                  let key = kev.key();
                  let cmd = if key == "Enter" {
-                     EditEvent::Enter
+                     Some(EditEvent::Enter)
                  } else if key == "Escape" {
-                     EditEvent::Escape
+                     Some(EditEvent::Escape)
                  } else {
-                     EditEvent::OtherKeydown
+                     None //EditEvent::OtherKeydown
                  };
-                 async{Ok(ItemLogic::StopEditing(cmd))}
+                 cmd.map(|cmd| ItemLogic::StopEditing(cmd))
              })
              />
         </li>

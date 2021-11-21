@@ -167,9 +167,9 @@ async fn logic(
     let mut next_index = 0;
     let mut all_logic_sources = mogwai::futures::stream::select_all(vec![rx_logic.boxed()]);
 
-    loop {
-        match all_logic_sources.next().await {
-            Some(AppLogic::NewTodo(name, complete)) => {
+    while let Some(msg) = all_logic_sources.next().await {
+        match msg {
+            AppLogic::NewTodo(name, complete) => {
                 let index = next_index;
                 next_index += 1;
                 // Create a new todo item and add it to our list of todos.
@@ -178,17 +178,20 @@ async fn logic(
                 // sources.
                 let was_removed = todo
                     .was_removed()
-                    .map(move |_| AppLogic::Remove(index))
+                    .map(move |_| {
+                        log::trace!("got remove request from item: {}", index);
+                        AppLogic::Remove(index)
+                    })
                     .boxed();
                 all_logic_sources.push(was_removed);
                 let has_changed_completion = todo
                     .has_changed_completion()
                     .map(move |complete| {
-                        log::warn!("got completion");
                         AppLogic::ChangedCompletion(index, complete)
                     })
                     .boxed();
                 all_logic_sources.push(has_changed_completion);
+
                 // Add the todo to communicate downstream later, and patch the view
                 tx_item_patches
                     .send(ListPatch::push(view_builder))
@@ -217,7 +220,7 @@ async fn logic(
 
                 maybe_update_completed(items.iter(), &mut has_completed, &mut tx_view).await;
             }
-            Some(AppLogic::SetFilter(show, may_tx)) => {
+            AppLogic::SetFilter(show, may_tx) => {
                 // Filter all the items, update the view, and then respond to the query.
                 let filter_ops = mogwai::futures::stream::FuturesUnordered::from_iter(
                     items.iter().map(|todo| todo.filter(show.clone())),
@@ -232,7 +235,7 @@ async fn logic(
                     tx.send(()).await.unwrap();
                 }
             }
-            Some(AppLogic::ChangedCompletion(_index, _is_complete)) => {
+            AppLogic::ChangedCompletion(_index, _is_complete) => {
                 let items_left = num_items_left(items.iter()).await;
                 todo_toggle_input.visit_as(
                     |i: &HtmlInputElement| i.set_checked(items_left == 0),
@@ -244,7 +247,7 @@ async fn logic(
                     .unwrap();
                 maybe_update_completed(items.iter(), &mut &mut has_completed, &mut tx_view).await;
             }
-            Some(AppLogic::ToggleCompleteAll) => {
+            AppLogic::ToggleCompleteAll => {
                 let should_complete = todo_toggle_input
                     .clone_as::<HtmlInputElement>()
                     .map(|el| el.checked())
@@ -254,11 +257,13 @@ async fn logic(
                 }
                 maybe_update_completed(items.iter(), &mut &mut has_completed, &mut tx_view).await;
             }
-            Some(AppLogic::Remove(index)) => {
+            AppLogic::Remove(index) => {
+                log::trace!("app logic got remove request: {}", index);
                 let mut may_found_index = None;
                 'remove_todo: for (todo, i) in items.iter().zip(0..) {
                     let todo_index = todo.index;
                     if todo_index == index {
+                        log::trace!("  removing {} from the view", index);
                         // Send a patch to the view to remove the todo
                         tx_item_patches
                             .send(ListPatch::splice(i..=i, std::iter::empty()))
@@ -270,6 +275,7 @@ async fn logic(
                 }
 
                 if let Some(i) = may_found_index {
+                    log::trace!("  removing {} from items", index);
                     let _ = items.remove(i);
                 }
 
@@ -287,7 +293,7 @@ async fn logic(
                     .unwrap();
                 maybe_update_completed(items.iter(), &mut has_completed, &mut tx_view).await;
             }
-            Some(AppLogic::RemoveCompleted) => {
+            AppLogic::RemoveCompleted => {
                 let num_items_before = items.len();
                 let mut to_remove = vec![];
                 for (todo, i) in items.iter().zip(0..num_items_before).rev() {
@@ -318,7 +324,6 @@ async fn logic(
                         .unwrap();
                 }
             }
-            None => break,
         }
 
         // In any case, serialize the current todo items.
@@ -326,8 +331,10 @@ async fn logic(
             .collect::<Vec<_>>()
             .await;
         store::write_items(store_items).expect("Could not store todos");
-        log::info!("stored todos");
+        log::info!("all_logic_sources.len():{}", all_logic_sources.len());
     }
+
+    log::error!("leaving app logic");
 }
 
 fn todo_list_display(rx: &broadcast::Receiver<AppView>) -> impl Stream<Item = String> {
@@ -382,7 +389,6 @@ fn view(
                 <label for="toggle-all">"Mark all as complete"</label>
                 <ul class="todo-list"
                  style:display=("none", todo_list_display(&rx))
-                    //post:build=tx.contra_map(|el: &HtmlElement| In::TodoListUl(el.clone()))>
                  patch:children=item_children>
                 </ul>
             </section>
