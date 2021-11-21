@@ -64,7 +64,7 @@
 //!
 //! ```html
 //! <div class="my-div">
-//!       <a href="http://zyghost.com">Schell's website</a>
+//!       <a href="http://zyghost.com">Schellsan's website</a>
 //! </div>
 //! ```
 //!

@@ -64,8 +64,14 @@ pub struct View<T> {
 }
 
 impl From<&View<Dom>> for String {
-    fn from(view: &View<Dom>) -> String {
-        match view.inner.inner_read() {
+    fn from(view: &View<Dom>) -> Self {
+        String::from(view.deref())
+    }
+}
+
+impl From<&Dom> for String {
+    fn from(dom: &Dom) -> String {
+        match dom.inner_read() {
             Either::Left(val) => {
                 if let Some(element) = val.dyn_ref::<web_sys::Element>() {
                     return element.outer_html();
@@ -303,13 +309,13 @@ impl Dom {
             Either::Left(val) => match patch {
                 crate::patch::HashPatch::Insert(k, v) => {
                     val.dyn_ref::<web_sys::Element>()
-                        .ok_or_else(|| "not an element".to_string())?
+                        .ok_or_else(|| format!("could not set attribute {}={} on {:?}: not an element", k, v, val))?
                         .set_attribute(&k, &v)
                         .map_err(|_| "could not set attrib".to_string())?;
                 }
                 crate::patch::HashPatch::Remove(k) => {
                     val.dyn_ref::<web_sys::Element>()
-                        .ok_or_else(|| "not an element".to_string())?
+                        .ok_or_else(|| format!("could remove attribute {} on {:?}: not an element", k, val))?
                         .remove_attribute(&k)
                         .map_err(|_| "could remove attrib".to_string())?;
                 }
@@ -338,19 +344,19 @@ impl Dom {
                 crate::patch::HashPatch::Insert(k, v) => {
                     if v {
                         val.dyn_ref::<web_sys::Element>()
-                            .ok_or_else(|| "not an element".to_string())?
+                            .ok_or_else(|| format!("could not set boolean attribute {}={} on {:?}: not an element", k, v, val))?
                             .set_attribute(&k, "")
                             .map_err(|_| "could not set boolean attrib".to_string())?;
                     } else {
                         val.dyn_ref::<web_sys::Element>()
-                            .ok_or_else(|| "not an element".to_string())?
+                            .ok_or_else(|| format!("could not remove boolean attribute {}={} on {:?}: not an element", k, v, val))?
                             .remove_attribute(&k)
                             .map_err(|_| "could not remove boolean attrib".to_string())?;
                     }
                 }
                 crate::patch::HashPatch::Remove(k) => {
                     val.dyn_ref::<web_sys::Element>()
-                        .ok_or_else(|| "not an element".to_string())?
+                        .ok_or_else(|| format!("could not remove boolean attribute {} on {:?}: not an element", k, val))?
                         .remove_attribute(&k)
                         .map_err(|_| "could not remove boolean attrib".to_string())?;
                 }
@@ -383,8 +389,9 @@ impl Dom {
             Either::Left(val) => {
                 let style = val
                     .dyn_ref::<web_sys::HtmlElement>()
-                    .ok_or_else(|| "not an element".to_string())?
-                    .style();
+                    .map(|el| el.style())
+                    .or_else(|| val.dyn_ref::<web_sys::SvgElement>().map(|el| el.style()))
+                    .ok_or_else(|| format!("could not patch style on {:?}: not an element", val))?;
                 match patch {
                     crate::patch::HashPatch::Insert(k, v) => {
                         style
@@ -457,7 +464,7 @@ impl Dom {
                 });
                 val.clone()
                     .dyn_into::<web_sys::Node>()
-                    .map_err(|_| "not an element".to_string())?
+                    .map_err(|val| format!("could not patch children on {:?}: not an element", val))?
                     .list_patch_apply(patch);
             }
             Either::Right(ssr) => {
@@ -499,7 +506,7 @@ impl Dom {
             Either::Left(val) => {
                 let el = val
                     .dyn_ref::<web_sys::Element>()
-                    .ok_or_else(|| "not an Element".to_string())?;
+                    .ok_or_else(|| format!("could not get attribute {} on {:?}: not an Element", key, val))?;
                 if el.has_attribute(key) {
                     Ok(el.get_attribute(key))
                 } else {
@@ -512,7 +519,7 @@ impl Dom {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     fn sendable<T: crate::target::Sendable>() {}
 
     #[test]

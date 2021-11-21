@@ -4,11 +4,18 @@
 //! consumed by logic loops. When an event stream
 //! is dropped, its resources are cleaned up automatically.
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use std::{sync::{Arc, Mutex}, pin::Pin, task::Waker};
+use std::{
+    pin::Pin,
+    sync::{Arc, Mutex},
+    task::Waker,
+};
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::EventTarget;
 
-use crate::futures::SinkError;
+use crate::{
+    futures::SinkError,
+    target::{Sendable, Streamable},
+};
 
 struct WebCallback {
     target: EventTarget,
@@ -83,6 +90,30 @@ pub fn event_stream(
     }
 }
 
+/// Listen for events of the given name on the given target.
+/// Run the event through the given function and sent the result on the given sink.
+///
+/// This can be used to get a `Sendable` stream of events from a `web_sys::EventTarget`.
+pub fn event_stream_with<T: Sendable>(
+    ev_name: &str,
+    target: &web_sys::EventTarget,
+    mut f: impl FnMut(web_sys::Event) -> T + 'static,
+) -> impl Streamable<T> {
+    let (mut tx, rx) = futures::channel::mpsc::unbounded();
+    let mut stream = event_stream(ev_name, target);
+    wasm_bindgen_futures::spawn_local(async move {
+        while let Some(msg) = stream.next().await {
+            let t = f(msg);
+            match tx.send(t).await.ok() {
+                Some(()) => {}
+                None => break,
+            }
+        }
+    });
+
+    rx
+}
+
 /// Add an event listener of the given name to the given target. When the event happens, the
 /// event will be fed to the given sink. If the sink is closed, the listener will be removed.
 pub fn add_event(
@@ -94,13 +125,11 @@ pub fn add_event(
     wasm_bindgen_futures::spawn_local(async move {
         loop {
             match stream.next().await {
-                Some(event) => {
-                    match tx.send(event).await {
-                        Ok(()) => {}
-                        Err(SinkError::Full) => panic!("event sink is full"),
-                        Err(SinkError::Closed) => break,
-                    }
-                }
+                Some(event) => match tx.send(event).await {
+                    Ok(()) => {}
+                    Err(SinkError::Full) => panic!("event sink is full"),
+                    Err(SinkError::Closed) => break,
+                },
                 None => break,
             }
         }
