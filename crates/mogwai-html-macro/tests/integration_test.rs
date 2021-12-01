@@ -1,7 +1,33 @@
 use std::convert::TryFrom;
 
+use mogwai::{
+    builder::{DecomposedViewBuilder, ViewBuilder},
+    channel::broadcast,
+    event::{DomEvent, Eventable},
+    patch::HashPatch,
+    prelude::{Component, Either},
+    target::Streamable,
+    view::{Dom, View},
+};
 use mogwai_html_macro::{builder, view};
-use mogwai::{builder::{DecomposedViewBuilder, ViewBuilder}, channel::broadcast, patch::HashPatch, target::Streamable, view::{View, Dom}};
+
+#[test]
+fn expand_this_builder() {
+    let _ = builder! {
+        <div
+         cast:type = mogwai::view::Dom
+         post:build = move |_:&mut Dom| println!("post build")
+         style:background_color = "red"
+         data_thing = "a string"
+         checked >
+            "Hello"
+            <ul>
+                <li>"Uno"</li>
+                <li>"Dos"</li>
+            </ul>
+        </div>
+    };
+}
 
 #[test]
 fn node_self_closing() {
@@ -17,20 +43,26 @@ fn node_self_closing() {
     }
     .into();
     assert_eq!(&div, r#"<img src="http://zyghost.com/favicon.ico" />"#);
-
 }
 
 #[test]
 fn node_self_closing_gt_1_att() {
-    let decomp: DecomposedViewBuilder<Dom>  = builder! {<a href="http://zyghost.com" class="blah"/>}.into();
-    assert_eq!(decomp.attribs[0], HashPatch::Insert("href".to_string(), "http://zyghost.com".to_string()));
+    let decomp: DecomposedViewBuilder<Dom> =
+        builder! {<a href="http://zyghost.com" class="blah"/>}.into();
+    assert_eq!(
+        decomp.attribs[0],
+        HashPatch::Insert("href".to_string(), "http://zyghost.com".to_string())
+    );
 
     // not all nodes are void nodes
     let div: String = view! {<a href="http://zyghost.com" class="blah"/>}.into();
     assert_eq!(&div, r#"<a href="http://zyghost.com" class="blah"></a>"#);
 
     let div: String = view! {<img src="http://zyghost.com/favicon.ico" class="blah"/>}.into();
-    assert_eq!(&div, r#"<img src="http://zyghost.com/favicon.ico" class="blah" />"#);
+    assert_eq!(
+        &div,
+        r#"<img src="http://zyghost.com/favicon.ico" class="blah" />"#
+    );
 }
 
 #[test]
@@ -107,12 +139,21 @@ fn allow_attributes_on_next_line() {
 #[test]
 fn rsx_cookbook() {
     let (_tx, rx) = broadcast::bounded::<String>(1);
-    let _ = signed_in_view_builder(&User{username: "oona".to_string(), o_image: None}, rx.clone(), rx.clone(), rx.clone(), rx);
+    let _ = signed_in_view_builder(
+        &User {
+            username: "oona".to_string(),
+            o_image: None,
+        },
+        rx.clone(),
+        rx.clone(),
+        rx.clone(),
+        rx,
+    );
 }
 
 struct User {
     username: String,
-    o_image: Option<String>
+    o_image: Option<String>,
 }
 
 fn signed_in_view_builder(
@@ -159,4 +200,28 @@ fn signed_in_view_builder(
             </li>
         </ul>
     }
+}
+
+#[cfg(feature = "never")]
+#[test]
+pub fn struct_view_macro_source() {
+    struct_view! {
+        <Facade>
+            <div
+             style:background_color = set_bg_color
+             on:click = get_click >
+                "Hello"
+            </div>
+        </Facade>
+    }
+
+    let (facade, builder): (Facade<Dom>, _) = Facade::new();
+    let view = Component::from(builder).build().unwrap();
+    view.run().unwrap();
+
+    let mut remote_facade: Facade<Dom> = facade.clone();
+    mogwai::spawn(async move {
+        remote_facade.set_bg_color("red").await.unwrap();
+        let _event: DomEvent = remote_facade.get_click().await.unwrap();
+    });
 }
