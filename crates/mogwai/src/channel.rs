@@ -3,6 +3,8 @@
 use std::{ops::DerefMut, sync::Arc};
 
 use futures::{future::Either, lock::Mutex, Future};
+
+#[deprecated = "The mpmc module will be removed in mogwai 0.6"]
 pub mod mpmc {
     //! Async multi-producer multi-consumer channel, **where each message can be received by only
     //! one of all existing consumers**.

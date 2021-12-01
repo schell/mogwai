@@ -85,7 +85,7 @@ impl DomEvent {
     /// Attempt to convert into a `web_sys::Event`. This only works when running on wasm32.
     #[cfg(target_arch = "wasm32")]
     pub fn browser_event(self) -> Option<web_sys::Event> {
-        Some(self.inner)
+        self.inner.dyn_into::<web_sys::Event>().ok()
     }
     /// Attempt to convert into a `web_sys::Event`. This only works when running on wasm32.
     #[cfg(not(target_arch = "wasm32"))]

@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![allow(deprecated)]
 //! # Mogwai
 //!
 //! Mogwai is library for user interface development using Rust-to-Wasm
@@ -46,7 +47,7 @@ doc_comment::doctest!("../../../README.md");
 mod test {
     use std::convert::{TryFrom, TryInto};
 
-    use crate::{self as mogwai, channel::broadcast, prelude::Component, ssr::SsrElement};
+    use crate::{self as mogwai, channel::broadcast, ssr::SsrElement};
     use mogwai::{
         builder::ViewBuilder,
         channel::broadcast::*,
@@ -338,6 +339,7 @@ mod test {
         self as mogwai,
         builder::ViewBuilder,
         channel::{self, mpmc::bounded},
+        event::DomEvent,
         futures::{IntoSenderSink, StreamExt},
         macros::*,
         patch::ListPatch,
@@ -417,7 +419,7 @@ mod test {
 
     #[wasm_bindgen_test]
     async fn can_use_rsx_to_make_builder() {
-        let (tx, _) = mogwai::channel::mpmc::bounded::<web_sys::Event>(1);
+        let (tx, _) = mogwai::channel::mpmc::bounded::<DomEvent>(1);
 
         let rsx: DomBuilder = builder! {
             <div id="view_zero" style:background_color="red">
@@ -641,10 +643,10 @@ mod test {
     #[wasm_bindgen_test]
     async fn tx_on_click() {
         use mogwai::futures::StreamExt;
-        let (tx, rx) = mogwai::channel::mpmc::bounded(1);
+        let (tx, rx) = mogwai::channel::broadcast::bounded(1);
 
         log::info!("test!");
-        let rx = rx.scan(0, |n: &mut i32, _: web_sys::Event| {
+        let rx = rx.scan(0, |n: &mut i32, _: DomEvent| {
             log::info!("event!");
             *n += 1;
             let r = Some(if *n == 1 {
@@ -663,7 +665,7 @@ mod test {
         assert_eq!(el.inner_html(), "Clicked 0 times");
 
         el.click();
-        mogwai::channel::mpmc::until_empty(&tx).await;
+        mogwai::channel::broadcast::until_empty(&tx).await;
         let _ = mogwai::time::wait_approx(1000.0).await;
 
         assert_eq!(el.inner_html(), "Clicked 1 time");

@@ -3,9 +3,7 @@ use std::convert::TryFrom;
 use mogwai::{
     builder::{DecomposedViewBuilder, ViewBuilder},
     channel::broadcast,
-    event::{DomEvent, Eventable},
     patch::HashPatch,
-    prelude::{Component, Either},
     target::Streamable,
     view::{Dom, View},
 };
