@@ -73,32 +73,31 @@ for more details about types that can be turned into streams.
   };
   ```
 
-- **on:{event}** = `impl Sink<Event>`
+- **on:{event}** = `impl Sink<DomEvent>`
 
   Declares that the events of a certain type (`event`) occurring on the element should
-  be sent on the given sender. Since `web_sys::Event` is `!Send` and `!Sync` you will
-  often see the use of [Contravariant][traitcontravariant] in this position, which
-  allows passing around a channel that is `Send`.
+  be sent on the given sender. You will often see the use of
+  [Contravariant][traitcontravariant] in this position to map the type of the `Sender`.
   ```rust,no_run
   # use mogwai::prelude::*;
   let (tx, _rx) = broadcast::bounded::<()>(1);
   let _ = builder! {
-      <div on:click=tx.sink().contra_map(|_:Event| ())>"Click me!"</div>
+      <div on:click=tx.sink().contra_map(|_:DomEvent| ())>"Click me!"</div>
   };
   ```
 
-- **window:{event}** = `impl Sink<Event>`
+- **window:{event}** = `impl Sink<DomEvent>`
 
   Declares that the windows's matching events should be sent on the given sender.
   ```rust, no_run
   # use mogwai::prelude::*;
   let (tx, rx) = broadcast::bounded::<()>(1);
   let _ = builder! {
-      <div window:load=tx.sink().contra_map(|_:Event| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
+      <div window:load=tx.sink().contra_map(|_:DomEvent| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
   };
   ```
 
-- **document:{event}** = `impl Sink<Event>`
+- **document:{event}** = `impl Sink<DomEvent>`
 
   Declares that the document's matching events should be sent on the given transmitter.
   ```rust,no_run

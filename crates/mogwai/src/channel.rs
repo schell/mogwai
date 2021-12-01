@@ -1,4 +1,8 @@
 //! Async mpmc and broadcast channels, plus extensions.
+
+use std::{ops::DerefMut, sync::Arc};
+
+use futures::{future::Either, lock::Mutex, Future};
 pub mod mpmc {
     //! Async multi-producer multi-consumer channel, **where each message can be received by only
     //! one of all existing consumers**.
@@ -75,6 +79,7 @@ pub mod broadcast {
     }
 
     /// A [`Sender`] [`Receiver`] paired together in a struct.
+    #[derive(Clone)]
     pub struct Channel<T> {
         sender: Sender<T>,
         receiver: InactiveReceiver<T>,
@@ -90,6 +95,11 @@ pub mod broadcast {
             }
         }
 
+        /// Set the overflow of the channel.
+        pub fn set_overflow(&mut self, overflow: bool) {
+            self.sender.set_overflow(overflow);
+        }
+
         /// Create a new Sender out of this channel.
         pub fn sender(&self) -> Sender<T> {
             self.sender.clone()
@@ -98,6 +108,38 @@ pub mod broadcast {
         /// Create a new active Receiver out of this channel.
         pub fn receiver(&self) -> Receiver<T> {
             self.receiver.activate_cloned()
+        }
+    }
+}
+
+/// A captured future, which can be used to store the result of
+pub struct Captured<T> {
+    inner: Arc<Mutex<Either<Box<dyn Future<Output = T> + Unpin>, Option<T>>>>,
+}
+
+impl<T: Clone> Captured<T> {
+    /// Create a new captured future.
+    pub fn new(f: impl Future<Output = T> + Unpin + 'static) -> Self {
+        Captured {
+            inner: Arc::new(Mutex::new(Either::Left(Box::new(f)))),
+        }
+    }
+
+    /// Await and return a clone of the inner `T`.
+    pub async fn get(&self) -> T {
+        loop {
+            let mut lock = self.inner.lock().await;
+            let either = std::mem::replace(lock.deref_mut(), Either::Right(None));
+            let res = match either {
+                Either::Left(rx) => Some(rx.await),
+                Either::Right(r) => r,
+            };
+
+            *lock = Either::Right(res.clone());
+
+            if let Some(t) = res {
+                return t;
+            }
         }
     }
 }
@@ -130,4 +172,7 @@ mod test {
             vec!["1.50".to_string(), "2.30".to_string(), "666".to_string()]
         );
     }
+
+    #[wasm_bindgen_test]
+    async fn fused_futures() {}
 }

@@ -19,6 +19,7 @@ pub mod futures;
 pub mod model;
 pub mod patch;
 pub mod prelude;
+pub mod relay;
 pub mod ssr;
 pub mod target;
 pub mod time;
@@ -45,15 +46,57 @@ doc_comment::doctest!("../../../README.md");
 mod test {
     use std::convert::{TryFrom, TryInto};
 
-    use crate::{self as mogwai, channel::broadcast, ssr::SsrElement};
+    use crate::{self as mogwai, channel::broadcast, prelude::Component, ssr::SsrElement};
     use mogwai::{
         builder::ViewBuilder,
         channel::broadcast::*,
+        event::DomEvent,
         futures::{Contravariant, IntoSenderSink, StreamExt},
         macros::*,
         view::{Dom, View},
     };
     use web_sys::Event;
+
+    #[test]
+    fn capture_view() {
+        let (tx, mut rx) = broadcast::bounded::<Dom>(1);
+        let _view = view! {
+            <div>
+                <pre
+                 capture:view = tx.sink() >
+                    "Tak :)"
+                </pre>
+            </div>
+        };
+
+        futures::executor::block_on(async move {
+            let dom = rx.next().await.unwrap();
+            assert_eq!(String::from(&dom), "<pre>Tak :)</pre>");
+        });
+    }
+
+    #[cfg(feature = "never")]
+    #[test]
+    fn capture_struct_view() {
+        struct_view! {
+            <ViewFacade>
+                <div>
+                    <pre
+                     capture:view = get_pre >
+                        "Tak :)"
+                    </pre>
+                </div>
+            </ViewFacade>
+        }
+
+        let (facade, builder):(ViewFacade<Dom>, _) = ViewFacade::new();
+        let _ = Component::from(builder).build().unwrap();
+
+        futures::executor::block_on(async move {
+            let dom:Dom = facade.get_pre().await.unwrap();
+            assert_eq!(String::from(&dom), "<pre>Tak :)</pre>");
+        });
+    }
 
     #[test]
     fn test_append() {
@@ -86,7 +129,7 @@ mod test {
     fn append_works() {
         let (tx, rx) = broadcast::bounded::<()>(1);
         let _ = builder! {
-            <div window:load=tx.sink().contra_map(|_:Event| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
+            <div window:load=tx.sink().contra_map(|_:DomEvent| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
         };
     }
 

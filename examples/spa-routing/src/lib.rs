@@ -201,10 +201,11 @@ fn view(
     let username: String = "Reasonable-Human".into();
     builder! {
         <slot
-            window:hashchange=tx_logic.sink().contra_map(|ev:Event| {
+            window:hashchange=tx_logic.sink().contra_filter_map(|ev: DomEvent| {
+                let ev = ev.browser_event()?;
                 let hev = ev.dyn_ref::<HashChangeEvent>().unwrap().clone();
                 let hash = hev.new_url();
-                AppModel::HashChange(hash)
+                Some(AppModel::HashChange(hash))
             })
             patch:children=rx_route_patch>
             <nav>

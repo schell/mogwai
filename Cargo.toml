@@ -6,6 +6,7 @@ members = [
   "crates/mogwai-html-macro",
   "crates/mogwai-hydrator",
   "examples/counter",
+  "examples/custom-views",
   "examples/nested-components",
   "examples/focus-follower",
   "examples/list-of-gizmos",

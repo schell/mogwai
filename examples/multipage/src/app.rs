@@ -67,9 +67,10 @@ impl App {
                     <a
                         href="/"
                         style="margin-right: 15px;"
-                        on:click=tx.sink().contra_map(|e: Event| {
-                            e.prevent_default();
-                            Route::Home
+                        on:click=tx.sink().contra_filter_map(|e: DomEvent| {
+                            let ev = e.browser_event()?;
+                            ev.prevent_default();
+                            Some(Route::Home)
                         })
                     >
                         "Home"
@@ -77,9 +78,10 @@ impl App {
                     <a
                         href="/404"
                         style="margin-right: 15px;"
-                        on:click=tx.sink().contra_map(|e: Event| {
-                            e.prevent_default();
-                            Route::NotFound
+                        on:click=tx.sink().contra_filter_map(|e: DomEvent| {
+                            let ev = e.browser_event()?;
+                            ev.prevent_default();
+                            Some(Route::NotFound)
                         })
                     >
                         "Not Found"

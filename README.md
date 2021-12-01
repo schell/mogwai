@@ -86,7 +86,7 @@ fn view(
     tx_click: broadcast::Sender<()>,
     rx_text: broadcast::Receiver<String>
 ) -> ViewBuilder<Dom> {
-    let tx_event = tx_click.sink().contra_map(|_:Event| ());
+    let tx_event = tx_click.sink().contra_map(|_:DomEvent| ());
 
     builder!(
         // Create a button that transmits a message of `()` into tx_event on click.

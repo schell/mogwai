@@ -29,7 +29,7 @@ pub enum FilterShow {
 }
 
 /// Messages sent from the view or from the [`App`] facade.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum AppLogic {
     SetFilter(FilterShow, Option<mpmc::Sender<()>>),
     NewTodo(String, bool),
@@ -55,7 +55,7 @@ pub struct App {
 
 impl App {
     pub fn new() -> (App, Component<Dom>) {
-        let (tx_logic, rx_logic) = broadcast::bounded(1);
+        let (tx_logic, rx_logic) = broadcast::bounded(16);
         let (tx_view, rx_view) = broadcast::bounded(1);
         let (tx_todo_input, rx_todo_input) = mpmc::bounded(1);
         let (tx_toggle_input, rx_toggle_input) = mpmc::bounded(1);
@@ -67,7 +67,8 @@ impl App {
             tx_logic.clone(),
             rx_view,
             rx_patch_items,
-        )).with_logic(logic(
+        ))
+        .with_logic(logic(
             rx_logic,
             rx_todo_input,
             rx_toggle_input,
@@ -115,29 +116,6 @@ async fn are_all_complete(todos: impl Iterator<Item = &item::Todo>) -> bool {
     true
 }
 
-async fn are_any_complete(todos: impl Iterator<Item = &item::Todo>) -> bool {
-    for todo in todos {
-        if todo.is_done().await {
-            return true;
-        }
-    }
-    return false;
-}
-
-async fn maybe_update_completed(
-    todos: impl Iterator<Item = &item::Todo>,
-    local_has_completed: &mut bool,
-    tx: &mut broadcast::Sender<AppView>,
-) {
-    let has_completed = are_any_complete(todos).await;
-    if *local_has_completed != has_completed {
-        *local_has_completed = has_completed;
-        tx.broadcast(AppView::ShouldShowCompleteButton(has_completed))
-            .await
-            .unwrap();
-    }
-}
-
 async fn num_items_left(todos: impl Iterator<Item = &item::Todo>) -> usize {
     FuturesUnordered::from_iter(todos.map(Todo::is_done))
         .fold(0, |n, done| async move { n + if done { 1 } else { 0 } })
@@ -148,26 +126,28 @@ async fn logic(
     rx_logic: broadcast::Receiver<AppLogic>,
     mut recv_todo_input: mpmc::Receiver<Dom>,
     mut recv_todo_toggle_input: mpmc::Receiver<Dom>,
-    mut tx_view: broadcast::Sender<AppView>,
+    tx_view: broadcast::Sender<AppView>,
     tx_item_patches: mpmc::Sender<ListPatch<ViewBuilder<Dom>>>,
 ) {
     let todo_input = recv_todo_input.next().await.unwrap();
     let _ = mogwai::time::wait_approx(1.0).await;
-    todo_input.visit_as(
-        |i: &HtmlElement| {
-            i.focus().unwrap();
-        },
-        |_| {},
-    ).unwrap();
+    todo_input
+        .visit_as(
+            |i: &HtmlElement| {
+                i.focus().unwrap();
+            },
+            |_| {},
+        )
+        .unwrap();
 
     let todo_toggle_input = recv_todo_toggle_input.next().await.unwrap();
 
     let mut items: Vec<item::Todo> = vec![];
-    let mut has_completed = false;
     let mut next_index = 0;
     let mut all_logic_sources = mogwai::futures::stream::select_all(vec![rx_logic.boxed()]);
 
     while let Some(msg) = all_logic_sources.next().await {
+        let mut needs_check_complete = false;
         match msg {
             AppLogic::NewTodo(name, complete) => {
                 let index = next_index;
@@ -179,11 +159,11 @@ async fn logic(
                 let was_removed = todo
                     .was_removed()
                     .map(move |_| {
-                        log::trace!("got remove request from item: {}", index);
                         AppLogic::Remove(index)
                     })
                     .boxed();
                 all_logic_sources.push(was_removed);
+
                 let has_changed_completion = todo
                     .has_changed_completion()
                     .map(move |complete| {
@@ -217,8 +197,7 @@ async fn logic(
                     .broadcast(AppView::ShouldShowTodoList(true))
                     .await
                     .unwrap();
-
-                maybe_update_completed(items.iter(), &mut has_completed, &mut tx_view).await;
+                needs_check_complete = true;
             }
             AppLogic::SetFilter(show, may_tx) => {
                 // Filter all the items, update the view, and then respond to the query.
@@ -245,7 +224,7 @@ async fn logic(
                     .broadcast(AppView::NumItems(items_left))
                     .await
                     .unwrap();
-                maybe_update_completed(items.iter(), &mut &mut has_completed, &mut tx_view).await;
+                needs_check_complete = true;
             }
             AppLogic::ToggleCompleteAll => {
                 let should_complete = todo_toggle_input
@@ -255,15 +234,13 @@ async fn logic(
                 for todo in items.iter() {
                     todo.set_complete(should_complete).await;
                 }
-                maybe_update_completed(items.iter(), &mut &mut has_completed, &mut tx_view).await;
+                needs_check_complete = true;
             }
             AppLogic::Remove(index) => {
-                log::trace!("app logic got remove request: {}", index);
                 let mut may_found_index = None;
                 'remove_todo: for (todo, i) in items.iter().zip(0..) {
                     let todo_index = todo.index;
                     if todo_index == index {
-                        log::trace!("  removing {} from the view", index);
                         // Send a patch to the view to remove the todo
                         tx_item_patches
                             .send(ListPatch::splice(i..=i, std::iter::empty()))
@@ -275,7 +252,6 @@ async fn logic(
                 }
 
                 if let Some(i) = may_found_index {
-                    log::trace!("  removing {} from items", index);
                     let _ = items.remove(i);
                 }
 
@@ -285,13 +261,16 @@ async fn logic(
                     if let Some(input) = todo_toggle_input.clone_as::<HtmlInputElement>() {
                         input.set_checked(checked);
                     }
-                    tx_view.broadcast(AppView::ShouldShowTodoList(false)).await.unwrap();
+                    tx_view
+                        .broadcast(AppView::ShouldShowTodoList(false))
+                        .await
+                        .unwrap();
                 }
                 tx_view
                     .broadcast(AppView::NumItems(num_items_left(items.iter()).await))
                     .await
                     .unwrap();
-                maybe_update_completed(items.iter(), &mut has_completed, &mut tx_view).await;
+                needs_check_complete = true;
             }
             AppLogic::RemoveCompleted => {
                 let num_items_before = items.len();
@@ -316,13 +295,13 @@ async fn logic(
                     .broadcast(AppView::NumItems(num_items_left(items.iter()).await))
                     .await
                     .unwrap();
-                maybe_update_completed(items.iter(), &mut has_completed, &mut tx_view).await;
                 if items.is_empty() && num_items_before != 0 {
                     tx_view
                         .broadcast(AppView::ShouldShowTodoList(false))
                         .await
                         .unwrap();
                 }
+                needs_check_complete = true;
             }
         }
 
@@ -331,7 +310,20 @@ async fn logic(
             .collect::<Vec<_>>()
             .await;
         store::write_items(store_items).expect("Could not store todos");
-        log::info!("all_logic_sources.len():{}", all_logic_sources.len());
+        // update the "clear completed" button if need be
+        if needs_check_complete {
+            let mut has_completed = false;
+            for facade in items.iter() {
+                if facade.is_done().await {
+                    has_completed = true;
+                    break;
+                }
+            }
+            tx_view
+                .broadcast(AppView::ShouldShowCompleteButton(has_completed))
+                .await
+                .unwrap();
+        }
     }
 
     log::error!("leaving app logic");
@@ -361,9 +353,9 @@ fn view(
                 <h1>"todos"</h1>
                 <input
                  class="new-todo" id="new-todo" placeholder="What needs to be done?"
-                 on:change = tx.sink().with_flat_map(|ev: Event| {
+                 on:change = tx.sink().with_flat_map(|ev: DomEvent| {
                      let todo_name =
-                         utils::event_input_value(&ev).expect("event input value");
+                         utils::event_input_value(ev).expect("event input value");
                      if todo_name.is_empty() {
                          Either::Left(stream::empty())
                      } else {
@@ -409,7 +401,8 @@ fn view(
                 </span>
                 <ul class="filters"
                     window:hashchange=
-                        tx.sink().with_flat_map(|ev: Event| {
+                        tx.sink().with_flat_map(|ev: DomEvent| {
+                            let ev: Event = ev.browser_event().unwrap();
                             let ev: HashChangeEvent =
                                 ev.dyn_into::<HashChangeEvent>().expect("not hash event");
                             let url = ev.new_url();
@@ -450,7 +443,7 @@ fn view(
                                 _ => None,
                             }})
                         )
-                    on:click=tx.sink().with(|_: Event| async {Ok(AppLogic::RemoveCompleted)})>
+                    on:click=tx.sink().with(|_: DomEvent| async {Ok(AppLogic::RemoveCompleted)})>
                     "Clear completed"
                 </button>
             </footer>

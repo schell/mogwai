@@ -1,18 +1,19 @@
 //! A low cost intermediate structure for creating views.
 use crate::{
     component::{Component, ElmComponent},
+    event::{DomEvent, Eventable},
     patch::{HashPatch, ListPatch},
-    target::{PostBuild, Sendable, Sinkable, SinkingWith, Streamable, Streaming},
+    target::{PostBuild, Sendable, Sinkable, Streamable, Streaming},
     view::{Dom, View},
 };
-use futures::{Stream, StreamExt, TryFutureExt};
-use wasm_bindgen::UnwrapThrowExt;
+use futures::{Stream, StreamExt};
 use std::{
     convert::TryFrom,
     pin::Pin,
     sync::Arc,
     task::{RawWaker, Wake, Waker},
 };
+use wasm_bindgen::UnwrapThrowExt;
 
 struct DummyWaker;
 
@@ -449,19 +450,35 @@ impl<T: Sendable> ViewBuilder<T> {
         self.ops.push(Box::new(run));
         self
     }
+
+    /// Send a clone of the inner view once it is built.
+    pub fn with_capture_view(self, mut sink: impl Sinkable<T> + Unpin) -> Self
+    where
+        T: Clone
+    {
+        self.with_post_build(|dom: &mut T| {
+            let dom = dom.clone();
+            crate::spawn(async move {
+                use futures::SinkExt;
+                sink.send(dom).await.unwrap();
+            });
+        })
+    }
+}
+
+impl<T: Eventable + Sendable> ViewBuilder<T> {
+    /// Add a sink into which view events of the given name will be sent.
+    pub fn with_event(self, name: &str, tx: impl Sinkable<T::Event>) -> Self {
+        let name = name.to_string();
+        self.with_post_build(move |dom: &mut T| {
+            dom.add_event_sink(&name, tx);
+        })
+    }
 }
 
 impl ViewBuilder<Dom> {
-    /// Add a sink into which view events of the given name will be sent.
-    pub fn with_event(self, name: &str, tx: impl Sinkable<web_sys::Event>) -> Self {
-        let name = name.to_string();
-        self.with_post_build(move |dom| {
-            dom.set_event(EventTargetType::Myself, &name, Box::pin(tx));
-        })
-    }
-
     /// Add a sink into which window events of the given name will be sent.
-    pub fn with_window_event(self, name: &str, tx: impl Sinkable<web_sys::Event>) -> Self {
+    pub fn with_window_event(self, name: &str, tx: impl Sinkable<DomEvent>) -> Self {
         let name = name.to_string();
         self.with_post_build(move |dom| {
             dom.set_event(EventTargetType::Window, &name, Box::pin(tx));
@@ -469,7 +486,7 @@ impl ViewBuilder<Dom> {
     }
 
     /// Add a sink into which document events of the given name will be sent.
-    pub fn with_document_event(self, name: &str, tx: impl Sinkable<web_sys::Event>) -> Self {
+    pub fn with_document_event(self, name: &str, tx: impl Sinkable<DomEvent>) -> Self {
         let name = name.to_string();
         self.with_post_build(move |dom| {
             dom.set_event(EventTargetType::Document, &name, Box::pin(tx));
@@ -486,7 +503,7 @@ where
             may_vb
                 .into_iter()
                 .map(ViewBuilder::from)
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
         )
     }
 }

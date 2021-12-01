@@ -3,8 +3,10 @@
 //! Events in Mogwai are registered and sent down a stream to be
 //! consumed by logic loops. When an event stream
 //! is dropped, its resources are cleaned up automatically.
-use futures::{Sink, SinkExt, Stream, StreamExt};
+use futures::{future::Either, Sink, SinkExt, Stream, StreamExt};
+use serde::de::DeserializeOwned;
 use std::{
+    convert::TryFrom,
     pin::Pin,
     sync::{Arc, Mutex},
     task::Waker,
@@ -14,8 +16,83 @@ use web_sys::EventTarget;
 
 use crate::{
     futures::SinkError,
-    target::{Sendable, Streamable},
+    target::{Sendable, Sinkable, Streamable},
 };
+
+/// A wrapper for [`web_sys::Event`] that is [`Sendable`].
+#[derive(Clone, Debug)]
+pub struct DomEvent {
+    #[cfg(target_arch = "wasm32")]
+    inner: JsValue,
+    #[cfg(not(target_arch = "wasm32"))]
+    inner: serde_json::Value,
+}
+
+impl TryFrom<serde_json::Value> for DomEvent {
+    type Error = serde_json::Error;
+
+    #[cfg(target_arch = "wasm32")]
+    fn try_from(value: serde_json::Value) -> serde_json::Result<Self> {
+        let inner: JsValue = JsValue::from_serde(&value)?;
+        Ok(DomEvent { inner })
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn try_from(value: serde_json::Value) -> serde_json::Result<Self> {
+        Ok(DomEvent { inner: value })
+    }
+}
+
+impl TryFrom<web_sys::Event> for DomEvent {
+    type Error = serde_json::Error;
+
+    #[cfg(target_arch = "wasm32")]
+    fn try_from(ev: web_sys::Event) -> serde_json::Result<Self> {
+        let inner: JsValue = JsValue::from(ev);
+        Ok(DomEvent { inner })
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn try_from(ev: web_sys::Event) -> serde_json::Result<Self> {
+        // I don't think this is even possible,
+        // but this is here for completeness anyway.
+        let jsvalue: JsValue = JsValue::from(ev);
+        let inner: serde_json::Value = jsvalue.into_serde::<serde_json::Value>()?;
+        Ok(DomEvent { inner })
+    }
+}
+
+impl DomEvent {
+    #[cfg(target_arch = "wasm32")]
+    /// Return the inner event as `JsValue` on wasm32 or `serde_json::Value` on
+    /// other targets.
+    pub fn clone_inner(&self) -> Either<JsValue, serde_json::Value> {
+        Either::Left(self.inner.clone())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    /// Return the inner event as `JsValue` on wasm32 or `serde_json::Value` on
+    /// other targets.
+    pub fn clone_inner(&self) -> Either<JsValue, serde_json::Value> {
+        Either::Right(self.inner.clone())
+    }
+
+    /// Use `T`'s `DeserializeOwned` implementation to convert into `T`.
+    pub fn try_deserialize<T: DeserializeOwned>(&self) -> serde_json::Result<T> {
+        match self.clone_inner() {
+            Either::Left(jsvalue) => jsvalue.into_serde(),
+            Either::Right(value) => serde_json::from_value(value),
+        }
+    }
+
+    /// Attempt to convert into a `web_sys::Event`. This only works when running on wasm32.
+    #[cfg(target_arch = "wasm32")]
+    pub fn browser_event(self) -> Option<web_sys::Event> {
+        Some(self.inner)
+    }
+    /// Attempt to convert into a `web_sys::Event`. This only works when running on wasm32.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn browser_event(self) -> Option<web_sys::Event> {
+        None
+    }
+}
 
 struct WebCallback {
     target: EventTarget,
@@ -135,4 +212,27 @@ pub fn add_event(
             }
         }
     });
+}
+
+/// Trait for inner view types that support adding events.
+///
+/// This unlocks `ViewBuilder::with_event`.
+pub trait Eventable {
+    /// Domain specific event type, eg `web_sys::Event`.
+    type Event;
+
+    /// Add an event sink to the view, sending each occurance into the sink.
+    fn add_event_sink(&mut self, event_name: &str, tx_event: impl Sinkable<Self::Event>);
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn sendable<T: crate::target::Sendable>() {}
+
+    #[test]
+    fn domevent_is_sendable() {
+        sendable::<DomEvent>();
+    }
 }

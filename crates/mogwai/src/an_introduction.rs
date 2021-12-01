@@ -131,7 +131,7 @@
 //!
 //! let my_view = view!{
 //!     <div class="my-div">
-//!         <a href="#" on:click=tx.sink().contra_map(|_: Event| "Gizmo's website".to_string())>
+//!         <a href="#" on:click=tx.sink().contra_map(|_: DomEvent| "Gizmo's website".to_string())>
 //!             // start with a value and update when a message
 //!             // is received on rx.
 //!             {("Schellsan's website", rx)}
