@@ -12,6 +12,7 @@ then
     echo "Skipping headless wasm tests"
 else
     wasm-pack test --firefox --headless crates/mogwai || exit 1
+    wasm-pack test --firefox --headless crates/mogwai-html-macro || exit 1
     wasm-pack test --firefox --headless crates/mogwai-hydrator || exit 1
 fi
 

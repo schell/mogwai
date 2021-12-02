@@ -152,6 +152,15 @@ for more details about types that can be turned into streams.
   assert_eq!(String::from(&my_view), r#"<div id="main"><h1>Hello!</h1></div>"#);
   ```
 
+- **post:build** = `FnOnce(&mut T)`
+
+  Used to apply one-off changes to the domain specific view `T` after it has been built.
+
+- **capture:view** = `impl Sink<T>`
+
+  Used to capture a clone of the view after it has been built. The view type `T` must be `Clone`.
+  For more info see [Capturing Views](view_capture.md)
+
 - **cast:type** = Any domain specific inner view type, eg `Dom`
 
   Declares the inner type of the resulting [ViewBuilder][structviewbuilder]. By default this is

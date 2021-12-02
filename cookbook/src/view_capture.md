@@ -3,7 +3,36 @@
 Views often contain nodes that are required in the logic loop. When a view node is needed in a
 logic loop we can capture it using a channel.
 
-The view in question should take a `Sender<Dom>` (or whatever the underlying view type is) and
+## Using the `capture:view` attribute
+
+To capture a view after it is built you can use the [`capture:view`](rsx.md) attribute
+with an `impl Sink<T>`, where `T` is your domain view type, and then await the first message on the
+receiver:
+
+```rust
+# use mogwai::prelude::*;
+smol::block_on(async {
+    let (tx, mut rx) = broadcast::bounded::<Dom>(1);
+
+    let builder = builder! {
+        <div capture:view = tx.sink()></div>
+    };
+
+    Component::from(builder)
+        .build()
+        .unwrap()
+        .run()
+        .unwrap();
+
+    let _:Dom = rx.next().await.unwrap();
+});
+```
+
+## Using the `post:build` attribute
+
+The above example is shorthand for using a post-build operation on the view in question.
+
+The view builder should take a `Sender<Dom>` (or whatever the underlying view type is) and
 then use it in a `post:build` operation like so:
 
 ```rust, no_run
@@ -39,10 +68,4 @@ async fn logic(mut recv_input: broadcast::Receiver<Dom>) {
         // ... do our logic as normal
     }
 }
-```
-
-Here is a example excerpt taken from [mogwai's todomvc implementation](https://github.com/schell/mogwai/blob/master/examples/todomvc/src/app.rs):
-
-```rust, ignore
-{{#include ../../examples/todomvc/src/app.rs:147:164}}
 ```

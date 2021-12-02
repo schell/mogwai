@@ -65,37 +65,14 @@ mod test {
             <div>
                 <pre
                  capture:view = tx.sink() >
-                    "Tak :)"
+                    "Tack :)"
                 </pre>
             </div>
         };
 
         futures::executor::block_on(async move {
             let dom = rx.next().await.unwrap();
-            assert_eq!(String::from(&dom), "<pre>Tak :)</pre>");
-        });
-    }
-
-    #[cfg(feature = "never")]
-    #[test]
-    fn capture_struct_view() {
-        struct_view! {
-            <ViewFacade>
-                <div>
-                    <pre
-                     capture:view = get_pre >
-                        "Tak :)"
-                    </pre>
-                </div>
-            </ViewFacade>
-        }
-
-        let (facade, builder):(ViewFacade<Dom>, _) = ViewFacade::new();
-        let _ = Component::from(builder).build().unwrap();
-
-        futures::executor::block_on(async move {
-            let dom:Dom = facade.get_pre().await.unwrap();
-            assert_eq!(String::from(&dom), "<pre>Tak :)</pre>");
+            assert_eq!(String::from(&dom), "<pre>Tack :)</pre>");
         });
     }
 
