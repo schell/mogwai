@@ -214,7 +214,7 @@ impl ListPatchApply for web_sys::Node {
                 let end_index = match range.1 {
                     Bound::Included(i) => i,
                     Bound::Excluded(i) => i,
-                    Bound::Unbounded => list.length() as usize - 1,
+                    Bound::Unbounded => (list.length() as usize).max(1) - 1,
                 };
 
                 let mut child_after = None;

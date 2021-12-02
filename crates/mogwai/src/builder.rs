@@ -1,8 +1,9 @@
 //! A low cost intermediate structure for creating views.
 use crate::{
     component::{Component, ElmComponent},
+    event::{DomEvent, Eventable},
     patch::{HashPatch, ListPatch},
-    target::{PostBuild, Sendable, Sinkable, SinkingWith, Streamable, Streaming},
+    target::{PostBuild, Sendable, Sinkable, Streamable, Streaming},
     view::{Dom, View},
 };
 use futures::{Stream, StreamExt};
@@ -12,6 +13,7 @@ use std::{
     sync::Arc,
     task::{RawWaker, Wake, Waker},
 };
+use wasm_bindgen::UnwrapThrowExt;
 
 struct DummyWaker;
 
@@ -448,19 +450,35 @@ impl<T: Sendable> ViewBuilder<T> {
         self.ops.push(Box::new(run));
         self
     }
+
+    /// Send a clone of the inner view once it is built.
+    pub fn with_capture_view(self, mut sink: impl Sinkable<T> + Unpin) -> Self
+    where
+        T: Clone
+    {
+        self.with_post_build(|dom: &mut T| {
+            let dom = dom.clone();
+            crate::spawn(async move {
+                use futures::SinkExt;
+                sink.send(dom).await.unwrap();
+            });
+        })
+    }
+}
+
+impl<T: Eventable + Sendable> ViewBuilder<T> {
+    /// Add a sink into which view events of the given name will be sent.
+    pub fn with_event(self, name: &str, tx: impl Sinkable<T::Event>) -> Self {
+        let name = name.to_string();
+        self.with_post_build(move |dom: &mut T| {
+            dom.add_event_sink(&name, tx);
+        })
+    }
 }
 
 impl ViewBuilder<Dom> {
-    /// Add a sink into which view events of the given name will be sent.
-    pub fn with_event(self, name: &str, tx: impl Sinkable<web_sys::Event>) -> Self {
-        let name = name.to_string();
-        self.with_post_build(move |dom| {
-            dom.set_event(EventTargetType::Myself, &name, Box::pin(tx));
-        })
-    }
-
     /// Add a sink into which window events of the given name will be sent.
-    pub fn with_window_event(self, name: &str, tx: impl Sinkable<web_sys::Event>) -> Self {
+    pub fn with_window_event(self, name: &str, tx: impl Sinkable<DomEvent>) -> Self {
         let name = name.to_string();
         self.with_post_build(move |dom| {
             dom.set_event(EventTargetType::Window, &name, Box::pin(tx));
@@ -468,7 +486,7 @@ impl ViewBuilder<Dom> {
     }
 
     /// Add a sink into which document events of the given name will be sent.
-    pub fn with_document_event(self, name: &str, tx: impl Sinkable<web_sys::Event>) -> Self {
+    pub fn with_document_event(self, name: &str, tx: impl Sinkable<DomEvent>) -> Self {
         let name = name.to_string();
         self.with_post_build(move |dom| {
             dom.set_event(EventTargetType::Document, &name, Box::pin(tx));
@@ -485,7 +503,7 @@ where
             may_vb
                 .into_iter()
                 .map(ViewBuilder::from)
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
         )
     }
 }
@@ -578,87 +596,46 @@ pub fn set_initial_values(
 /// Set all the streaming values of a Dom node.
 pub fn set_streaming_values(
     node: &Dom,
-    text_stream: TextStream,
-    attrib_stream: AttribStream,
-    bool_attrib_stream: BooleanAttribStream,
-    style_stream: StyleStream,
-    child_stream: ChildStream<Dom>,
+    mut text_stream: TextStream,
+    mut attrib_stream: AttribStream,
+    mut bool_attrib_stream: BooleanAttribStream,
+    mut style_stream: StyleStream,
+    mut child_stream: ChildStream<Dom>,
 ) -> Result<(), String> {
-    let text_stream: Pin<Box<Streaming<Result<String, String>>>> = Box::pin(text_stream.map(Ok));
-    let text_sink: Pin<Box<SinkingWith<String, String>>> =
-        Box::pin(futures::sink::unfold::<Dom, _, _, String, _>(
-            node.clone(),
-            |node, text: String| async move {
-                node.set_text(&text)?;
-                Ok(node)
-            },
-        ));
+    let text_node = node.clone();
     crate::spawn(async move {
-        futures::pin_mut!(text_sink);
-        let _ = text_stream.forward(text_sink).await;
+        while let Some(msg) = text_stream.next().await {
+            text_node.set_text(&msg).unwrap_throw();
+        }
     });
 
-    let attrib_stream: Pin<Box<Streaming<Result<HashPatch<String, String>, String>>>> =
-        Box::pin(attrib_stream.map(Ok));
-    let attrib_sink: Pin<Box<SinkingWith<HashPatch<String, String>, String>>> = Box::pin(
-        futures::sink::unfold::<_, _, _, HashPatch<String, String>, _>(
-            node.clone(),
-            |view, patch| async move {
-                view.patch_attribs(patch)?;
-                Ok(view)
-            },
-        ),
-    );
+    let attrib_node = node.clone();
     crate::spawn(async move {
-        futures::pin_mut!(attrib_sink);
-        let _ = attrib_stream.forward(&mut attrib_sink).await;
+        while let Some(patch) = attrib_stream.next().await {
+            attrib_node.patch_attribs(patch).unwrap_throw();
+        }
     });
 
-    let bool_attrib_stream: Pin<Box<Streaming<Result<HashPatch<String, bool>, String>>>> =
-        Box::pin(bool_attrib_stream.map(Ok));
-    let bool_attrib_sink: Pin<Box<SinkingWith<HashPatch<_, _>, String>>> = Box::pin(
-        futures::sink::unfold::<_, _, _, HashPatch<String, bool>, _>(
-            node.clone(),
-            |view, patch| async move {
-                view.patch_bool_attribs(patch)?;
-                Ok(view)
-            },
-        ),
-    );
+    let bool_attrib_node = node.clone();
     crate::spawn(async move {
-        futures::pin_mut!(bool_attrib_sink);
-        let _ = bool_attrib_stream.forward(&mut bool_attrib_sink).await;
+        while let Some(patch) = bool_attrib_stream.next().await {
+            bool_attrib_node.patch_bool_attribs(patch).unwrap_throw();
+        }
     });
 
-    let style_stream: Pin<Box<Streaming<Result<HashPatch<String, String>, String>>>> =
-        Box::pin(style_stream.map(Ok));
-    let style_sink: Pin<Box<SinkingWith<HashPatch<_, _>, String>>> = Box::pin(
-        futures::sink::unfold::<_, _, _, HashPatch<String, String>, _>(
-            node.clone(),
-            |view, patch| async move {
-                view.patch_styles(patch)?;
-                Ok(view)
-            },
-        ),
-    );
+    let style_node = node.clone();
     crate::spawn(async move {
-        futures::pin_mut!(style_sink);
-        let _ = style_stream.forward(&mut style_sink).await;
+        while let Some(patch) = style_stream.next().await {
+            style_node.patch_styles(patch).unwrap_throw();
+        }
     });
 
-    let child_stream: Pin<Box<Streaming<Result<ListPatch<_>, String>>>> =
-        Box::pin(child_stream.map(Ok));
-    let child_sink: Pin<Box<SinkingWith<ListPatch<_>, String>>> = Box::pin(futures::sink::unfold(
-        node.clone(),
-        |view, patch: ListPatch<ViewBuilder<_>>| async move {
+    let parent_node = node.clone();
+    crate::spawn(async move {
+        while let Some(patch) = child_stream.next().await {
             let patch = patch.map(|vb| View::try_from(vb).unwrap().into_inner());
-            view.patch_children(patch)?;
-            Ok(view)
-        },
-    ));
-    crate::spawn(async move {
-        futures::pin_mut!(child_sink);
-        let _ = child_stream.forward(&mut child_sink).await;
+            parent_node.patch_children(patch).unwrap_throw();
+        }
     });
 
     Ok(())

@@ -6,7 +6,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub use futures::*;
+use futures::task;
+pub use futures::{sink, stream, Sink, SinkExt, Stream, StreamExt};
 
 use crate::target::Sendable;
 

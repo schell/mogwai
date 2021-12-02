@@ -1,81 +1,17 @@
 //! RSX for building mogwai DOM nodes.
-use proc_macro2::Span;
+use std::convert::TryFrom;
+
 use quote::quote;
 use syn::Error;
-use syn_rsx::{Node, NodeType};
 
-fn under_to_dash(s: &str) -> String {
-    s.replace("_", "-")
-}
+mod tokens;
+use tokens::{AttributeToken, ViewToken};
 
-fn attribute_to_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
-    let span = node.name_span().unwrap_or(Span::call_site());
-    if let Some(key) = node.name_as_string() {
-        if let Some(expr) = node.value {
-            match key.split(':').collect::<Vec<_>>().as_slice() {
-                ["cast", "type"] => Ok(quote! {}), // handled by a preprocessor
-                ["post", "build"] => Ok(quote! {
-                    .with_post_build(#expr)
-                }),
-                ["xmlns"] => Ok(quote! {
-                    .with_namespace(#expr)
-                }),
-                ["style"] => Ok(quote! {
-                    .with_style_stream(#expr)
-                }),
-                ["style", name] => {
-                    let name = under_to_dash(name);
-                    Ok(quote! {
-                        .with_single_style_stream(#name, #expr)
-                    })
-                }
-                ["on", event] => Ok(quote! {
-                    .with_event(#event, #expr)
-                }),
-                ["window", event] => Ok(quote! {
-                    .with_window_event(#event, #expr)
-                }),
-                ["document", event] => Ok(quote! {
-                    .with_document_event(#event, #expr)
-                }),
-                ["boolean", name] => {
-                    let name = under_to_dash(name);
-                    Ok(quote! {
-                        .with_single_bool_attrib_stream(#name, #expr)
-                    })
-                }
-                ["patch", "children"] => Ok(quote! {
-                    .with_child_stream(#expr)
-                }),
-                [attribute_name] => {
-                    let name = under_to_dash(attribute_name);
-                    Ok(quote! {
-                        .with_single_attrib_stream(#name, #expr)
-                    })
-                }
-                keys => {
-                    let attribute_name = under_to_dash(&keys.join(":"));
-                    Ok(quote! {
-                        .with_attrib_stream(#attribute_name, #expr)
-                    })
-                }
-            }
-        } else {
-            let name = under_to_dash(&key);
-            Ok(quote! {
-                .with_single_bool_attrib_stream(#name, true)
-            })
-        }
-    } else {
-        Err(Error::new(span, "dom attribute is missing a name"))
-    }
-}
-
-fn partition_unzip<T, F>(items: Vec<T>, f: F) -> (Vec<proc_macro2::TokenStream>, Vec<Error>)
+fn partition_unzip<S, T, F>(items: impl Iterator<Item = S>, f: F) -> (Vec<T>, Vec<Error>)
 where
-    F: Fn(T) -> Result<proc_macro2::TokenStream, Error>,
+    F: Fn(S) -> Result<T, Error>,
 {
-    let (tokens, errs): (Vec<Result<_, _>>, _) = items.into_iter().map(f).partition(Result::is_ok);
+    let (tokens, errs): (Vec<Result<_, _>>, _) = items.map(f).partition(Result::is_ok);
     let tokens = tokens
         .into_iter()
         .filter_map(Result::ok)
@@ -96,138 +32,57 @@ fn combine_errors(errs: Vec<Error>) -> Option<Error> {
         })
 }
 
-fn walk_node<F>(
-    view_path: proc_macro2::TokenStream,
-    node_fn: F,
-    node: Node,
-) -> Result<proc_macro2::TokenStream, Error>
-where
-    F: Fn(Node) -> Result<proc_macro2::TokenStream, Error>,
-{
-    match node.node_type {
-        NodeType::Element => match node.name_as_string() {
-            Some(tag) => {
-                let mut errs: Vec<Error> = vec![];
-
-                let mut may_type = None;
-                for attr_node in node.attributes.iter() {
-                    if let Some(key) = attr_node.name_as_string() {
-                        if let Some(expr) = attr_node.value.as_ref() {
-                            match key.split(':').collect::<Vec<_>>().as_slice() {
-                                ["cast", "type"] => {
-                                    may_type =
-                                        Some(quote! { as mogwai::builder::ViewBuilder<#expr> });
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
+fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::TokenStream, Error> {
+    let view_path = quote! { mogwai::builder::ViewBuilder };
+    match view_token {
+        ViewToken::Element {
+            name,
+            name_span: _,
+            attributes,
+            children,
+        } => {
+            let may_type = attributes.iter().find_map(|att| match att {
+                AttributeToken::CastType(expr) => {
+                    Some(quote! { as mogwai::builder::ViewBuilder<#expr> })
                 }
-                let type_is = may_type
-                    .unwrap_or_else(|| quote! {as mogwai::builder::ViewBuilder<mogwai::view::Dom>});
-                let (attribute_tokens, attribute_errs) =
-                    partition_unzip(node.attributes, attribute_to_token_stream);
-                errs.extend(attribute_errs);
+                _ => None,
+            });
 
-                let (child_tokens, child_errs) = partition_unzip(node.children, node_fn);
-                let child_tokens = child_tokens.into_iter().map(|child| {
-                    quote! {
-                            .append(#child)
-                    }
-                });
-                errs.extend(child_errs);
+            let type_is = may_type
+                .unwrap_or_else(|| quote! {as mogwai::builder::ViewBuilder<mogwai::view::Dom>});
 
-                let may_error = combine_errors(errs);
-                if let Some(error) = may_error {
-                    Err(error)
-                } else {
-                    let create = quote! {#view_path::element(#tag)};
-                    Ok(quote! {
-                        #create
-                            #(#attribute_tokens)*
-                            #(#child_tokens)*
-                            #type_is
-                    })
+            let mut errs = vec![];
+            let (attribute_tokens, attribute_errs) =
+                partition_unzip(attributes.iter(), AttributeToken::try_builder_token_stream);
+            errs.extend(attribute_errs);
+
+            let (child_tokens, child_errs) =
+                partition_unzip(children.iter(), node_to_builder_token_stream);
+            let child_tokens = child_tokens.into_iter().map(|child| {
+                quote! {
+                        .append(#child)
                 }
-            }
-            _ => Err(Error::new(Span::call_site(), "node is missing a name")),
-        },
-        NodeType::Text => {
-            if let Some(value) = node.value {
-                Ok(quote! {mogwai::builder::ViewBuilder::text(#value)})
+            });
+            errs.extend(child_errs);
+
+            let may_error = combine_errors(errs);
+            if let Some(error) = may_error {
+                Err(error)
             } else {
-                Err(Error::new(
-                    Span::call_site(),
-                    "dom child text node value error",
-                ))
-            }
-        }
-        NodeType::Block => {
-            if let Some(value) = node.value {
+                let create = quote! {#view_path::element(#name)};
                 Ok(quote! {
-                    #[allow(unused_braces)]
-                    #value
+                    #create
+                        #(#attribute_tokens)*
+                        #(#child_tokens)*
+                        #type_is
                 })
-            } else {
-                Err(Error::new(
-                    Span::call_site(),
-                    "dom child expr node value error",
-                ))
             }
         }
-
-        _ => Err(Error::new(
-            Span::call_site(),
-            "attribute in unsupported position",
-        )),
-    }
-}
-
-fn _node_to_view_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
-    walk_node(
-        quote! { mogwai::prelude::View },
-        _node_to_view_token_stream,
-        node,
-    )
-}
-
-fn _node_to_hydrateview_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
-    walk_node(
-        quote! { mogwai_hydrator::Hydrator },
-        _node_to_hydrateview_token_stream,
-        node,
-    )
-}
-
-fn node_to_builder_token_stream(node: Node) -> Result<proc_macro2::TokenStream, Error> {
-    walk_node(
-        quote! { mogwai::builder::ViewBuilder },
-        node_to_builder_token_stream,
-        node,
-    )
-}
-
-fn walk_dom(
-    input: proc_macro::TokenStream,
-    f: impl Fn(Node) -> Result<proc_macro2::TokenStream, Error>,
-) -> proc_macro2::TokenStream {
-    match syn_rsx::parse(input) {
-        Ok(parsed) => {
-            let (tokens, errs) = partition_unzip(parsed, f);
-            if let Some(error) = combine_errors(errs) {
-                error.to_compile_error().into()
-            } else {
-                match tokens.len() {
-                    0 => quote! { compile_error("dom/hydrate macro must not be empty") },
-                    1 => {
-                        let ts = &tokens[0];
-                        quote! { #ts }
-                    }
-                    _ => quote! { vec![#(#tokens),*] },
-                }
-            }
-        }
-        Err(error) => error.to_compile_error(),
+        ViewToken::Text(expr) => Ok(quote! {mogwai::builder::ViewBuilder::text(#expr)}),
+        ViewToken::Block(expr) => Ok(quote! {
+            #[allow(unused_braces)]
+            #expr
+        }),
     }
 }
 
@@ -244,7 +99,30 @@ fn walk_dom(
 /// };
 /// ```
 pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    proc_macro::TokenStream::from(walk_dom(input, node_to_builder_token_stream))
+    let tokens = match syn_rsx::parse(input) {
+        Ok(parsed) => {
+            let (view_tokens, errs) = partition_unzip(parsed.into_iter(), ViewToken::try_from);
+            if let Some(error) = combine_errors(errs) {
+                return error.to_compile_error().into();
+            }
+            let (tokens, errs) = partition_unzip(view_tokens.iter(), node_to_builder_token_stream);
+            if let Some(error) = combine_errors(errs) {
+                return error.to_compile_error().into();
+            }
+
+            match tokens.len() {
+                0 => quote! { compile_error("dom/hydrate macro must not be empty") },
+                1 => {
+                    let ts = &tokens[0];
+                    quote! { #ts }
+                }
+                _ => quote! { vec![#(#tokens),*] },
+            }
+        }
+        Err(error) => error.to_compile_error(),
+    };
+
+    proc_macro::TokenStream::from(tokens)
 }
 
 #[proc_macro]
@@ -261,7 +139,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// };
 /// ```
 pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let builder = walk_dom(input, node_to_builder_token_stream);
+    let builder: proc_macro2::TokenStream = builder(input).into();
     let token = quote! {{
         use std::convert::TryFrom;
         mogwai::view::View::try_from(#builder).unwrap()

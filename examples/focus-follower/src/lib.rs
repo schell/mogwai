@@ -29,7 +29,8 @@ impl TextOps {
 struct FocusedOn(Dom);
 
 impl FocusedOn {
-    fn from_event(ev: Event) -> Option<FocusedOn> {
+    fn from_event(dom_ev: DomEvent) -> Option<FocusedOn> {
+        let ev:web_sys::Event = dom_ev.browser_event()?;
         if let Some(target) = ev.target() {
             // here we're using the javascript API provided by web-sys
             // see https://rustwasm.github.io/wasm-bindgen/api/web_sys/index.html
@@ -52,7 +53,7 @@ fn editor_component() -> Component<Dom> {
             <section class="frow direction-column">
                 <div
                  id="editor"
-                 on:focusin=tx_logic.sink().contra_filter_map(|ev: Event| FocusedOn::from_event(ev))
+                 on:focusin=tx_logic.sink().contra_filter_map(|ev: DomEvent| FocusedOn::from_event(ev))
                  class="frow direction-column width-100" data-block-editor="browser-wasm">
                     <div contenteditable="true" class="frow direction-column width-100 row-center" data-block="heading1">
                         <div>"This is heading 1"</div>

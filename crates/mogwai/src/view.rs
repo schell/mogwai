@@ -10,9 +10,11 @@ use web_sys::Event;
 
 use crate::{
     builder::EventTargetType,
+    event::{DomEvent, Eventable},
     patch::{HashPatch, ListPatch, ListPatchApply},
+    prelude::Contravariant,
     ssr::SsrElement,
-    target::Sinking,
+    target::{Sinkable, Sinking},
 };
 
 pub use futures::future::Either;
@@ -64,8 +66,14 @@ pub struct View<T> {
 }
 
 impl From<&View<Dom>> for String {
-    fn from(view: &View<Dom>) -> String {
-        match view.inner.inner_read() {
+    fn from(view: &View<Dom>) -> Self {
+        String::from(view.deref())
+    }
+}
+
+impl From<&Dom> for String {
+    fn from(dom: &Dom) -> String {
+        match dom.inner_read() {
             Either::Left(val) => {
                 if let Some(element) = val.dyn_ref::<web_sys::Element>() {
                     return element.outer_html();
@@ -96,6 +104,14 @@ impl From<Dom> for View<Dom> {
             inner: dom,
             detach: Arc::new(RwLock::new(Box::new(|t| t.detach()))),
         }
+    }
+}
+
+impl Eventable for Dom {
+    type Event = DomEvent;
+
+    fn add_event_sink(&mut self, event_name: &str, tx_event: impl Sinkable<Self::Event>) {
+        self.set_event(EventTargetType::Myself, &event_name, Box::pin(tx_event));
     }
 }
 
@@ -303,13 +319,20 @@ impl Dom {
             Either::Left(val) => match patch {
                 crate::patch::HashPatch::Insert(k, v) => {
                     val.dyn_ref::<web_sys::Element>()
-                        .ok_or_else(|| "not an element".to_string())?
+                        .ok_or_else(|| {
+                            format!(
+                                "could not set attribute {}={} on {:?}: not an element",
+                                k, v, val
+                            )
+                        })?
                         .set_attribute(&k, &v)
                         .map_err(|_| "could not set attrib".to_string())?;
                 }
                 crate::patch::HashPatch::Remove(k) => {
                     val.dyn_ref::<web_sys::Element>()
-                        .ok_or_else(|| "not an element".to_string())?
+                        .ok_or_else(|| {
+                            format!("could remove attribute {} on {:?}: not an element", k, val)
+                        })?
                         .remove_attribute(&k)
                         .map_err(|_| "could remove attrib".to_string())?;
                 }
@@ -334,27 +357,34 @@ impl Dom {
     /// Fails if this is not a container.
     pub fn patch_bool_attribs(&self, patch: HashPatch<String, bool>) -> Result<(), String> {
         match self.inner_read() {
-            Either::Left(val) => match patch {
-                crate::patch::HashPatch::Insert(k, v) => {
-                    if v {
-                        val.dyn_ref::<web_sys::Element>()
-                            .ok_or_else(|| "not an element".to_string())?
+            Either::Left(val) => {
+                match patch {
+                    crate::patch::HashPatch::Insert(k, v) => {
+                        if v {
+                            val.dyn_ref::<web_sys::Element>()
+                            .ok_or_else(|| format!("could not set boolean attribute {}={} on {:?}: not an element", k, v, val))?
                             .set_attribute(&k, "")
                             .map_err(|_| "could not set boolean attrib".to_string())?;
-                    } else {
+                        } else {
+                            val.dyn_ref::<web_sys::Element>()
+                            .ok_or_else(|| format!("could not remove boolean attribute {}={} on {:?}: not an element", k, v, val))?
+                            .remove_attribute(&k)
+                            .map_err(|_| "could not remove boolean attrib".to_string())?;
+                        }
+                    }
+                    crate::patch::HashPatch::Remove(k) => {
                         val.dyn_ref::<web_sys::Element>()
-                            .ok_or_else(|| "not an element".to_string())?
+                            .ok_or_else(|| {
+                                format!(
+                                    "could not remove boolean attribute {} on {:?}: not an element",
+                                    k, val
+                                )
+                            })?
                             .remove_attribute(&k)
                             .map_err(|_| "could not remove boolean attrib".to_string())?;
                     }
                 }
-                crate::patch::HashPatch::Remove(k) => {
-                    val.dyn_ref::<web_sys::Element>()
-                        .ok_or_else(|| "not an element".to_string())?
-                        .remove_attribute(&k)
-                        .map_err(|_| "could not remove boolean attrib".to_string())?;
-                }
-            },
+            }
             Either::Right(ssr) => match patch {
                 crate::patch::HashPatch::Insert(k, v) => {
                     if v {
@@ -383,8 +413,9 @@ impl Dom {
             Either::Left(val) => {
                 let style = val
                     .dyn_ref::<web_sys::HtmlElement>()
-                    .ok_or_else(|| "not an element".to_string())?
-                    .style();
+                    .map(|el| el.style())
+                    .or_else(|| val.dyn_ref::<web_sys::SvgElement>().map(|el| el.style()))
+                    .ok_or_else(|| format!("could not patch style on {:?}: not an element", val))?;
                 match patch {
                     crate::patch::HashPatch::Insert(k, v) => {
                         style
@@ -414,7 +445,8 @@ impl Dom {
     }
 
     /// Add an event.
-    pub fn set_event(&self, type_is: EventTargetType, name: &str, tx: Pin<Box<Sinking<Event>>>) {
+    pub fn set_event(&self, type_is: EventTargetType, name: &str, tx: Pin<Box<Sinking<DomEvent>>>) {
+        let tx = Box::pin(tx.contra_map(|ev: web_sys::Event| DomEvent::try_from(ev).unwrap()));
         match self.inner_read() {
             Either::Left(val) => match type_is {
                 EventTargetType::Myself => {
@@ -457,7 +489,9 @@ impl Dom {
                 });
                 val.clone()
                     .dyn_into::<web_sys::Node>()
-                    .map_err(|_| "not an element".to_string())?
+                    .map_err(|val| {
+                        format!("could not patch children on {:?}: not an element", val)
+                    })?
                     .list_patch_apply(patch);
             }
             Either::Right(ssr) => {
@@ -497,9 +531,12 @@ impl Dom {
     pub fn get_attribute(&self, key: &str) -> Result<Option<String>, String> {
         match self.inner_read() {
             Either::Left(val) => {
-                let el = val
-                    .dyn_ref::<web_sys::Element>()
-                    .ok_or_else(|| "not an Element".to_string())?;
+                let el = val.dyn_ref::<web_sys::Element>().ok_or_else(|| {
+                    format!(
+                        "could not get attribute {} on {:?}: not an Element",
+                        key, val
+                    )
+                })?;
                 if el.has_attribute(key) {
                     Ok(el.get_attribute(key))
                 } else {
@@ -512,7 +549,7 @@ impl Dom {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     fn sendable<T: crate::target::Sendable>() {}
 
     #[test]

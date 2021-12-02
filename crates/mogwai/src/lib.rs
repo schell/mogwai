@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![allow(deprecated)]
 //! # Mogwai
 //!
 //! Mogwai is library for user interface development using Rust-to-Wasm
@@ -19,6 +20,7 @@ pub mod futures;
 pub mod model;
 pub mod patch;
 pub mod prelude;
+pub mod relay;
 pub mod ssr;
 pub mod target;
 pub mod time;
@@ -49,11 +51,30 @@ mod test {
     use mogwai::{
         builder::ViewBuilder,
         channel::broadcast::*,
+        event::DomEvent,
         futures::{Contravariant, IntoSenderSink, StreamExt},
         macros::*,
         view::{Dom, View},
     };
     use web_sys::Event;
+
+    #[test]
+    fn capture_view() {
+        let (tx, mut rx) = broadcast::bounded::<Dom>(1);
+        let _view = view! {
+            <div>
+                <pre
+                 capture:view = tx.sink() >
+                    "Tack :)"
+                </pre>
+            </div>
+        };
+
+        futures::executor::block_on(async move {
+            let dom = rx.next().await.unwrap();
+            assert_eq!(String::from(&dom), "<pre>Tack :)</pre>");
+        });
+    }
 
     #[test]
     fn test_append() {
@@ -86,7 +107,7 @@ mod test {
     fn append_works() {
         let (tx, rx) = broadcast::bounded::<()>(1);
         let _ = builder! {
-            <div window:load=tx.sink().contra_map(|_:Event| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
+            <div window:load=tx.sink().contra_map(|_:DomEvent| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
         };
     }
 
@@ -295,6 +316,7 @@ mod test {
         self as mogwai,
         builder::ViewBuilder,
         channel::{self, mpmc::bounded},
+        event::DomEvent,
         futures::{IntoSenderSink, StreamExt},
         macros::*,
         patch::ListPatch,
@@ -374,7 +396,7 @@ mod test {
 
     #[wasm_bindgen_test]
     async fn can_use_rsx_to_make_builder() {
-        let (tx, _) = mogwai::channel::mpmc::bounded::<web_sys::Event>(1);
+        let (tx, _) = mogwai::channel::mpmc::bounded::<DomEvent>(1);
 
         let rsx: DomBuilder = builder! {
             <div id="view_zero" style:background_color="red">
@@ -598,10 +620,10 @@ mod test {
     #[wasm_bindgen_test]
     async fn tx_on_click() {
         use mogwai::futures::StreamExt;
-        let (tx, rx) = mogwai::channel::mpmc::bounded(1);
+        let (tx, rx) = mogwai::channel::broadcast::bounded(1);
 
         log::info!("test!");
-        let rx = rx.scan(0, |n: &mut i32, _: web_sys::Event| {
+        let rx = rx.scan(0, |n: &mut i32, _: DomEvent| {
             log::info!("event!");
             *n += 1;
             let r = Some(if *n == 1 {
@@ -620,7 +642,7 @@ mod test {
         assert_eq!(el.inner_html(), "Clicked 0 times");
 
         el.click();
-        mogwai::channel::mpmc::until_empty(&tx).await;
+        mogwai::channel::broadcast::until_empty(&tx).await;
         let _ = mogwai::time::wait_approx(1000.0).await;
 
         assert_eq!(el.inner_html(), "Clicked 1 time");
