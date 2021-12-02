@@ -12,13 +12,20 @@ publish() {
     echo "publishing $CRATE from $DIR"
     REMOTE_VERSION=`cargo search $CRATE | grep "$CRATE = " | cut -d'"' -f2`
     echo "  remote version: '$REMOTE_VERSION'"
-    LOCAL_VERSION=`cat $DIR/Cargo.toml | grep -E '^version ?=' | cut -d$'\n' -f1 | cut -d'"' -f2`
+    LOCAL_VERSION=`cat $DIR/Cargo.toml | grep -E '^version ?=' | head -1 | cut -d'"' -f2`
     echo "  local version: '$LOCAL_VERSION'"
-    if [ $REMOTE_VERSION = $LOCAL_VERSION ]; then
+
+    if [[ "${REMOTE_VERSION}" = "${LOCAL_VERSION}" ]]; then
         echo "  cargo has the same version - done!"
     else
         cd $ROOT
         cd $DIR
+
+        if [[ -z "${TOKEN}" ]]; then
+            echo -n "Token: "
+            read -s TOKEN
+        fi
+
         cargo publish --token $TOKEN
         if [ "$?" = "101" ]; then
             echo "  no dice!"
@@ -26,6 +33,7 @@ publish() {
             sleep $SLEEP
             echo "  done!"
         fi
+
         cd $ROOT
     fi
 }
