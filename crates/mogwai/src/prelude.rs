@@ -4,7 +4,7 @@ pub use crate::{
     channel::*,
     component::*,
     event::{DomEvent, Eventable},
-    futures::{self, *},
+    futures::*,
     model::*,
     patch::*,
     relay::*,

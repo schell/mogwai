@@ -1,4 +1,5 @@
 #![allow(unused_braces)]
+#![allow(deprecated)]
 use mogwai::prelude::*;
 use mogwai_hydrator::Hydrator;
 use wasm_bindgen_test::*;

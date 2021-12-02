@@ -3,6 +3,7 @@
 use std::{ops::DerefMut, sync::Arc};
 
 use futures::{future::Either, lock::Mutex, Future};
+pub use futures::channel::{oneshot, mpsc};
 
 #[deprecated = "The mpmc module will be removed in mogwai 0.6"]
 pub mod mpmc {
