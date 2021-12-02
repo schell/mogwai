@@ -1,4 +1,4 @@
-//! Easy communication with views.
+//! Bundling view updates and events.
 //!
 //! Views are sometimes very complex. Many times we either have to
 //! manage a large number of channels or a small number of channels
@@ -11,9 +11,9 @@
 //! to and from a view. Instead of having to know the intricacies
 //! of a number of different channels and their operating behavior,
 //! the library user creates a struct that defines inputs and outputs
-//! and uses those to construct a [`ViewBuilder`], then interacts with
-//! that struct from within their logic loop to communicate with the
-//! view.
+//! and uses those to construct a [`ViewBuilder`](crate::builder::ViewBuilder).
+//! Updates to the view are then made by interacting with the relay struct
+//! asyncronously from within a logic loop.
 use futures::{Sink, SinkExt, Stream, StreamExt};
 
 use crate::{
@@ -64,8 +64,8 @@ impl<T: Sendable> Input<T> {
     /// and `None` each subsequent call.
     ///
     /// It is suggested you use `input.stream().unwrap()` (or similar) when constructing
-    /// a [`ViewBuilder`] from an `Input` so that the program fails if this function is
-    /// called more than once on the same input.
+    /// a [`ViewBuilder`](crate::builder::ViewBuilder) from an `Input` so that
+    /// the program fails if this function is called more than once on the same input.
     pub fn stream(&mut self) -> Option<impl Stream<Item = T>> {
         let rx = self.rx.take();
         rx
