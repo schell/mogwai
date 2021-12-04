@@ -1,0 +1,56 @@
+[package]
+name = "mogwai-dom"
+version = "0.1.0"
+edition = "2021"
+authors = ["Schell Scivally <efsubenovex@gmail.com>"]
+license = "MIT"
+description = "mogwai's DOM view implementation"
+documentation = "https://docs.rs/mogwai/"
+repository = "https://github.com/schell/mogwai"
+keywords = ["ui", "dom", "app", "reactive", "frontend"]
+categories = ["gui", "wasm", "web-programming"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+mogwai-core = { version = "^0.1", path = "../mogwai-core" }
+mogwai-html-macro = { version = "^0.3", path = "../mogwai-html-macro" }
+futures = "^0.3"
+log = "^0.4"
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "^1.0"
+wasm-bindgen = { version = "^0.2", features = ["serde-serialize"] }
+wasm-bindgen-futures = "^0.4"
+
+[dependencies.web-sys]
+version = "^0.3"
+features = [
+  "CharacterData",
+  "CssStyleDeclaration",
+  "Document",
+  "Element",
+  "Event",
+  "EventTarget",
+  "HtmlElement",
+  "MessageChannel",
+  "MessagePort",
+  "Node",
+  "NodeList",
+  "Performance",
+  "SvgElement",
+  "Text",
+  "Window"
+]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.17"
+wasm-bindgen-futures = "^0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+smol = "^1.2"
+
+[dev-dependencies.web-sys]
+version = "^0.3"
+features = [
+  "Request", "RequestMode", "RequestInit", "Response"
+]

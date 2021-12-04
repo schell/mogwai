@@ -14,7 +14,7 @@ use std::{
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::EventTarget;
 
-use crate::{
+use mogwai_core::{
     futures::SinkError,
     target::{Sendable, Sinkable, Streamable},
 };
@@ -229,7 +229,7 @@ pub trait Eventable {
 mod test {
     use super::*;
 
-    fn sendable<T: crate::target::Sendable>() {}
+    fn sendable<T: mogwai_core::target::Sendable>() {}
 
     #[test]
     fn domevent_is_sendable() {

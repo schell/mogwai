@@ -1,10 +1,10 @@
 //! A low cost intermediate structure for creating views.
 use crate::{
     component::{Component, ElmComponent},
-    event::{DomEvent, Eventable},
+    event::{EventTargetType, Eventable},
     patch::{HashPatch, ListPatch},
     target::{PostBuild, Sendable, Sinkable, Streamable, Streaming},
-    view::{Dom, View},
+    view::View,
 };
 use futures::{Stream, StreamExt};
 use std::{
@@ -13,7 +13,6 @@ use std::{
     sync::Arc,
     task::{RawWaker, Wake, Waker},
 };
-use wasm_bindgen::UnwrapThrowExt;
 
 struct DummyWaker;
 
@@ -52,7 +51,7 @@ mod exhaust {
                 .chain(futures::stream::once(async { 3 }))
                 .chain(futures::stream::once(async { 4 }))
                 .chain(futures::stream::once(async {
-                    let _ = crate::time::wait_approx(2.0).await;
+                    let _ = crate::time::wait_millis(2).await;
                     5
                 })),
         );
@@ -150,17 +149,6 @@ pub type BooleanAttribStream = Pin<Box<Streaming<HashPatch<String, bool>>>>;
 
 /// HashPatch updates for style key value pairs.
 pub type StyleStream = Pin<Box<Streaming<HashPatch<String, String>>>>;
-
-/// An event target declaration.
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub enum EventTargetType {
-    /// This target is the view it is declared on.
-    Myself,
-    /// This target is the window.
-    Window,
-    /// This target is the document.
-    Document,
-}
 
 /// Child patching declaration.
 pub type ChildStream<T> = Pin<Box<Streaming<ListPatch<ViewBuilder<T>>>>>;
@@ -454,11 +442,11 @@ impl<T: Sendable> ViewBuilder<T> {
     /// Send a clone of the inner view once it is built.
     pub fn with_capture_view(self, mut sink: impl Sinkable<T> + Unpin) -> Self
     where
-        T: Clone
+        T: Clone,
     {
         self.with_post_build(|dom: &mut T| {
             let dom = dom.clone();
-            crate::spawn(async move {
+            crate::target::spawn(async move {
                 use futures::SinkExt;
                 sink.send(dom).await.unwrap();
             });
@@ -468,28 +456,15 @@ impl<T: Sendable> ViewBuilder<T> {
 
 impl<T: Eventable + Sendable> ViewBuilder<T> {
     /// Add a sink into which view events of the given name will be sent.
-    pub fn with_event(self, name: &str, tx: impl Sinkable<T::Event>) -> Self {
+    pub fn with_event(
+        self,
+        name: &str,
+        target: EventTargetType,
+        tx: impl Sinkable<T::Event>,
+    ) -> Self {
         let name = name.to_string();
-        self.with_post_build(move |dom: &mut T| {
-            dom.add_event_sink(&name, tx);
-        })
-    }
-}
-
-impl ViewBuilder<Dom> {
-    /// Add a sink into which window events of the given name will be sent.
-    pub fn with_window_event(self, name: &str, tx: impl Sinkable<DomEvent>) -> Self {
-        let name = name.to_string();
-        self.with_post_build(move |dom| {
-            dom.set_event(EventTargetType::Window, &name, Box::pin(tx));
-        })
-    }
-
-    /// Add a sink into which document events of the given name will be sent.
-    pub fn with_document_event(self, name: &str, tx: impl Sinkable<DomEvent>) -> Self {
-        let name = name.to_string();
-        self.with_post_build(move |dom| {
-            dom.set_event(EventTargetType::Document, &name, Box::pin(tx));
+        self.with_post_build(move |inner_view: &mut T| {
+            inner_view.add_event_sink(&name, target, tx);
         })
     }
 }
@@ -547,148 +522,15 @@ impl<C: 'static> From<ViewBuilder<C>> for DecomposedViewBuilder<C> {
 
 /// We can transform a ViewBuilder<T, _, _> into any View<T> when
 /// T can be created from a DecomposedViewBuilder.
-impl<C> TryFrom<ViewBuilder<C>> for View<C>
+impl<T> TryFrom<ViewBuilder<T>> for View<T>
 where
-    C: 'static,
-    View<C>: TryFrom<DecomposedViewBuilder<C>>,
+    T: TryFrom<DecomposedViewBuilder<T>> + 'static,
 {
-    type Error = <View<C> as TryFrom<DecomposedViewBuilder<C>>>::Error;
+    type Error = <T as TryFrom<DecomposedViewBuilder<T>>>::Error;
 
-    fn try_from(value: ViewBuilder<C>) -> Result<Self, Self::Error> {
-        let decomp: DecomposedViewBuilder<C> = value.into();
-        View::try_from(decomp)
-    }
-}
-
-/// Set all the initial values of a Dom node.
-pub fn set_initial_values(
-    node: &Dom,
-    texts: impl Iterator<Item = String>,
-    attribs: impl Iterator<Item = HashPatch<String, String>>,
-    bool_attribs: impl Iterator<Item = HashPatch<String, bool>>,
-    styles: impl Iterator<Item = HashPatch<String, String>>,
-    children: impl Iterator<Item = ListPatch<ViewBuilder<Dom>>>,
-) -> Result<(), String> {
-    for text in texts {
-        node.set_text(&text)?;
-    }
-
-    for patch in attribs {
-        node.patch_attribs(patch)?;
-    }
-
-    for patch in bool_attribs {
-        node.patch_bool_attribs(patch)?;
-    }
-
-    for patch in styles {
-        node.patch_styles(patch)?;
-    }
-
-    for patch in children {
-        let patch = patch.map(|vb| View::try_from(vb).unwrap().into_inner());
-        node.patch_children(patch)?;
-    }
-
-    Ok(())
-}
-
-/// Set all the streaming values of a Dom node.
-pub fn set_streaming_values(
-    node: &Dom,
-    mut text_stream: TextStream,
-    mut attrib_stream: AttribStream,
-    mut bool_attrib_stream: BooleanAttribStream,
-    mut style_stream: StyleStream,
-    mut child_stream: ChildStream<Dom>,
-) -> Result<(), String> {
-    let text_node = node.clone();
-    crate::spawn(async move {
-        while let Some(msg) = text_stream.next().await {
-            text_node.set_text(&msg).unwrap_throw();
-        }
-    });
-
-    let attrib_node = node.clone();
-    crate::spawn(async move {
-        while let Some(patch) = attrib_stream.next().await {
-            attrib_node.patch_attribs(patch).unwrap_throw();
-        }
-    });
-
-    let bool_attrib_node = node.clone();
-    crate::spawn(async move {
-        while let Some(patch) = bool_attrib_stream.next().await {
-            bool_attrib_node.patch_bool_attribs(patch).unwrap_throw();
-        }
-    });
-
-    let style_node = node.clone();
-    crate::spawn(async move {
-        while let Some(patch) = style_stream.next().await {
-            style_node.patch_styles(patch).unwrap_throw();
-        }
-    });
-
-    let parent_node = node.clone();
-    crate::spawn(async move {
-        while let Some(patch) = child_stream.next().await {
-            let patch = patch.map(|vb| View::try_from(vb).unwrap().into_inner());
-            parent_node.patch_children(patch).unwrap_throw();
-        }
-    });
-
-    Ok(())
-}
-
-impl TryFrom<DecomposedViewBuilder<Dom>> for View<Dom> {
-    type Error = String;
-
-    fn try_from(
-        DecomposedViewBuilder {
-            construct_with,
-            ns,
-            texts,
-            text_stream,
-            attribs,
-            attrib_stream,
-            bool_attribs,
-            bool_attrib_stream,
-            styles,
-            style_stream,
-            children,
-            child_stream,
-            ops,
-        }: DecomposedViewBuilder<Dom>,
-    ) -> Result<Self, Self::Error> {
-        let mut el: Dom = if !texts.is_empty() || construct_with.is_empty() {
-            let node = Dom::text("")?;
-            node
-        } else {
-            Dom::element(&construct_with, ns.as_deref())?
-        };
-
-        set_initial_values(
-            &el,
-            texts.into_iter(),
-            attribs.into_iter(),
-            bool_attribs.into_iter(),
-            styles.into_iter(),
-            children.into_iter(),
-        )?;
-        set_streaming_values(
-            &el,
-            text_stream,
-            attrib_stream,
-            bool_attrib_stream,
-            style_stream,
-            child_stream,
-        )?;
-
-        for op in ops.into_iter() {
-            (op)(&mut el);
-        }
-
-        Ok(View::from(el))
+    fn try_from(value: ViewBuilder<T>) -> Result<Self, Self::Error> {
+        let decomp: DecomposedViewBuilder<T> = value.into();
+        let inner: T = decomp.try_into()?;
+        Ok(View { inner })
     }
 }

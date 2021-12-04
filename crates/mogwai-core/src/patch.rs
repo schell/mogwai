@@ -191,66 +191,6 @@ impl<T> ListPatchApply for Vec<T> {
     }
 }
 
-impl ListPatchApply for web_sys::Node {
-    type Item = web_sys::Node;
-
-    fn list_patch_apply(&mut self, patch: ListPatch<Self::Item>) -> Vec<Self::Item> {
-        let mut removed = vec![];
-        match patch {
-            crate::patch::ListPatch::Splice {
-                range,
-                replace_with,
-            } => {
-                let mut replace_with = replace_with.into_iter();
-                let list: web_sys::NodeList = self.child_nodes();
-                let children: Vec<web_sys::Node> =
-                    (0..list.length()).filter_map(|i| list.get(i)).collect();
-
-                let start_index = match range.0 {
-                    Bound::Included(i) => i,
-                    Bound::Excluded(i) => i,
-                    Bound::Unbounded => 0,
-                };
-                let end_index = match range.1 {
-                    Bound::Included(i) => i,
-                    Bound::Excluded(i) => i,
-                    Bound::Unbounded => (list.length() as usize).max(1) - 1,
-                };
-
-                let mut child_after = None;
-                for i in start_index..=end_index {
-                    if let Some(old_child) = children.get(i) {
-                        if range.contains(&i) {
-                            if let Some(new_child) = replace_with.next() {
-                                self.replace_child(&new_child, &old_child).unwrap();
-                            } else {
-                                self.remove_child(&old_child).unwrap();
-                            }
-                            removed.push(old_child.clone());
-                        } else {
-                            child_after = Some(old_child);
-                        }
-                    }
-                }
-
-                for child in replace_with {
-                    self.insert_before(&child, child_after).unwrap();
-                }
-            }
-            crate::patch::ListPatch::Push(new_node) => {
-                let _ = self.append_child(&new_node).unwrap();
-            }
-            crate::patch::ListPatch::Pop => {
-                if let Some(child) = self.last_child() {
-                    let _ = self.remove_child(&child).unwrap();
-                    removed.push(child);
-                }
-            }
-        }
-        removed
-    }
-}
-
 #[cfg(test)]
 mod list {
     use super::*;

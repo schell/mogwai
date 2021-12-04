@@ -1,12 +1,16 @@
 //! Wait or sleep or delay future.
 use futures::Future;
+#[cfg(target_arch = "wasm32")]
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
+};
+use std::{
     pin::Pin,
     sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
 };
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue, UnwrapThrowExt};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -33,9 +37,32 @@ pub fn now() -> f64 {
     START.elapsed().as_secs_f64() * 1000.0
 }
 
+#[cfg(target_arch = "wasm32")]
+/// Sets a static rust closure to be called after a given amount of milliseconds.
+/// The given function may return whether or not this timeout should be rescheduled.
+/// If the function returns `true` it will be rescheduled. Otherwise it will not.
+pub(crate) fn timeout<F>(millis: i32, mut logic: F) -> i32
+where
+    F: FnMut() -> bool + 'static,
+{
+    // https://rustwasm.github.io/wasm-bindgen/examples/request-animation-frame.html#srclibrs
+    let f = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let g = f.clone();
+
+    *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
+        let should_continue = logic();
+        if should_continue {
+            set_checkup_interval(millis, f.borrow().as_ref().unwrap_throw());
+        }
+    }) as Box<dyn FnMut()>));
+
+    let invalidate = set_checkup_interval(millis, g.borrow().as_ref().unwrap_throw());
+    invalidate
+}
+
 struct WaitFuture {
     start: f64,
-    millis: f64,
+    millis: u64,
     waker: Arc<Mutex<Option<Waker>>>,
 }
 
@@ -46,24 +73,12 @@ impl Future for WaitFuture {
         let future: &mut WaitFuture = self.get_mut();
         let t = now();
         let elapsed = t - future.start;
-        if elapsed >= future.millis {
+        if elapsed >= future.millis as f64 {
             Poll::Ready(elapsed)
         } else {
             let mut lock = future.waker.lock().unwrap();
             *lock = Some(ctx.waker().clone());
             drop(lock);
-
-            if cfg!(not(target_arch = "wasm32")) {
-                let var = future.waker.clone();
-                let secs = (future.millis - elapsed) / 1000.0;
-                let _ = std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs_f64(secs));
-                    let mut lock = var.lock().unwrap();
-                    if let Some(waker) = lock.take() {
-                        waker.wake();
-                    }
-                });
-            }
 
             Poll::Pending
         }
@@ -71,15 +86,16 @@ impl Future for WaitFuture {
 }
 
 /// Wait approximately the given number of milliseconds.
-/// Returns a [`Future`] that yields the actual number of milliseconds waited.
 ///
-// TODO: Change wait_approx to take a u64 of millis because it works better that way
-pub fn wait_approx(millis: f64) -> impl Future<Output = f64> {
+/// Returns a [`Future`] that yields the actual number of milliseconds waited.
+pub fn wait_millis(millis: u64) -> impl Future<Output = f64> {
     let waker: Arc<Mutex<Option<Waker>>> = Default::default();
-    let waker2 = waker.clone();
     let start = now();
-    if cfg!(target_arch = "wasm32") {
-        crate::utils::timeout(millis as i32, move || {
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let waker2 = waker.clone();
+        timeout(millis.try_into().unwrap(), move || {
             waker2
                 .lock()
                 .unwrap()
@@ -89,6 +105,20 @@ pub fn wait_approx(millis: f64) -> impl Future<Output = f64> {
             false
         });
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let var = waker.clone();
+        let _ = std::thread::spawn(move || {
+            let seconds = millis as f64 / 1000.0;
+            std::thread::sleep(std::time::Duration::from_secs_f64(seconds));
+            let mut lock = var.lock().unwrap();
+            if let Some(waker) = lock.take() {
+                waker.wake();
+            }
+        });
+    }
+
     WaitFuture {
         start,
         waker,
@@ -97,11 +127,28 @@ pub fn wait_approx(millis: f64) -> impl Future<Output = f64> {
 }
 
 /// Wait approximately the given number of seconds.
+///
 /// Returns a [`Future`] that yields the actual number of milliseconds waited.
+///
+/// ## Note
+/// This rounds the number of seconds to the closest millisecond.
 pub fn wait_secs(secs: f64) -> impl Future<Output = f64> {
-    wait_approx(secs * 1000.0)
+    let millis = secs * 1000.0;
+    wait_millis(millis.round() as u64)
 }
 
+#[cfg(target_arch = "wasm32")]
+/// Set a callback closure to be called in a given number of milliseconds.
+/// ### Panics
+/// Panics when window.setInterval is not available.
+pub(crate) fn set_checkup_interval(millis: i32, f: &Closure<dyn FnMut()>) -> i32 {
+    web_sys::window()
+        .expect("no global window")
+        .set_timeout_with_callback_and_timeout_and_arguments_0(f.as_ref().unchecked_ref(), millis)
+        .expect("should register `setInterval` OK")
+}
+
+#[cfg(target_arch = "wasm32")]
 /// Schedule the given closure to be run as soon as possible.
 ///
 /// On wasm32 this schedules the closure to run async at the next "frame". Any other
@@ -148,5 +195,19 @@ where
         }
     } else {
         f()
+    }
+}
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod test {
+    use super::*;
+    use wasm_bindgen_test::*;
+
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    #[wasm_bindgen_test]
+    async fn can_wait_approximately() {
+        let millis_waited = wait_millis(22).await;
+        assert!(millis_waited >= 21.0);
     }
 }

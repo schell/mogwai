@@ -3,6 +3,8 @@
 members = [
   "cookbook",
   "crates/mogwai",
+  "crates/mogwai-core",
+  "crates/mogwai-dom",
   "crates/mogwai-html-macro",
   "crates/mogwai-hydrator",
   "examples/counter",

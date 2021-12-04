@@ -97,13 +97,13 @@ impl AttributeToken {
                 .with_single_style_stream(#name, #expr)
             }),
             On(name, expr) => Ok(quote! {
-                .with_event(#name, #expr)
+                .with_event(#name, mogwai_core::event::EventTargetType::Myself, #expr)
             }),
             Window(name, expr) => Ok(quote! {
-                .with_window_event(#name, #expr)
+                .with_event(#name, mogwai_core::event::EventTargetType::Window, #expr)
             }),
             Document(name, expr) => Ok(quote! {
-                .with_document_event(#name, #expr)
+                .with_document_event(#name, mogwai_core::event::EventTargetType::Document, #expr)
             }),
             BooleanSingle(name, expr) => Ok(quote! {
                 .with_single_bool_attrib_stream(#name, #expr)

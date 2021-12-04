@@ -4,61 +4,18 @@ version = "0.5.2"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
 license = "MIT"
-description = "The minimal, obvious, graphical, web application interface."
+description = "The minimal, obvious, graphical, widget application interface."
 documentation = "https://docs.rs/mogwai/"
 repository = "https://github.com/schell/mogwai"
 readme = "../../README.md"
 keywords = ["ui", "dom", "app", "reactive", "frontend"]
-categories = ["gui", "wasm", "web-programming"]
+categories = ["gui", "asynchronous", "widgets"]
 
 [features]
-default = []
+default = ["dom"]
+dom = ["mogwai-dom"]
 
 [dependencies]
-async-broadcast = "^0.3"
-async-channel = "^1.6"
-async-lock = "^2.4"
-console_log = "^0.1"
-futures = "^0.3"
-js-sys = "0.3.44"
-lazy_static = "^1.4"
-log = "^0.4"
+mogwai-core = { path = "../mogwai-core", version = "^0.1" }
+mogwai-dom = { path = "../mogwai-dom", version = "^0.1", optional = true }
 mogwai-html-macro = { path = "../mogwai-html-macro", version = "^0.3" }
-serde = { version = "^1.0", features = ["derive"] }
-serde_json = "^1.0"
-wasm-bindgen = { version = "^0.2", features = ["serde-serialize"] }
-wasm-bindgen-futures = "^0.4"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-smol = "^1.2"
-
-[dependencies.web-sys]
-version = "^0.3"
-features = [
-  "CharacterData",
-  "CssStyleDeclaration",
-  "Document",
-  "Element",
-  "Event",
-  "EventTarget",
-  "HtmlElement",
-  "MessageChannel",
-  "MessagePort",
-  "Node",
-  "NodeList",
-  "Performance",
-  "SvgElement",
-  "Text",
-  "Window"
-]
-
-[dev-dependencies]
-doc-comment = "^0.3"
-wasm-bindgen-test = "0.3.17"
-wasm-bindgen-futures = "^0.4"
-
-[dev-dependencies.web-sys]
-version = "^0.3"
-features = [
-  "Request", "RequestMode", "RequestInit", "Response"
-]

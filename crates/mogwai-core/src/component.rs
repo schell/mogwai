@@ -3,12 +3,7 @@ use std::{convert::TryFrom, pin::Pin};
 
 use futures::stream::StreamExt;
 
-use crate::{
-    builder::ViewBuilder,
-    channel::broadcast,
-    target::{Sendable, Spawnable},
-    view::View,
-};
+use crate::{builder::ViewBuilder, channel::broadcast, target::{Sendable, Spawnable}, view::View};
 
 /// A component is a [`ViewBuilder`] and its logic (a [`Spawnable`] future).
 pub struct Component<T> {
@@ -35,7 +30,7 @@ impl<T> From<ViewBuilder<T>> for Component<T> {
 impl<T: Sendable> From<Component<T>> for ViewBuilder<T> {
     fn from(c: Component<T>) -> Self {
         let Component { builder, logic } = c;
-        builder.with_post_build(|_| crate::spawn(logic))
+        builder.with_post_build(|_| crate::target::spawn(logic))
     }
 }
 
@@ -53,7 +48,7 @@ where
     /// spawns the logic into the async runtime.
     pub fn build(self) -> Result<View<T>, <View<T> as TryFrom<ViewBuilder<T>>>::Error> {
         let view: View<T> = View::try_from(self.builder)?;
-        crate::spawn(self.logic);
+        crate::target::spawn(self.logic);
         Ok(view)
     }
 }

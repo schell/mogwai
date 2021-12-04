@@ -7,14 +7,16 @@ use std::{
     sync::Arc,
 };
 
-use async_lock::Mutex;
+use futures::lock::Mutex;
 
-use crate::{
-    builder::EventTargetType,
-    futures::{SinkExt, SinkError},
+use mogwai_core::{
+    event::EventTargetType,
+    futures::{SinkError, SinkExt},
     patch::{ListPatch, ListPatchApply},
     target::Sinking,
 };
+
+use crate::event::DomEvent;
 
 // Only certain nodes can be "void" - which means written as <tag /> when
 // the node contains no children. Writing non-void nodes in void notation
@@ -56,7 +58,7 @@ fn tag_is_voidable(tag: &str) -> bool {
 }
 
 /// DOM node variants.
-pub enum SsrNode<Event> {
+pub enum SsrNode {
     /// Text node.
     Text(String),
     /// Parent node.
@@ -68,12 +70,12 @@ pub enum SsrNode<Event> {
         /// Styles
         styles: Vec<(String, String)>,
         /// Child node list.
-        children: Vec<SsrElement<Event>>,
+        children: Vec<SsrElement>,
     },
 }
 
-impl<Event> From<&SsrNode<Event>> for String {
-    fn from(node: &SsrNode<Event>) -> String {
+impl From<&SsrNode> for String {
+    fn from(node: &SsrNode) -> String {
         match node {
             SsrNode::Text(s) => s.to_string(),
             SsrNode::Container {
@@ -152,32 +154,24 @@ impl<Event> From<&SsrNode<Event>> for String {
 }
 
 /// A server side renderable view element.
-pub struct SsrElement<Event> {
+#[derive(Clone)]
+pub struct SsrElement {
     /// The underlying node.
-    pub node: Arc<Mutex<SsrNode<Event>>>,
+    pub node: Arc<Mutex<SsrNode>>,
     /// A map of events registered with this element.
-    pub events: Arc<Mutex<HashMap<(EventTargetType, String), Pin<Box<Sinking<Event>>>>>>,
+    pub events: Arc<Mutex<HashMap<(EventTargetType, String), Pin<Box<Sinking<DomEvent>>>>>>,
 }
 
 #[cfg(test)]
 mod ssr {
     #[test]
     fn ssrelement_sendable() {
-        fn sendable<T: crate::target::Sendable>() {}
-        sendable::<super::SsrElement<web_sys::Event>>()
+        fn sendable<T: mogwai_core::target::Sendable>() {}
+        sendable::<super::SsrElement>()
     }
 }
 
-impl<Event> Clone for SsrElement<Event> {
-    fn clone(&self) -> Self {
-        SsrElement {
-            node: self.node.clone(),
-            events: self.events.clone(),
-        }
-    }
-}
-
-impl<Event> SsrElement<Event> {
+impl SsrElement {
     /// Creates a text node.
     pub fn text(s: &str) -> Self {
         SsrElement {
@@ -303,7 +297,7 @@ impl<Event> SsrElement<Event> {
     }
 
     /// Add an event.
-    pub fn set_event(&self, type_is: EventTargetType, name: &str, tx: Pin<Box<Sinking<Event>>>) {
+    pub fn set_event(&self, type_is: EventTargetType, name: &str, tx: Pin<Box<Sinking<DomEvent>>>) {
         let mut lock = self.events.try_lock().unwrap();
         let _ = lock.insert((type_is, name.to_string()), tx);
     }
@@ -315,7 +309,7 @@ impl<Event> SsrElement<Event> {
         &self,
         type_is: EventTargetType,
         name: String,
-        event: Event,
+        event: DomEvent,
     ) -> Result<(), futures::future::Either<(), SinkError>> {
         use futures::future::Either;
         let mut events = self.events.lock().await;
