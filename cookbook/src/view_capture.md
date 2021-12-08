@@ -15,16 +15,17 @@ smol::block_on(async {
     let (tx, mut rx) = broadcast::bounded::<Dom>(1);
 
     let builder = builder! {
-        <div capture:view = tx.sink()></div>
+        <div><button capture:view = tx>"Click"</button></div>
     };
 
-    Component::from(builder)
+    let div: Dom = Component::from(builder)
         .build()
         .unwrap()
-        .run()
-        .unwrap();
+        .into_inner();
 
-    let _:Dom = rx.next().await.unwrap();
+    let _button:Dom = rx.next().await.unwrap();
+
+    div.run().unwrap();
 });
 ```
 
@@ -42,7 +43,7 @@ fn view(send_input: broadcast::Sender<Dom>) -> ViewBuilder<Dom> {
     builder! {
         <div>
 
-            <button post:build=move |dom: &mut Dom| { send_input.try_broadcast(dom.clone()).unwrap(); } >
+            <button post:build=move |dom: &mut Dom| { send_input.inner.try_broadcast(dom.clone()).unwrap(); } >
 
                 "Click me"
 

@@ -43,11 +43,13 @@ features = [
 ]
 
 [dev-dependencies]
+mogwai = { path = "../mogwai", version = "^0.6", features = ["dom"] }
 wasm-bindgen-test = "0.3.17"
 wasm-bindgen-futures = "^0.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 smol = "^1.2"
+smol-potat = "^1.1"
 
 [dev-dependencies.web-sys]
 version = "^0.3"

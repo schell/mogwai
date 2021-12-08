@@ -12,31 +12,24 @@
 //! ## Learn more
 //! If you're new to Mogwai, check out the [introduction](an_introduction) module.
 pub mod an_introduction;
-pub mod builder;
-pub mod channel;
-pub mod component;
-pub mod event;
-pub mod futures;
-pub mod model;
-pub mod patch;
 pub mod prelude;
-pub mod relay;
-pub mod ssr;
-pub mod target;
-pub mod time;
-pub mod utils;
-pub mod view;
 
-pub use target::spawn;
-
-pub mod lock {
-    //! Asynchronous locking mechanisms (re-exports).
-    pub use async_lock::*;
-    pub use futures::lock::*;
+pub mod core {
+    //! Re-export of `mogwai-core`. Core types and traits.
+    pub use mogwai_core::*;
 }
 
+#[cfg(feature = "dom")]
+pub mod dom {
+    //! Re-export of `mogwai-dom` using the "dom" feature. Browser + server html
+    //! views.
+    pub use mogwai_dom::*;
+}
+
+pub use mogwai_core::target::spawn;
+
 pub mod macros {
-    //! RSX style macros for building DOM views.
+    //! Rexexport of `mogwai-html-macros`. RSX style macros for building DOM views.
     pub use mogwai_html_macro::{builder, view};
 }
 

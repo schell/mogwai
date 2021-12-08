@@ -1,6 +1,15 @@
 //! Types and [`TryFrom`] instances that can 're-animate' views or portions of views from the DOM.
-use mogwai::{builder::{DecomposedViewBuilder, ViewBuilder}, prelude::{Component, HashPatch, HashPatchApply, ListPatchApply}, view::{Dom, EitherExt, View}};
-use snafu::{OptionExt, Snafu, ensure};
+use mogwai::{
+    core::{
+        builder::{DecomposedViewBuilder, ViewBuilder},
+        component::Component,
+        futures::EitherExt,
+        patch::{HashPatch, HashPatchApply, ListPatchApply},
+        view::View,
+    },
+    dom::view::Dom,
+};
+use snafu::{ensure, OptionExt, Snafu};
 use std::collections::HashMap;
 pub use std::{convert::TryFrom, ops::Deref};
 pub use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
@@ -33,9 +42,7 @@ pub enum Error {
     ViewOnly,
 
     #[snafu(display("Hydration only available on WASM"))]
-    WASMOnly {
-        backtrace: snafu::Backtrace,
-    },
+    WASMOnly { backtrace: snafu::Backtrace },
 
     #[snafu(display("Hydration failed: {}", msg))]
     Other { msg: String },
@@ -76,7 +83,7 @@ impl HydrationKey {
 
         let el: Node = match self {
             HydrationKey::Id(id) => {
-                let el = mogwai::utils::document()
+                let el = mogwai::dom::utils::document()
                     .get_element_by_id(&id)
                     .with_context(|| MissingId { id })?;
                 el.clone().dyn_into::<Node>().or_else(|_| {
@@ -133,7 +140,7 @@ pub struct Hydrator {
 
 impl From<Hydrator> for View<Dom> {
     fn from(Hydrator { inner }: Hydrator) -> Self {
-        View::from(inner)
+        View { inner }
     }
 }
 
@@ -181,14 +188,15 @@ impl Hydrator {
             (op)(&mut dom);
         }
 
-        mogwai::builder::set_streaming_values(
+        mogwai::dom::builder::set_streaming_values(
             &dom,
             text_stream,
             attrib_stream,
             bool_attrib_stream,
             style_stream,
             child_stream,
-        ).map_err(|msg| Error::Other{ msg })?;
+        )
+        .map_err(|msg| Error::Other { msg })?;
 
         let guard = dom.inner_read().left().with_context(|| WASMOnly)?;
         let node = guard.dyn_ref::<Node>().with_context(|| Conversion {

@@ -1,4 +1,4 @@
-use mogwai::event::DomEvent;
+use mogwai::dom::event::DomEvent;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlElement, HtmlInputElement};
 

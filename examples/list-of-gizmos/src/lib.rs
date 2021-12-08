@@ -1,6 +1,6 @@
 #![allow(unused_braces)]
 use log::Level;
-use mogwai::{futures, prelude::*};
+use mogwai::{core::channel::broadcast, prelude::*};
 use std::panic;
 use wasm_bindgen::prelude::*;
 
@@ -58,12 +58,12 @@ fn item_view(
         <li>
             <button
                 style:cursor="pointer"
-                on:click=to_logic.sink().contra_map(|_| ItemMsg::Click)>
+                on:click=to_logic.clone().contra_map(|_| ItemMsg::Click)>
                 "Increment"
             </button>
             <button
                 style:cursor="pointer"
-                on:click=to_logic.sink().contra_map(|_| ItemMsg::Remove)>
+                on:click=to_logic.contra_map(|_| ItemMsg::Remove)>
                 "Remove"
             </button>
             " "
@@ -98,7 +98,7 @@ enum ListMsg {
 /// Launch the logic loop of our list of items.
 async fn list_logic(
     input: broadcast::Receiver<ListMsg>,
-    tx_patch_children: mpmc::Sender<ListPatch<ViewBuilder<Dom>>>,
+    tx_patch_children: mpsc::Sender<ListPatch<ViewBuilder<Dom>>>,
 ) {
     // Set up our communication from items to this logic loop by
     // * creating a list patch model
@@ -109,26 +109,29 @@ async fn list_logic(
     let mut items: ListPatchModel<Item> = ListPatchModel::new();
     let (to_list, from_items) = broadcast::bounded::<ListMsg>(1);
     let to_list = to_list.clone();
-    let all_item_patches = items.stream().map(move |patch| {
-        log::info!("mapping patch for item: {:?}", patch);
-        let to_list = to_list.clone();
-        patch.map(move |Item { id, clicks }: Item| {
+    let all_item_patches = items
+        .stream()
+        .map(move |patch| {
+            log::info!("mapping patch for item: {:?}", patch);
             let to_list = to_list.clone();
-            let component = item(id, clicks, to_list);
-            let builder: ViewBuilder<Dom> = component.into();
-            builder
+            patch.map(move |Item { id, clicks }: Item| {
+                let to_list = to_list.clone();
+                let component = item(id, clicks, to_list);
+                let builder: ViewBuilder<Dom> = component.into();
+                builder
+            })
         })
-    }).for_each(move |patch| {
-        let tx_patch_children = tx_patch_children.clone();
-        async move {
-            tx_patch_children.send(patch).await.unwrap();
-        }
-    });
+        .for_each(move |patch| {
+            let mut tx_patch_children = tx_patch_children.clone();
+            async move {
+                tx_patch_children.send(patch).await.unwrap();
+            }
+        });
     mogwai::spawn(all_item_patches);
     // ANCHOR_END: list_logic_coms
     // ANCHOR: list_logic_loop
     // Combine the input from our view with the input from our items
-    let mut input = futures::stream::select_all(vec![input, from_items]);
+    let mut input = stream::select_all(vec![input, from_items]);
     let mut next_id = 0;
     loop {
         match input.next().await {
@@ -161,7 +164,7 @@ async fn list_logic(
             _ => {
                 log::error!("Leaving list logic loop - this shouldn't happen");
                 break;
-            },
+            }
         }
     }
     // ANCHOR_END: list_logic_loop
@@ -175,7 +178,7 @@ where
     builder! {
         <fieldset>
             <legend>"A List of Gizmos"</legend>
-                <button style:cursor="pointer" on:click=to_logic.sink().contra_map(|_| ListMsg::NewItem)>
+                <button style:cursor="pointer" on:click=to_logic.contra_map(|_| ListMsg::NewItem)>
                 "Create a new item"
             </button>
             <fieldset>
@@ -191,7 +194,7 @@ where
 /// Create our list component.
 fn list() -> Component<Dom> {
     let (logic_tx, logic_rx) = broadcast::bounded(1);
-    let (item_patch_tx, item_patch_rx) = mpmc::bounded(1);
+    let (item_patch_tx, item_patch_rx) = mpsc::bounded(1);
     Component::from(list_view(logic_tx, item_patch_rx))
         .with_logic(list_logic(logic_rx, item_patch_tx))
 }
@@ -201,10 +204,12 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
     let component = list();
-    let view = component.build().unwrap();
+    let view = component.build().unwrap().into_inner();
 
     if let Some(id) = parent_id {
-        let parent = mogwai::utils::document().get_element_by_id(&id).unwrap();
+        let parent = mogwai::dom::utils::document()
+            .get_element_by_id(&id)
+            .unwrap();
         view.run_in_container(&parent)
     } else {
         view.run()

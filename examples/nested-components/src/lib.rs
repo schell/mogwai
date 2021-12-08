@@ -32,11 +32,12 @@ mod test {
                     {("initial value", rx.map(|n| format!("got message: {}", n)))}
                 </p>
             </div>
-        }).with_logic(async move {
+        })
+        .with_logic(async move {
             tx.broadcast(1).await.unwrap();
             tx.broadcast(42).await.unwrap();
         });
-        let view: View<Dom> = comp.build().unwrap();
+        let view: Dom = comp.build().unwrap().into_inner();
         view.run().unwrap();
     }
 
@@ -46,12 +47,13 @@ mod test {
         let (tx_view, rx_view) = broadcast::bounded::<u32>(1);
 
         let comp = Component::from(builder! {
-            <div id="my_component" on:click=tx_logic.sink().contra_map(|_| ())>
+            <div id="my_component" on:click=tx_logic.contra_map(|_| ())>
                 <p>
                     {("initial value", rx_view.map(|n| format!("got clicks: {}", n)))}
                 </p>
             </div>
-        }).with_logic(async move {
+        })
+        .with_logic(async move {
             let mut clicks = 0;
             tx_view.broadcast(clicks).await.unwrap();
 
@@ -65,7 +67,7 @@ mod test {
                 }
             }
         });
-        let view: View<Dom> = comp.build().unwrap();
+        let view: Dom = comp.build().unwrap().into_inner();
         view.run().unwrap();
     }
 }
@@ -84,7 +86,7 @@ mod counter {
         recv_num_clicks: broadcast::Receiver<u32>,
     ) -> ViewBuilder<Dom> {
         builder! {
-            <button on:click=send_clicks_to_logic.sink().with(|_| async{Ok(CounterMsg::Click)})>
+            <button on:click=send_clicks_to_logic.clone().with(|_| async{Ok(CounterMsg::Click)})>
             {(
                 "clicks = 0",
                 recv_num_clicks.map(|n| format!("clicks = {}", n))
@@ -130,7 +132,7 @@ fn view(counter: Component<Dom>, send_reset_to_app: broadcast::Sender<()>) -> Vi
         <div>
             "Application"<br/>
             {counter}
-            <button on:click=send_reset_to_app.sink().with(|_| async{Ok(())})>"Click to reset"</button>
+            <button on:click=send_reset_to_app.clone().with(|_| async{Ok(())})>"Click to reset"</button>
         </div>
     }
 }
@@ -167,10 +169,12 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    let view = app().build().unwrap();
+    let view = app().build().unwrap().inner;
 
     if let Some(id) = parent_id {
-        let parent = mogwai::utils::document().get_element_by_id(&id).unwrap();
+        let parent = mogwai::dom::utils::document()
+            .get_element_by_id(&id)
+            .unwrap();
         view.run_in_container(&parent)
     } else {
         view.run()

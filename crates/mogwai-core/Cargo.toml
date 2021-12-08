@@ -17,6 +17,7 @@ categories = ["gui", "asynchronous", "widgets"]
 [dependencies]
 async-broadcast = "^0.3"
 async-lock = "^2.4"
+async-trait = "^0.1"
 console_log = "^0.1"
 futures = "^0.3"
 lazy_static = "^1.4"
@@ -34,7 +35,7 @@ version = "^0.3"
 features = ["Document", "MessageChannel", "MessagePort", "Performance", "Window"]
 
 [dev-dependencies]
-doc-comment = "^0.3"
+mogwai = { path = "../mogwai", version = "^0.6", features = ["dom"] }
 
 [dev-dependencies.web-sys]
 version = "^0.3"

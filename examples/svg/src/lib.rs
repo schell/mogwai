@@ -31,10 +31,10 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    let view = View::try_from(my_circle())?;
+    let View{ inner: view } = View::try_from(my_circle())?;
 
     if let Some(id) = parent_id {
-        let parent = utils::document()
+        let parent = mogwai::dom::utils::document()
             .get_element_by_id(&id)
             .unwrap();
         view.run_in_container(&parent)

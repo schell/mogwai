@@ -1,7 +1,7 @@
 //! Wrapped views.
 use std::{
     convert::TryFrom,
-    ops::{Bound, Deref, RangeBounds},
+    ops::{Bound, RangeBounds},
     pin::Pin,
 };
 use wasm_bindgen::{JsCast, JsValue};
@@ -9,7 +9,6 @@ use wasm_bindgen::{JsCast, JsValue};
 use mogwai_core::{
     builder::DecomposedViewBuilder,
     event::{Eventable, EventTargetType},
-    futures::sink::Contravariant,
     patch::{HashPatch, ListPatch},
     target::{Sinkable, Sinking},
 };
@@ -67,7 +66,7 @@ impl Eventable for Dom {
 
 impl Dom {
     /// Return a string representation of the DOM tree.
-    pub fn html_string(&self) -> String {
+    pub async fn html_string(&self) -> String {
         match self.inner_read() {
             Either::Left(val) => {
                 if let Some(element) = val.dyn_ref::<web_sys::Element>() {
@@ -80,8 +79,7 @@ impl Dom {
                 panic!("Dom reference {:#?} could not be turned into a string", val);
             }
             Either::Right(ssr) => {
-                let lock = ssr.node.try_lock().unwrap();
-                String::from(lock.deref())
+                ssr.html_string().await
             }
         }
     }

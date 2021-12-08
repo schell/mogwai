@@ -46,8 +46,8 @@ async fn main() {
     }
 }
 
-fn html_view(route: &Route) -> Body {
-    let html = multipage::view(&route.to_string()).unwrap();
+async fn html_view(route: &Route) -> Body {
+    let html = multipage::view(&route.to_string()).await.unwrap();
     let mut context = tera::Context::new();
     context.insert("title", "Home");
     context.insert("contents", &html);
@@ -69,7 +69,7 @@ async fn ssr_service(req: Request<Body>) -> Result<Response<Body>, Infallible> {
             match static_result {
                 Ok(hyper_staticfile::ResolveResult::NotFound) => {
                     // if static asset not found the not found page
-                    *response.body_mut() = html_view(&route);
+                    *response.body_mut() = html_view(&route).await;
                 }
                 Ok(asset) => {
                     // if static asset exists, serve the asset
@@ -80,7 +80,7 @@ async fn ssr_service(req: Request<Body>) -> Result<Response<Body>, Infallible> {
                 }
                 Err(_) => {
                     // otherwise serve the not found content
-                    *response.body_mut() = html_view(&route);
+                    *response.body_mut() = html_view(&route).await;
                 }
             }
         }

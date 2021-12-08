@@ -67,7 +67,7 @@ impl App {
                     <a
                         href="/"
                         style="margin-right: 15px;"
-                        on:click=tx.sink().contra_filter_map(|e: DomEvent| {
+                        on:click=tx.clone().contra_filter_map(|e: DomEvent| {
                             let ev = e.browser_event()?;
                             ev.prevent_default();
                             Some(Route::Home)
@@ -78,7 +78,7 @@ impl App {
                     <a
                         href="/404"
                         style="margin-right: 15px;"
-                        on:click=tx.sink().contra_filter_map(|e: DomEvent| {
+                        on:click=tx.contra_filter_map(|e: DomEvent| {
                             let ev = e.browser_event()?;
                             ev.prevent_default();
                             Some(Route::NotFound)

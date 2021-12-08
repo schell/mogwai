@@ -2,7 +2,7 @@
 use log::{trace, Level};
 use mogwai::prelude::*;
 use std::panic;
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{JsCast, prelude::*};
 use web_sys::HashChangeEvent;
 
 #[cfg(feature = "wee_alloc")]
@@ -162,7 +162,7 @@ async fn logic(
     mut route: Route,
     mut rx_logic: broadcast::Receiver<AppModel>,
     tx_view: broadcast::Sender<AppError>,
-    tx_route_patch: mpmc::Sender<ListPatch<ViewBuilder<Dom>>>,
+    mut tx_route_patch: mpsc::Sender<ListPatch<ViewBuilder<Dom>>>,
 ) {
     loop {
         match rx_logic.next().await {
@@ -196,12 +196,12 @@ fn view(
     route: &Route,
     tx_logic: broadcast::Sender<AppModel>,
     rx_view: broadcast::Receiver<AppError>,
-    rx_route_patch: mpmc::Receiver<ListPatch<ViewBuilder<Dom>>>,
+    rx_route_patch: mpsc::Receiver<ListPatch<ViewBuilder<Dom>>>,
 ) -> ViewBuilder<Dom> {
     let username: String = "Reasonable-Human".into();
     builder! {
         <slot
-            window:hashchange=tx_logic.sink().contra_filter_map(|ev: DomEvent| {
+            window:hashchange=tx_logic.contra_filter_map(|ev: DomEvent| {
                 let ev = ev.browser_event()?;
                 let hev = ev.dyn_ref::<HashChangeEvent>().unwrap().clone();
                 let hash = hev.new_url();
@@ -240,13 +240,15 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     let route = Route::Home;
     let (tx_logic, rx_logic) = broadcast::bounded(1);
     let (tx_view, rx_view) = broadcast::bounded(1);
-    let (tx_route_patch, rx_route_patch) = mpmc::bounded(1);
+    let (tx_route_patch, rx_route_patch) = mpsc::bounded(1);
     let component = Component::from(view(&route, tx_logic, rx_view, rx_route_patch))
         .with_logic(logic(route, rx_logic, tx_view, tx_route_patch));
-    let view = component.build().unwrap();
+    let view = component.build().unwrap().into_inner();
 
     if let Some(id) = parent_id {
-        let parent = utils::document().get_element_by_id(&id).unwrap();
+        let parent = mogwai::dom::utils::document()
+            .get_element_by_id(&id)
+            .unwrap();
         view.run_in_container(&parent)
     } else {
         view.run()

@@ -1,6 +1,6 @@
 [package]
 name = "mogwai"
-version = "0.5.2"
+version = "0.6.0"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -13,9 +13,17 @@ categories = ["gui", "asynchronous", "widgets"]
 
 [features]
 default = ["dom"]
-dom = ["mogwai-dom"]
+dom = ["mogwai-dom", "mogwai-html-macro/dom"]
 
 [dependencies]
 mogwai-core = { path = "../mogwai-core", version = "^0.1" }
 mogwai-dom = { path = "../mogwai-dom", version = "^0.1", optional = true }
 mogwai-html-macro = { path = "../mogwai-html-macro", version = "^0.3" }
+
+[dev-dependencies]
+doc-comment = "^0.3"
+smol = "^1.2"
+
+[dev-dependencies.web-sys]
+version = "^0.3"
+features = ["HtmlElement"]

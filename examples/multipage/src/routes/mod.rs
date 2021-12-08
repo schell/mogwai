@@ -14,7 +14,7 @@ fn new_button_view(click_chan: broadcast::Channel<()>) -> Component<Dom> {
     // comes in on the receiver.
     Component::from(builder! {
         // The button has a style and transmits its clicks
-        <button style="cursor: pointer;" on:click=click_chan.sender().sink().contra_map(|_| ())>
+        <button style="cursor: pointer;" on:click=click_chan.sender().contra_map(|_| ())>
             // The text starts with "Click me" and receives updates
             {("Click me", rx_text)}
         </button>

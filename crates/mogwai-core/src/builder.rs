@@ -163,6 +163,8 @@ pub enum AppendArg<T> {
 
 impl<T: Sendable, S, L, V> From<ElmComponent<T, S, L, V>> for AppendArg<T>
 where
+    V: Clone,
+    L: Clone,
     View<T>: TryFrom<ViewBuilder<T>>,
 {
     fn from(c: ElmComponent<T, S, L, V>) -> Self {

@@ -15,8 +15,8 @@ use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::EventTarget;
 
 use mogwai_core::{
-    futures::SinkError,
-    target::{Sendable, Sinkable, Streamable},
+    channel::SinkError,
+    target::{Sendable, Streamable},
 };
 
 /// A wrapper for [`web_sys::Event`] that is [`Sendable`].
@@ -212,17 +212,6 @@ pub fn add_event(
             }
         }
     });
-}
-
-/// Trait for inner view types that support adding events.
-///
-/// This unlocks `ViewBuilder::with_event`.
-pub trait Eventable {
-    /// Domain specific event type, eg `web_sys::Event`.
-    type Event;
-
-    /// Add an event sink to the view, sending each occurance into the sink.
-    fn add_event_sink(&mut self, event_name: &str, tx_event: impl Sinkable<Self::Event>);
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 doc-comment = "^0.3"
-mogwai = { path = "../crates/mogwai", version = "^0.5" }
+mogwai = { path = "../crates/mogwai", version = "^0.6", features = ["dom"] }
 smol = "^1.2"
 
 [dependencies.web-sys]

@@ -44,80 +44,22 @@ easy. Furthermore, your users will be happy because their UI is snappy!
 ## concepts
 The main concepts behind `mogwai` are
 
-* **channels instead of callbacks** - view events like clicks, blurs, etc are transmitted
-  into a channel instead of invoking a callback. Receiving ends of channels can be branched
-  and may have their output messages be mapped, filtered and folded.
+* **sinks and streams instead of callbacks** - view events like clicks, blurs, etc are sent
+  through streams instead of invoking a callback. Streams can be branched and may have their
+  output messages be mapped, filtered and folded.
 
-* **views are dumb** - a `View` is just a bit of DOM that receives and transmits messages.
-  When a `View` goes out of scope and is dropped in Rust, it is also dropped from the DOM.
-  `Views` may be constructed and nested using plain Rust functions or an RSX macro.
+* **views are dumb** - a `View` is just a struct that mutates the UI tree after
+  receiving a message from a stream.
+  `View`s may be constructed and nested using plain Rust functions or an RSX macro.
 
-* **widgets are folds over input messages** - the user interface widget in `mogwai` is a
-  `ViewBuilder` with a logic loop.
+* **widget logic is a loop over event messages** - user interface widgets in `mogwai` are
+  asynchronous loops that receive events and update the view.
 
 ## example
 Here is an example of a button that counts the number of times it has been clicked:
 
 ```rust
 use mogwai::prelude::*;
-
-async fn logic(
-  mut rx_click: broadcast::Receiver<()>,
-  tx_text: broadcast::Sender<String>,
-) {
-    let mut clicks = 0;
-    loop {
-        match rx_click.next().await {
-            Some(()) => {
-                clicks += 1;
-                let text = if clicks == 1 {
-                    "Clicked 1 time".to_string()
-                } else {
-                    format!("Clicked {} times", clicks)
-                };
-                tx_text.broadcast(text).await.unwrap();
-            }
-            None => break,
-        }
-    }
-}
-
-fn view(
-    tx_click: broadcast::Sender<()>,
-    rx_text: broadcast::Receiver<String>
-) -> ViewBuilder<Dom> {
-    let tx_event = tx_click.sink().contra_map(|_:DomEvent| ());
-
-    builder!(
-        // Create a button that transmits a message of `()` into tx_event on click.
-        <button on:click=tx_event>
-            // Using braces we can embed rust values in our DOM.
-            // Here we're creating a text node that starts with the
-            // string "Clicked 0 times" and then updates every time a
-            // message is received on rx_text.
-            {("Clicked 0 times", rx_text)}
-        </button>
-    )
-}
-
-let (tx_click, rx_click) = broadcast::bounded(2);
-let (tx_text, rx_text) = broadcast::bounded(1);
-let component: Component<Dom> = Component::from(view(tx_click.clone(), rx_text))
-    .with_logic(logic(rx_click, tx_text));
-
-let view: View<Dom> = component
-    .build()
-    .unwrap();
-view.run().unwrap();
-
-// Spawn asyncronous actions on any target with `mogwai::spawn`.
-mogwai::spawn(async move {
-    // Queue some messages for the view as if the button had been clicked:
-    tx_click.broadcast(()).await.unwrap();
-    tx_click.broadcast(()).await.unwrap();
-
-    // view's html is now "<button>Clicked 2 times</button>"
-});
 ```
 
 ## introduction

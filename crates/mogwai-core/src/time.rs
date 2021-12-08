@@ -1,5 +1,5 @@
 //! Wait or sleep or delay future.
-use futures::Future;
+use futures::{Future, FutureExt, Stream, StreamExt};
 #[cfg(target_arch = "wasm32")]
 use std::{
     cell::{Cell, RefCell},
@@ -7,7 +7,7 @@ use std::{
 };
 use std::{
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::Arc,
     task::{Context, Poll, Waker},
 };
 #[cfg(target_arch = "wasm32")]
@@ -63,7 +63,7 @@ where
 struct WaitFuture {
     start: f64,
     millis: u64,
-    waker: Arc<Mutex<Option<Waker>>>,
+    waker: Arc<std::sync::Mutex<Option<Waker>>>,
 }
 
 impl Future for WaitFuture {
@@ -89,7 +89,7 @@ impl Future for WaitFuture {
 ///
 /// Returns a [`Future`] that yields the actual number of milliseconds waited.
 pub fn wait_millis(millis: u64) -> impl Future<Output = f64> {
-    let waker: Arc<Mutex<Option<Waker>>> = Default::default();
+    let waker: Arc<std::sync::Mutex<Option<Waker>>> = Default::default();
     let start = now();
 
     #[cfg(target_arch = "wasm32")]
@@ -195,6 +195,139 @@ where
         }
     } else {
         f()
+    }
+}
+
+pub async fn wait_one_frame() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let (tx, rx) = futures::channel::oneshot::channel::<()>();
+        set_immediate(move || {
+            tx.send(()).ok().unwrap();
+        });
+        rx.await.unwrap();
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        futures::future::lazy(|_| ()).await;
+    }
+}
+
+#[derive(Clone)]
+pub struct Found<T> {
+    pub found: T,
+    pub elapsed_seconds: f64,
+}
+
+pub async fn wait_for<'a, T: 'a>(
+    timeout_seconds: f64,
+    mut f: impl FnMut() -> Option<T> + 'a,
+) -> Result<Found<T>, f64> {
+    let start = now();
+
+    loop {
+        let elapsed_seconds = (now() - start) / 1000.0;
+
+        if elapsed_seconds >= timeout_seconds {
+            return Err(elapsed_seconds);
+        }
+
+        if let Some(t) = f() {
+            return Ok(Found {
+                found: t,
+                elapsed_seconds,
+            })
+        } else {
+            wait_one_frame().await;
+        }
+    }
+}
+
+/// Wait while the given polling function returns true.
+pub async fn wait_while<'a>(
+    timeout_seconds: f64,
+    mut f: impl FnMut() -> bool + 'a,
+) -> Result<Found<()>, f64> {
+    wait_for(timeout_seconds, move || if f() { None } else { Some(()) }).await
+}
+
+/// Wait until the given async-producing-function returns a value.
+pub async fn wait_for_async<'a, T, A: Future<Output = Option<T>>>(
+    timeout_seconds: f64,
+    mut f: impl FnMut() -> A + 'a
+) -> Result<Found<T>, f64> {
+    let start = now();
+
+    loop {
+        let elapsed_seconds = (now() - start) / 1000.0;
+
+        if elapsed_seconds >= timeout_seconds {
+            return Err(elapsed_seconds);
+        }
+
+        if let Some(t) = f().await {
+            return Ok(Found {
+                found: t,
+                elapsed_seconds,
+            })
+        } else {
+            wait_one_frame().await;
+        }
+    }
+}
+
+/// Wait until the given async-producing-function produces `true`, or timeout.
+pub async fn wait_while_async<'a, A: Future<Output = bool>>(
+    timeout_seconds: f64,
+    mut f: impl FnMut() -> A + 'a
+) -> Result<Found<()>, f64> {
+    let start = now();
+
+    loop {
+        let elapsed_seconds = (now() - start) / 1000.0;
+
+        if elapsed_seconds >= timeout_seconds {
+            return Err(elapsed_seconds);
+        }
+
+        if f().await {
+            return Ok(Found {
+                found: (),
+                elapsed_seconds,
+            })
+        } else {
+            wait_one_frame().await;
+        }
+    }}
+
+pub async fn wait_until_next_for<T>(
+    timeout_seconds: f64,
+    stream: impl Stream<Item = T> + Unpin,
+) -> Result<Found<T>, f64> {
+    let start = now();
+
+    let mut stream = futures::StreamExt::fuse(stream);
+    let mut timeout = wait_secs(timeout_seconds).fuse();
+
+    crate::futures::select! {
+        may_t = stream.next() => {
+            let now = now();
+
+            let elapsed_seconds = (now - start) / 1000.0;
+
+            if let Some(t) = may_t {
+                Ok(Found {
+                    found: t,
+                    elapsed_seconds
+                })
+            } else {
+                Err(elapsed_seconds)
+            }
+
+        }
+        elapsed_millis = timeout => {
+            Err(elapsed_millis / 1000.0)
+        }
     }
 }
 

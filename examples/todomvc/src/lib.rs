@@ -27,7 +27,7 @@ pub fn main() -> Result<(), JsValue> {
 
     spawn(async {
         let (app, component) = App::new();
-        let view: View<Dom> = component.build().unwrap();
+        let view: Dom = component.build().unwrap().into_inner();
         view.run().unwrap();
 
         // Get the any items stored from a previous visit and add them
@@ -37,7 +37,7 @@ pub fn main() -> Result<(), JsValue> {
         }
 
         // Get the hash for "routing"
-        let hash = mogwai::utils::window().location().hash().unwrap();
+        let hash = mogwai::dom::utils::window().location().hash().unwrap();
         if let Some(filter) = app::url_to_filter(hash) {
             app.filter(filter).await;
         }

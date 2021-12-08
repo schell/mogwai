@@ -153,7 +153,7 @@ impl<S: Sized, T> Contravariant<T> for S where S: Sink<T> {}
 
 #[cfg(all(not(target_arch = "wasm32"), test))]
 mod test {
-    use super::{Contravariant, super::IntoSenderSink, SinkExt};
+    use crate::futures::{SinkExt, sink::Contravariant};
 
     #[test]
     fn can_contra_map() {
@@ -164,19 +164,11 @@ mod test {
             tx.broadcast("blah".to_string()).await.unwrap();
             let _ = rx.recv().await.unwrap();
 
-            let mut tx = tx.sink().contra_map(|n: u32| format!("{}", n));
+            let mut tx = tx.clone().contra_map(|n: u32| format!("{}", n));
             tx.send(42).await.unwrap();
             let s = rx.recv().await.unwrap();
             assert_eq!(s.as_str(), "42");
         });
     }
 
-    fn sendable<T: crate::target::Sendable>(t: T) {}
-
-    #[test]
-    fn contravariant_event_sendable() {
-        let (tx, rx) = crate::channel::broadcast::bounded::<()>(1);
-        let _tx = tx.sink().contra_map(|_: web_sys::Event| ());
-        //sendable(tx)
-    }
 }

@@ -1,7 +1,7 @@
 #![allow(unused_braces)]
 use log::Level;
 use mogwai::prelude::*;
-use std::{convert::TryInto, panic};
+use std::panic;
 use wasm_bindgen::prelude::*;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -16,20 +16,20 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     console_log::init_with_level(Level::Trace).unwrap();
 
     mogwai::spawn(async {
-        let (to_logic, mut from_view) = mogwai::channel::broadcast::bounded::<()>(1);
-        let (to_view, from_logic) = mogwai::channel::broadcast::bounded::<String>(1);
-        let bldr: ViewBuilder<Dom> = mogwai::macros::builder! {
+        let (to_logic, mut from_view) = broadcast::bounded::<()>(1);
+        let (to_view, from_logic) = broadcast::bounded::<String>(1);
+        let bldr: ViewBuilder<Dom> = builder! {
             <button
              style:cursor = "pointer"
-             on:click=to_logic.sink().with(|_| async{Ok(())})
+             on:click=to_logic.clone().with(|_| async{Ok(())})
              >
                 {("Click me!", from_logic)}
             </button>
         };
 
-        let view: View<Dom> = bldr.try_into().unwrap();
+        let view = View::try_from(bldr).unwrap().into_inner();
         if let Some(id) = parent_id {
-            let parent = mogwai::utils::document().get_element_by_id(&id).unwrap();
+            let parent = mogwai::dom::utils::document().get_element_by_id(&id).unwrap();
             view.run_in_container(&parent)
         } else {
             view.run()

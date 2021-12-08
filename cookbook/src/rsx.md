@@ -82,7 +82,7 @@ for more details about types that can be turned into streams.
   # use mogwai::prelude::*;
   let (tx, _rx) = broadcast::bounded::<()>(1);
   let _ = builder! {
-      <div on:click=tx.sink().contra_map(|_:DomEvent| ())>"Click me!"</div>
+      <div on:click=tx.contra_map(|_:DomEvent| ())>"Click me!"</div>
   };
   ```
 
@@ -93,7 +93,7 @@ for more details about types that can be turned into streams.
   # use mogwai::prelude::*;
   let (tx, rx) = broadcast::bounded::<()>(1);
   let _ = builder! {
-      <div window:load=tx.sink().contra_map(|_:DomEvent| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
+      <div window:load=tx.contra_map(|_:DomEvent| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
   };
   ```
 
@@ -104,7 +104,7 @@ for more details about types that can be turned into streams.
   # use mogwai::prelude::*;
   let (tx, rx) = broadcast::bounded::<String>(1);
   let _ = builder! {
-      <div document:keyup=tx.sink().contra_map(|ev| format!("{:#?}", ev))>{("waiting for first event", rx)}</div>
+      <div document:keyup=tx.contra_map(|ev| format!("{:#?}", ev))>{("waiting for first event", rx)}</div>
   };
   ```
 
@@ -124,32 +124,12 @@ for more details about types that can be turned into streams.
   #### Note
   [ViewBuilder][structviewbuilder] is not `Clone`. For this reason we cannot use `mogwai::channel::broadcast::{Sender, Receiver}`
   channels to send patches, because a broadcast channel requires its messages to be `Clone`. Instead use
-  `mogwai::channel::mpmc::{Sender, Receiver}` channels, which have no such requirement. Just remember that even though
-  the channels are technically "multi-producer and multi-consumer", if a `mpmc::Sender` has more than one `mpmc::Receiver`
+  `mogwai::channel::mpsc::{Sender, Receiver}` channels, which have no such requirement. Just remember that even though
+  the channels are technically "multi-producer and multi-consumer", if a `mpsc::Sender` has more than one `mpsc::Receiver`
   listening, only one will receive the message and the winning `Receiver` seems to alternate in round-robin style. So you
-  are advised to use the `mpmc` channel as a "multi-producer, _single_ consumer" alternative to the broadcast channel.
-  ```rust
-  # use mogwai::prelude::*;
-  let (tx, rx) = mpmc::bounded(1);
-  let my_view = view! {
-      <div id="main" patch:children=rx>"Waiting for a patch message..."</div>
-  };
-
-  smol::block_on(async {
-    tx.send(ListPatch::drain()).await.unwrap();
-    mpmc::until_empty(&tx).await; // just for testing - after this line the view has mutated the DOM
-  });
-  assert_eq!(String::from(&my_view), r#"<div id="main"></div>"#);
-
-  let other_viewbuilder = builder! {
-      <h1>"Hello!"</h1>
-  };
-
-  smol::block_on(async {
-    tx.send(ListPatch::push(other_viewbuilder)).await.unwrap();
-    mpmc::until_empty(&tx).await;
-  });
-  assert_eq!(String::from(&my_view), r#"<div id="main"><h1>Hello!</h1></div>"#);
+  are advised to use the `mpsc` channel as a "multi-producer, _single_ consumer" alternative to the broadcast channel.
+  ```rust, ignore
+  {{#include ../../mogwai-dom/lib.rs:patch_children_rsx}}
   ```
 
 - **post:build** = `FnOnce(&mut T)`
@@ -226,89 +206,5 @@ let parent: ViewBuilder<Dom> = builder! {
 
 It is possible and easy to create mogwai views without RSX by using the
 API provided by [ViewBuilder][structviewbuilder].
-
-Here is the definition of `signed_in_user` above, written without RSX:
-
-```rust, no_run
-# use mogwai::prelude::*;
-# struct User {
-#    username: String,
-#    o_image: Option<String>
-# }
-fn signed_in_view_builder(
-    user: &User,
-    home_class: impl Streamable<String>,
-    editor_class: impl Streamable<String>,
-    settings_class: impl Streamable<String>,
-    profile_class: impl Streamable<String>,
-) -> ViewBuilder<Dom> {
-    let o_image: Option<ViewBuilder<Dom>> = user
-        .o_image
-        .as_ref()
-        .map(|image| {
-            if image.is_empty() {
-                None
-            } else {
-                Some(
-                    mogwai::builder::ViewBuilder::element("img")
-                        .with_single_attrib_stream("class", "user-pic")
-                        .with_single_attrib_stream("src", image)
-                )
-            }
-        })
-        .flatten();
-    mogwai::builder::ViewBuilder::element("ul")
-        .with_single_attrib_stream("class", "nav navbar-nav pull-xs-right")
-        .append(
-            mogwai::builder::ViewBuilder::element("li")
-                .with_single_attrib_stream("class", "nav-item")
-                .append(
-                    mogwai::builder::ViewBuilder::element("a")
-                        .with_single_attrib_stream("class", home_class)
-                        .with_single_attrib_stream("href", "#/")
-                        .append(mogwai::builder::ViewBuilder::text(" Home"))
-                )
-        )
-        .append(
-            mogwai::builder::ViewBuilder::element("li")
-                .with_single_attrib_stream("class", "nav-item")
-                .append(
-                    mogwai::builder::ViewBuilder::element("a")
-                        .with_single_attrib_stream("class", editor_class)
-                        .with_single_attrib_stream("href", "#/editor")
-                        .append(
-                            mogwai::builder::ViewBuilder::element("i")
-                                .with_single_attrib_stream("class", "ion-compose")
-                        )
-                        .append(mogwai::builder::ViewBuilder::text(" New Post"))
-                )
-        )
-        .append(
-            mogwai::builder::ViewBuilder::element("li")
-                .with_single_attrib_stream("class", "nav-item")
-                .append(
-                    mogwai::builder::ViewBuilder::element("a")
-                        .with_single_attrib_stream("class", settings_class)
-                        .with_single_attrib_stream("href", "#/settings")
-                        .append(
-                            mogwai::builder::ViewBuilder::element("i")
-                                .with_single_attrib_stream("class", "ion-gear-a")
-                        )
-                        .append(mogwai::builder::ViewBuilder::text(" Settings"))
-                ),
-        )
-        .append(
-            mogwai::builder::ViewBuilder::element("li")
-                .with_single_attrib_stream("class", "nav-item")
-                .append(
-                    mogwai::builder::ViewBuilder::element("a")
-                        .with_single_attrib_stream("class", profile_class)
-                        .with_single_attrib_stream("href", format!("#/profile/{}", user.username))
-                        .append(o_image)
-                        .append(format!(" {}", user.username)),
-                ),
-        )
-}
-```
 
 {{#include reflinks.md}}

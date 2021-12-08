@@ -6,26 +6,24 @@
 //! The following is a short introduction to the library's basic concepts.
 //!
 //! ## Channels, Sinks and Streams
-//! Sinks and streams are used for asynchronous communication between view
-//! and logic.
+//! Sinks and streams are used for communication between views and logic.
 //!
 //! ### Sinks
-//! A [`Sink`] is something you can send values **into**, like the sending
+//! A [`Sink`] is something you can send values **into**, like the `Sender`
 //! end of a channel. See [`mogwai::futures::SinkExt`] for info on the other
 //! sink operations available.
 //!
 //! ### Streams
-//! A [`Stream`] is something you can get values **out of**, like the receiving
-//! end of a channel. True to its name, a `Stream` is a stream of values in time
-//! that may end at some point in the future. See [`mogwai::futures::StreamExt`]
-//! for info on the other stream operations available.
+//! A [`Stream`] is something you can get values **out of**, like the `Receiver`
+//! end of a channel. See [`mogwai::futures::StreamExt`] for info on the other
+//! stream operations available.
 //!
 //! ### Channels
 //! Being trait objects, sinks and streams are a bit abstract. In this library
 //! the concrete types that provide the implementation of sink and stream are
 //! the ends of a channel.
 //!
-//! There are two types of channels bundled here:
+//! There are three types of channels bundled here:
 //!
 //! - [`mogwai::channel::broadcast`]
 //!   This should be the channel you use most often. If you don't have a specific
@@ -37,16 +35,13 @@
 //!
 //! Both channels' `Sender` are `Sink` and both channels' `Receiver` are `Stream`.
 //!
-//! You are not limited to using this library's provided channels. Any sink or stream
-//! should work just fine.
-//!
 //! ## Constructing views
 //!
 //! This library can be used to construct many types of domain-specific views,
 //! but for the remainder of the introduction we will be talking about web browser-based
 //! DOM views.
 //!
-//! Building DOM is one of the primary tasks of web development. With mogwai the
+//! Building DOM is one of the main tasks of web development. With mogwai the
 //! quickest way to construct DOM nodes is by using the RSX macro [`builder`].
 //!
 //! [`builder!`] and [`view!`] are flavors of mogwai's RSX that evaluate to
@@ -89,9 +84,6 @@
 //! );
 //! ```
 //!
-//! > #### Note
-//! > The [`view`] macro creates a builder, builds it and unwraps it all in one go.
-//!
 //! As you can see the above example creates a DOM node with a link inside it:
 //!
 //! ```html
@@ -100,13 +92,9 @@
 //! </div>
 //! ```
 //!
-//! A [`View`] is just a dumb wrapper around a domain-specific inner view type. In this
-//! case that's [`mogwai_dom::view::Dom`]. The inner view type is what is responsible for
-//! view mutation. [`View`] is `Deref` and `DerefMut` with the target being its inner type.
+//! ### Appending a [`View`] to the DOM
 //!
-//! ### Appending a built view to the DOM
-//!
-//! To append a `Dom` to the DOM's `document.body` we can use [`Dom::run`]:
+//! To append a [`View`] to the DOM's `document.body` we can use [`View::run`]:
 //!
 //! ```rust, no_run
 //! use::mogwai::prelude::*;
@@ -118,28 +106,33 @@
 //!         </a>
 //!     </div>
 //!   );
-//! let View{ inner: dom }: View<Dom> = View::try_from(my_div).unwrap();
-//! dom.run().unwrap();
+//! let view: View<Dom> = View::try_from(my_div).unwrap();
+//! view.run().unwrap();
 //! ```
 //!
-//! [`Dom::run`] consumes the view, *handing ownership to the browser window*.
+//! [`View::run`] consumes the view, *handing ownership to the browser window*.
 //!
-//! ### Detaching [`Dom`]
+//! ### Dropping a [`View`]
 //!
-//! `Dom` can be detached from its parent using [`Dom::detach`].
+//! By handing the [`View`] off to the window it never goes out of scope.
+//! This is important - when a [`View`] is dropped, the inner DOM node is
+//! removed from the DOM.
 //!
-//! ### Dynamic views
+//! ### Wiring DOM
 //!
-//! [`View`]s can be static like the one above but more often they change over time.
-//! [`View`]s get their dynamic values from streams.
+//! [`View`]s can be static like the one above, or they can change over time.
+//! [`View`]s get their dynamic values from the receiving end of a channel
+//! called a `Receiver<T>`. The sending end of the channel is called a
+//! `Sender<T>`. This should be somewhat familiar if you've ever used a
+//! channel in other rust libraries.
 //!
 //! ```rust
 //! use::mogwai::prelude::*;
 //!
-//! smol::block_on(async {
-//!     let (mut tx, rx) = broadcast::bounded(1);
+//! mogwai::spawn(async {
+//!     let (tx, rx) = broadcast::bounded(1);
 //!
-//!     let my_view = view!{
+//!     let my_view = view!(
 //!         <div class="my-div">
 //!             <a href="http://zyghost.com">
 //!                 // start with a value and update when a message
@@ -147,9 +140,9 @@
 //!                 {("Schellsan's website", rx)}
 //!             </a>
 //!         </div>
-//!     };
+//!     );
 //!
-//!     tx.send("Gizmo's website".to_string()).await.unwrap();
+//!     tx.broadcast("Gizmo's website".to_string()).await.unwrap();
 //! });
 //! ```
 //!
@@ -162,7 +155,7 @@
 //!
 //! let my_view = view!{
 //!     <div class="my-div">
-//!         <a href="#" on:click=tx.contra_map(|_: DomEvent| "Gizmo's website".to_string())>
+//!         <a href="#" on:click=tx.sink().contra_map(|_: DomEvent| "Gizmo's website".to_string())>
 //!             // start with a value and update when a message
 //!             // is received on rx.
 //!             {("Schellsan's website", rx)}
@@ -171,13 +164,14 @@
 //! };
 //! ```
 //!
-//! The [`Contravariant`] trait provides a few useful functions for prefix-mapping sinks, which is used
-//! above. See [futures's module level documentation](super::futures) for more info on mapping, folding and
-//! combining `Sink`s and `Stream`s.
+//! A [`broadcast::Sender`] can be converted into a [`Sink`], while a [`broadcast::Receiver`]
+//! implements [`Stream`] directly.
+//! See [channel's module level documentation](super::channel) for more info on mapping, folding and
+//! combining `Senders`s and `Receiver`s.
 //!
-//! ### Accessing the underlying raw node
+//! ### Accessing the underlying DOM node
 //!
-//! [`Dom`] contains a reference to the raw DOM node, making it possible
+//! The [`View`] contains a reference to the raw DOM node, making it possible
 //! to manipulate the DOM by hand using Javascript FFI bindings and functions
 //! provided by the great `web_sys` crate:
 //!
@@ -185,7 +179,7 @@
 //! use::mogwai::prelude::*;
 //!
 //! mogwai::spawn(async {
-//!     let (mut tx, rx) = broadcast::bounded(1);
+//!     let (tx, rx) = broadcast::bounded(1);
 //!
 //!     let my_view = view!{
 //!         <div class="my-div">
@@ -196,15 +190,16 @@
 //!             </a>
 //!         </div>
 //!     };
-//!     tx.send("Gizmo's website".into()).await.unwrap();
+//!     tx.broadcast("Gizmo's website".into()).await.unwrap();
 //!
-//!     // only `Some` in the browser when compiled for wasm32
-//!     if let Some(el) = my_view.clone_as::<web_sys::HtmlElement>() {
-//!         assert_eq!(
-//!             el.inner_html(),
-//!             r#"<a href="http://zyghost.com">Gizmo's website</a>"#
-//!         );
-//!     }
+//!     let html = my_view.visit_as(
+//!         |el:&HtmlElement| el.inner_html(), // closure ran on browser when compiled for wasm32
+//!         |el:&mogwai::ssr::SsrElement<Event>| el.html_string(), // closure ran server-side when compiled on other targets
+//!     ).unwrap();
+//!     assert_eq!(
+//!         html,
+//!         r#"<a href="http://zyghost.com">Gizmo's website</a>"#
+//!     );
 //! });
 //! ```
 //!

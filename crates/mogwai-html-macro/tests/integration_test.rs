@@ -1,19 +1,22 @@
 use std::convert::TryFrom;
 
 use mogwai::{
-    builder::{DecomposedViewBuilder, ViewBuilder},
-    channel::broadcast,
-    patch::HashPatch,
-    target::Streamable,
-    view::{Dom, View},
+    core::{
+        builder::{DecomposedViewBuilder, ViewBuilder},
+        channel::broadcast,
+        patch::HashPatch,
+        target::Streamable,
+        view::View,
+    },
+    dom::view::Dom,
+    macros::{builder, view},
 };
-use mogwai_html_macro::{builder, view};
 
 #[test]
 fn expand_this_builder() {
     let _ = builder! {
         <div
-         cast:type = mogwai::view::Dom
+         cast:type = mogwai::dom::view::Dom
          post:build = move |_:&mut Dom| println!("post build")
          style:background_color = "red"
          data_thing = "a string"
@@ -29,22 +32,26 @@ fn expand_this_builder() {
 
 #[test]
 fn node_self_closing() {
-    // not all nodes are void nodes
-    let div: String = view! {
-        <a href="http://zyghost.com" />
-    }
-    .into();
-    assert_eq!(&div, r#"<a href="http://zyghost.com"></a>"#);
+    smol::block_on(async {
+        // not all nodes are void nodes
+        let div: String = view! {
+            <a href="http://zyghost.com" />
+        }
+        .html_string()
+        .await;
+        assert_eq!(&div, r#"<a href="http://zyghost.com"></a>"#);
 
-    let div: String = view! {
-        <img src="http://zyghost.com/favicon.ico" />
-    }
-    .into();
-    assert_eq!(&div, r#"<img src="http://zyghost.com/favicon.ico" />"#);
+        let div: String = view! {
+            <img src="http://zyghost.com/favicon.ico" />
+        }
+        .html_string()
+        .await;
+        assert_eq!(&div, r#"<img src="http://zyghost.com/favicon.ico" />"#);
+    });
 }
 
-#[test]
-fn node_self_closing_gt_1_att() {
+#[smol_potat::test]
+async fn node_self_closing_gt_1_att() {
     let decomp: DecomposedViewBuilder<Dom> =
         builder! {<a href="http://zyghost.com" class="blah"/>}.into();
     assert_eq!(
@@ -53,47 +60,53 @@ fn node_self_closing_gt_1_att() {
     );
 
     // not all nodes are void nodes
-    let div: String = view! {<a href="http://zyghost.com" class="blah"/>}.into();
+    let div: String = view! {<a href="http://zyghost.com" class="blah"/>}
+        .html_string()
+        .await;
     assert_eq!(&div, r#"<a href="http://zyghost.com" class="blah"></a>"#);
 
-    let div: String = view! {<img src="http://zyghost.com/favicon.ico" class="blah"/>}.into();
+    let div: String = view! {<img src="http://zyghost.com/favicon.ico" class="blah"/>}
+        .html_string()
+        .await;
     assert_eq!(
         &div,
         r#"<img src="http://zyghost.com/favicon.ico" class="blah" />"#
     );
 }
 
-#[test]
-fn by_hand() {
+#[smol_potat::test]
+async fn by_hand() {
     let builder: ViewBuilder<Dom> = ViewBuilder::element("a")
         .with_single_attrib_stream("href", "http://zyghost.com")
         .with_single_attrib_stream("class", "a_link")
         .with_child(ViewBuilder::text("a text node"));
     assert_eq!(
         r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#,
-        String::from(View::try_from(builder).unwrap())
+        View::try_from(builder).unwrap().html_string().await
     );
 }
 
-#[test]
-fn node() {
+#[smol_potat::test]
+async fn node() {
     let div: String = view! {
         <a href="http://zyghost.com" class = "a_link">"a text node"</a>
     }
-    .into();
+    .html_string()
+    .await;
     assert_eq!(
         &div,
         r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#
     );
 }
 
-#[test]
-fn block_in_text() {
+#[smol_potat::test]
+async fn block_in_text() {
     let x: u32 = 66;
     let s: String = view! {
         <pre>"just a string with the number" {format!("{}", x)} "<- blah blah"</pre>
     }
-    .into();
+    .html_string()
+    .await;
 
     assert_eq!(
         s,
@@ -101,29 +114,31 @@ fn block_in_text() {
     );
 }
 
-#[test]
-fn block_at_end_of_text() {
+#[smol_potat::test]
+async fn block_at_end_of_text() {
     let x: u32 = 66;
     let s: String = view! {
         <pre>"just a string with the number" {format!("{}", x)}</pre>
     }
-    .into();
+    .html_string()
+    .await;
 
     assert_eq!(&s, "<pre>just a string with the number 66</pre>");
 }
 
-#[test]
-fn lt_in_text() {
+#[smol_potat::test]
+async fn lt_in_text() {
     let s: String = view! {
         <pre>"this is text <- text"</pre>
     }
-    .into();
+    .html_string()
+    .await;
 
     assert_eq!(s, "<pre>this is text &lt;- text</pre>");
 }
 
-#[test]
-fn allow_attributes_on_next_line() {
+#[smol_potat::test]
+async fn allow_attributes_on_next_line() {
     let _: String = view! {
         <div
             id="my_div"
@@ -131,7 +146,8 @@ fn allow_attributes_on_next_line() {
             "A string"
         </div>
     }
-    .into();
+    .html_string()
+    .await;
 }
 
 #[test]

@@ -101,6 +101,8 @@ impl<T: Sendable, S, LogicMsg, ViewMsg> From<S> for ElmComponent<T, S, LogicMsg,
 
 impl<T, S, LogicMsg, ViewMsg> From<ElmComponent<T, S, LogicMsg, ViewMsg>> for Component<T>
 where
+    LogicMsg: Clone,
+    ViewMsg: Clone,
     View<T>: TryFrom<ViewBuilder<T>>,
 {
     fn from(

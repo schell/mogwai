@@ -2,7 +2,7 @@ mod app;
 mod routes;
 
 use crate::app::App;
-use mogwai::prelude::*;
+use mogwai::{dom::utils, prelude::*};
 use mogwai_hydrator::Hydrator;
 use wasm_bindgen::prelude::*;
 
@@ -21,13 +21,13 @@ pub enum Route {
 #[cfg(not(target_arch = "wasm32"))]
 /// On the server we create our app's view using the an initial route
 /// and then we stringify the view.
-pub fn view<T>(path: T) -> Result<String, String>
+pub async fn view<T>(path: T) -> Result<String, String>
 where
     T: AsRef<str>,
 {
     let initial_route: Route = path.into();
     let view: View<Dom> = App::component(initial_route).build()?;
-    Ok(String::from(view))
+    Ok(view.html_string().await)
 }
 
 #[wasm_bindgen(start)]
@@ -48,7 +48,7 @@ pub fn main() -> Result<(), JsValue> {
     // Hydrate the view and hand the app's view ownership to the window so it never
     // goes out of scope.
     let hydrator = Hydrator::try_from(root).map_err(|e| JsValue::from(format!("{}", e)))?;
-    let view = View::from(hydrator);
+    let view = View::from(hydrator).into_inner();
     view.run()
 }
 
@@ -58,7 +58,7 @@ mod route_dispatch {
 
     /// Dispatch the given `Route`.
     pub fn push_state(route: Route) {
-        let window = mogwai::utils::window();
+        let window = mogwai::dom::utils::window();
         match window.history() {
             Ok(history) => {
                 let state = JsValue::from("");

@@ -4,9 +4,11 @@ mod elm_button;
 
 use log::Level;
 use mogwai::prelude::*;
+use mogwai::dom::utils;
 use mogwai_hydrator::Hydrator;
 use std::panic;
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{JsCast, prelude::*};
+use web_sys::HtmlElement;
 #[cfg(target_arch = "wasm32")]
 use web_sys::{Request, RequestInit, RequestMode, Response};
 
@@ -24,7 +26,7 @@ pub fn new_button(click_chan: &broadcast::Channel<()>) -> Component<Dom> {
         // The button has a style and transmits its clicks
         <button
          style="cursor: pointer;"
-         on:click=click_chan.sender().sink().with(|_| async{Ok(())})>
+         on:click=click_chan.sender().contra_map(|_| ())>
             // The text starts with "Click me" and receives updates
             {("Click me", rx_text)}
         </button>
@@ -150,7 +152,7 @@ pub fn time_req_button_and_pre() -> Component<Dom> {
         <div>
             <button
             style="cursor: pointer;"
-            on:click=req_tx.sink().contra_map(|_| ()) >
+            on:click=req_tx.contra_map(|_| ()) >
 
                 "Get the time (london)"
             </button>
@@ -185,7 +187,7 @@ pub fn counter() -> Component<Dom> {
         .with_logic(async move {
             let mut n = 0;
             loop {
-                let _ = mogwai::time::wait_approx(1000.0).await;
+                let _ = wait_millis(1000).await;
                 n += 1;
                 let msg = format!("Count: {}", n);
                 tx_txt.broadcast(msg).await.unwrap();
@@ -217,7 +219,7 @@ pub fn main() -> Result<(), JsValue> {
             {counter}
         </div>
     };
-    root.run().unwrap_throw();
+    root.into_inner().run().unwrap_throw();
 
     // Here we'll start a hydration-by-hand experiment.
     let body: HtmlElement = utils::document().body().unwrap_throw();
@@ -239,13 +241,13 @@ pub fn main() -> Result<(), JsValue> {
     // We will need a channel to send view messages.
     let (tx_view, rx_view) = broadcast::bounded::<u32>(1);
     // Create a channel for getting the count state from the DOM after hydration.
-    let (tx_p, mut rx_p) = mpmc::bounded(1);
+    let (tx_p, mut rx_p) = mpsc::bounded(1);
     // Create a builder that matches the pre-existing DOM (this builder would be how we create it server-side).
     let builder = builder! {
         <div id="my_div">
             <p
              data-count=rx_view.clone().map(|n| format!("{}", n))
-             post:build=move |dom: &mut Dom| { tx_p.try_send(dom.clone()).unwrap() }
+             capture:view=tx_p
              class="my_p">
                  {("Waiting",
                    rx_view.map(|n| if n == 1 {

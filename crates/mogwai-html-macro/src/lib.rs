@@ -1,4 +1,4 @@
-//! RSX for building mogwai_core DOM nodes.
+//! RSX for building mogwai::core DOM nodes.
 use std::convert::TryFrom;
 
 use quote::quote;
@@ -33,7 +33,7 @@ fn combine_errors(errs: Vec<Error>) -> Option<Error> {
 }
 
 fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::TokenStream, Error> {
-    let view_path = quote! { mogwai_core::builder::ViewBuilder };
+    let view_path = quote! { mogwai::core::builder::ViewBuilder };
     match view_token {
         ViewToken::Element {
             name,
@@ -43,13 +43,19 @@ fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::T
         } => {
             let may_type = attributes.iter().find_map(|att| match att {
                 AttributeToken::CastType(expr) => {
-                    Some(quote! { as mogwai_core::builder::ViewBuilder<#expr> })
+                    Some(quote! { as mogwai::core::builder::ViewBuilder<#expr> })
                 }
                 _ => None,
             });
 
             let type_is = may_type
-                .unwrap_or_else(|| quote! {as mogwai_core::builder::ViewBuilder<mogwai_dom::view::Dom>});
+                .unwrap_or_else(|| {
+                    if cfg!(feature = "dom") {
+                        quote! {as mogwai::core::builder::ViewBuilder<mogwai::dom::view::Dom>}
+                    } else {
+                        quote! {}
+                    }
+                });
 
             let mut errs = vec![];
             let (attribute_tokens, attribute_errs) =
@@ -78,7 +84,7 @@ fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::T
                 })
             }
         }
-        ViewToken::Text(expr) => Ok(quote! {mogwai_core::builder::ViewBuilder::text(#expr)}),
+        ViewToken::Text(expr) => Ok(quote! {mogwai::core::builder::ViewBuilder::text(#expr)}),
         ViewToken::Block(expr) => Ok(quote! {
             #[allow(unused_braces)]
             #expr
@@ -90,10 +96,8 @@ fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::T
 /// Uses an html description to construct a `ViewBuilder`.
 ///
 /// ```rust
-/// extern crate mogwai_core;
-///
-/// let my_div = mogwai_core::macros::builder! {
-///     <div cast:type=mogwai_dom::view::Dom id="main">
+/// let my_div = mogwai::macros::builder! {
+///     <div cast:type=mogwai::dom::view::Dom id="main">
 ///         <p>"Trolls are real"</p>
 ///     </div>
 /// };
@@ -130,10 +134,9 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 ///
 /// This is the same as the following:
 /// ```rust
-/// extern crate mogwai_core;
-///
-/// let my_div = mogwai_core::macros::view! {
-///     <div cast:type=mogwai_dom::view::Dom id="main">
+/// # use mogwai::prelude::*;
+/// let my_div = view! {
+///     <div cast:type=Dom id="main">
 ///         <p>"Trolls are real"</p>
 ///     </div>
 /// };
@@ -142,7 +145,7 @@ pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let builder: proc_macro2::TokenStream = builder(input).into();
     let token = quote! {{
         use std::convert::TryFrom;
-        mogwai_core::view::View::try_from(#builder).unwrap()
+        mogwai::core::view::View::try_from(#builder).unwrap()
     }};
     proc_macro::TokenStream::from(token)
 }

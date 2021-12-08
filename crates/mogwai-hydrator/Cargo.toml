@@ -14,7 +14,7 @@ documentation = "https://docs.rs/mogwai/"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-mogwai = { path = "../../crates/mogwai", version = "^0.5" }
+mogwai = { path = "../../crates/mogwai", version = "^0.6", features = ["dom"] }
 snafu = "^0.6"
 wasm-bindgen = "0.2.73"
 

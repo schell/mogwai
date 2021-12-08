@@ -1,9 +1,10 @@
 use mogwai::{
-    futures::stream::{FuturesOrdered, FuturesUnordered},
+    core::futures::stream::{FuturesOrdered, FuturesUnordered},
     prelude::*,
 };
 use std::iter::FromIterator;
 use web_sys::{HashChangeEvent, HtmlInputElement};
+use wasm_bindgen::JsCast;
 
 use crate::{store, store::Item, utils};
 
@@ -31,7 +32,7 @@ pub enum FilterShow {
 /// Messages sent from the view or from the [`App`] facade.
 #[derive(Clone, Debug)]
 enum AppLogic {
-    SetFilter(FilterShow, Option<mpmc::Sender<()>>),
+    SetFilter(FilterShow, Option<mpsc::Sender<()>>),
     NewTodo(String, bool),
     ChangedCompletion(usize, bool),
     ToggleCompleteAll,
@@ -57,9 +58,9 @@ impl App {
     pub fn new() -> (App, Component<Dom>) {
         let (tx_logic, rx_logic) = broadcast::bounded(16);
         let (tx_view, rx_view) = broadcast::bounded(1);
-        let (tx_todo_input, rx_todo_input) = mpmc::bounded(1);
-        let (tx_toggle_input, rx_toggle_input) = mpmc::bounded(1);
-        let (tx_patch_items, rx_patch_items) = mpmc::bounded(1);
+        let (tx_todo_input, rx_todo_input) = mpsc::bounded(1);
+        let (tx_toggle_input, rx_toggle_input) = mpsc::bounded(1);
+        let (tx_patch_items, rx_patch_items) = mpsc::bounded(1);
 
         let component = Component::from(view(
             tx_todo_input,
@@ -86,12 +87,12 @@ impl App {
     }
 
     pub async fn filter(&self, fs: FilterShow) {
-        let (tx, rx) = mpmc::bounded(1);
+        let (tx, mut rx) = mpsc::bounded(1);
         self.tx_logic
             .broadcast(AppLogic::SetFilter(fs, Some(tx)))
             .await
             .unwrap();
-        rx.recv().await.unwrap();
+        rx.next().await.unwrap();
     }
 }
 
@@ -124,16 +125,16 @@ async fn num_items_left(todos: impl Iterator<Item = &item::Todo>) -> usize {
 
 async fn logic(
     rx_logic: broadcast::Receiver<AppLogic>,
-    mut recv_todo_input: mpmc::Receiver<Dom>,
-    mut recv_todo_toggle_input: mpmc::Receiver<Dom>,
+    mut recv_todo_input: mpsc::Receiver<Dom>,
+    mut recv_todo_toggle_input: mpsc::Receiver<Dom>,
     tx_view: broadcast::Sender<AppView>,
-    tx_item_patches: mpmc::Sender<ListPatch<ViewBuilder<Dom>>>,
+    mut tx_item_patches: mpsc::Sender<ListPatch<ViewBuilder<Dom>>>,
 ) {
     let todo_input = recv_todo_input.next().await.unwrap();
-    let _ = mogwai::time::wait_approx(1.0).await;
+    let _ = mogwai::core::time::wait_secs(1.0).await;
     todo_input
         .visit_as(
-            |i: &HtmlElement| {
+            |i: &web_sys::HtmlElement| {
                 i.focus().unwrap();
             },
             |_| {},
@@ -144,7 +145,7 @@ async fn logic(
 
     let mut items: Vec<item::Todo> = vec![];
     let mut next_index = 0;
-    let mut all_logic_sources = mogwai::futures::stream::select_all(vec![rx_logic.boxed()]);
+    let mut all_logic_sources = mogwai::core::futures::stream::select_all(vec![rx_logic.boxed()]);
 
     while let Some(msg) = all_logic_sources.next().await {
         let mut needs_check_complete = false;
@@ -158,17 +159,13 @@ async fn logic(
                 // sources.
                 let was_removed = todo
                     .was_removed()
-                    .map(move |_| {
-                        AppLogic::Remove(index)
-                    })
+                    .map(move |_| AppLogic::Remove(index))
                     .boxed();
                 all_logic_sources.push(was_removed);
 
                 let has_changed_completion = todo
                     .has_changed_completion()
-                    .map(move |complete| {
-                        AppLogic::ChangedCompletion(index, complete)
-                    })
+                    .map(move |complete| AppLogic::ChangedCompletion(index, complete))
                     .boxed();
                 all_logic_sources.push(has_changed_completion);
 
@@ -201,7 +198,7 @@ async fn logic(
             }
             AppLogic::SetFilter(show, may_tx) => {
                 // Filter all the items, update the view, and then respond to the query.
-                let filter_ops = mogwai::futures::stream::FuturesUnordered::from_iter(
+                let filter_ops = mogwai::core::futures::stream::FuturesUnordered::from_iter(
                     items.iter().map(|todo| todo.filter(show.clone())),
                 );
                 let _ = filter_ops.collect::<Vec<_>>().await;
@@ -210,7 +207,7 @@ async fn logic(
                     .broadcast(AppView::SelectedFilter(show.clone()))
                     .await
                     .unwrap();
-                if let Some(tx) = may_tx {
+                if let Some(mut tx) = may_tx {
                     tx.send(()).await.unwrap();
                 }
             }
@@ -341,8 +338,8 @@ fn todo_list_display(rx: &broadcast::Receiver<AppView>) -> impl Stream<Item = St
 }
 
 fn view(
-    send_todo_input: mpmc::Sender<Dom>,
-    send_completion_toggle_input: mpmc::Sender<Dom>,
+    send_todo_input: mpsc::Sender<Dom>,
+    send_completion_toggle_input: mpsc::Sender<Dom>,
     tx: broadcast::Sender<AppLogic>,
     rx: broadcast::Receiver<AppView>,
     item_children: impl Streamable<ListPatch<ViewBuilder<Dom>>>,
@@ -353,7 +350,7 @@ fn view(
                 <h1>"todos"</h1>
                 <input
                  class="new-todo" id="new-todo" placeholder="What needs to be done?"
-                 on:change = tx.sink().with_flat_map(|ev: DomEvent| {
+                 on:change = tx.clone().with_flat_map(|ev: DomEvent| {
                      let todo_name =
                          utils::event_input_value(ev).expect("event input value");
                      if todo_name.is_empty() {
@@ -362,9 +359,7 @@ fn view(
                          Either::Right(stream::once(async move {Ok(AppLogic::NewTodo(todo_name, false))}))
                      }
                  })
-                 post:build=move |dom: &mut Dom| {
-                     send_todo_input.try_send(dom.clone()).unwrap();
-                 }>
+                 capture:view=send_todo_input>
                 </input>
             </header>
             <section class="main" style:display=("none", todo_list_display(&rx))>
@@ -373,10 +368,8 @@ fn view(
                  id="toggle-all"
                  type="checkbox"
                  class="toggle-all"
-                 post:build=move |dom: &mut Dom| {
-                     send_completion_toggle_input.try_send(dom.clone()).unwrap();
-                 }
-                 on:click=tx.sink().with(|_| async{Ok(AppLogic::ToggleCompleteAll)})>
+                 capture:view=send_completion_toggle_input
+                 on:click=tx.clone().contra_map(|_| AppLogic::ToggleCompleteAll)>
                 </input>
                 <label for="toggle-all">"Mark all as complete"</label>
                 <ul class="todo-list"
@@ -401,8 +394,8 @@ fn view(
                 </span>
                 <ul class="filters"
                     window:hashchange=
-                        tx.sink().with_flat_map(|ev: DomEvent| {
-                            let ev: Event = ev.browser_event().unwrap();
+                        tx.clone().with_flat_map(|ev: DomEvent| {
+                            let ev: web_sys::Event = ev.browser_event().unwrap();
                             let ev: HashChangeEvent =
                                 ev.dyn_into::<HashChangeEvent>().expect("not hash event");
                             let url = ev.new_url();
@@ -443,7 +436,7 @@ fn view(
                                 _ => None,
                             }})
                         )
-                    on:click=tx.sink().with(|_: DomEvent| async {Ok(AppLogic::RemoveCompleted)})>
+                    on:click=tx.contra_map(|_: DomEvent| AppLogic::RemoveCompleted)>
                     "Clear completed"
                 </button>
             </footer>

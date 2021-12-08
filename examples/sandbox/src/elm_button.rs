@@ -40,7 +40,7 @@ impl IsElmComponent for Button {
         rx: broadcast::Receiver<ButtonOut>,
     ) -> ViewBuilder<Dom> {
         builder! {
-            <button style="cursor: pointer;" on:click=tx.sink().with(|_| async {Ok(ButtonIn::Click)})>
+            <button style="cursor: pointer;" on:click=tx.clone().with(|_| async {Ok(ButtonIn::Click)})>
                 {(
                     format!("Clicked {} times", self.clicks),
                     rx.clone().map(|msg| match msg {

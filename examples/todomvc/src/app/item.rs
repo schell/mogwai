@@ -1,5 +1,6 @@
 use mogwai::prelude::*;
 use web_sys::{HtmlInputElement, KeyboardEvent};
+use wasm_bindgen::JsCast;
 
 use super::{utils, FilterShow};
 
@@ -15,7 +16,7 @@ pub struct Todo {
 
 impl Drop for Todo {
     fn drop(&mut self) {
-        self.tx_logic.close();
+        let _ = self.tx_logic.close();
     }
 }
 
@@ -25,14 +26,14 @@ impl Todo {
     pub fn new(index: usize, name: impl Into<String>) -> (Todo, ViewBuilder<Dom>) {
         let name = name.into();
 
-        let (send_completion_toggle_input, recv_completion_toggle_input) = mpmc::bounded(1);
-        let (send_edit_input, recv_edit_input) = mpmc::bounded(1);
+        let (send_completion_toggle_input, recv_completion_toggle_input) = mpsc::bounded(1);
+        let (send_edit_input, recv_edit_input) = mpsc::bounded(1);
         let (tx_logic, rx_logic) = broadcast::bounded(1);
         let (tx_view, rx_view) = broadcast::bounded(1);
         let (mut tx_changed_completion, rx_changed_completion) = broadcast::bounded::<bool>(1);
-        tx_changed_completion.set_overflow(true);
+        tx_changed_completion.inner.set_overflow(true);
         let (mut tx_removed, rx_removed) = broadcast::bounded::<()>(1);
-        tx_removed.set_overflow(true);
+        tx_removed.inner.set_overflow(true);
 
         let view_builder = view(
             &name,
@@ -227,7 +228,7 @@ async fn logic(
             }
             ItemLogic::StartEditing => {
                 is_editing = true;
-                let _ = mogwai::time::wait_approx(1.0).await;
+                let _ = mogwai::core::time::wait_secs(1.0).await;
                 edit_input.visit_as(
                     |i: &HtmlInputElement| i.focus().expect("can't focus"),
                     |_| (),
@@ -285,8 +286,8 @@ async fn logic(
 
 fn view(
     name: &str,
-    send_completion_toggle_input: mpmc::Sender<Dom>,
-    send_edit_input: mpmc::Sender<Dom>,
+    send_completion_toggle_input: mpsc::Sender<Dom>,
+    send_edit_input: mpsc::Sender<Dom>,
     tx: broadcast::Sender<ItemLogic>,
     rx: broadcast::Receiver<ItemView>,
 ) -> ViewBuilder<Dom> {
@@ -305,12 +306,10 @@ fn view(
             )>
             <div class="view">
                 <input class="toggle" type="checkbox" style:cursor="pointer"
-                 post:build=move |dom:&mut Dom| {
-                     send_completion_toggle_input.try_send(dom.clone()).unwrap();
-                 }
-                 on:click=tx.sink().contra_map(|_| ItemLogic::ToggleCompletion)
+                 capture:view= send_completion_toggle_input
+                 on:click=tx.clone().contra_map(|_| ItemLogic::ToggleCompletion)
                 />
-                <label on:dblclick=tx.sink().contra_map(|_| ItemLogic::StartEditing)>
+                <label on:dblclick=tx.clone().contra_map(|_| ItemLogic::StartEditing)>
                     {(
                         name,
                         rx.filter_map(|msg| async move {
@@ -324,16 +323,13 @@ fn view(
                 <button
                     class="destroy"
                     style="cursor: pointer;"
-                    on:click=tx.sink().contra_map(|_| ItemLogic::Remove) />
+                    on:click=tx.clone().contra_map(|_| ItemLogic::Remove) />
             </div>
             <input
              class="edit"
-             post:build=move |dom: &mut Dom| {
-                 log::info!("sending edit input");
-                 send_edit_input.try_send(dom.clone()).unwrap();
-             }
-             on:blur=tx.sink().contra_map(|_| ItemLogic::StopEditing(EditEvent::Blur))
-             on:keyup=tx.sink().contra_filter_map(|ev: DomEvent| {
+             capture:view=send_edit_input
+             on:blur=tx.clone().contra_map(|_| ItemLogic::StopEditing(EditEvent::Blur))
+             on:keyup=tx.clone().contra_filter_map(|ev: DomEvent| {
                  // Get the browser event or filter on non-wasm targets.
                  let ev = ev.browser_event()?;
                  // This came from a key event

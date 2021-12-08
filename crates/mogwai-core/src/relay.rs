@@ -17,10 +17,12 @@
 use futures::{Sink, SinkExt, Stream, StreamExt};
 
 use crate::{
-    channel::broadcast,
+    builder::ViewBuilder,
+    channel::{broadcast, SinkError},
+    component::Component,
     event::Eventable,
-    futures::{IntoSenderSink, SinkError},
     target::Sendable,
+    view::View,
 };
 
 /// An input to a view.
@@ -93,14 +95,14 @@ impl<T: Sendable + Clone + Unpin> Output<T> {
     pub fn try_send(&self, item: impl Into<T>) -> Result<(), ()> {
         let item = item.into();
         let tx = self.chan.sender();
-        tx.try_broadcast(item).map(|_| ()).map_err(|_| ())
+        tx.inner.try_broadcast(item).map(|_| ()).map_err(|_| ())
     }
 
     /// Returns a sink used to send events through the output.
     ///
     /// This can be used by views to send events downstream.
     pub fn sink(&self) -> impl Sink<T, Error = SinkError> {
-        self.chan.sender().sink()
+        self.chan.sender()
     }
 
     /// Return the next event occurrence.
@@ -130,3 +132,39 @@ impl<T> RelayView for T where T: Eventable + Sendable + Clone + Unpin {}
 /// Marker trait to aid in writing relays.
 pub trait RelayEvent: Sendable + Clone + Unpin {}
 impl<T> RelayEvent for T where T: Sendable + Clone + Unpin {}
+
+/// Helper trait that allows a relay to be directly converted into a [`Component`].
+#[async_trait::async_trait]
+pub trait Relay<T>
+where
+    T: RelayView,
+    T::Event: RelayEvent,
+    Self: Sendable + Sized,
+    Self::Error: std::fmt::Debug,
+    View<T>: TryFrom<ViewBuilder<T>>,
+{
+    type Error;
+
+    /// Create a view builder.
+    fn view(&self) -> ViewBuilder<T>;
+
+    /// Run the relay's logic.
+    async fn run(self) -> Result<(), Self::Error>;
+
+    /// Convert into a component.
+    fn into_component(self) -> Component<T> {
+        let builder = self.view();
+
+        Component::from(builder).with_logic(async move {
+            if let Err(err) = self.run().await {
+                log::error!("relay run error: {:?}", err);
+            }
+        })
+    }
+
+    /// Convert directly into a view.
+    fn into_view(self) -> Result<View<T>, <View<T> as TryFrom<ViewBuilder<T>>>::Error> {
+        let comp = self.into_component();
+        comp.build()
+    }
+}

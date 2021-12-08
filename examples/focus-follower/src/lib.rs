@@ -2,7 +2,8 @@
 use log::Level;
 use mogwai::prelude::*;
 use std::panic;
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{prelude::*, JsCast};
+use web_sys::{HtmlElement, Node};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -30,7 +31,7 @@ struct FocusedOn(Dom);
 
 impl FocusedOn {
     fn from_event(dom_ev: DomEvent) -> Option<FocusedOn> {
-        let ev:web_sys::Event = dom_ev.browser_event()?;
+        let ev: web_sys::Event = dom_ev.browser_event()?;
         if let Some(target) = ev.target() {
             // here we're using the javascript API provided by web-sys
             // see https://rustwasm.github.io/wasm-bindgen/api/web_sys/index.html
@@ -53,7 +54,7 @@ fn editor_component() -> Component<Dom> {
             <section class="frow direction-column">
                 <div
                  id="editor"
-                 on:focusin=tx_logic.sink().contra_filter_map(|ev: DomEvent| FocusedOn::from_event(ev))
+                 on:focusin=tx_logic.contra_filter_map(|ev: DomEvent| FocusedOn::from_event(ev))
                  class="frow direction-column width-100" data-block-editor="browser-wasm">
                     <div contenteditable="true" class="frow direction-column width-100 row-center" data-block="heading1">
                         <div>"This is heading 1"</div>
@@ -82,14 +83,16 @@ fn editor_component() -> Component<Dom> {
 
 #[wasm_bindgen]
 pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
-panic::set_hook(Box::new(console_error_panic_hook::hook));
+    panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
     let editor_view = editor_component().build().unwrap();
     if let Some(id) = parent_id {
-        let parent = utils::document().get_element_by_id(&id).unwrap();
-        editor_view.run_in_container(&parent)
+        let parent = mogwai::dom::utils::document()
+            .get_element_by_id(&id)
+            .unwrap();
+        editor_view.into_inner().run_in_container(&parent)
     } else {
-        editor_view.run()
+        editor_view.into_inner().run()
     }
 }

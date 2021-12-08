@@ -3,6 +3,7 @@
 use mogwai::prelude::*;
 use mogwai_hydrator::Hydrator;
 use wasm_bindgen_test::*;
+use web_sys::HtmlElement;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -14,7 +15,7 @@ async fn can_hydrate_view() {
         <div id="hydrator1"></div>
     };
     let container_el: HtmlElement = container.inner.clone_as::<HtmlElement>().unwrap();
-    container.run().unwrap();
+    container.into_inner().run().unwrap();
     container_el.set_inner_html(r#"<div id="my_div"><p>inner text</p></div>"#);
     assert_eq!(
         container_el.inner_html().as_str(),
@@ -22,8 +23,8 @@ async fn can_hydrate_view() {
     );
     log::info!("built");
 
-    let (tx_class, rx_class) = mpmc::bounded::<String>(1);
-    let (tx_text, rx_text) = mpmc::bounded::<String>(1);
+    let (mut tx_class, rx_class) = mpsc::bounded::<String>(1);
+    let (mut tx_text, rx_text) = mpsc::bounded::<String>(1);
     let builder = builder! {
         <div id="my_div">
             <p class=rx_class>{("", rx_text)}</p>
@@ -34,22 +35,19 @@ async fn can_hydrate_view() {
     log::info!("hydrated");
 
     tx_class.send("new_class".to_string()).await.unwrap();
-    mpmc::until_empty(&tx_class).await;
-    assert_eq!(
-        container_el.inner_html().as_str(),
+    wait_while(1.0, ||
+        container_el.inner_html().as_str() !=
         r#"<div id="my_div"><p class="new_class">inner text</p></div>"#
-    );
+    ).await.unwrap();
     log::info!("updated class");
 
     tx_text
         .send("different inner text".to_string())
         .await
         .unwrap();
-    mpmc::until_empty(&tx_text).await;
-    assert_eq!(tx_text.receiver_count(), 1);
-    assert_eq!(
-        container_el.inner_html().as_str(),
+    wait_while(1.0, ||
+        container_el.inner_html().as_str() !=
         r#"<div id="my_div"><p class="new_class">different inner text</p></div>"#
-    );
+    ).await.unwrap();
     log::info!("updated text");
 }

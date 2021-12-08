@@ -1,4 +1,4 @@
-use mogwai::utils;
+use mogwai::dom::utils;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use wasm_bindgen::JsValue;

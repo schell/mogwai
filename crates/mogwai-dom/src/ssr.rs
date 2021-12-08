@@ -2,16 +2,17 @@
 
 use std::{
     collections::HashMap,
-    ops::{Deref, DerefMut},
+    ops::DerefMut,
     pin::Pin,
     sync::Arc,
 };
 
-use futures::lock::Mutex;
+use futures::{Future, StreamExt, lock::Mutex};
 
 use mogwai_core::{
+    channel::SinkError,
     event::EventTargetType,
-    futures::{SinkError, SinkExt},
+    futures::SinkExt,
     patch::{ListPatch, ListPatchApply},
     target::Sinking,
 };
@@ -74,9 +75,9 @@ pub enum SsrNode {
     },
 }
 
-impl From<&SsrNode> for String {
-    fn from(node: &SsrNode) -> String {
-        match node {
+impl SsrNode {
+    pub async fn html_string(&self) -> String {
+        match self {
             SsrNode::Text(s) => s.to_string(),
             SsrNode::Container {
                 name,
@@ -134,13 +135,11 @@ impl From<&SsrNode> for String {
                         }
                     }
                 } else {
-                    let kids = children
-                        .into_iter()
-                        .map(|k| {
-                            let node = k.node.try_lock().unwrap();
-                            String::from(node.deref()).trim().to_string()
-                        })
+                    let kids: String = futures::stream::iter(children.into_iter())
+                        .flat_map(|kid| futures::stream::once(kid.html_string()))
+                        .map(|s:String| s.trim().to_string())
                         .collect::<Vec<String>>()
+                        .await
                         .join(" ");
                     if attributes.is_empty() {
                         format!("<{}>{}</{}>", name, kids, name)
@@ -340,8 +339,11 @@ impl SsrElement {
     }
 
     /// String value
-    pub fn html_string(&self) -> String {
-        let lock = self.node.try_lock().unwrap();
-        String::from(lock.deref())
+    pub fn html_string(&self) -> Pin<Box<dyn Future<Output = String>>> {
+        let node = self.node.clone();
+        Box::pin(async move {
+            let lock = node.lock().await;
+            lock.html_string().await
+        })
     }
 }

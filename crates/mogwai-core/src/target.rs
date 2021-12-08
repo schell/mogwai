@@ -61,7 +61,7 @@ mod send {
 
 pub use send::*;
 
-use crate::futures::SinkError;
+use crate::channel::SinkError;
 
 /// Sink type alias.
 pub type Sinking<T> = SinkingWith<T, SinkError>;
