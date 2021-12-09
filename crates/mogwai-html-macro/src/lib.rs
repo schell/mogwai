@@ -2,10 +2,12 @@
 use std::convert::TryFrom;
 
 use quote::quote;
-use syn::Error;
+use syn::{Error, parse_macro_input};
 
 mod tokens;
 use tokens::{AttributeToken, ViewToken};
+
+mod relay;
 
 fn partition_unzip<S, T, F>(items: impl Iterator<Item = S>, f: F) -> (Vec<T>, Vec<Error>)
 where
@@ -147,6 +149,20 @@ pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         use std::convert::TryFrom;
         mogwai::core::view::View::try_from(#builder).unwrap()
     }};
+    proc_macro::TokenStream::from(token)
+}
+
+#[proc_macro_derive(ViewBuilderFrom)]
+pub fn derive_view_builder_from(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let item: syn::ItemStruct  = parse_macro_input!(item);
+    let ident = item.ident.clone();
+    let token = quote! {
+        impl From<#ident> for ViewBuilder<T> {
+            fn from(s: #ident) -> ViewBuilder<T> {
+                s.into_component().into()
+            }
+        }
+    };
     proc_macro::TokenStream::from(token)
 }
 

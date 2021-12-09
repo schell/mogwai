@@ -26,8 +26,8 @@ mod send {
     pub type PostBuild<T> = dyn FnOnce(&mut T) + 'static;
 
     /// Marker trait for futures that can be spawned.
-    pub trait Spawnable: Future<Output = ()> + 'static {}
-    impl<T: Future<Output = ()> + 'static> Spawnable for T {}
+    pub trait Spawnable<T>: Future<Output = T> + 'static {}
+    impl<S, T: Future<Output = S> + 'static> Spawnable<S> for T {}
 }
 
 /// Marker trait for sending async messages.
@@ -55,8 +55,8 @@ mod send {
     pub type PostBuild<T> = dyn FnOnce(&mut T) + Send + 'static;
 
     /// Marker trait for futures that can be spawned.
-    pub trait Spawnable: Future<Output = ()> + Send + 'static {}
-    impl<T: Future<Output = ()> + Send + 'static> Spawnable for T {}
+    pub trait Spawnable<T>: Future<Output = T> + Send + 'static {}
+    impl<S, T: Future<Output = S> + Send + 'static> Spawnable<S> for T {}
 }
 
 pub use send::*;
@@ -75,20 +75,18 @@ pub trait Sinkable<T>: Sink<T, Error = SinkError> + Sendable {}
 impl<T, C: Sink<T, Error = SinkError> + Sendable> Sinkable<T> for C {}
 
 /// Spawn an async operation.
-#[cfg(target_arch = "wasm32")]
+// TODO: Make spawn settable.
 pub fn spawn<Fut>(fut: Fut)
 where
-    Fut: Spawnable,
+    Fut: Spawnable<()>,
 {
-    wasm_bindgen_futures::spawn_local(fut)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-/// Spawn an async operation.
-pub fn spawn<Fut>(fut: Fut)
-where
-    Fut: Spawnable,
-{
-    let task = smol::spawn(fut);
-    task.detach();
+    #[cfg(target_arch = "wasm32")]
+    {
+        wasm_bindgen_futures::spawn_local(fut)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let task = smol::spawn(fut);
+        task.detach();
+    }
 }

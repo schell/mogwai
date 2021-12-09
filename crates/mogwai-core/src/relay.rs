@@ -14,16 +14,11 @@
 //! and uses those to construct a [`ViewBuilder`](crate::builder::ViewBuilder).
 //! Updates to the view are then made by interacting with the relay struct
 //! asyncronously from within a logic loop.
+use std::pin::Pin;
+
 use futures::{Sink, SinkExt, Stream, StreamExt};
 
-use crate::{
-    builder::ViewBuilder,
-    channel::{broadcast, SinkError},
-    component::Component,
-    event::Eventable,
-    target::Sendable,
-    view::View,
-};
+use crate::{builder::ViewBuilder, channel::{broadcast, SinkError}, component::Component, event::Eventable, target::{Sendable, Spawnable}, view::View};
 
 /// An input to a view.
 ///
@@ -134,29 +129,32 @@ pub trait RelayEvent: Sendable + Clone + Unpin {}
 impl<T> RelayEvent for T where T: Sendable + Clone + Unpin {}
 
 /// Helper trait that allows a relay to be directly converted into a [`Component`].
-#[async_trait::async_trait]
 pub trait Relay<T>
 where
     T: RelayView,
     T::Event: RelayEvent,
     Self: Sendable + Sized,
-    Self::Error: std::fmt::Debug,
+    Self::Error: Sendable + std::fmt::Debug,
     View<T>: TryFrom<ViewBuilder<T>>,
 {
     type Error;
 
     /// Create a view builder.
-    fn view(&self) -> ViewBuilder<T>;
+    ///
+    /// `self` is borrowed as mutable to allow using [`Input::stream`] on all inputs.
+    fn view(&mut self) -> ViewBuilder<T>;
 
-    /// Run the relay's logic.
-    async fn run(self) -> Result<(), Self::Error>;
+    /// Convert the relay into an asynchronous logic loop.
+    fn logic(self) -> Pin<Box<dyn Spawnable<Result<(), Self::Error>>>> {
+        Box::pin(futures::future::ready(Ok(())))
+    }
 
     /// Convert into a component.
-    fn into_component(self) -> Component<T> {
+    fn into_component(mut self) -> Component<T> {
         let builder = self.view();
-
+        let logic = self.logic();
         Component::from(builder).with_logic(async move {
-            if let Err(err) = self.run().await {
+            if let Err(err) = logic.await {
                 log::error!("relay run error: {:?}", err);
             }
         })

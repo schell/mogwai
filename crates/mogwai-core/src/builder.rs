@@ -1,4 +1,5 @@
 //! A low cost intermediate structure for creating views.
+#![allow(deprecated)]
 use crate::{
     component::{Component, ElmComponent},
     event::{EventTargetType, Eventable},
@@ -24,7 +25,7 @@ impl Wake for DummyWaker {
 ///
 /// Returns the stream and the gathered items.
 ///
-/// Useful for getting the starting value of a view.
+/// Useful for getting the starting values of a view.
 pub fn exhaust<T, St>(mut stream: St) -> (St, Vec<T>)
 where
     St: Stream<Item = T> + Sendable + Unpin,

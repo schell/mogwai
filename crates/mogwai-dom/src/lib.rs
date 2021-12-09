@@ -7,14 +7,12 @@ pub mod utils;
 pub mod view;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
-mod test {
+mod nonwasm {
     use mogwai::{
         core::{
-            component::Component,
             builder::ViewBuilder,
             channel::broadcast::{self, *},
-            futures::{sink::Contravariant, StreamExt, SinkExt},
-            relay::*,
+            futures::{sink::Contravariant, StreamExt},
             target::spawn,
             view::View,
         },
@@ -294,70 +292,13 @@ mod test {
         // ANCHOR_END:patch_children_rsx
     }
 
+    #[test]
     pub fn can_build_readme_button() {
-        #[derive(Default)]
-        struct Button {
-            view: Output<Dom>,
-            click: Output<()>,
-            text: Input<String>,
-        }
-
-        impl Button {
-            pub fn init() -> (Self, ViewBuilder<Dom>) {
-                let mut my_btn = Button::default();
-
-                let builder = builder! {
-                    <button on:click=my_btn.click.sink().contra_map(|_: DomEvent| ())>
-                        // Using braces we can embed rust values in our DOM.
-                        // Here we're creating a text node that starts with the
-                        // string "Clicked 0 times" and then updates every time a
-                        // message is received on the stream.
-                        {("Clicked 0 times", my_btn.text.stream().unwrap())}
-                    </button>
-                };
-
-                (my_btn, builder)
-            }
-
-            pub async fn run(self) -> Option<()> {
-                let mut clicks = 0;
-                loop {
-                    let () = self.click.get().await?;
-                    clicks += 1;
-                    let text = if clicks == 1 {
-                        "Clicked 1 time".to_string()
-                    } else {
-                        format!("Clicked {} times", clicks)
-                    };
-                    self.text.set(text).await.ok()?;
-                }
-            }
-        }
-
-        let (btn, builder) = Button::init();
-        // Get a sink to manually send events into.
-        let mut click_sink = btn.click.sink();
-        // Build a component
-        let component: Component<Dom> =
-            Component::from(builder).with_logic(async move {
-                let _ = btn.run();
-            });
-        // Build the view
-        let view: View<Dom> = component.build().unwrap();
-        view.into_inner().run().unwrap();
-
-        // Spawn asyncronous actions on any target with `mogwai::spawn`.
-        mogwai::spawn(async move {
-            // Queue some messages for the view as if the button had been clicked:
-            click_sink.send(()).await.unwrap();
-            click_sink.send(()).await.unwrap();
-            // view's html is now "<button>Clicked 2 times</button>"
-        });
     }
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
-mod test {
+mod wasm {
     use std::{
         convert::{TryFrom, TryInto},
         ops::Bound,
@@ -366,18 +307,7 @@ mod test {
     use wasm_bindgen_test::*;
     use web_sys::HtmlElement;
 
-    use mogwai_core::{
-        builder::ViewBuilder,
-        channel::{broadcast, mpsc},
-        event::EventTargetType,
-        futures::{stream, EitherExt, IntoSenderSink, SinkExt, StreamExt},
-        patch::ListPatch,
-        time,
-        view::View,
-    };
-    use mogwai_html_macro::*;
-
-    use crate::{self as mogwai_dom, event::DomEvent, view::Dom};
+    use mogwai::prelude::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -456,7 +386,7 @@ mod test {
 
         let rsx: DomBuilder = builder! {
             <div id="view_zero" style:background_color="red">
-                <pre on:click=tx.sink()>"this has text"</pre>
+                <pre on:click=tx.clone()>"this has text"</pre>
             </div>
         };
         let rsx_view = View::try_from(rsx).unwrap();
@@ -466,7 +396,7 @@ mod test {
             .with_single_style_stream("background-color", "red")
             .with_child(
                 ViewBuilder::element("pre")
-                    .with_event("click", EventTargetType::Myself, tx.sink())
+                    .with_event("click", EventTargetType::Myself, tx)
                     .with_child(ViewBuilder::text("this has text")),
             );
         let manual_view = View::try_from(manual).unwrap();
@@ -590,7 +520,7 @@ mod test {
         assert_eq!(div_el.outer_html(), r#"<div class="now"></div>"#);
 
         tx.broadcast("later".to_string()).await.unwrap();
-        broadcast::until_empty(&tx).await;
+        tx.until_empty().await;
 
         assert_eq!(div_el.outer_html(), r#"<div class="later"></div>"#);
     }
@@ -606,18 +536,16 @@ mod test {
         );
 
         tx.broadcast("none".to_string()).await.unwrap();
-        broadcast::until_empty(&tx).await;
+        tx.until_empty().await;
 
         assert_eq!(div_el.outer_html(), r#"<div style="display: none;"></div>"#);
     }
 
     #[wasm_bindgen_test]
-    async fn contra_map_events() {
+    async fn capture_view_and_contra_map() {
         let (tx, mut rx) = broadcast::bounded::<()>(1);
         let _div = view! {
-            <div id="hello" post:build=move |_| {
-                let _ = tx.try_broadcast(()).unwrap();
-            }>
+            <div id="hello" capture:view=tx.contra_map(|_| ())>
                 "Hello there"
             </div>
         };
@@ -637,7 +565,7 @@ mod test {
         assert_eq!(el.inner_text().as_str(), "initial");
 
         tx.broadcast("after".into()).await.unwrap();
-        broadcast::until_empty(&tx).await;
+        tx.until_empty().await;
 
         assert_eq!(el.inner_text(), "after");
     }
@@ -659,15 +587,15 @@ mod test {
         });
 
         let button = view! {
-            <button on:click=tx.sink()>{("Clicked 0 times", rx)}</button>
+            <button on:click=tx.clone()>{("Clicked 0 times", rx)}</button>
         };
 
         let el = button.clone_as::<web_sys::HtmlElement>().unwrap();
         assert_eq!(el.inner_html(), "Clicked 0 times");
 
         el.click();
-        broadcast::until_empty(&tx).await;
-        let _ = time::wait_millis(1000).await;
+        tx.until_empty().await;
+        let _ = wait_millis(1000).await;
 
         assert_eq!(el.inner_html(), "Clicked 1 time");
     }
@@ -691,7 +619,7 @@ mod test {
         let dom: HtmlElement = view.clone_as::<HtmlElement>().unwrap();
         view.into_inner().run().unwrap();
 
-        time::wait_while(1.0, || {
+        wait_while(1.0, || {
             dom.outer_html().as_str() != r#"<ol id="main"><li>Zero</li><li>One</li></ol>"#
         })
         .await
@@ -700,7 +628,7 @@ mod test {
         tx.send(ListPatch::push(builder! {<li>"Two"</li>}))
             .await
             .unwrap();
-        time::wait_while(1.0, || {
+        wait_while(1.0, || {
             dom.outer_html().as_str()
                 != r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
         })
@@ -710,7 +638,7 @@ mod test {
         tx.send(ListPatch::splice(0..1, None.into_iter()))
             .await
             .unwrap();
-        time::wait_while(1.0, || {
+        wait_while(1.0, || {
             dom.outer_html().as_str() != r#"<ol id="main"><li>One</li><li>Two</li></ol>"#
         })
         .await
@@ -722,7 +650,7 @@ mod test {
         ))
         .await
         .unwrap();
-        time::wait_while(1.0, || {
+        wait_while(1.0, || {
             dom.outer_html().as_str()
                 != r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
         })
@@ -732,7 +660,7 @@ mod test {
         tx.send(ListPatch::splice(2..3, None.into_iter()))
             .await
             .unwrap();
-        time::wait_while(1.0, || {
+        wait_while(1.0, || {
             dom.outer_html().as_str() != r#"<ol id="main"><li>Zero</li><li>One</li></ol>"#
         })
         .await
@@ -744,7 +672,7 @@ mod test {
         ))
         .await
         .unwrap();
-        time::wait_while(1.0, || {
+        wait_while(1.0, || {
             dom.outer_html().as_str()
                 != r#"<ol id="main"><li>Negative One</li><li>Zero</li><li>One</li></ol>"#
         })
@@ -752,7 +680,7 @@ mod test {
         .unwrap();
 
         tx.send(ListPatch::Pop).await.unwrap();
-        time::wait_while(1.0, || {
+        wait_while(1.0, || {
             dom.outer_html().as_str() != r#"<ol id="main"><li>Negative One</li><li>Zero</li></ol>"#
         })
         .await
@@ -764,7 +692,7 @@ mod test {
         ))
         .await
         .unwrap();
-        time::wait_while(1.0, || {
+        wait_while(1.0, || {
             dom.outer_html().as_str() != r#"<ol id="main"><li>Negative One</li><li>One</li></ol>"#
         })
         .await
@@ -780,7 +708,7 @@ mod test {
         tx.send(ListPatch::splice(0.., None.into_iter()))
             .await
             .unwrap();
-        time::wait_while(1.0, || {
+        wait_while(1.0, || {
             dom.outer_html().as_str() != r#"<ol id="main"></ol>"#
         })
         .await
@@ -807,7 +735,7 @@ mod test {
         ))
         .await
         .unwrap();
-        time::wait_while(1.0, || {
+        wait_while(1.0, || {
             dom.outer_html().as_str() != r#"<p id="main">First Zero One</p>"#
         })
         .await
@@ -816,7 +744,7 @@ mod test {
         tx.send(ListPatch::splice(.., std::iter::empty()))
             .await
             .unwrap();
-        time::wait_while(1.0, || dom.outer_html().as_str() != r#"<p id="main"></p>"#)
+        wait_while(1.0, || dom.outer_html().as_str() != r#"<p id="main"></p>"#)
             .await
             .unwrap();
     }
@@ -835,5 +763,69 @@ mod test {
             </span>
         };
         let _ = View::try_from(bldr).unwrap();
+    }
+
+    fn sendable<T: Sendable>(_:&T) {}
+
+    #[wasm_bindgen_test]
+    pub fn output_sendable() {
+        let output: Output<Dom> = Output::default();
+        sendable(&output);
+
+        mogwai::spawn(async move {
+            let _ = output;
+        })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn can_relay() {
+        use mogwai::prelude::*;
+
+        #[derive(Default)]
+        struct Thing {
+            view: Output<Dom>,
+            click: Output<()>,
+            text: Input<String>,
+        }
+
+        impl Relay<Dom> for Thing {
+            type Error = String;
+
+            fn view(&mut self) -> ViewBuilder<Dom> {
+                builder! {
+                    <div capture:view=self.view.sink() on:click=self.click.sink().contra_map(|_| ())>
+                        {("Hi", self.text.stream().unwrap())}
+                    </div>
+                }
+            }
+
+            fn logic(self) -> std::pin::Pin<Box<dyn Spawnable<Result<(), Self::Error>>>> {
+                Box::pin(async move {
+                    let mut clicks = 0;
+                    while let Some(()) = self.click.get().await {
+                        clicks += 1;
+                        self.text
+                            .set(if clicks == 1 {
+                                "1 click.".to_string()
+                            } else {
+                                format!("{} clicks.", clicks)
+                            })
+                            .await
+                            .map_err(|_| "could not set text".to_string())?;
+                    }
+
+                    Ok(())
+                })
+            }
+        }
+
+        mogwai::spawn(async {
+            let thing = Thing::default();
+            let View{ inner: dom } = thing.into_view().unwrap();
+            dom.run().unwrap();
+        });
     }
 }

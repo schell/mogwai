@@ -5,12 +5,14 @@ use futures::stream::StreamExt;
 
 use crate::{builder::ViewBuilder, channel::broadcast, target::{Sendable, Spawnable}, view::View};
 
-/// A component is a [`ViewBuilder`] and its logic (a [`Spawnable`] future).
+/// A component is a [`ViewBuilder`] and a [`Spawnable`] future used as its logic.
+///
+/// By default [`Component::logic`] is a noop.
 pub struct Component<T> {
     /// View builder.
     pub builder: ViewBuilder<T>,
     /// Spawnable async widget logic.
-    pub logic: Pin<Box<dyn Spawnable>>,
+    pub logic: Pin<Box<dyn Spawnable<()>>>,
 }
 
 /// A `Component` can be created from a [`ViewBuilder`]. The resulting
@@ -19,7 +21,7 @@ impl<T> From<ViewBuilder<T>> for Component<T> {
     fn from(builder: ViewBuilder<T>) -> Self {
         Component {
             builder,
-            logic: Box::pin(async {}),
+            logic: Box::pin(std::future::ready(())),
         }
     }
 }
@@ -39,7 +41,7 @@ where
     View<T>: TryFrom<ViewBuilder<T>>,
 {
     /// Add a logic future to this component.
-    pub fn with_logic(mut self, f: impl Spawnable) -> Self {
+    pub fn with_logic(mut self, f: impl Spawnable<()>) -> Self {
         self.logic = Box::pin(f);
         self
     }
@@ -53,6 +55,7 @@ where
     }
 }
 
+#[deprecated(since = "0.6", note = "ElmComponent will be removed in 0.7. Use Component or the Relay trait instead.")]
 /// A component that facilitates an Elm-inspired type of composure.
 ///
 /// ## Types
@@ -60,6 +63,7 @@ where
 /// * `S` - Logic state
 /// * `LogicMsg` - Message type sent to the logic
 /// * `ViewMsg` - Message type sent to the view
+// TODO: Remove ElmComponent in 0.7
 pub struct ElmComponent<T, S, LogicMsg, ViewMsg> {
     /// Initial state.
     pub state: S,
@@ -75,10 +79,11 @@ pub struct ElmComponent<T, S, LogicMsg, ViewMsg> {
             S,
             broadcast::Receiver<LogicMsg>,
             broadcast::Sender<ViewMsg>,
-        ) -> Pin<Box<dyn Spawnable>>,
+        ) -> Pin<Box<dyn Spawnable<()>>>,
     >,
 }
 
+#[allow(deprecated)]
 impl<T: Sendable, S: Default, LogicMsg, ViewMsg> Default for ElmComponent<T, S, LogicMsg, ViewMsg> {
     fn default() -> Self {
         Self {
@@ -89,6 +94,7 @@ impl<T: Sendable, S: Default, LogicMsg, ViewMsg> Default for ElmComponent<T, S, 
     }
 }
 
+#[allow(deprecated)]
 impl<T: Sendable, S, LogicMsg, ViewMsg> From<S> for ElmComponent<T, S, LogicMsg, ViewMsg> {
     fn from(state: S) -> Self {
         Self {
@@ -99,6 +105,7 @@ impl<T: Sendable, S, LogicMsg, ViewMsg> From<S> for ElmComponent<T, S, LogicMsg,
     }
 }
 
+#[allow(deprecated)]
 impl<T, S, LogicMsg, ViewMsg> From<ElmComponent<T, S, LogicMsg, ViewMsg>> for Component<T>
 where
     LogicMsg: Clone,
@@ -121,6 +128,7 @@ where
     }
 }
 
+#[allow(deprecated)]
 impl<T, S: Sendable, LogicMsg: Clone + Sendable, ViewMsg: Clone + Sendable>
     ElmComponent<T, S, LogicMsg, ViewMsg>
 {
@@ -137,7 +145,7 @@ impl<T, S: Sendable, LogicMsg: Clone + Sendable, ViewMsg: Clone + Sendable>
     /// Set the logic function
     pub fn with_logic_fn<F, Fut>(mut self, f: F) -> Self
     where
-        Fut: Spawnable,
+        Fut: Spawnable<()>,
         F: FnOnce(S, broadcast::Receiver<LogicMsg>, broadcast::Sender<ViewMsg>) -> Fut + Sendable,
     {
         self.logic_fn = Box::new(move |s, rx, tx| Box::pin(async move { f(s, rx, tx).await }));
@@ -168,6 +176,7 @@ impl<T, S: Sendable, LogicMsg: Clone + Sendable, ViewMsg: Clone + Sendable>
 /// A convenience trait for defining components that have distinct logic and view messages.
 ///
 /// See the [module level documentation](super::component) for more details.
+#[deprecated(since = "0.6", note = "Will be removed in 0.7. Use Relay instead")]
 pub trait IsElmComponent
 where
     Self: Sized + Sendable,
@@ -203,6 +212,7 @@ where
     /// Converts the type into a [`Component`].
     fn to_component(self) -> Component<Self::ViewNode> {
         Component::from(
+            #[allow(deprecated)]
             ElmComponent::from(self)
                 .with_builder_fn(Self::view)
                 .with_update(Self::update),

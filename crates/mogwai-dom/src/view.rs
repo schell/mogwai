@@ -434,6 +434,7 @@ impl Dom {
     pub fn set_event(&self, type_is: EventTargetType, name: &str, tx: Pin<Box<Sinking<DomEvent>>>) {
         #[cfg(target_arch = "wasm32")]
         {
+            use mogwai_core::futures::sink::Contravariant;
             let tx = Box::pin(tx.contra_map(|ev: web_sys::Event| DomEvent::try_from(ev).unwrap()));
             match type_is {
                 EventTargetType::Myself => {

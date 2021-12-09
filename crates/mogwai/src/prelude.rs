@@ -4,7 +4,7 @@ pub use mogwai_core::{
     channel::*,
     component::*,
     event::*,
-    futures::{*, sink::Contravariant},
+    futures::{*, EitherExt, sink::Contravariant},
     model::*,
     patch::*,
     relay::*,
@@ -12,7 +12,7 @@ pub use mogwai_core::{
     time::*,
     view::*,
 };
-pub use mogwai_html_macro::{builder, view};
+pub use mogwai_html_macro::{builder, view, ViewBuilderFrom};
 pub use std::convert::TryFrom;
 
 #[cfg(feature = "dom")]

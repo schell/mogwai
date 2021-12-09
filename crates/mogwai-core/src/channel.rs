@@ -51,9 +51,8 @@ pub mod mpsc {
     //! See the originals for how to use the inner types.
     use futures::{
         channel::mpsc::{self, Receiver as FutReceiver, Sender as FutSender},
-        Sink, SinkExt, Stream,
+        Sink, SinkExt, Stream, StreamExt,
     };
-    use smol::stream::StreamExt;
     use std::task::Poll;
 
     use super::SinkError;
@@ -66,7 +65,9 @@ pub mod mpsc {
 
     impl<T> Clone for Sender<T> {
         fn clone(&self) -> Self {
-            Self { inner: self.inner.clone() }
+            Self {
+                inner: self.inner.clone(),
+            }
         }
     }
 
@@ -129,7 +130,7 @@ pub mod mpsc {
             cx: &mut std::task::Context<'_>,
         ) -> Poll<Option<Self::Item>> {
             let data = self.get_mut();
-            data.inner.poll_next(cx)
+            data.inner.poll_next_unpin(cx)
         }
     }
 
@@ -157,8 +158,7 @@ pub mod broadcast {
 
     use std::task::Poll;
 
-    use futures::{Sink, Stream};
-    use smol::stream::StreamExt;
+    use futures::{Sink, Stream, StreamExt};
 
     use super::SinkError;
 
@@ -176,8 +176,7 @@ pub mod broadcast {
         /// If the channel was full but the send was successful, returns the oldest message
         /// in the channel.
         pub async fn broadcast(&self, item: T) -> Result<Option<T>, SinkError> {
-            self.inner.broadcast(item).await
-                .map_err(SinkError::from)
+            self.inner.broadcast(item).await.map_err(SinkError::from)
         }
 
         fn flush_sink(&mut self) -> std::task::Poll<Result<(), SinkError>> {
@@ -185,7 +184,7 @@ pub mod broadcast {
                 return Poll::Ready(Err(SinkError::Closed));
             }
             if self.inner.capacity() >= self.inner.len() {
-                return Poll::Ready(Ok(()))
+                return Poll::Ready(Ok(()));
             }
             Poll::Pending
         }
@@ -214,7 +213,8 @@ pub mod broadcast {
 
         fn start_send(self: std::pin::Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
             if self.inner.len() < self.inner.capacity() || self.inner.overflow() {
-                self.inner.try_broadcast(item)
+                self.inner
+                    .try_broadcast(item)
                     .map(|_| ())
                     .map_err(SinkError::from)
             } else {
@@ -249,26 +249,28 @@ pub mod broadcast {
         pub inner: async_broadcast::Receiver<T>,
     }
 
-    impl<T:Clone> Receiver<T> {
+    impl<T: Clone> Receiver<T> {
         /// Receiver an item from the channel.
         pub async fn recv(&mut self) -> Result<T, SinkError> {
-            self.inner.recv().await
-                .map_err(SinkError::from)
+            self.inner.recv().await.map_err(SinkError::from)
         }
     }
 
     /// Create an asynchronous multi-producer, multi-consumer broadcast channel.
-    pub fn bounded<T: Clone>(cap:usize) -> (Sender<T>, Receiver<T>) {
+    pub fn bounded<T: Clone>(cap: usize) -> (Sender<T>, Receiver<T>) {
         let (tx, rx) = async_broadcast::broadcast::<T>(cap);
-        (Sender{ inner: tx}, Receiver{ inner: rx})
+        (Sender { inner: tx }, Receiver { inner: rx })
     }
 
     impl<T: Clone> Stream for Receiver<T> {
         type Item = T;
 
-        fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
+        fn poll_next(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> Poll<Option<Self::Item>> {
             let data = self.get_mut();
-            data.inner.poll_next(cx)
+            data.inner.poll_next_unpin(cx)
         }
     }
 
@@ -296,12 +298,16 @@ pub mod broadcast {
 
         /// Create a new Sender out of this channel.
         pub fn sender(&self) -> Sender<T> {
-            Sender{ inner: self.sender.clone() }
+            Sender {
+                inner: self.sender.clone(),
+            }
         }
 
         /// Create a new active Receiver out of this channel.
         pub fn receiver(&self) -> Receiver<T> {
-            Receiver{ inner: self.receiver.activate_cloned() }
+            Receiver {
+                inner: self.receiver.activate_cloned(),
+            }
         }
     }
 

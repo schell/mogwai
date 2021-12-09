@@ -1,6 +1,6 @@
 #![allow(unused_braces)]
 
-mod elm_button;
+mod relay_button;
 
 use log::Level;
 use mogwai::prelude::*;
@@ -212,7 +212,9 @@ pub fn main() -> Result<(), JsValue> {
         <div>
             {h1}
             {btn}
-            {elm_button::Button { clicks: 0 }.to_component()}
+            // Since Button can be converted into ViewBuilder<Dom>, we can plug
+            // it right into the DOM tree
+            {relay_button::Button::default()}
             <br />
             <br />
             {req}
