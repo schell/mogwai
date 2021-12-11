@@ -14,18 +14,28 @@
 //! and uses those to construct a [`ViewBuilder`](crate::builder::ViewBuilder).
 //! Updates to the view are then made by interacting with the relay struct
 //! asyncronously from within a logic loop.
-use std::pin::Pin;
+use std::{
+    pin::Pin,
+    sync::{Arc, Mutex},
+};
 
 use futures::{Sink, SinkExt, Stream, StreamExt};
 
-use crate::{builder::ViewBuilder, channel::{broadcast, SinkError}, component::Component, event::Eventable, target::{Sendable, Spawnable}, view::View};
+use crate::{
+    builder::ViewBuilder,
+    channel::{broadcast, SinkError},
+    component::Component,
+    event::Eventable,
+    target::{Sendable, Spawnable},
+    view::View,
+};
 
 /// An input to a view.
 ///
 /// An input has at most one consumer in the destination view.
 pub struct Input<T> {
     setter: futures::channel::mpsc::Sender<T>,
-    rx: Option<futures::channel::mpsc::Receiver<T>>,
+    rx: Arc<Mutex<Option<futures::channel::mpsc::Receiver<T>>>>,
 }
 
 impl<T> Default for Input<T> {
@@ -33,7 +43,7 @@ impl<T> Default for Input<T> {
         let (setter, getter) = futures::channel::mpsc::channel(1);
         Self {
             setter,
-            rx: Some(getter),
+            rx: Arc::new(Mutex::new(Some(getter))),
         }
     }
 }
@@ -42,7 +52,7 @@ impl<T: Sendable> Clone for Input<T> {
     fn clone(&self) -> Self {
         Self {
             setter: self.setter.clone(),
-            rx: None,
+            rx: self.rx.clone(),
         }
     }
 }
@@ -52,6 +62,14 @@ impl<T: Sendable> Input<T> {
     pub async fn set(&self, item: impl Into<T>) -> Result<(), ()> {
         let mut setter = self.setter.clone();
         setter.send(item.into()).await.map_err(|_| ())
+    }
+
+    /// Attempt to set the value of this input syncronously.
+    ///
+    /// When this fails it is because the input has an existing value
+    /// set that has not been consumed.
+    pub fn try_set(&mut self, item: impl Into<T>) -> Result<(), ()> {
+        self.setter.try_send(item.into()).map_err(|_| ())
     }
 
     /// Attempt to acquire a stream of updates to this input.
@@ -64,8 +82,8 @@ impl<T: Sendable> Input<T> {
     /// a [`ViewBuilder`](crate::builder::ViewBuilder) from an `Input` so that
     /// the program fails if this function is called more than once on the same input.
     pub fn stream(&mut self) -> Option<impl Stream<Item = T>> {
-        let rx = self.rx.take();
-        rx
+        let mut lock = self.rx.lock().unwrap();
+        lock.take()
     }
 }
 

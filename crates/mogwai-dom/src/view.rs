@@ -205,6 +205,15 @@ impl TryFrom<SsrElement> for Dom {
 }
 
 impl Dom {
+    /// Attempt to create a `Dom` from any `JsCast`.
+    ///
+    /// If the conversion fails you get the original value back.
+    pub fn from_jscast<T:JsCast>(t:&T) -> Result<Self, T> {
+        let val = JsValue::from(t);
+        Dom::try_from(val)
+            .map_err(|val| val.dyn_into::<T>().unwrap())
+    }
+
     /// Detaches the node from the DOM.
     pub fn detach(&self) {
         match self.inner_read() {

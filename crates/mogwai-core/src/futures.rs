@@ -3,10 +3,11 @@
 //! Re-exports of the futures crate, along with extensions and helper types.
 use futures::future::Either;
 pub use futures::{
-    future, select, select_biased, stream, stream_select, Sink, SinkExt, Stream, StreamExt,
+    future, select, select_biased, stream_select, Sink, SinkExt, Stream, StreamExt,
 };
 
 pub mod sink;
+pub mod stream;
 
 /// Adds helpful extensions to [`Either`].
 pub trait EitherExt {

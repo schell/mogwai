@@ -26,7 +26,6 @@ pub enum AttributeToken {
     BooleanTrue(String),
     PatchChildren(syn::Expr),
     Attrib(String, syn::Expr),
-    Other(String, syn::Expr),
 }
 
 impl TryFrom<syn_rsx::Node> for AttributeToken {
@@ -60,7 +59,7 @@ impl TryFrom<syn_rsx::Node> for AttributeToken {
                     }
                     keys => {
                         let name = under_to_dash(&keys.join(":"));
-                        Ok(AttributeToken::Other(name, expr))
+                        Ok(AttributeToken::Attrib(name, expr))
                     }
                 }
             } else {
@@ -113,9 +112,6 @@ impl AttributeToken {
             }),
             Attrib(name, expr) => Ok(quote! {
                 .with_single_attrib_stream(#name, #expr)
-            }),
-            Other(name, expr) => Ok(quote! {
-                .with_attrib_stream(#name, #expr)
             }),
             BooleanTrue(expr) => Ok(quote! {
                 .with_single_bool_attrib_stream(#expr, true)

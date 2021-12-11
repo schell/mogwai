@@ -85,6 +85,14 @@ impl<T: Clone + Sendable + Syncable + PartialEq> Model<T> {
         self.value.read().await
     }
 
+    /// Attempt to get a clone of the current inner value.
+    ///
+    /// This will fail if the model is actively being mutated.
+    pub fn current(&self) -> Option<T> {
+        let lock = self.value.try_read();
+        lock.as_deref().cloned()
+    }
+
     /// Visits the inner value of the model mutably. After the closure returns
     /// the inner value will be sent to all downstream observers.
     pub async fn visit_mut<F>(&self, f: F)

@@ -4,7 +4,7 @@ pub use mogwai_core::{
     channel::*,
     component::*,
     event::*,
-    futures::{*, EitherExt, sink::Contravariant},
+    futures::{*, EitherExt, sink::Contravariant, stream::StreamableExt},
     model::*,
     patch::*,
     relay::*,
