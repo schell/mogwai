@@ -776,14 +776,25 @@ mod wasm {
             let _ = output;
         })
     }
+
+    #[wasm_bindgen_test]
+    async fn can_capture_with_captured() {
+        let capture: Captured<Dom> = Captured::default().clone();
+        let b = builder! {
+            <div id="chappie" capture:view=capture.sink()></div>
+        };
+        let View{..} = Component::from(b).build().unwrap();
+        let dom = capture.get().await;
+        assert_eq!(dom.html_string().await, r#"<div id="chappie"></div>"#);
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use mogwai::prelude::*;
+
     #[test]
     fn can_relay() {
-        use mogwai::prelude::*;
-
         #[derive(Default)]
         struct Thing {
             view: Output<Dom>,
@@ -826,6 +837,20 @@ mod test {
             let thing = Thing::default();
             let View{ inner: dom } = thing.into_view().unwrap();
             dom.run().unwrap();
+        });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn can_capture_with_captured() {
+        let capture: Captured<Dom> = Captured::default();
+        let b = builder! {
+            <div id="chappie" capture:view=capture.sink()></div>
+        };
+        let View{..} = Component::from(b).build().unwrap();
+        smol::block_on(async move {
+            let dom = capture.get().await;
+            assert_eq!(dom.html_string().await, r#"<div id="chappie"></div>"#);
         });
     }
 }

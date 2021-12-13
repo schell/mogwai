@@ -87,6 +87,59 @@ impl<T: Sendable> Input<T> {
     }
 }
 
+/// An input that fans input values to many consumers.
+///
+/// A fan input may have many consumers in the destination view,
+/// for this reason values must be `Clone`.
+pub struct FanInput<T> {
+    chan: broadcast::Channel<T>,
+}
+
+impl<T> Default for FanInput<T> {
+    fn default() -> Self {
+        Self {
+            chan: broadcast::Channel::new(1),
+        }
+    }
+}
+
+impl<T: Clone> Clone for FanInput<T> {
+    fn clone(&self) -> Self {
+        Self {
+            chan: self.chan.clone(),
+        }
+    }
+}
+
+impl<T: Clone> FanInput<T> {
+    /// Set the value of this input.
+    pub async fn set(&self, item: impl Into<T>) -> Result<(), ()> {
+        let mut setter = self.chan.sender();
+        setter.send(item.into()).await.map_err(|_| ())
+    }
+
+    /// Attempt to set the value of this input syncronously.
+    ///
+    /// When this fails it is because the input has no destination and
+    /// the underlying channel is closed.
+    pub fn try_set(&mut self, item: impl Into<T>) -> Result<(), ()> {
+        let setter = self.chan.sender();
+        setter
+            .inner
+            .try_broadcast(item.into())
+            .map_err(|_| ())
+            .map(|_| ())
+    }
+
+    /// Attempt to acquire a stream of updates to this input.
+    ///
+    /// Unlike `Input`, `FanInput` can have many consumers in the destination view,
+    /// so this operation always returns a stream.
+    pub fn stream(&mut self) -> impl Stream<Item = T> {
+        self.chan.receiver()
+    }
+}
+
 /// An event output from a view.
 #[derive(Clone)]
 pub struct Output<T> {

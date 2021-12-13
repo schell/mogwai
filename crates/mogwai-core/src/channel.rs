@@ -1,9 +1,5 @@
 //! Async mpmc and broadcast channels, plus extensions.
 
-use std::{ops::DerefMut, sync::Arc};
-
-use futures::{future::Either, lock::Mutex, Future};
-
 /// Errors returned when using [`Sink`] operations.
 #[derive(Debug)]
 pub enum SinkError {
@@ -311,7 +307,7 @@ pub mod broadcast {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     mod test {
         use super::*;
         use crate::futures::{SinkExt, StreamExt};
@@ -323,38 +319,6 @@ pub mod broadcast {
                 tx.send("hello".into()).await.unwrap();
                 let _ = rx.next().await.unwrap();
             })
-        }
-    }
-}
-
-/// A captured future, which can be used to store the result of
-pub struct Captured<T> {
-    inner: Arc<Mutex<Either<Box<dyn Future<Output = T> + Unpin>, Option<T>>>>,
-}
-
-impl<T: Clone> Captured<T> {
-    /// Create a new captured future.
-    pub fn new(f: impl Future<Output = T> + Unpin + 'static) -> Self {
-        Captured {
-            inner: Arc::new(Mutex::new(Either::Left(Box::new(f)))),
-        }
-    }
-
-    /// Await and return a clone of the inner `T`.
-    pub async fn get(&self) -> T {
-        loop {
-            let mut lock = self.inner.lock().await;
-            let either = std::mem::replace(lock.deref_mut(), Either::Right(None));
-            let res = match either {
-                Either::Left(rx) => Some(rx.await),
-                Either::Right(r) => r,
-            };
-
-            *lock = Either::Right(res.clone());
-
-            if let Some(t) = res {
-                return t;
-            }
         }
     }
 }

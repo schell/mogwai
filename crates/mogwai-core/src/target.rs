@@ -28,6 +28,10 @@ mod send {
     /// Marker trait for futures that can be spawned.
     pub trait Spawnable<T>: Future<Output = T> + 'static {}
     impl<S, T: Future<Output = S> + 'static> Spawnable<S> for T {}
+
+    /// Marker trait for unsized async streams.
+    pub trait UnsizedStreamable: Stream + 'static {}
+    impl<T: ?Sized> UnsizedStreamable for T where T: Stream + 'static {}
 }
 
 /// Marker trait for sending async messages.
@@ -57,6 +61,10 @@ mod send {
     /// Marker trait for futures that can be spawned.
     pub trait Spawnable<T>: Future<Output = T> + Send + 'static {}
     impl<S, T: Future<Output = S> + Send + 'static> Spawnable<S> for T {}
+
+    /// Marker trait for unsized async streams.
+    pub trait UnsizedStreamable: Send + Stream + 'static {}
+    impl<T: ?Sized> UnsizedStreamable for T where T: Send + Stream + 'static {}
 }
 
 pub use send::*;

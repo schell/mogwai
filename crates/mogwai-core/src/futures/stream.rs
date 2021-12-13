@@ -8,17 +8,27 @@ pub use futures::stream::*;
 impl<T: ?Sized> StreamableExt for T where T: Stream {}
 
 #[cfg(not(target_arch = "wasm32"))]
+pub type BoxedStreamLocal<'a, T> = Pin<Box<dyn Stream<Item = T> + Send + Sync + 'a>>;
+#[cfg(target_arch = "wasm32")]
+pub type BoxedStreamLocal<'a, T> = Pin<Box<dyn Stream<Item = T> + 'a>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type BoxedStream<T> = Pin<Box<dyn Stream<Item = T> + Send + Sync + 'static>>;
+#[cfg(target_arch = "wasm32")]
+pub type BoxedStream<T> = Pin<Box<dyn Stream<Item = T> + 'static>>;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub trait StreamableExt {
-    fn pinned_local<'a>(self) -> Pin<Box<dyn Stream<Item = Self::Item> + Send + 'a>>
+    fn pinned_local<'a>(self) -> BoxedStreamLocal<'a, Self::Item>
     where
-        Self: Sized + Send + Stream + 'a
+        Self: Sized + Send + Sync + Stream + 'a
     {
         Box::pin(self)
     }
 
-    fn pinned(self) -> Pin<Box<dyn Stream<Item = Self::Item> + Send + 'static>>
+    fn pinned(self) -> BoxedStream<Self::Item>
     where
-        Self: Sized + Send + Stream + 'static
+        Self: Sized + Send + Sync + Stream + 'static
     {
         Box::pin(self)
     }
@@ -27,14 +37,14 @@ pub trait StreamableExt {
 
 #[cfg(target_arch = "wasm32")]
 pub trait StreamableExt {
-    fn pinned_local<'a>(self) -> Pin<Box<dyn Stream<Item = Self::Item> + 'a>>
+    fn pinned_local<'a>(self) -> BoxedStreamLocal<'a, Self::Item>
     where
         Self: Sized + Stream + 'a
     {
         Box::pin(self)
     }
 
-    fn pinned(self) -> Pin<Box<dyn Stream<Item = Self::Item> + 'static>>
+    fn pinned(self) -> BoxedStream<Self::Item>
     where
         Self: Sized + Stream + 'static
     {
