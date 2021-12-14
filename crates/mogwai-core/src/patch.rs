@@ -46,6 +46,11 @@ impl<T> ListPatch<T> {
         }
     }
 
+    /// Construct a ListPatch that removes the item at the given index.
+    pub fn remove(index: usize) -> Self {
+        Self::splice(index..=index, std::iter::empty())
+    }
+
     /// Construct a ListPatch that replaces the given index with the given item.
     pub fn replace(index: usize, item: T) -> Self {
         Self::splice(index..=index, std::iter::once(item))

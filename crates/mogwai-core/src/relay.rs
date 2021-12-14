@@ -135,7 +135,7 @@ impl<T: Clone> FanInput<T> {
     ///
     /// Unlike `Input`, `FanInput` can have many consumers in the destination view,
     /// so this operation always returns a stream.
-    pub fn stream(&mut self) -> impl Stream<Item = T> {
+    pub fn stream(&self) -> impl Stream<Item = T> {
         self.chan.receiver()
     }
 }

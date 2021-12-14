@@ -6,13 +6,21 @@ use std::{
     task::Poll,
 };
 
-pub use futures::{future, select, select_biased, stream_select, Sink, SinkExt, Stream, StreamExt};
 use futures::future::Either;
+pub use futures::{
+    future, select, select_biased, stream_select, Sink, SinkExt, Stream, StreamExt,
+};
 
 use crate::channel::{broadcast, SinkError};
 
 pub mod sink;
 pub mod stream;
+
+pub mod lock {
+    //! Re-exports of futures::lock and async_lock.
+    pub use futures::lock::*;
+    pub use async_lock::{RwLock, RwLockReadGuard, RwLockWriteGuard, RwLockUpgradableReadGuard};
+}
 
 /// Adds helpful extensions to [`Either`].
 pub trait EitherExt {
