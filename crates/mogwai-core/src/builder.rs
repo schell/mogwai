@@ -451,7 +451,9 @@ impl<T: Sendable> ViewBuilder<T> {
             let dom = dom.clone();
             crate::target::spawn(async move {
                 use futures::SinkExt;
-                sink.send(dom).await.unwrap();
+                // Try to send the dom but don't fret,
+                // the recv may have been dropped already.
+                let _ = sink.send(dom).await;
             });
         })
     }
