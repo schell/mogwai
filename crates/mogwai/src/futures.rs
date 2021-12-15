@@ -27,6 +27,16 @@ pub enum SinkError {
     Full,
 }
 
+impl From<futures::channel::mpsc::SendError> for SinkError {
+    fn from(e: futures::channel::mpsc::SendError) -> Self {
+        if e.is_full() {
+            SinkError::Full
+        } else {
+            SinkError::Closed
+        }
+    }
+}
+
 impl<T: 'static> SenderSink<async_channel::Sender<T>, T> {
     fn flush_sink(&mut self) -> Result<(), SinkError> {
         if self.sender.is_closed() {
@@ -208,6 +218,39 @@ impl<T: Clone + Unpin + 'static> Sink<T> for SenderSink<async_broadcast::Sender<
     }
 }
 
+impl<T: Unpin + 'static> Sink<T> for SenderSink<crate::channel::mpsc::Sender<T>, T> {
+    type Error = SinkError;
+
+    fn poll_ready(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        let data = self.get_mut();
+        data.sender.poll_ready(cx).map_err(SinkError::from)
+    }
+
+    fn start_send(self: std::pin::Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+        let data = self.get_mut();
+        data.sender.start_send_unpin(item).map_err(SinkError::from)
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        let data = self.get_mut();
+        data.sender.poll_flush_unpin(cx).map_err(SinkError::from)
+    }
+
+    fn poll_close(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        let data = self.get_mut();
+        data.sender.poll_close_unpin(cx).map_err(SinkError::from)
+    }
+}
+
 /// An extension trait that adds the ability for [`async_channel::Sender`] and
 /// [`async_broadcast::Sender`] to ergonomically create [`Sink`]s.
 pub trait IntoSenderSink<T>
@@ -228,6 +271,15 @@ impl<T> IntoSenderSink<T> for async_channel::Sender<T> {
 }
 
 impl<T> IntoSenderSink<T> for async_broadcast::Sender<T> {
+    fn sink(&self) -> SenderSink<Self, T> {
+        SenderSink {
+            sender: self.clone(),
+            sending_msgs: Default::default(),
+        }
+    }
+}
+
+impl<T> IntoSenderSink<T> for crate::channel::mpsc::Sender<T> {
     fn sink(&self) -> SenderSink<Self, T> {
         SenderSink {
             sender: self.clone(),

@@ -50,7 +50,7 @@ mod test {
     use crate::{self as mogwai, channel::broadcast, ssr::SsrElement};
     use mogwai::{
         builder::ViewBuilder,
-        channel::broadcast::*,
+        channel::{broadcast::*, mpsc},
         event::DomEvent,
         futures::{Contravariant, IntoSenderSink, StreamExt},
         macros::*,
@@ -74,6 +74,31 @@ mod test {
             let dom = rx.next().await.unwrap();
             assert_eq!(String::from(&dom), "<pre>Tack :)</pre>");
         });
+    }
+
+    #[test]
+    fn issue_93_dragonink_view() {
+        use wasm_bindgen::JsCast;
+        fn _view() -> ViewBuilder<Dom> {
+            const FIRSTNAME: &str = "dragonink";
+            const FOLDED_CLASS: &str = "folded";
+            let (fold_tx, _fold_rx) = mpsc::channel::<()>(1);
+            builder! {
+                <button class=format!("{name} {folded}", name = FIRSTNAME, folded = FOLDED_CLASS)
+                 on:click=fold_tx.sink().contra_map(|ev: DomEvent| {
+                     ev.browser_event()
+                         .unwrap()
+                         .target()
+                         .unwrap()
+                         .dyn_ref::<web_sys::HtmlElement>()
+                         .unwrap()
+                         .class_list()
+                         .toggle(FOLDED_CLASS)
+                         .unwrap();
+                 })>
+                </button>
+            }
+        }
     }
 
     #[test]

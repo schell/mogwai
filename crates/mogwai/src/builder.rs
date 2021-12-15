@@ -460,7 +460,7 @@ impl<T: Sendable> ViewBuilder<T> {
             let dom = dom.clone();
             crate::spawn(async move {
                 use futures::SinkExt;
-                sink.send(dom).await.unwrap();
+                let _ = sink.send(dom).await;
             });
         })
     }
