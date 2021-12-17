@@ -45,12 +45,17 @@ doc_comment::doctest!("../../../README.md");
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
-    use std::convert::{TryFrom, TryInto};
+    use std::{
+        convert::{TryFrom, TryInto},
+        pin::Pin,
+    };
 
-    use crate::{self as mogwai, channel::broadcast, ssr::SsrElement};
+    use crate::{
+        self as mogwai, channel::broadcast, prelude::Component, ssr::SsrElement, target::Spawnable,
+    };
     use mogwai::{
         builder::ViewBuilder,
-        channel::{broadcast::*, mpsc},
+        channel::broadcast::*,
         event::DomEvent,
         futures::{Contravariant, IntoSenderSink, StreamExt},
         macros::*,
@@ -78,27 +83,55 @@ mod test {
 
     #[test]
     fn issue_93_dragonink_view() {
+        use mogwai::relay::*;
         use wasm_bindgen::JsCast;
-        fn _view() -> ViewBuilder<Dom> {
-            const FIRSTNAME: &str = "dragonink";
-            const FOLDED_CLASS: &str = "folded";
-            let (fold_tx, _fold_rx) = mpsc::channel::<()>(1);
-            builder! {
-                <button class=format!("{name} {folded}", name = FIRSTNAME, folded = FOLDED_CLASS)
-                 on:click=fold_tx.sink().contra_map(|ev: DomEvent| {
-                     ev.browser_event()
-                         .unwrap()
-                         .target()
-                         .unwrap()
-                         .dyn_ref::<web_sys::HtmlElement>()
-                         .unwrap()
-                         .class_list()
-                         .toggle(FOLDED_CLASS)
-                         .unwrap();
-                 })>
-                </button>
+
+        struct MyButton {
+            firstname: String,
+            folded_class: String,
+
+            click_event: Output<DomEvent>,
+        }
+
+        impl MyButton {
+            fn view(&self) -> ViewBuilder<Dom> {
+                builder! {
+                    <button class=format!("{name} {folded}", name = &self.firstname, folded = self.folded_class)
+                    on:click=self.click_event.sink()>
+                        </button>
+                }
+            }
+
+            fn logic(self) -> Pin<Box<dyn Spawnable>> {
+                Box::pin(async move {
+                    while let Some(event) = self.click_event.get().await {
+                        event
+                            .browser_event()
+                            .unwrap()
+                            .target()
+                            .unwrap()
+                            .dyn_ref::<web_sys::HtmlElement>()
+                            .unwrap()
+                            .class_list()
+                            .toggle(&self.folded_class)
+                            .unwrap();
+                    }
+                })
             }
         }
+
+        let my_btn = MyButton {
+            firstname: "dragonink".to_string(),
+            folded_class: "folded".to_string(),
+            click_event: Output::default(),
+        };
+
+        let view = Component::from(my_btn.view())
+            .with_logic(my_btn.logic())
+            .build()
+            .unwrap();
+        view.run().unwrap();
+
     }
 
     #[test]
