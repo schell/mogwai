@@ -16,8 +16,7 @@ pub use mogwai_core::{
     time::*,
     view::*,
 };
-pub use mogwai_html_macro::{builder, view, ViewBuilderFrom};
-pub use std::convert::TryFrom;
+pub use mogwai_html_macro::{builder, view};
 
 #[cfg(feature = "dom")]
 pub use mogwai_dom::{event::*, view::*};

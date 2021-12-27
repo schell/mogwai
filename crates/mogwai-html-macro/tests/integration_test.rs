@@ -1,15 +1,13 @@
-use std::convert::TryFrom;
-
 use mogwai::{
     core::{
         builder::{DecomposedViewBuilder, ViewBuilder},
         channel::broadcast,
         patch::HashPatch,
         target::Streamable,
-        view::View,
     },
     dom::view::Dom,
     macros::{builder, view},
+    prelude::TryBuild,
 };
 
 #[test]
@@ -82,7 +80,11 @@ async fn by_hand() {
         .with_child(ViewBuilder::text("a text node"));
     assert_eq!(
         r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#,
-        View::try_from(builder).unwrap().html_string().await
+        Dom::try_from_builder(builder, ())
+            .await
+            .unwrap()
+            .html_string()
+            .await
     );
 }
 

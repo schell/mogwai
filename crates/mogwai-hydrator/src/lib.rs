@@ -9,6 +9,7 @@ use mogwai::{
     },
     dom::view::Dom,
 };
+// TODO: Standardize on anyhow instead of snafu
 use snafu::{ensure, OptionExt, Snafu};
 use std::collections::HashMap;
 pub use std::{convert::TryFrom, ops::Deref};
@@ -84,6 +85,8 @@ impl HydrationKey {
         let el: Node = match self {
             HydrationKey::Id(id) => {
                 let el = mogwai::dom::utils::document()
+                    .clone_as::<web_sys::Document>()
+                    .with_context(|| WASMOnly)?
                     .get_element_by_id(&id)
                     .with_context(|| MissingId { id })?;
                 el.clone().dyn_into::<Node>().or_else(|_| {

@@ -23,8 +23,8 @@ mod test {
         });
     }
 
-    #[test]
-    fn can_component_logic() {
+    #[smol_potat::test]
+    async fn can_component_logic() {
         let (tx, rx) = broadcast::bounded::<u32>(1);
         let comp = Component::from(builder! {
             <div id="my_component">
@@ -37,12 +37,12 @@ mod test {
             tx.broadcast(1).await.unwrap();
             tx.broadcast(42).await.unwrap();
         });
-        let view: Dom = comp.build().unwrap().into_inner();
+        let view: Dom = comp.build(()).await.unwrap().into_inner();
         view.run().unwrap();
     }
 
-    #[test]
-    fn can_more_component_logic() {
+    #[smol_potat::test]
+    async fn can_more_component_logic() {
         let (tx_logic, mut rx_logic) = broadcast::bounded::<()>(1);
         let (tx_view, rx_view) = broadcast::bounded::<u32>(1);
 
@@ -67,7 +67,7 @@ mod test {
                 }
             }
         });
-        let view: Dom = comp.build().unwrap().into_inner();
+        let view: Dom = comp.build(()).await.unwrap().into_inner();
         view.run().unwrap();
     }
 }
@@ -169,17 +169,21 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    let view = app().build().unwrap().inner;
+    mogwai::spawn(async {
+        let view = app().build(()).await.unwrap().inner;
 
-    if let Some(id) = parent_id {
-        let parent = mogwai::dom::utils::document()
-            .get_element_by_id(&id)
-            .unwrap();
-        view.run_in_container(&parent)
-    } else {
-        view.run()
-    }
-    .unwrap();
+        if let Some(id) = parent_id {
+            let parent = mogwai::dom::utils::document()
+                .unwrap_js::<web_sys::Document>()
+                .get_element_by_id(&id)
+                .map(Dom::wrap_js)
+                .unwrap();
+            view.run_in_container(&parent)
+        } else {
+            view.run()
+        }
+        .unwrap();
+    });
 
     Ok(())
 }

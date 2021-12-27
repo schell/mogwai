@@ -22,7 +22,7 @@ use std::{
 use futures::{Sink, SinkExt, Stream, StreamExt};
 
 use crate::{
-    builder::ViewBuilder,
+    builder::{TryBuild, ViewBuilder},
     channel::{broadcast, SinkError},
     component::Component,
     event::Eventable,
@@ -192,8 +192,8 @@ impl<T: Sendable + Clone + Unpin> Output<T> {
 }
 
 /// Marker trait to aid in writing relays.
-pub trait RelayView: Eventable + Sendable + Clone + Unpin {}
-impl<T> RelayView for T where T: Eventable + Sendable + Clone + Unpin {}
+pub trait RelayView: TryBuild + Eventable + Sendable + Clone + Unpin {}
+impl<T> RelayView for T where T: TryBuild + Eventable + Sendable + Clone + Unpin {}
 
 /// Marker trait to aid in writing relays.
 pub trait RelayEvent: Sendable + Clone + Unpin {}
@@ -206,7 +206,6 @@ where
     T::Event: RelayEvent,
     Self: Sendable + Sized,
     Self::Error: Sendable + std::fmt::Debug,
-    View<T>: TryFrom<ViewBuilder<T>>,
 {
     type Error;
 
@@ -232,8 +231,12 @@ where
     }
 
     /// Convert directly into a view.
-    fn into_view(self) -> Result<View<T>, <View<T> as TryFrom<ViewBuilder<T>>>::Error> {
+    fn into_view(
+        self,
+        resource: T::Resource,
+    ) -> Pin<Box<dyn Spawnable<Result<View<T>, <T as TryBuild>::Error>>>> {
         let comp = self.into_component();
-        comp.build()
+        let builder = ViewBuilder::from(comp);
+        Box::pin(T::try_from_builder(builder, resource))
     }
 }

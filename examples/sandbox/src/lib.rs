@@ -3,11 +3,11 @@
 mod relay_button;
 
 use log::Level;
-use mogwai::prelude::*;
 use mogwai::dom::utils;
+use mogwai::prelude::*;
 use mogwai_hydrator::Hydrator;
-use std::panic;
-use wasm_bindgen::{JsCast, prelude::*};
+use std::{convert::TryFrom, panic};
+use wasm_bindgen::{prelude::*, JsCast};
 use web_sys::HtmlElement;
 #[cfg(target_arch = "wasm32")]
 use web_sys::{Request, RequestInit, RequestMode, Response};
@@ -196,113 +196,113 @@ pub fn counter() -> Component<Dom> {
 }
 
 #[wasm_bindgen(start)]
-pub fn main() -> Result<(), JsValue> {
+pub fn main() {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap_throw();
 
-    // Create a channel to send button clicks into.
-    let click_chan = broadcast::Channel::new(1);
-    let h1 = new_h1(&click_chan);
-    let btn = new_button(&click_chan);
-    let req = time_req_button_and_pre();
-    let counter = counter();
+    mogwai::spawn(async {
+        // Create a channel to send button clicks into.
+        let click_chan = broadcast::Channel::new(1);
+        let h1 = new_h1(&click_chan);
+        let btn = new_button(&click_chan);
+        let req = time_req_button_and_pre();
+        let counter = counter();
 
-    // Put it all in a parent view and run it right now
-    let root = view! {
-        <div>
+        // Put it all in a parent view and run it right now
+        let root = view! {
+            <div>
             {h1}
             {btn}
             // Since Button can be converted into ViewBuilder<Dom>, we can plug
             // it right into the DOM tree
             {relay_button::Button::default()}
             <br />
-            <br />
+                <br />
             {req}
             {counter}
-        </div>
-    };
-    root.into_inner().run().unwrap_throw();
-
-    // Here we'll start a hydration-by-hand experiment.
-    let body: HtmlElement = utils::document().body().unwrap_throw();
-    {
-        // First we'll create some non-mogwai managed DOM using web_sys:
-        let section = utils::document()
-            .create_element("section")
-            .unwrap_throw()
-            .dyn_into::<HtmlElement>()
-            .unwrap_throw();
-        section.set_inner_html(r#"<div id="my_div"><p data-count="42" class="my_p">This is pre-existing text that will be hydrated</p></div>"#);
-
-        body.append_child(&section).unwrap_throw();
-    }
-
-    // Now we'll attempt to hydrate a view from the pre-existing DOM and then
-    // update the view.
-
-    // We will need a channel to send view messages.
-    let (tx_view, rx_view) = broadcast::bounded::<u32>(1);
-    // Create a channel for getting the count state from the DOM after hydration.
-    let (tx_p, mut rx_p) = mpsc::bounded(1);
-    // Create a builder that matches the pre-existing DOM (this builder would be how we create it server-side).
-    let builder = builder! {
-        <div id="my_div">
-            <p
-             data-count=rx_view.clone().map(|n| format!("{}", n))
-             capture:view=tx_p
-             class="my_p">
-                 {("Waiting",
-                   rx_view.map(|n| if n == 1 {
-                       "Sent 1 message".to_string()
-                   } else {
-                       format!("Sent {} messages", n)
-                   })
-                 )}
-            </p>
-        </div>
-    };
-    // Create a channel for driving updates.
-    let (tx, mut rx) = broadcast::bounded::<()>(1);
-    let logic = async move {
-        // we can get the stored count from the DOM
-        let mut count = {
-            // first get the p tag
-            let dom: Dom = rx_p.next().await.unwrap();
-            let s = dom.get_attribute("data-count").unwrap().unwrap();
-            s.parse::<u32>().unwrap()
+            </div>
         };
-        loop {
-            match rx.next().await {
-                Some(()) => {
-                    count += 1;
-                    tx_view.broadcast(count).await.unwrap();
-                }
-                None => break,
-            }
+        root.into_inner().run().unwrap_throw();
+
+        // Here we'll start a hydration-by-hand experiment.
+        let body: Dom = utils::body();
+        {
+            // First we'll create some non-mogwai managed DOM using web_sys:
+            let body: web_sys::HtmlElement = body.clone_as().unwrap_throw();
+            let document: web_sys::Document = utils::document().unwrap_js();
+            let section = document
+                .create_element("section")
+                .unwrap_throw()
+                .dyn_into::<HtmlElement>()
+                .unwrap_throw();
+            section.set_inner_html(r#"<div id="my_div"><p data-count="42" class="my_p">This is pre-existing text that will be hydrated</p></div>"#);
+
+            body.append_child(&section).unwrap_throw();
         }
-    };
-    let component = Component::from(builder).with_logic(logic);
 
-    {
-        let hydrator = Hydrator::try_from(component).unwrap();
-        let view = View::from(hydrator);
-        // Since this view is already attached, we don't have to `run` it.
-        // Instead we can convert it to its inner type to keep it from detaching
-        // on drop, and then forget about it.
-        let _ = view.into_inner();
-    };
+        // Now we'll attempt to hydrate a view from the pre-existing DOM and then
+        // update the view.
 
-    // Pump the hydrated widget a few times.
-    spawn(async move {
+        // We will need a channel to send view messages.
+        let (tx_view, rx_view) = broadcast::bounded::<u32>(1);
+        // Create a channel for getting the count state from the DOM after hydration.
+        let (tx_p, mut rx_p) = mpsc::bounded(1);
+        // Create a builder that matches the pre-existing DOM (this builder would be how we create it server-side).
+        let builder = builder! {
+            <div id="my_div">
+                <p
+                data-count=rx_view.clone().map(|n| format!("{}", n))
+                capture:view=tx_p
+                class="my_p">
+            {("Waiting",
+              rx_view.map(|n| if n == 1 {
+                  "Sent 1 message".to_string()
+              } else {
+                  format!("Sent {} messages", n)
+              })
+            )}
+            </p>
+                </div>
+        };
+        // Create a channel for driving updates.
+        let (tx, mut rx) = broadcast::bounded::<()>(1);
+        let logic = async move {
+            // we can get the stored count from the DOM
+            let mut count = {
+                // first get the p tag
+                let dom: Dom = rx_p.next().await.unwrap();
+                let s = dom.get_attribute("data-count").unwrap().unwrap();
+                s.parse::<u32>().unwrap()
+            };
+            loop {
+                match rx.next().await {
+                    Some(()) => {
+                        count += 1;
+                        tx_view.broadcast(count).await.unwrap();
+                    }
+                    None => break,
+                }
+            }
+        };
+        let component = Component::from(builder).with_logic(logic);
+
+        {
+            let hydrator = Hydrator::try_from(component).unwrap();
+            let view = View::from(hydrator);
+            // Since this view is already attached, we don't have to `run` it.
+            // Instead we can convert it to its inner type to keep it from detaching
+            // on drop, and then forget about it.
+            let _ = view.into_inner();
+        };
+
+        // Pump the hydrated widget a few times.
         let mut times = 3;
         while times > 0 {
             tx.broadcast(()).await.unwrap();
             times -= 1;
         }
+
+        // Since we hydrated the count as 42, then sent 3 more messages,
+        // the count should now be 45.
     });
-
-    // Since we hydrated the count as 42, then sent 3 more messages,
-    // the count should now be 45.
-
-    Ok(())
 }

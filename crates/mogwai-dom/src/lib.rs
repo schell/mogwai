@@ -10,7 +10,7 @@ pub mod view;
 mod nonwasm {
     use mogwai::{
         core::{
-            builder::ViewBuilder,
+            builder::{ViewBuilder, TryBuild},
             channel::broadcast::{self, *},
             futures::{sink::Contravariant, StreamExt},
             target::spawn,
@@ -19,10 +19,9 @@ mod nonwasm {
         dom::{event::DomEvent, ssr::SsrElement, view::Dom},
         macros::{builder, view},
     };
-    use std::convert::{TryFrom, TryInto};
 
-    #[test]
-    fn capture_view() {
+    #[smol_potat::test]
+    async fn capture_view() {
         let (tx, mut rx) = broadcast::bounded::<Dom>(1);
         let _view = view! {
             <div>
@@ -33,10 +32,8 @@ mod nonwasm {
             </div>
         };
 
-        futures::executor::block_on(async move {
-            let dom = rx.next().await.unwrap();
-            assert_eq!(dom.html_string().await, "<pre>Tack :)</pre>");
-        });
+        let dom = rx.next().await.unwrap();
+        assert_eq!(dom.html_string().await, "<pre>Tack :)</pre>");
     }
 
     #[test]
@@ -106,7 +103,7 @@ mod nonwasm {
         let s: ViewBuilder<Dom> = builder! {
             <section>{vs}</section>
         };
-        let view: View<Dom> = s.try_into().unwrap();
+        let view: View<Dom> = Dom::try_from_builder(s, ()).await.unwrap();
         assert_eq!(
             view.html_string().await,
             "<section><div>hello</div> <div>hola</div> <div>kia ora</div></section>"
@@ -125,8 +122,8 @@ mod nonwasm {
             .with_child(ViewBuilder::text("Hello"));
     }
 
-    #[test]
-    fn post_build_rsx() {
+    #[smol_potat::test]
+    async fn post_build_rsx() {
         let (tx, mut rx) = bounded::<()>(1);
 
         let _div = view! {
@@ -137,13 +134,11 @@ mod nonwasm {
             </div>
         };
 
-        smol::block_on(async move {
-            rx.recv().await.unwrap();
-        });
+        rx.recv().await.unwrap();
     }
 
-    #[test]
-    fn can_construct_text_builder_from_tuple() {
+    #[smol_potat::test]
+    async fn can_construct_text_builder_from_tuple() {
         let (_tx, rx) = bounded::<String>(1);
         let _div: View<Dom> = view! {
             <div>{("initial", rx)}</div>
@@ -218,8 +213,8 @@ mod nonwasm {
         );
     }
 
-    #[test]
-    pub fn can_use_string_stream_as_child() {
+    #[smol_potat::test]
+    async fn can_use_string_stream_as_child() {
         let clicks = futures::stream::iter(vec![0, 1, 2]);
         let bldr = builder! {
             <span>
@@ -231,7 +226,7 @@ mod nonwasm {
             }
             </span>
         };
-        let _ = View::try_from(bldr).unwrap();
+        let _ = Dom::try_from_builder(bldr, ()).await.unwrap();
     }
 
     #[test]
@@ -300,7 +295,6 @@ mod nonwasm {
 #[cfg(all(test, target_arch = "wasm32"))]
 mod wasm {
     use std::{
-        convert::{TryFrom, TryInto},
         ops::Bound,
     };
     use wasm_bindgen::JsCast;
@@ -314,32 +308,32 @@ mod wasm {
     type DomBuilder = ViewBuilder<Dom>;
 
     #[wasm_bindgen_test]
-    fn can_create_text_view_node_from_str() {
-        let _view: View<Dom> = ViewBuilder::text("Hello!").try_into().unwrap();
+    async fn can_create_text_view_node_from_str() {
+        let _view: View<Dom> = ViewBuilder::text("Hello!").try_build(()).await.unwrap();
     }
 
     #[wasm_bindgen_test]
-    fn can_create_text_view_node_from_string() {
-        let _view: View<Dom> = ViewBuilder::text("Hello!".to_string()).try_into().unwrap();
+    async fn can_create_text_view_node_from_string() {
+        let _view: View<Dom> = ViewBuilder::text("Hello!".to_string()).try_build(()).await.unwrap();
     }
 
     #[wasm_bindgen_test]
-    fn can_create_text_view_node_from_stream() {
+    async fn can_create_text_view_node_from_stream() {
         let s = stream::once(async { "Hello!".to_string() });
-        let _view: View<Dom> = ViewBuilder::text(s).try_into().unwrap();
+        let _view: View<Dom> = ViewBuilder::text(s).try_build(()).await.unwrap();
     }
 
     #[wasm_bindgen_test]
-    fn can_create_text_view_node_from_string_and_stream() {
+    async fn can_create_text_view_node_from_string_and_stream() {
         let s = "Hello!".to_string();
         let st = stream::once(async { "Goodbye!".to_string() });
-        let _view: View<Dom> = ViewBuilder::text((s, st)).try_into().unwrap();
+        let _view: View<Dom> = ViewBuilder::text((s, st)).try_build(()).await.unwrap();
     }
 
     #[wasm_bindgen_test]
-    fn can_create_text_view_node_from_str_and_stream() {
+    async fn can_create_text_view_node_from_str_and_stream() {
         let st = stream::once(async { "Goodbye!".to_string() });
-        let _view: View<Dom> = ViewBuilder::text(("Hello!", st)).try_into().unwrap();
+        let _view: View<Dom> = ViewBuilder::text(("Hello!", st)).try_build(()).await.unwrap();
     }
 
     #[wasm_bindgen_test]
@@ -352,7 +346,8 @@ mod wasm {
                 "width",
                 futures::stream::once(async { "100px".to_string() }),
             )
-            .try_into()
+            .try_build(())
+            .await
             .unwrap();
 
         assert_eq!(
@@ -371,7 +366,8 @@ mod wasm {
                 "width",
                 futures::stream::once(async { "100px".to_string() }),
             )
-            .try_into()
+            .try_build(())
+            .await
             .unwrap();
 
         assert_eq!(
@@ -389,7 +385,7 @@ mod wasm {
                 <pre on:click=tx.clone()>"this has text"</pre>
             </div>
         };
-        let rsx_view = View::try_from(rsx).unwrap();
+        let rsx_view = rsx.try_build(()).await.unwrap();
 
         let manual: DomBuilder = ViewBuilder::element("div")
             .with_single_attrib_stream("id", "view_zero")
@@ -399,7 +395,7 @@ mod wasm {
                     .with_event("click", EventTargetType::Myself, tx)
                     .with_child(ViewBuilder::text("this has text")),
             );
-        let manual_view = View::try_from(manual).unwrap();
+        let manual_view = manual.try_build(()).await.unwrap();
 
         assert_eq!(rsx_view.html_string().await, manual_view.html_string().await);
     }
@@ -432,7 +428,7 @@ mod wasm {
     }
 
     #[wasm_bindgen_test]
-    fn gizmo_as_child() {
+    async fn gizmo_as_child() {
         // Since the pre tag is *not* dropped after the scope block the last assert
         // should show that the div tag has a child.
         let div = {
@@ -468,7 +464,7 @@ mod wasm {
     }
 
     #[wasm_bindgen_test]
-    fn gizmo_tree() {
+    async fn gizmo_tree() {
         let root = view! {
             <div id="root">
                 <div id="branch">
@@ -495,7 +491,7 @@ mod wasm {
     }
 
     #[wasm_bindgen_test]
-    fn gizmo_texts() {
+    async fn gizmo_texts() {
         let div = view! {
             <div>
                 "here is some text "
@@ -625,15 +621,15 @@ mod wasm {
         .await
         .unwrap();
 
+        let html = r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#;
         tx.send(ListPatch::push(builder! {<li>"Two"</li>}))
             .await
             .unwrap();
-        wait_while(1.0, || {
-            dom.outer_html().as_str()
-                != r#"<ol id="main"><li>Zero</li><li>One</li><li>Two</li></ol>"#
+        let _ = wait_while(5.0, || {
+            dom.outer_html().as_str() != html
         })
-        .await
-        .unwrap();
+        .await;
+        assert_eq!(html, dom.outer_html());
 
         tx.send(ListPatch::splice(0..1, None.into_iter()))
             .await
@@ -750,7 +746,7 @@ mod wasm {
     }
 
     #[wasm_bindgen_test]
-    pub fn can_use_string_stream_as_child() {
+    pub async fn can_use_string_stream_as_child() {
         let clicks = futures::stream::iter(vec![0, 1, 2]);
         let bldr = builder! {
             <span>
@@ -762,7 +758,7 @@ mod wasm {
             }
             </span>
         };
-        let _ = View::try_from(bldr).unwrap();
+        let _ = bldr.try_build(()).await.unwrap();
     }
 
     fn sendable<T: Sendable>(_:&T) {}
@@ -783,7 +779,7 @@ mod wasm {
         let b = builder! {
             <div id="chappie" capture:view=capture.sink()></div>
         };
-        let View{..} = Component::from(b).build().unwrap();
+        let View{..} = Component::from(b).build(()).await.unwrap();
         let dom = capture.get().await;
         assert_eq!(dom.html_string().await, r#"<div id="chappie"></div>"#);
     }
@@ -835,22 +831,20 @@ mod test {
 
         mogwai::spawn(async {
             let thing = Thing::default();
-            let View{ inner: dom } = thing.into_view().unwrap();
+            let View{ inner: dom } = thing.into_view(()).await.unwrap();
             dom.run().unwrap();
         });
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn can_capture_with_captured() {
+    #[smol_potat::test]
+    async fn can_capture_with_captured() {
         let capture: Captured<Dom> = Captured::default();
         let b = builder! {
             <div id="chappie" capture:view=capture.sink()></div>
         };
-        let View{..} = Component::from(b).build().unwrap();
-        smol::block_on(async move {
-            let dom = capture.get().await;
-            assert_eq!(dom.html_string().await, r#"<div id="chappie"></div>"#);
-        });
+        let View{..} = Component::from(b).build(()).await.unwrap();
+        let dom = capture.get().await;
+        assert_eq!(dom.html_string().await, r#"<div id="chappie"></div>"#);
     }
 }

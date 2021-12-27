@@ -1,7 +1,7 @@
 #![allow(unused_braces)]
 use log::{trace, Level};
 use mogwai::prelude::*;
-use std::panic;
+use std::{panic, convert::TryFrom};
 use wasm_bindgen::{JsCast, prelude::*};
 use web_sys::HashChangeEvent;
 
@@ -237,20 +237,25 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    let route = Route::Home;
-    let (tx_logic, rx_logic) = broadcast::bounded(1);
-    let (tx_view, rx_view) = broadcast::bounded(1);
-    let (tx_route_patch, rx_route_patch) = mpsc::bounded(1);
-    let component = Component::from(view(&route, tx_logic, rx_view, rx_route_patch))
-        .with_logic(logic(route, rx_logic, tx_view, tx_route_patch));
-    let view = component.build().unwrap().into_inner();
+    mogwai::spawn(async {
+        let route = Route::Home;
+        let (tx_logic, rx_logic) = broadcast::bounded(1);
+        let (tx_view, rx_view) = broadcast::bounded(1);
+        let (tx_route_patch, rx_route_patch) = mpsc::bounded(1);
+        let component = Component::from(view(&route, tx_logic, rx_view, rx_route_patch))
+            .with_logic(logic(route, rx_logic, tx_view, tx_route_patch));
+        let view = component.build(()).await.unwrap().into_inner();
 
-    if let Some(id) = parent_id {
-        let parent = mogwai::dom::utils::document()
-            .get_element_by_id(&id)
-            .unwrap();
-        view.run_in_container(&parent)
-    } else {
-        view.run()
-    }
+        if let Some(id) = parent_id {
+            let parent = mogwai::dom::utils::document()
+                .visit_js(|doc: web_sys::Document| doc.get_element_by_id(&id))
+                .map(Dom::wrap_js)
+                .unwrap();
+            view.run_in_container(&parent)
+        } else {
+            view.run()
+        }
+    });
+
+    Ok(())
 }

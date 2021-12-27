@@ -1,9 +1,14 @@
 //! Build trees of widgets using two-way message passing.
-use std::{convert::TryFrom, pin::Pin};
+use std::pin::Pin;
 
 use futures::stream::StreamExt;
 
-use crate::{builder::ViewBuilder, channel::broadcast, target::{Sendable, Spawnable}, view::View};
+use crate::{
+    builder::{DecomposedViewBuilder, TryBuild, ViewBuilder},
+    channel::broadcast,
+    target::{Sendable, Spawnable},
+    view::View,
+};
 
 /// A component is a [`ViewBuilder`] and a [`Spawnable`] future used as its logic.
 ///
@@ -36,10 +41,7 @@ impl<T: Sendable> From<Component<T>> for ViewBuilder<T> {
     }
 }
 
-impl<T> Component<T>
-where
-    View<T>: TryFrom<ViewBuilder<T>>,
-{
+impl<T: TryBuild + 'static> Component<T> {
     /// Add a logic future to this component.
     pub fn with_logic(mut self, f: impl Spawnable<()>) -> Self {
         self.logic = Box::pin(f);
@@ -48,14 +50,18 @@ where
 
     /// Attempts to build a [`View`] from the component's builder and
     /// spawns the logic into the async runtime.
-    pub fn build(self) -> Result<View<T>, <View<T> as TryFrom<ViewBuilder<T>>>::Error> {
-        let view: View<T> = View::try_from(self.builder)?;
+    pub async fn build(self, resource: T::Resource) -> Result<View<T>, T::Error> {
+        let dbuilder = DecomposedViewBuilder::from(self.builder);
+        let view: View<T> = T::try_build(dbuilder, resource).await?;
         crate::target::spawn(self.logic);
         Ok(view)
     }
 }
 
-#[deprecated(since = "0.6", note = "ElmComponent will be removed in 0.7. Use Component or the Relay trait instead.")]
+#[deprecated(
+    since = "0.6",
+    note = "ElmComponent will be removed in 0.7. Use Component or the Relay trait instead."
+)]
 /// A component that facilitates an Elm-inspired type of composure.
 ///
 /// ## Types
@@ -110,7 +116,7 @@ impl<T, S, LogicMsg, ViewMsg> From<ElmComponent<T, S, LogicMsg, ViewMsg>> for Co
 where
     LogicMsg: Clone,
     ViewMsg: Clone,
-    View<T>: TryFrom<ViewBuilder<T>>,
+    T: TryBuild,
 {
     fn from(
         ElmComponent {
@@ -183,7 +189,7 @@ where
     Self::LogicMsg: Sendable + Clone,
     Self::ViewMsg: Sendable + Clone,
     Self::ViewNode: Sendable + Clone,
-    View<Self::ViewNode>: TryFrom<ViewBuilder<Self::ViewNode>>,
+    Self::ViewNode: TryBuild,
 {
     /// Message type used to drive component state updates.
     type LogicMsg;
@@ -211,11 +217,11 @@ where
 
     /// Converts the type into a [`Component`].
     fn to_component(self) -> Component<Self::ViewNode> {
-        Component::from(
-            #[allow(deprecated)]
-            ElmComponent::from(self)
-                .with_builder_fn(Self::view)
-                .with_update(Self::update),
-        )
+        #[allow(deprecated)]
+        let elmc = ElmComponent::from(self)
+            .with_builder_fn(Self::view)
+            .with_update(Self::update);
+
+        Component::from(elmc)
     }
 }

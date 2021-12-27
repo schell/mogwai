@@ -5,6 +5,7 @@ use crate::app::App;
 use mogwai::{dom::utils, prelude::*};
 use mogwai_hydrator::Hydrator;
 use wasm_bindgen::prelude::*;
+use std::convert::TryFrom;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -26,12 +27,15 @@ where
     T: AsRef<str>,
 {
     let initial_route: Route = path.into();
-    let view: View<Dom> = App::component(initial_route).build()?;
+    let view: View<Dom> = App::component(initial_route)
+        .build(())
+        .await
+        .map_err(|e| format!("{}", e))?;
     Ok(view.html_string().await)
 }
 
 #[wasm_bindgen(start)]
-pub fn main() -> Result<(), JsValue> {
+pub fn main() {
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(log::Level::Trace).expect("could not init console_log");
 
@@ -47,9 +51,9 @@ pub fn main() -> Result<(), JsValue> {
 
     // Hydrate the view and hand the app's view ownership to the window so it never
     // goes out of scope.
-    let hydrator = Hydrator::try_from(root).map_err(|e| JsValue::from(format!("{}", e)))?;
+    let hydrator = Hydrator::try_from(root).unwrap();
     let view = View::from(hydrator).into_inner();
-    view.run()
+    view.run().unwrap()
 }
 
 mod route_dispatch {

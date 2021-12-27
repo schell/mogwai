@@ -1,45 +1,39 @@
 //! DOM building.
 
-use mogwai_core::{
-    builder::{
+
+use mogwai_core::{builder::{
         AttribStream, BooleanAttribStream, ChildStream, StyleStream, TextStream, ViewBuilder,
-    },
-    patch::{HashPatch, ListPatch},
-    target::spawn,
-    view::View,
-    futures::StreamExt
-};
+    }, futures::StreamExt, patch::{HashPatch, ListPatch}, target::spawn};
 
 use crate::view::Dom;
 
 /// Set all the initial values of a Dom node.
-pub fn set_initial_values(
-    node: &Dom,
+pub async fn set_initial_values(
+    dom: &Dom,
     texts: impl Iterator<Item = String>,
     attribs: impl Iterator<Item = HashPatch<String, String>>,
     bool_attribs: impl Iterator<Item = HashPatch<String, bool>>,
     styles: impl Iterator<Item = HashPatch<String, String>>,
     children: impl Iterator<Item = ListPatch<ViewBuilder<Dom>>>,
-) -> Result<(), String> {
+) -> Result<(), anyhow::Error> {
     for text in texts {
-        node.set_text(&text)?;
+        dom.set_text(&text).map_err(|e| anyhow::anyhow!("{}", e))?;
     }
 
     for patch in attribs {
-        node.patch_attribs(patch)?;
+        dom.patch_attribs(patch).map_err(|e| anyhow::anyhow!("{}", e))?;
     }
 
     for patch in bool_attribs {
-        node.patch_bool_attribs(patch)?;
+        dom.patch_bool_attribs(patch).map_err(|e| anyhow::anyhow!("{}", e))?;
     }
 
     for patch in styles {
-        node.patch_styles(patch)?;
+        dom.patch_styles(patch).map_err(|e| anyhow::anyhow!("{}", e))?;
     }
 
     for patch in children {
-        let patch = patch.map(|vb| View::try_from(vb).unwrap().into_inner());
-        node.patch_children(patch)?;
+        dom.build_and_patch_children(patch).await?;
     }
 
     Ok(())
@@ -85,8 +79,7 @@ pub fn set_streaming_values(
     let parent_node = node.clone();
     spawn(async move {
         while let Some(patch) = child_stream.next().await {
-            let patch = patch.map(|vb| View::try_from(vb).unwrap().into_inner());
-            parent_node.patch_children(patch).unwrap();
+            let _ = parent_node.build_and_patch_children(patch).await;
         }
     });
 

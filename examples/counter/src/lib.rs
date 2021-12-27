@@ -27,24 +27,30 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
             </button>
         };
 
-        let view = View::try_from(bldr).unwrap().into_inner();
+        let view = Dom::try_from_builder(bldr, ()).await.unwrap().into_inner();
         if let Some(id) = parent_id {
-            let parent = mogwai::dom::utils::document().get_element_by_id(&id).unwrap();
+            let parent = mogwai::dom::utils::document()
+                .visit_js(|t: web_sys::Document| t.get_element_by_id(&id))
+                .map(Dom::wrap_js)
+                .unwrap();
             view.run_in_container(&parent)
         } else {
             view.run()
         }
         .unwrap();
 
-        let mut clicks:u32 = 0;
+        let mut clicks: u32 = 0;
         loop {
             match from_view.next().await {
                 Some(_ev) => {
                     clicks += 1;
-                    to_view.broadcast(match clicks {
-                        1 => "Click again.".to_string(),
-                        n => format!("Clicked {} times", n),
-                    }).await.unwrap();
+                    to_view
+                        .broadcast(match clicks {
+                            1 => "Click again.".to_string(),
+                            n => format!("Clicked {} times", n),
+                        })
+                        .await
+                        .unwrap();
                 }
                 None => break,
             }

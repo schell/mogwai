@@ -27,18 +27,23 @@ fn my_circle() -> ViewBuilder<Dom> {
 }
 
 #[wasm_bindgen]
-pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
+pub fn main(parent_id: Option<String>) {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    let View{ inner: view } = View::try_from(my_circle())?;
+    mogwai::spawn(async {
+        let View{ inner: dom } = Dom::try_from_builder(my_circle(), ()).await?;
 
-    if let Some(id) = parent_id {
-        let parent = mogwai::dom::utils::document()
-            .get_element_by_id(&id)
-            .unwrap();
-        view.run_in_container(&parent)
-    } else {
-        view.run()
-    }
+        if let Some(id) = parent_id {
+            let parent = mogwai::dom::utils::document()
+                .clone_as::<web_sys::Document>()
+                .unwrap()
+                .get_element_by_id(&id)
+                .map(Dom::wrap_js)
+                .unwrap();
+            dom.run_in_container(&parent)
+        } else {
+            dom.run()
+        }
+    });
 }

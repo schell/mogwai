@@ -27,7 +27,7 @@ pub fn main() -> Result<(), JsValue> {
 
     spawn(async {
         let (app, component) = App::new();
-        let view: Dom = component.build().unwrap().into_inner();
+        let view: Dom = component.build(()).await.unwrap().into_inner();
         view.run().unwrap();
 
         // Get the any items stored from a previous visit and add them

@@ -2,6 +2,7 @@
 #![allow(deprecated)]
 use mogwai::prelude::*;
 use mogwai_hydrator::Hydrator;
+use std::convert::TryFrom;
 use wasm_bindgen_test::*;
 use web_sys::HtmlElement;
 
@@ -30,24 +31,30 @@ async fn can_hydrate_view() {
             <p class=rx_class>{("", rx_text)}</p>
         </div>
     };
-    let hydrator = Hydrator::try_from(builder).map_err(|e| panic!("{:#?}", e)).unwrap();
+    let hydrator = Hydrator::try_from(builder)
+        .map_err(|e| panic!("{:#?}", e))
+        .unwrap();
     let _hydrated_view: View<Dom> = View::from(hydrator);
     log::info!("hydrated");
 
     tx_class.send("new_class".to_string()).await.unwrap();
-    wait_while(1.0, ||
-        container_el.inner_html().as_str() !=
-        r#"<div id="my_div"><p class="new_class">inner text</p></div>"#
-    ).await.unwrap();
+    wait_while(1.0, || {
+        container_el.inner_html().as_str()
+            != r#"<div id="my_div"><p class="new_class">inner text</p></div>"#
+    })
+    .await
+    .unwrap();
     log::info!("updated class");
 
     tx_text
         .send("different inner text".to_string())
         .await
         .unwrap();
-    wait_while(1.0, ||
-        container_el.inner_html().as_str() !=
-        r#"<div id="my_div"><p class="new_class">different inner text</p></div>"#
-    ).await.unwrap();
+    wait_while(1.0, || {
+        container_el.inner_html().as_str()
+            != r#"<div id="my_div"><p class="new_class">different inner text</p></div>"#
+    })
+    .await
+    .unwrap();
     log::info!("updated text");
 }

@@ -84,13 +84,16 @@ impl<T, C: Sink<T, Error = SinkError> + Sendable> Sinkable<T> for C {}
 
 /// Spawn an async operation.
 // TODO: Make spawn settable.
-pub fn spawn<Fut>(fut: Fut)
+pub fn spawn<T, Fut>(fut: Fut)
 where
-    Fut: Spawnable<()>,
+    T: Sendable,
+    Fut: Spawnable<T>,
 {
     #[cfg(target_arch = "wasm32")]
     {
-        wasm_bindgen_futures::spawn_local(fut)
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = fut.await;
+        })
     }
     #[cfg(not(target_arch = "wasm32"))]
     {

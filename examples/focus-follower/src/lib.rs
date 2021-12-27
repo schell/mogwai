@@ -1,7 +1,7 @@
 #![allow(unused_braces)]
 use log::Level;
 use mogwai::prelude::*;
-use std::panic;
+use std::{convert::TryFrom, panic};
 use wasm_bindgen::{prelude::*, JsCast};
 use web_sys::{HtmlElement, Node};
 
@@ -45,8 +45,8 @@ impl FocusedOn {
     }
 }
 
-fn editor_component() -> Component<Dom> {
-    let text_ops = TextOps::component().build().unwrap();
+async fn editor_component() -> Component<Dom> {
+    let text_ops = TextOps::component().build(()).await.unwrap();
     let (tx_logic, mut rx_logic) = broadcast::bounded::<FocusedOn>(1);
 
     Component::from(
@@ -82,17 +82,20 @@ fn editor_component() -> Component<Dom> {
 }
 
 #[wasm_bindgen]
-pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
+pub fn main(parent_id: Option<String>) {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    let editor_view = editor_component().build().unwrap();
-    if let Some(id) = parent_id {
-        let parent = mogwai::dom::utils::document()
-            .get_element_by_id(&id)
-            .unwrap();
-        editor_view.into_inner().run_in_container(&parent)
-    } else {
-        editor_view.into_inner().run()
-    }
+    mogwai::spawn(async {
+        let editor_view = editor_component().await.build(()).await.unwrap();
+        if let Some(id) = parent_id {
+            let parent = mogwai::dom::utils::document()
+                .visit_js(|doc: web_sys::Document| doc.get_element_by_id(&id))
+                .map(Dom::wrap_js)
+                .unwrap();
+            editor_view.into_inner().run_in_container(&parent)
+        } else {
+            editor_view.into_inner().run()
+        }
+    });
 }

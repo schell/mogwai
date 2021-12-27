@@ -200,18 +200,22 @@ fn list() -> Component<Dom> {
 }
 
 #[wasm_bindgen]
-pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
+pub fn main(parent_id: Option<String>) {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
-    let component = list();
-    let view = component.build().unwrap().into_inner();
+    mogwai::spawn(async {
+        let component = list();
+        let view = component.build(()).await?.into_inner();
 
-    if let Some(id) = parent_id {
-        let parent = mogwai::dom::utils::document()
-            .get_element_by_id(&id)
-            .unwrap();
-        view.run_in_container(&parent)
-    } else {
-        view.run()
-    }
+        if let Some(id) = parent_id {
+            let parent = mogwai::dom::utils::document()
+                .unwrap_js::<web_sys::Document>()
+                .get_element_by_id(&id)
+                .map(Dom::wrap_js)
+                .unwrap();
+            view.run_in_container(&parent)
+        } else {
+            view.run()
+        }
+    });
 }

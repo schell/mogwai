@@ -41,6 +41,7 @@ features = [
 ]
 
 [dev-dependencies]
+smol-potat = "^1.1"
 wasm-bindgen-test = "0.2"
 
 [profile.release]

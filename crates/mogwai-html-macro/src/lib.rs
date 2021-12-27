@@ -2,7 +2,7 @@
 use std::convert::TryFrom;
 
 use quote::quote;
-use syn::{Error, parse_macro_input};
+use syn::Error;
 
 mod tokens;
 use tokens::{AttributeToken, ViewToken};
@@ -137,32 +137,18 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// This is the same as the following:
 /// ```rust
 /// # use mogwai::prelude::*;
-/// let my_div = view! {
+/// let my_div = builder! {
 ///     <div cast:type=Dom id="main">
 ///         <p>"Trolls are real"</p>
 ///     </div>
 /// };
+/// TryBuild::try_from_builder(my_div, Default::default()).await.unwrap()
 /// ```
 pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let builder: proc_macro2::TokenStream = builder(input).into();
     let token = quote! {{
-        use std::convert::TryFrom;
-        mogwai::core::view::View::try_from(#builder).unwrap()
+        mogwai::core::builder::TryBuild::try_from_builder(#builder, Default::default()).await.unwrap()
     }};
-    proc_macro::TokenStream::from(token)
-}
-
-#[proc_macro_derive(ViewBuilderFrom)]
-pub fn derive_view_builder_from(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let item: syn::ItemStruct  = parse_macro_input!(item);
-    let ident = item.ident.clone();
-    let token = quote! {
-        impl From<#ident> for ViewBuilder<T> {
-            fn from(s: #ident) -> ViewBuilder<T> {
-                s.into_component().into()
-            }
-        }
-    };
     proc_macro::TokenStream::from(token)
 }
 
