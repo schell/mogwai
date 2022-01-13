@@ -12,4 +12,3 @@ pub mod patch;
 pub mod relay;
 pub mod target;
 pub mod time;
-pub mod view;

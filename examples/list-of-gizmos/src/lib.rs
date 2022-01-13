@@ -205,7 +205,7 @@ pub fn main(parent_id: Option<String>) {
     console_log::init_with_level(Level::Trace).unwrap();
     mogwai::spawn(async {
         let component = list();
-        let view = component.build(()).await?.into_inner();
+        let view = component.build()?;
 
         if let Some(id) = parent_id {
             let parent = mogwai::dom::utils::document()

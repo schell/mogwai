@@ -27,9 +27,8 @@ where
     T: AsRef<str>,
 {
     let initial_route: Route = path.into();
-    let view: View<Dom> = App::component(initial_route)
-        .build(())
-        .await
+    let view: Dom = App::component(initial_route)
+        .build()
         .map_err(|e| format!("{}", e))?;
     Ok(view.html_string().await)
 }
@@ -52,7 +51,7 @@ pub fn main() {
     // Hydrate the view and hand the app's view ownership to the window so it never
     // goes out of scope.
     let hydrator = Hydrator::try_from(root).unwrap();
-    let view = View::from(hydrator).into_inner();
+    let view: Dom = hydrator.into();
     view.run().unwrap()
 }
 

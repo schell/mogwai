@@ -14,7 +14,6 @@ pub use mogwai_core::{
     relay::*,
     target::*,
     time::*,
-    view::*,
 };
 pub use mogwai_html_macro::{builder, view};
 

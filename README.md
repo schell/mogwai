@@ -98,7 +98,7 @@ let btn = Button::default();
 // Get a sink to manually send events.
 let mut click_sink = btn.click.sink();
 // Build the view
-let View{ inner: view } = btn.into_view().unwrap();
+let view = btn.build().unwrap();
 view.run().unwrap();
 
 // Spawn asyncronous updates

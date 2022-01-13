@@ -10,13 +10,16 @@ pub mod view;
 mod nonwasm {
     use mogwai::{
         core::{
-            builder::{ViewBuilder, TryBuild},
+            builder::ViewBuilder,
             channel::broadcast::{self, *},
             futures::{sink::Contravariant, StreamExt},
             target::spawn,
-            view::View,
         },
-        dom::{event::DomEvent, ssr::SsrElement, view::Dom},
+        dom::{
+            event::DomEvent,
+            ssr::SsrElement,
+            view::{DomBuilderExt, Dom},
+        },
         macros::{builder, view},
     };
 
@@ -103,7 +106,7 @@ mod nonwasm {
         let s: ViewBuilder<Dom> = builder! {
             <section>{vs}</section>
         };
-        let view: View<Dom> = Dom::try_from_builder(s, ()).await.unwrap();
+        let view: Dom = s.build().unwrap();
         assert_eq!(
             view.html_string().await,
             "<section><div>hello</div> <div>hola</div> <div>kia ora</div></section>"
@@ -140,7 +143,7 @@ mod nonwasm {
     #[smol_potat::test]
     async fn can_construct_text_builder_from_tuple() {
         let (_tx, rx) = bounded::<String>(1);
-        let _div: View<Dom> = view! {
+        let _div: Dom = view! {
             <div>{("initial", rx)}</div>
         };
     }
@@ -149,10 +152,16 @@ mod nonwasm {
     async fn ssr_properties_overwrite() {
         let el: SsrElement = SsrElement::element("div");
         el.set_style("float", "right").unwrap();
-        assert_eq!(el.html_string().await, r#"<div style="float: right;"></div>"#);
+        assert_eq!(
+            el.html_string().await,
+            r#"<div style="float: right;"></div>"#
+        );
 
         el.set_style("float", "left").unwrap();
-        assert_eq!(el.html_string().await, r#"<div style="float: left;"></div>"#);
+        assert_eq!(
+            el.html_string().await,
+            r#"<div style="float: left;"></div>"#
+        );
 
         el.set_style("width", "100px").unwrap();
         assert_eq!(
@@ -181,7 +190,7 @@ mod nonwasm {
             <div style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
         };
         assert_eq!(
-            view.inner.html_string().await,
+            view.html_string().await,
             r#"<div style="float: left;"><p class="p_class">here</p></div>"#
         );
 
@@ -226,7 +235,7 @@ mod nonwasm {
             }
             </span>
         };
-        let _ = Dom::try_from_builder(bldr, ()).await.unwrap();
+        let _ = bldr.build().unwrap();
     }
 
     #[test]
@@ -274,7 +283,9 @@ mod nonwasm {
         // just as a sanity check we wait until the view has updated
         wait_while_async(1.0, || async {
             my_view.html_string().await != r#"<div id="main"></div>"#
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
 
         let other_viewbuilder = builder! {
             <h1>"Hello!"</h1>
@@ -283,20 +294,19 @@ mod nonwasm {
         tx.send(ListPatch::push(other_viewbuilder)).await.unwrap();
         wait_while_async(1.0, || async {
             my_view.html_string().await != r#"<div id="main"><h1>Hello!</h1></div>"#
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         // ANCHOR_END:patch_children_rsx
     }
 
     #[test]
-    pub fn can_build_readme_button() {
-    }
+    pub fn can_build_readme_button() {}
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod wasm {
-    use std::{
-        ops::Bound,
-    };
+    use std::ops::Bound;
     use wasm_bindgen::JsCast;
     use wasm_bindgen_test::*;
     use web_sys::HtmlElement;
@@ -314,7 +324,10 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn can_create_text_view_node_from_string() {
-        let _view: View<Dom> = ViewBuilder::text("Hello!".to_string()).try_build(()).await.unwrap();
+        let _view: View<Dom> = ViewBuilder::text("Hello!".to_string())
+            .try_build(())
+            .await
+            .unwrap();
     }
 
     #[wasm_bindgen_test]
@@ -333,7 +346,10 @@ mod wasm {
     #[wasm_bindgen_test]
     async fn can_create_text_view_node_from_str_and_stream() {
         let st = stream::once(async { "Goodbye!".to_string() });
-        let _view: View<Dom> = ViewBuilder::text(("Hello!", st)).try_build(()).await.unwrap();
+        let _view: View<Dom> = ViewBuilder::text(("Hello!", st))
+            .try_build(())
+            .await
+            .unwrap();
     }
 
     #[wasm_bindgen_test]
@@ -397,7 +413,10 @@ mod wasm {
             );
         let manual_view = manual.try_build(()).await.unwrap();
 
-        assert_eq!(rsx_view.html_string().await, manual_view.html_string().await);
+        assert_eq!(
+            rsx_view.html_string().await,
+            manual_view.html_string().await
+        );
     }
 
     #[wasm_bindgen_test]
@@ -625,10 +644,7 @@ mod wasm {
         tx.send(ListPatch::push(builder! {<li>"Two"</li>}))
             .await
             .unwrap();
-        let _ = wait_while(5.0, || {
-            dom.outer_html().as_str() != html
-        })
-        .await;
+        let _ = wait_while(5.0, || dom.outer_html().as_str() != html).await;
         assert_eq!(html, dom.outer_html());
 
         tx.send(ListPatch::splice(0..1, None.into_iter()))
@@ -761,7 +777,7 @@ mod wasm {
         let _ = bldr.try_build(()).await.unwrap();
     }
 
-    fn sendable<T: Sendable>(_:&T) {}
+    fn sendable<T: Sendable>(_: &T) {}
 
     #[wasm_bindgen_test]
     pub fn output_sendable() {
@@ -779,7 +795,7 @@ mod wasm {
         let b = builder! {
             <div id="chappie" capture:view=capture.sink()></div>
         };
-        let View{..} = Component::from(b).build(()).await.unwrap();
+        let View { .. } = Component::from(b).build(()).await.unwrap();
         let dom = capture.get().await;
         assert_eq!(dom.html_string().await, r#"<div id="chappie"></div>"#);
     }
@@ -829,11 +845,9 @@ mod test {
             }
         }
 
-        mogwai::spawn(async {
-            let thing = Thing::default();
-            let View{ inner: dom } = thing.into_view(()).await.unwrap();
-            dom.run().unwrap();
-        });
+        let thing = Thing::default();
+        let dom = thing.build().unwrap();
+        dom.run().unwrap();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -843,7 +857,7 @@ mod test {
         let b = builder! {
             <div id="chappie" capture:view=capture.sink()></div>
         };
-        let View{..} = Component::from(b).build(()).await.unwrap();
+        let _ = Component::from(b).build().unwrap();
         let dom = capture.get().await;
         assert_eq!(dom.html_string().await, r#"<div id="chappie"></div>"#);
     }

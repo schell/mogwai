@@ -37,7 +37,7 @@ mod test {
             tx.broadcast(1).await.unwrap();
             tx.broadcast(42).await.unwrap();
         });
-        let view: Dom = comp.build(()).await.unwrap().into_inner();
+        let view: Dom = comp.build().unwrap();
         view.run().unwrap();
     }
 
@@ -67,7 +67,7 @@ mod test {
                 }
             }
         });
-        let view: Dom = comp.build(()).await.unwrap().into_inner();
+        let view: Dom = comp.build().unwrap();
         view.run().unwrap();
     }
 }
@@ -170,7 +170,7 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     console_log::init_with_level(Level::Trace).unwrap();
 
     mogwai::spawn(async {
-        let view = app().build(()).await.unwrap().inner;
+        let view = app().build().unwrap();
 
         if let Some(id) = parent_id {
             let parent = mogwai::dom::utils::document()

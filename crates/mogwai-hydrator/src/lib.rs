@@ -5,7 +5,6 @@ use mogwai::{
         component::Component,
         futures::EitherExt,
         patch::{HashPatch, HashPatchApply, ListPatchApply},
-        view::View,
     },
     dom::view::Dom,
 };
@@ -141,9 +140,9 @@ pub struct Hydrator {
     inner: Dom,
 }
 
-impl From<Hydrator> for View<Dom> {
+impl From<Hydrator> for Dom {
     fn from(Hydrator { inner }: Hydrator) -> Self {
-        View { inner }
+        inner
     }
 }
 

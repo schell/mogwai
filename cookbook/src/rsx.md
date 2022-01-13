@@ -12,12 +12,12 @@ This funny tag syntax is neither a string nor HTML - it is a [`ViewBuilder<Dom>`
 The macro `builder!` is using RSX, which is a "**R**ust **S**yntax E**x**tension".
 Similarly there is a `view!` macro that creates [`View<Dom>`][structview].
 
-```rust, no_run
+```rust
 # use mogwai::prelude::*;
 let my_builder: ViewBuilder<Dom> = builder!{ <h1>"Hello, world!"</h1> };
-let my_view: View<Dom> = view!{ <h1>"Hello, world!"</h1> };
+let my_view: Dom = view!{ <h1>"Hello, world!"</h1> };
 
-let my_identical_view: View<Dom> = View::try_from(my_builder).unwrap();
+let my_identical_view: Dom = my_builder.build().unwrap();
 ```
 
 We recommend using these macros in mogwai to describe the DOM nodes used by your

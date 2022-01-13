@@ -4,8 +4,7 @@ use crate::{
     component::{Component, ElmComponent},
     event::{EventTargetType, Eventable},
     patch::{HashPatch, ListPatch},
-    target::{PostBuild, Sendable, Sinkable, Spawnable, Streamable, Streaming},
-    view::View,
+    target::{PostBuild, Sendable, Sinkable, Streamable, Streaming},
 };
 use futures::{Stream, StreamExt};
 use std::{
@@ -165,7 +164,6 @@ impl<T: Sendable, S, L, V> From<ElmComponent<T, S, L, V>> for AppendArg<T>
 where
     V: Clone,
     L: Clone,
-    T: TryBuild,
 {
     fn from(c: ElmComponent<T, S, L, V>) -> Self {
         let c: Component<T> = c.into();
@@ -487,13 +485,6 @@ where
     }
 }
 
-impl<T: TryBuild> ViewBuilder<T> {
-    /// Attempt to build the view given a domain resource.
-    pub async fn try_build(self, resource: T::Resource) -> Result<View<T>, T::Error> {
-        T::try_from_builder(self, resource).await
-    }
-}
-
 impl<C: 'static> From<ViewBuilder<C>> for DecomposedViewBuilder<C> {
     fn from(
         ViewBuilder {
@@ -528,31 +519,5 @@ impl<C: 'static> From<ViewBuilder<C>> for DecomposedViewBuilder<C> {
             child_stream,
             ops,
         }
-    }
-}
-
-/// Like an asynchronous `TryFrom` but also provides a domain specific resource to help build
-/// views.
-pub trait TryBuild: Sized + 'static
-where
-    Self::Resource: Sendable,
-{
-    type Resource;
-
-    type Error;
-
-    fn try_build(
-        builder: DecomposedViewBuilder<Self>,
-        resource: Self::Resource,
-    ) -> Pin<Box<dyn Spawnable<Result<View<Self>, Self::Error>>>>;
-
-    fn try_from_builder(
-        builder: ViewBuilder<Self>,
-        resource: Self::Resource,
-    ) -> Pin<Box<dyn Spawnable<Result<View<Self>, Self::Error>>>> {
-        Box::pin(async move {
-            let dbuilder = DecomposedViewBuilder::from(builder);
-            Self::try_build(dbuilder, resource).await
-        })
     }
 }

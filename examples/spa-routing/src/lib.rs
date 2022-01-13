@@ -244,7 +244,7 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
         let (tx_route_patch, rx_route_patch) = mpsc::bounded(1);
         let component = Component::from(view(&route, tx_logic, rx_view, rx_route_patch))
             .with_logic(logic(route, rx_logic, tx_view, tx_route_patch));
-        let view = component.build(()).await.unwrap().into_inner();
+        let view = component.build().unwrap();
 
         if let Some(id) = parent_id {
             let parent = mogwai::dom::utils::document()

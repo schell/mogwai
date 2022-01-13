@@ -7,11 +7,12 @@ use std::{
 use wasm_bindgen::{JsCast, JsValue};
 
 use mogwai_core::{
-    builder::{DecomposedViewBuilder, TryBuild, ViewBuilder},
+    builder::{DecomposedViewBuilder, ViewBuilder},
+    component::Component,
     event::{EventTargetType, Eventable},
     patch::{HashPatch, ListPatch},
-    target::{Sinkable, Sinking, Spawnable},
-    view::View,
+    relay::Relay,
+    target::{Sinkable, Sinking},
 };
 
 pub use futures::future::Either;
@@ -52,6 +53,74 @@ impl<A, B> EitherExt for Either<A, B> {
     }
 }
 
+/// An extension trait that allows mogwai-core types to construct `Dom`.
+pub trait DomBuilderExt {
+    fn build(self) -> anyhow::Result<Dom>;
+}
+
+/// A [`ViewBuilder<Dom>`] can be built into a `Dom` by first being decomposed
+/// into [`DecomposedViewBuilder<Dom>`], creating an element, setting all initial
+/// and streaming values on the element and then returning the element.
+impl DomBuilderExt for ViewBuilder<Dom> {
+    fn build(self) -> anyhow::Result<Dom> {
+        let DecomposedViewBuilder {
+            construct_with,
+            ns,
+            texts,
+            text_stream,
+            attribs,
+            attrib_stream,
+            bool_attribs,
+            bool_attrib_stream,
+            styles,
+            style_stream,
+            children,
+            child_stream,
+            ops,
+        } = self.into();
+        let mut el: Dom = if !texts.is_empty() || construct_with.is_empty() {
+            let node = Dom::text("").map_err(|e| anyhow::anyhow!("{}", e))?;
+            node
+        } else {
+            Dom::element(&construct_with, ns.as_deref()).map_err(|e| anyhow::anyhow!("{}", e))?
+        };
+
+        crate::builder::set_initial_values(
+            &el,
+            texts.into_iter(),
+            attribs.into_iter(),
+            bool_attribs.into_iter(),
+            styles.into_iter(),
+            children.into_iter(),
+        )?;
+        crate::builder::set_streaming_values(
+            &el,
+            text_stream,
+            attrib_stream,
+            bool_attrib_stream,
+            style_stream,
+            child_stream,
+        )
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        for op in ops.into_iter() {
+            (op)(&mut el);
+        }
+
+        Ok(el)
+    }
+}
+
+/// A [`Component<Dom>`] can be built into `Dom` by first successfully building its
+/// `builder` and then spawning its async logic.
+impl DomBuilderExt for Component<Dom> {
+    fn build(self) -> anyhow::Result<Dom> {
+        let dom = self.builder.build()?;
+        mogwai_core::target::spawn(self.logic);
+        Ok(dom)
+    }
+}
+
 impl Eventable for Dom {
     type Event = DomEvent;
 
@@ -82,7 +151,7 @@ impl Dom {
     /// ## Panics
     /// Panics if run on any target but wasm32 or if self cannot be cast as
     /// `T`
-    pub fn unwrap_js<T:JsCast>(self) -> T {
+    pub fn unwrap_js<T: JsCast>(self) -> T {
         self.clone_as::<T>().unwrap()
     }
 
@@ -106,7 +175,9 @@ impl Dom {
     /// Run this view in a parent container forever, never dropping it.
     pub fn run_in_container(self, container: &Dom) -> Result<(), anyhow::Error> {
         let patch = ListPatch::push(self);
-        container.patch_children(patch).map_err(|e| anyhow::anyhow!("{}", e))
+        container
+            .patch_children(patch)
+            .map_err(|e| anyhow::anyhow!("{}", e))
     }
 
     /// Run this gizmo in the document body forever, never dropping it.
@@ -173,6 +244,17 @@ fn list_patch_apply_node(
         }
     }
     removed
+}
+
+/// Any type that implements [`Relay<Dom>`] can be built into `Dom`.
+impl<T> DomBuilderExt for T
+where
+    T: Relay<Dom>,
+{
+    fn build(self) -> anyhow::Result<Dom> {
+        self.into_component()
+            .build()
+    }
 }
 
 /// A DOM node.
@@ -521,16 +603,11 @@ impl Dom {
     /// Builds and patches nodes asynchronously.
     ///
     /// Fails if this is not a container element or if the patch fails.
-    pub async fn build_and_patch_children(
+    pub fn build_and_patch_children(
         &self,
         patch: ListPatch<ViewBuilder<Self>>,
     ) -> Result<(), anyhow::Error> {
-        let patch = patch
-            .map_future(|builder| async move {
-                let view: View<Dom> = Dom::try_from_builder(builder, ()).await.unwrap();
-                view.into_inner()
-            })
-            .await;
+        let patch = patch.map(|builder: ViewBuilder<Dom>| -> Dom { builder.build().unwrap() });
         self.patch_children(patch)
             .map_err(|_| anyhow::anyhow!("could not build and patch"))
     }
@@ -564,7 +641,7 @@ impl Dom {
     /// ## Panics
     /// Panics if run on any target besides wasm32, or if self cannot be cast
     /// as `T`.
-    pub fn visit_js<T:JsCast, A>(&self, f: impl FnOnce(T) -> A) -> A {
+    pub fn visit_js<T: JsCast, A>(&self, f: impl FnOnce(T) -> A) -> A {
         let t = self.clone_as::<T>().unwrap();
         f(t)
     }
@@ -587,66 +664,6 @@ impl Dom {
             }
             Either::Right(ssr) => ssr.get_attrib(key),
         }
-    }
-}
-
-impl TryBuild for Dom {
-    type Resource = ();
-    type Error = anyhow::Error;
-
-    fn try_build(
-        dbuilder: DecomposedViewBuilder<Dom>,
-        _: (),
-    ) -> Pin<Box<dyn Spawnable<Result<View<Dom>, Self::Error>>>> {
-        Box::pin(async move {
-            let DecomposedViewBuilder {
-                construct_with,
-                ns,
-                texts,
-                text_stream,
-                attribs,
-                attrib_stream,
-                bool_attribs,
-                bool_attrib_stream,
-                styles,
-                style_stream,
-                children,
-                child_stream,
-                ops,
-            } = dbuilder;
-            let mut el: Dom = if !texts.is_empty() || construct_with.is_empty() {
-                let node = Dom::text("").map_err(|e| anyhow::anyhow!("{}", e))?;
-                node
-            } else {
-                Dom::element(&construct_with, ns.as_deref())
-                    .map_err(|e| anyhow::anyhow!("{}", e))?
-            };
-
-            crate::builder::set_initial_values(
-                &el,
-                texts.into_iter(),
-                attribs.into_iter(),
-                bool_attribs.into_iter(),
-                styles.into_iter(),
-                children.into_iter(),
-            )
-            .await?;
-            crate::builder::set_streaming_values(
-                &el,
-                text_stream,
-                attrib_stream,
-                bool_attrib_stream,
-                style_stream,
-                child_stream,
-            )
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
-
-            for op in ops.into_iter() {
-                (op)(&mut el);
-            }
-
-            Ok(View { inner: el })
-        })
     }
 }
 

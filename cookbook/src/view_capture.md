@@ -20,8 +20,7 @@ smol::block_on(async {
 
     let div: Dom = Component::from(builder)
         .build()
-        .unwrap()
-        .into_inner();
+        .unwrap();
 
     let _button:Dom = rx.next().await.unwrap();
 

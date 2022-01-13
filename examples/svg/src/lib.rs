@@ -32,7 +32,7 @@ pub fn main(parent_id: Option<String>) {
     console_log::init_with_level(Level::Trace).unwrap();
 
     mogwai::spawn(async {
-        let View{ inner: dom } = Dom::try_from_builder(my_circle(), ()).await?;
+        let dom = my_circle().build().unwrap();
 
         if let Some(id) = parent_id {
             let parent = mogwai::dom::utils::document()

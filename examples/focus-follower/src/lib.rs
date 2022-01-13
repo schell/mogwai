@@ -46,7 +46,7 @@ impl FocusedOn {
 }
 
 async fn editor_component() -> Component<Dom> {
-    let text_ops = TextOps::component().build(()).await.unwrap();
+    let text_ops = TextOps::component().build().unwrap();
     let (tx_logic, mut rx_logic) = broadcast::bounded::<FocusedOn>(1);
 
     Component::from(
@@ -70,7 +70,7 @@ async fn editor_component() -> Component<Dom> {
             match rx_logic.next().await {
                 Some(FocusedOn(dom)) => {
                     if let Some(focused_node) = dom.clone_as::<HtmlElement>() {
-                        if let Some(text_ops_node) = text_ops.inner.clone_as::<Node>() {
+                        if let Some(text_ops_node) = text_ops.clone_as::<Node>() {
                             focused_node.prepend_with_node_1(&text_ops_node).unwrap();
                         }
                     }
@@ -87,15 +87,15 @@ pub fn main(parent_id: Option<String>) {
     console_log::init_with_level(Level::Trace).unwrap();
 
     mogwai::spawn(async {
-        let editor_view = editor_component().await.build(()).await.unwrap();
+        let editor_view = editor_component().await.build().unwrap();
         if let Some(id) = parent_id {
             let parent = mogwai::dom::utils::document()
                 .visit_js(|doc: web_sys::Document| doc.get_element_by_id(&id))
                 .map(Dom::wrap_js)
                 .unwrap();
-            editor_view.into_inner().run_in_container(&parent)
+            editor_view.run_in_container(&parent)
         } else {
-            editor_view.into_inner().run()
+            editor_view.run()
         }
     });
 }

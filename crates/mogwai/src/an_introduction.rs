@@ -67,7 +67,8 @@
 //!   };
 //! ```
 //!
-//! [`ViewBuilder`] can be converted into [`View`]:
+//! [`ViewBuilder`] can be converted into a domain specific view.
+//! Here we're creating `Dom` from `mogwai-dom` for use in the browser:
 //!
 //! ```rust
 //! use::mogwai::prelude::*;
@@ -80,7 +81,7 @@
 //!         </a>
 //!     </div>
 //!   );
-//! let view: View<Dom> = View::try_from(my_div).unwrap();
+//! let view: Dom = my_div.build().unwrap();
 //!
 //! let html: String = smol::block_on(async { view.html_string().await });
 //! assert_eq!(
@@ -100,13 +101,12 @@
 //! </div>
 //! ```
 //!
-//! A [`View`] is just a dumb wrapper around a domain-specific inner view type. In this
-//! case that's [`mogwai_dom::view::Dom`]. The inner view type is what is responsible for
-//! view mutation. [`View`] is `Deref` and `DerefMut` with the target being its inner type.
+//! A view is a domain-specific view type. In this case that's
+//! [`mogwai_dom::view::Dom`]. It's responsible for view mutation.
 //!
 //! ### Appending a built view to the DOM
 //!
-//! To append a `Dom` to the DOM's `document.body` we can use [`Dom::run`]:
+//! To append a `Dom` to the `document.body` we can use [`Dom::run`]:
 //!
 //! ```rust, no_run
 //! use::mogwai::prelude::*;
@@ -118,7 +118,7 @@
 //!         </a>
 //!     </div>
 //!   );
-//! let View{ inner: dom }: View<Dom> = View::try_from(my_div).unwrap();
+//! let dom: Dom = my_div.build().unwrap();
 //! dom.run().unwrap();
 //! ```
 //!
@@ -130,8 +130,8 @@
 //!
 //! ### Dynamic views
 //!
-//! [`View`]s can be static like the one above but more often they change over time.
-//! [`View`]s get their dynamic values from streams.
+//! A view may be static like the one above but more often they change over time.
+//! Views get their dynamic values from streams:
 //!
 //! ```rust
 //! use::mogwai::prelude::*;

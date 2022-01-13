@@ -27,7 +27,7 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
             </button>
         };
 
-        let view = Dom::try_from_builder(bldr, ()).await.unwrap().into_inner();
+        let view = bldr.build().unwrap();
         if let Some(id) = parent_id {
             let parent = mogwai::dom::utils::document()
                 .visit_js(|t: web_sys::Document| t.get_element_by_id(&id))

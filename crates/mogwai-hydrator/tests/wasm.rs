@@ -15,8 +15,8 @@ async fn can_hydrate_view() {
     let container = view! {
         <div id="hydrator1"></div>
     };
-    let container_el: HtmlElement = container.inner.clone_as::<HtmlElement>().unwrap();
-    container.into_inner().run().unwrap();
+    let container_el: HtmlElement = container.clone_as::<HtmlElement>().unwrap();
+    container.run().unwrap();
     container_el.set_inner_html(r#"<div id="my_div"><p>inner text</p></div>"#);
     assert_eq!(
         container_el.inner_html().as_str(),
@@ -34,7 +34,7 @@ async fn can_hydrate_view() {
     let hydrator = Hydrator::try_from(builder)
         .map_err(|e| panic!("{:#?}", e))
         .unwrap();
-    let _hydrated_view: View<Dom> = View::from(hydrator);
+    let _hydrated_view: Dom = Dom::from(hydrator);
     log::info!("hydrated");
 
     tx_class.send("new_class".to_string()).await.unwrap();

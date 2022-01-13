@@ -5,9 +5,8 @@ use mogwai::{
         patch::HashPatch,
         target::Streamable,
     },
-    dom::view::Dom,
+    dom::view::{Dom, DomBuilderExt},
     macros::{builder, view},
-    prelude::TryBuild,
 };
 
 #[test]
@@ -80,8 +79,8 @@ async fn by_hand() {
         .with_child(ViewBuilder::text("a text node"));
     assert_eq!(
         r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#,
-        Dom::try_from_builder(builder, ())
-            .await
+        builder
+            .build()
             .unwrap()
             .html_string()
             .await

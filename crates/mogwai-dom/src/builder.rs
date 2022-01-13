@@ -8,7 +8,7 @@ use mogwai_core::{builder::{
 use crate::view::Dom;
 
 /// Set all the initial values of a Dom node.
-pub async fn set_initial_values(
+pub fn set_initial_values(
     dom: &Dom,
     texts: impl Iterator<Item = String>,
     attribs: impl Iterator<Item = HashPatch<String, String>>,
@@ -33,7 +33,7 @@ pub async fn set_initial_values(
     }
 
     for patch in children {
-        dom.build_and_patch_children(patch).await?;
+        dom.build_and_patch_children(patch)?;
     }
 
     Ok(())
@@ -79,7 +79,7 @@ pub fn set_streaming_values(
     let parent_node = node.clone();
     spawn(async move {
         while let Some(patch) = child_stream.next().await {
-            let _ = parent_node.build_and_patch_children(patch).await;
+            let _ = parent_node.build_and_patch_children(patch);
         }
     });
 

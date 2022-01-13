@@ -137,17 +137,16 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// This is the same as the following:
 /// ```rust
 /// # use mogwai::prelude::*;
-/// let my_div = builder! {
+/// let my_view = builder! {
 ///     <div cast:type=Dom id="main">
 ///         <p>"Trolls are real"</p>
 ///     </div>
-/// };
-/// TryBuild::try_from_builder(my_div, Default::default()).await.unwrap()
+/// }.build().unwrap();
 /// ```
 pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let builder: proc_macro2::TokenStream = builder(input).into();
     let token = quote! {{
-        mogwai::core::builder::TryBuild::try_from_builder(#builder, Default::default()).await.unwrap()
+        {#builder}.build().unwrap()
     }};
     proc_macro::TokenStream::from(token)
 }

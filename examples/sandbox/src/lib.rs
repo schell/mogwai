@@ -211,18 +211,18 @@ pub fn main() {
         // Put it all in a parent view and run it right now
         let root = view! {
             <div>
-            {h1}
-            {btn}
-            // Since Button can be converted into ViewBuilder<Dom>, we can plug
-            // it right into the DOM tree
-            {relay_button::Button::default()}
-            <br />
+                {h1}
+                {btn}
+                // Since Button can be converted into ViewBuilder<Dom>, we can plug
+                // it right into the DOM tree
+                {relay_button::Button::default()}
                 <br />
-            {req}
-            {counter}
+                    <br />
+                {req}
+                {counter}
             </div>
         };
-        root.into_inner().run().unwrap_throw();
+        root.run().unwrap_throw();
 
         // Here we'll start a hydration-by-hand experiment.
         let body: Dom = utils::body();
@@ -288,11 +288,9 @@ pub fn main() {
 
         {
             let hydrator = Hydrator::try_from(component).unwrap();
-            let view = View::from(hydrator);
             // Since this view is already attached, we don't have to `run` it.
-            // Instead we can convert it to its inner type to keep it from detaching
-            // on drop, and then forget about it.
-            let _ = view.into_inner();
+            // Instead we can forget about it.
+            let _ = Dom::from(hydrator);
         };
 
         // Pump the hydrated widget a few times.
