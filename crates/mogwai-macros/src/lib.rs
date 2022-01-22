@@ -92,7 +92,10 @@ fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::T
         }),
     }
 }
-
+#[deprecated(
+    since = "0.6",
+    note = "Use `html` or convert to `rsx` instead"
+)]
 #[proc_macro]
 /// Uses an html description to construct a `ViewBuilder`.
 ///
@@ -104,6 +107,20 @@ fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::T
 /// };
 /// ```
 pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    html(input)
+}
+
+#[proc_macro]
+/// Uses an html description to construct a `ViewBuilder`.
+///
+/// ```rust
+/// let my_div = mogwai::macros::html! {
+///     <div cast:type=mogwai::dom::view::Dom id="main">
+///         <p>"Trolls are real"</p>
+///     </div>
+/// };
+/// ```
+pub fn html(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     rsx::parse_with(input, rsx::parse_html)
 }
 
@@ -121,6 +138,10 @@ pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     rsx::parse_with(input, rsx::parse_fn)
 }
 
+#[deprecated(
+    since = "0.6",
+    note = "Use `builder!{...}.build().unwrap()` instead"
+)]
 #[proc_macro]
 /// Uses an html description to construct a `View`.
 ///

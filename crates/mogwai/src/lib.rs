@@ -30,7 +30,7 @@ pub use mogwai_core::target::spawn;
 
 pub mod macros {
     //! Rexexport of `mogwai-macros`. RSX style macros for building views.
-    pub use mogwai_macros::{builder, rsx, view};
+    pub use mogwai_macros::{builder, html, rsx, view};
 }
 
 #[cfg(doctest)]
