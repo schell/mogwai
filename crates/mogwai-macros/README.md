@@ -1,4 +1,4 @@
-# mogwai-html-macro
+# mogwai-macros
 Provides procedural macros `builder!` and `view!`, which allow the use of RSX
 to declare mogwai views.
 

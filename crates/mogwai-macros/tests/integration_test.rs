@@ -6,7 +6,7 @@ use mogwai::{
         target::Streamable,
     },
     dom::view::{Dom, DomBuilderExt},
-    macros::{builder, view},
+    macros::{builder, view, rsx},
 };
 
 #[test]
@@ -79,11 +79,7 @@ async fn by_hand() {
         .with_child(ViewBuilder::text("a text node"));
     assert_eq!(
         r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#,
-        builder
-            .build()
-            .unwrap()
-            .html_string()
-            .await
+        builder.build().unwrap().html_string().await
     );
 }
 
@@ -196,15 +192,15 @@ fn signed_in_view_builder(
                 <a class=home_class href="#/">" Home"</a>
             </li>
             <li class="nav-item">
-            <a class=editor_class href="#/editor">
-                <i class="ion-compose"></i>
-                " New Post"
+                <a class=editor_class href="#/editor">
+                    <i class="ion-compose"></i>
+                    " New Post"
                 </a>
             </li>
             <li class="nav-item">
-            <a class=settings_class href="#/settings">
-                <i class="ion-gear-a"></i>
-                " Settings"
+                <a class=settings_class href="#/settings">
+                    <i class="ion-gear-a"></i>
+                    " Settings"
                 </a>
             </li>
             <li class="nav-item">
@@ -239,4 +235,70 @@ pub fn struct_view_macro_source() {
         remote_facade.set_bg_color("red").await.unwrap();
         let _event: DomEvent = remote_facade.get_click().await.unwrap();
     });
+}
+
+#[test]
+pub fn function_style_rsx() {
+    fn _signed_in_view_builder(
+        user: &User,
+        home_class: impl Streamable<String>,
+        editor_class: impl Streamable<String>,
+        settings_class: impl Streamable<String>,
+        profile_class: impl Streamable<String>,
+    ) -> ViewBuilder<Dom> {
+        let o_image: Option<ViewBuilder<Dom>> = user
+            .o_image
+            .as_ref()
+            .map(|image| {
+                if image.is_empty() {
+                    None
+                } else {
+                    Some(builder! { <img class="user-pic" src=image /> })
+                }
+            })
+            .flatten();
+
+        rsx! {
+            ul(class="nav navbar-nav pull-xs-right") {
+                li(class="nav-item") {
+                    a(class=home_class, href="#/"){ " Home" }
+                }
+                li(class="nav-item") {
+                    a(class=editor_class, href="#/editor") {
+                        i(class="ion-compose") {
+                            " New Post"
+                        }
+                    }
+                }
+                li(class="nav-item") {
+                    a(class=settings_class, href="#/settings") {
+                        i(class="ion-gear-a"){
+                            " Settings"
+                        }
+                    }
+                }
+                li(class="nav-item") {
+                    a(class=profile_class, href=format!("#/profile/{}", user.username)) {
+                        {o_image}
+                        {format!(" {}", user.username)}
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[smol_potat::test]
+async fn rsx_same_as_html() {
+    let html = builder! {
+        <p><div class="my_class">"Hello"</div></p>
+    }.build().unwrap();
+    let html_string = html.html_string().await;
+
+    let rsx = rsx! {
+        p{ div(class="my_class"){ "Hello" }}
+    }.build().unwrap();
+    let rsx_string = rsx.html_string().await;
+
+    assert_eq!(html_string, rsx_string, "rsx and html to not agree");
 }

@@ -1,6 +1,6 @@
 use mogwai::prelude::*;
-use web_sys::{HtmlInputElement, KeyboardEvent};
 use wasm_bindgen::JsCast;
+use web_sys::{HtmlInputElement, KeyboardEvent};
 
 use super::{utils, FilterShow};
 
@@ -132,7 +132,7 @@ impl Todo {
                 index,
                 tx_logic,
                 rx_changed_completion,
-                rx_removed
+                rx_removed,
             },
             view_builder,
         )
@@ -266,7 +266,7 @@ async fn logic(
                 .await
                 .unwrap();
             }
-        // ANCHOR_END: facade_logic_loop
+            // ANCHOR_END: facade_logic_loop
             ItemLogic::SetFilterShow(show, mut tx) => {
                 let is_done = toggle_input
                     .visit_as(|i: &HtmlInputElement| i.checked(), |_| false)
@@ -288,10 +288,7 @@ async fn logic(
                     .broadcast(ItemView::UpdateEditComplete(is_editing, is_done))
                     .await
                     .unwrap();
-                tx_changed_completion
-                    .broadcast(is_done)
-                    .await
-                    .unwrap();
+                tx_changed_completion.broadcast(is_done).await.unwrap();
             }
             ItemLogic::SetCompletion(completed) => {
                 toggle_input.visit_as(|i: &HtmlInputElement| i.set_checked(completed), |_| ());
@@ -345,10 +342,7 @@ async fn logic(
                     .broadcast(ItemView::UpdateEditComplete(is_editing, is_done))
                     .await
                     .unwrap();
-                tx_changed_completion
-                    .broadcast(is_done)
-                    .await
-                    .unwrap();
+                tx_changed_completion.broadcast(is_done).await.unwrap();
             }
             ItemLogic::Remove => {
                 // The todo sends a message to the parent App to be removed.
@@ -365,8 +359,9 @@ fn view(
     tx: broadcast::Sender<ItemLogic>,
     rx: broadcast::Receiver<ItemView>,
 ) -> ViewBuilder<Dom> {
-    builder! {
-        <li class=rx.clone().filter_map(|msg| async move {msg.as_list_class()})
+    rsx! {
+        li(
+            class=rx.clone().filter_map(|msg| async move {msg.as_list_class()}),
             style:display=(
                 "block",
                 rx.clone().filter_map(|msg| async move {
@@ -377,13 +372,18 @@ fn view(
                         _ => None,
                     }
                 })
-            )>
-            <div class="view">
-                <input class="toggle" type="checkbox" style:cursor="pointer"
-                 capture:view= send_completion_toggle_input
-                 on:click=tx.clone().contra_map(|_| ItemLogic::ToggleCompletion)
-                />
-                <label on:dblclick=tx.clone().contra_map(|_| ItemLogic::StartEditing)>
+            )
+        ) {
+            div(class="view") {
+                input(
+                    class="toggle",
+                    type="checkbox",
+                    style:cursor="pointer",
+                    capture:view=send_completion_toggle_input,
+                    on:click=tx.clone().contra_map(|_| ItemLogic::ToggleCompletion)
+                ){}
+
+                label(on:dblclick = tx.clone().contra_map(|_| ItemLogic::StartEditing)) {
                     {(
                         name,
                         rx.filter_map(|msg| async move {
@@ -393,32 +393,35 @@ fn view(
                             }
                         })
                     )}
-                </label>
-                <button
-                    class="destroy"
-                    style="cursor: pointer;"
-                    on:click=tx.clone().contra_map(|_| ItemLogic::Remove) />
-            </div>
-            <input
-             class="edit"
-             capture:view=send_edit_input
-             on:blur=tx.clone().contra_map(|_| ItemLogic::StopEditing(EditEvent::Blur))
-             on:keyup=tx.clone().contra_filter_map(|ev: DomEvent| {
-                 // Get the browser event or filter on non-wasm targets.
-                 let ev = ev.browser_event()?;
-                 // This came from a key event
-                 let kev = ev.unchecked_ref::<KeyboardEvent>();
-                 let key = kev.key();
-                 let cmd = if key == "Enter" {
-                     Some(EditEvent::Enter)
-                 } else if key == "Escape" {
-                     Some(EditEvent::Escape)
-                 } else {
-                     None //EditEvent::OtherKeydown
-                 };
-                 cmd.map(|cmd| ItemLogic::StopEditing(cmd))
-             })
-             />
-        </li>
+                }
+
+                button(
+                    class="destroy",
+                    style="cursor: pointer;",
+                    on:click=tx.clone().contra_map(|_| ItemLogic::Remove),
+                ){}
+            }
+
+            input(
+                class="edit",
+                capture:view=send_edit_input,
+                on:blur=tx.clone().contra_map(|_| ItemLogic::StopEditing(EditEvent::Blur)),
+                on:keyup=tx.clone().contra_filter_map(|ev: DomEvent| {
+                    // Get the browser event or filter on non-wasm targets.
+                    let ev = ev.browser_event()?;
+                    // This came from a key event
+                    let kev = ev.unchecked_ref::<KeyboardEvent>();
+                    let key = kev.key();
+                    let cmd = if key == "Enter" {
+                        Some(EditEvent::Enter)
+                    } else if key == "Escape" {
+                        Some(EditEvent::Escape)
+                    } else {
+                        None //EditEvent::OtherKeydown
+                    };
+                    cmd.map(|cmd| ItemLogic::StopEditing(cmd))
+                }),
+            ){}
+        }
     }
 }

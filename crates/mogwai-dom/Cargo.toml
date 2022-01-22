@@ -15,7 +15,7 @@ categories = ["gui", "wasm", "web-programming"]
 [dependencies]
 anyhow = "^1.0"
 mogwai-core = { version = "^0.1", path = "../mogwai-core" }
-mogwai-html-macro = { version = "^0.3", path = "../mogwai-html-macro" }
+mogwai-macros = { version = "^0.3", path = "../mogwai-macros" }
 futures = "^0.3"
 log = "^0.4"
 serde = { version = "^1.0", features = ["derive"] }

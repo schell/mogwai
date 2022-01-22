@@ -29,8 +29,8 @@ pub mod dom {
 pub use mogwai_core::target::spawn;
 
 pub mod macros {
-    //! Rexexport of `mogwai-html-macros`. RSX style macros for building DOM views.
-    pub use mogwai_html_macro::{builder, view};
+    //! Rexexport of `mogwai-macros`. RSX style macros for building views.
+    pub use mogwai_macros::{builder, rsx, view};
 }
 
 #[cfg(doctest)]

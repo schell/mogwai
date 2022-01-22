@@ -180,7 +180,7 @@ an empty node is created.
 Below we display a user's image if they have one:
 
 ```rust, ignore, no_run
-{{#include ../../crates/mogwai-html-macro/tests/integration_test.rs:113:162}}
+{{#include ../../crates/mogwai-macros/tests/integration_test.rs:113:162}}
 ```
 
 ## Including fragments

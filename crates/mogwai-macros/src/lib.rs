@@ -1,6 +1,4 @@
 //! RSX for building mogwai::core DOM nodes.
-use std::convert::TryFrom;
-
 use quote::quote;
 use syn::Error;
 
@@ -8,6 +6,7 @@ mod tokens;
 use tokens::{AttributeToken, ViewToken};
 
 mod relay;
+mod rsx;
 
 fn partition_unzip<S, T, F>(items: impl Iterator<Item = S>, f: F) -> (Vec<T>, Vec<Error>)
 where
@@ -105,30 +104,21 @@ fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::T
 /// };
 /// ```
 pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let tokens = match syn_rsx::parse(input) {
-        Ok(parsed) => {
-            let (view_tokens, errs) = partition_unzip(parsed.into_iter(), ViewToken::try_from);
-            if let Some(error) = combine_errors(errs) {
-                return error.to_compile_error().into();
-            }
-            let (tokens, errs) = partition_unzip(view_tokens.iter(), node_to_builder_token_stream);
-            if let Some(error) = combine_errors(errs) {
-                return error.to_compile_error().into();
-            }
+    rsx::parse_with(input, rsx::parse_html)
+}
 
-            match tokens.len() {
-                0 => quote! { compile_error("dom/hydrate macro must not be empty") },
-                1 => {
-                    let ts = &tokens[0];
-                    quote! { #ts }
-                }
-                _ => quote! { vec![#(#tokens),*] },
-            }
-        }
-        Err(error) => error.to_compile_error(),
-    };
-
-    proc_macro::TokenStream::from(tokens)
+#[proc_macro]
+/// Uses a function-style description to construct a `ViewBuilder`.
+///
+/// ```rust
+/// let my_div = mogwai::macros::rsx! {
+///     div(cast:type=mogwai::dom::view::Dom, id="main") {
+///         p() {"Trolls are real"}
+///     }
+/// };
+/// ```
+pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    rsx::parse_with(input, rsx::parse_fn)
 }
 
 #[proc_macro]

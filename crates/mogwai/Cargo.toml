@@ -13,12 +13,12 @@ categories = ["gui", "asynchronous", "widgets"]
 
 [features]
 default = ["dom"]
-dom = ["mogwai-dom", "mogwai-html-macro/dom"]
+dom = ["mogwai-dom", "mogwai-macros/dom"]
 
 [dependencies]
 mogwai-core = { path = "../mogwai-core", version = "^0.1" }
 mogwai-dom = { path = "../mogwai-dom", version = "^0.1", optional = true }
-mogwai-html-macro = { path = "../mogwai-html-macro", version = "^0.3" }
+mogwai-macros = { path = "../mogwai-macros", version = "^0.3" }
 
 [dev-dependencies]
 doc-comment = "^0.3"

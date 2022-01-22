@@ -15,7 +15,7 @@ pub use mogwai_core::{
     target::*,
     time::*,
 };
-pub use mogwai_html_macro::{builder, view};
+pub use mogwai_macros::{builder, rsx, view};
 
 #[cfg(feature = "dom")]
 pub use mogwai_dom::{event::*, view::*};

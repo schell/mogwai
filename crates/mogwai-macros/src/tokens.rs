@@ -3,11 +3,14 @@ use std::convert::TryFrom;
 
 use proc_macro2::Span;
 use quote::quote;
-use syn::Error;
+use syn::{
+    parse::Parse, punctuated::Punctuated, token, Error, Expr, Ident,
+    LitStr, Token,
+};
 use syn_rsx::{Node, NodeType};
 
-fn under_to_dash(s: &str) -> String {
-    s.replace("_", "-")
+fn under_to_dash(s: impl AsRef<str>) -> String {
+    s.as_ref().replace("_", "-")
 }
 
 #[derive(Clone, Debug)]
@@ -35,33 +38,8 @@ impl TryFrom<syn_rsx::Node> for AttributeToken {
         let span = node.name_span().unwrap_or(Span::call_site());
         if let Some(key) = node.name_as_string() {
             if let Some(expr) = node.value {
-                match key.split(':').collect::<Vec<_>>().as_slice() {
-                    ["cast", "type"] => Ok(AttributeToken::CastType(expr)),
-                    ["post", "build"] => Ok(AttributeToken::PostBuild(expr)),
-                    ["capture", "view"] => Ok(AttributeToken::CaptureView(expr)),
-                    ["xmlns"] => Ok(AttributeToken::Xmlns(expr)),
-                    ["style"] => Ok(AttributeToken::Style(expr)),
-                    ["style", name] => {
-                        let name = under_to_dash(name);
-                        Ok(AttributeToken::StyleSingle(name, expr))
-                    }
-                    ["on", event] => Ok(AttributeToken::On(event.to_string(), expr)),
-                    ["window", event] => Ok(AttributeToken::Window(event.to_string(), expr)),
-                    ["document", event] => Ok(AttributeToken::Document(event.to_string(), expr)),
-                    ["boolean", name] => {
-                        let name = under_to_dash(name);
-                        Ok(AttributeToken::BooleanSingle(name, expr))
-                    }
-                    ["patch", "children"] => Ok(AttributeToken::PatchChildren(expr)),
-                    [attribute_name] => {
-                        let name = under_to_dash(attribute_name);
-                        Ok(AttributeToken::Attrib(name, expr))
-                    }
-                    keys => {
-                        let name = under_to_dash(&keys.join(":"));
-                        Ok(AttributeToken::Attrib(name, expr))
-                    }
-                }
+                let keys = key.split(':').collect::<Vec<_>>();
+                Ok(AttributeToken::from_keys_expr_pair(&keys, expr))
             } else {
                 let name = under_to_dash(&key);
                 Ok(AttributeToken::BooleanTrue(name))
@@ -72,7 +50,64 @@ impl TryFrom<syn_rsx::Node> for AttributeToken {
     }
 }
 
+impl Parse for AttributeToken {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let mut keys: Vec<String> = vec![];
+        while !input.lookahead1().peek(Token![=]) && !input.is_empty() {
+            let key_segment = match input.parse::<Ident>() {
+                Ok(ident) => Ok(format!("{}", ident)),
+                Err(e1) => {
+                    if input.parse::<Token![type]>().is_ok() {
+                        Ok("type".to_string())
+                    } else {
+                        Err(e1)
+                    }
+                }
+            }?;
+            let _ = input.parse::<Option<Token![:]>>()?;
+            keys.push(key_segment);
+        }
+        if input.parse::<Token![=]>().is_ok() {
+            let expr = input.parse::<Expr>()?;
+            Ok(AttributeToken::from_keys_expr_pair(&keys, expr))
+        } else {
+            let key = under_to_dash(keys.join(":"));
+            Ok(AttributeToken::BooleanTrue(key))
+        }
+    }
+}
+
 impl AttributeToken {
+    pub fn from_keys_expr_pair(keys: &[impl AsRef<str>], expr: Expr) -> Self {
+        let ks = keys.iter().map(|s| s.as_ref()).collect::<Vec<_>>();
+        match ks.as_slice() {
+            ["cast", "type"] => AttributeToken::CastType(expr),
+            ["post", "build"] => AttributeToken::PostBuild(expr),
+            ["capture", "view"] => AttributeToken::CaptureView(expr),
+            ["xmlns"] => AttributeToken::Xmlns(expr),
+            ["style"] => AttributeToken::Style(expr),
+            ["style", name] => {
+                let name = under_to_dash(name);
+                AttributeToken::StyleSingle(name, expr)
+            }
+            ["on", event] => AttributeToken::On(event.to_string(), expr),
+            ["window", event] => AttributeToken::Window(event.to_string(), expr),
+            ["document", event] => AttributeToken::Document(event.to_string(), expr),
+            ["boolean", name] => {
+                let name = under_to_dash(name);
+                AttributeToken::BooleanSingle(name, expr)
+            }
+            ["patch", "children"] => AttributeToken::PatchChildren(expr),
+            [attribute_name] => {
+                let name = under_to_dash(attribute_name);
+                AttributeToken::Attrib(name, expr)
+            }
+            keys => {
+                let name = under_to_dash(&keys.join(":"));
+                AttributeToken::Attrib(name, expr)
+            }
+        }
+    }
     /// Attempt to create a token stream representing one link in a `ViewBuilder` chain.
     pub fn try_builder_token_stream(
         self: &AttributeToken,
@@ -131,6 +166,39 @@ pub enum ViewToken {
     },
     Text(syn::Expr),
     Block(syn::Expr),
+}
+
+impl Parse for ViewToken {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let lookahead = input.lookahead1();
+        if lookahead.peek(token::Brace) {
+            Ok(ViewToken::Block(input.parse::<syn::Expr>()?))
+        } else if lookahead.peek(LitStr) {
+            Ok(ViewToken::Text(input.parse::<syn::Expr>()?))
+        } else {
+            let tag: Ident = input.parse()?;
+            let attributes = if input.lookahead1().peek(token::Paren) {
+                let paren_content;
+                let _paren_token: token::Paren = syn::parenthesized!(paren_content in input);
+                let attrs: Punctuated<AttributeToken, Token![,]> =
+                    paren_content.parse_terminated(AttributeToken::parse)?;
+                attrs.into_iter().collect::<Vec<_>>()
+            } else {
+                vec![]
+            };
+
+            let brace_content;
+            let _brace: token::Brace = syn::braced!(brace_content in input);
+            let children: ViewTokens = brace_content.parse()?;
+
+            Ok(ViewToken::Element {
+                name: format!("{}", tag),
+                name_span: tag.span(),
+                attributes,
+                children: children.views,
+            })
+        }
+    }
 }
 
 impl TryFrom<Node> for ViewToken {
@@ -192,5 +260,21 @@ impl TryFrom<Node> for ViewToken {
                 "View node is missing a name.",
             )),
         }
+    }
+}
+
+/// A list of view tokens
+#[derive(Default)]
+pub struct ViewTokens {
+    pub views: Vec<ViewToken>,
+}
+
+impl Parse for ViewTokens {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let mut tokens: ViewTokens = ViewTokens::default();
+        while !input.is_empty() {
+            tokens.views.push(input.parse::<ViewToken>()?);
+        }
+        Ok(tokens)
     }
 }
