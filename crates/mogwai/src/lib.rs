@@ -12,7 +12,6 @@
 //! ## Learn more
 //! If you're new to Mogwai, check out the [introduction](an_introduction) module.
 pub mod an_introduction;
-pub mod prelude;
 
 pub mod core {
     //! Re-export of `mogwai-core`. Core types and traits.
@@ -32,6 +31,8 @@ pub mod macros {
     //! Rexexport of `mogwai-macros`. RSX style macros for building views.
     pub use mogwai_macros::{builder, html, rsx, view};
 }
+
+pub mod prelude;
 
 #[cfg(doctest)]
 doc_comment::doctest!("../../../README.md");
