@@ -11,13 +11,13 @@
 //!
 //! ### Sinks
 //! A [`Sink`] is something you can send values **into**, like the sending
-//! end of a channel. See [`mogwai::futures::SinkExt`] for info on the other
+//! end of a channel. See [`mogwai::core::futures::SinkExt`] for info on the other
 //! sink operations available.
 //!
 //! ### Streams
 //! A [`Stream`] is something you can get values **out of**, like the receiving
 //! end of a channel. True to its name, a `Stream` is a stream of values in time
-//! that may end at some point in the future. See [`mogwai::futures::StreamExt`]
+//! that may end at some point in the future. See [`mogwai::core::futures::StreamExt`]
 //! for info on the other stream operations available.
 //!
 //! ### Channels
@@ -27,11 +27,11 @@
 //!
 //! There are two types of channels bundled here:
 //!
-//! - [`mogwai::channel::broadcast`]
+//! - [`mogwai::core::channel::broadcast`]
 //!   This should be the channel you use most often. If you don't have a specific
 //!   reason not to, use this channel.
 //!
-//! - [`mogwai::channel::mpsc`]
+//! - [`mogwai::core::channel::mpsc`]
 //!   This is used to send patches of [`ViewBuilder`] (more on that later) and any
 //!   other type that does not have a `Clone` implementation.
 //!
@@ -47,40 +47,40 @@
 //! DOM views.
 //!
 //! Building DOM is one of the primary tasks of web development. With mogwai the
-//! quickest way to construct DOM nodes is by using the RSX macro [`builder`].
+//! quickest way to construct DOM nodes is by using the [`rsx`] or [`html`] macros.
 //!
-//! [`builder!`] and [`view!`] are flavors of mogwai's RSX that evaluate to
-//! [`ViewBuilder`] or [`View`] respectively. RSX is a lot like react.js's JSX,
-//! except that it uses type checked rust expressions.
+//! These macros are flavors of mogwai's RSX that evaluate to
+//! [`ViewBuilder`]. RSX is a lot like react.js's JSX, except that it uses type checked
+//! rust expressions.
 //!
-//! Most of the time you'll see the [`builder!`] macro used to create a [`ViewBuilder`]:
+//! Most of the time you'll see the [`rsx!`] macro used to create a [`ViewBuilder`]:
 //!
 //! ```rust
 //! use::mogwai::prelude::*;
 //!
-//! let my_div: ViewBuilder<Dom> = builder!{
-//!     <div class="my-div">
-//!         <a href="http://zyghost.com">
+//! let my_div: ViewBuilder<Dom> = rsx!{
+//!     div(class="my-div") {
+//!         a(href="http://zyghost.com") {
 //!             "Schellsan's website"
-//!         </a>
-//!     </div>
+//!         }
+//!     }
 //!   };
 //! ```
 //!
 //! [`ViewBuilder`] can be converted into a domain specific view.
-//! Here we're creating `Dom` from `mogwai-dom` for use in the browser:
+//! Here we're creating `mogwai_dom::view::Dom` for use in the browser:
 //!
 //! ```rust
 //! use::mogwai::prelude::*;
 //! use std::convert::TryFrom;
 //!
-//! let my_div: ViewBuilder<Dom> = builder!(
-//!     <div class="my-div">
-//!         <a href="http://zyghost.com">
+//! let my_div: ViewBuilder<Dom> = rsx!{
+//!     div(class="my-div") {
+//!         a(href="http://zyghost.com") {
 //!             "Schellsan's website"
-//!         </a>
-//!     </div>
-//!   );
+//!         }
+//!     }
+//!   };
 //! let view: Dom = my_div.build().unwrap();
 //!
 //! let html: String = smol::block_on(async { view.html_string().await });
@@ -111,18 +111,19 @@
 //! ```rust, no_run
 //! use::mogwai::prelude::*;
 //!
-//! let my_div: ViewBuilder<Dom> = builder!(
-//!     <div class="my-div">
-//!         <a href="http://zyghost.com">
+//! let my_div: ViewBuilder<Dom> = rsx!(
+//!     div(class="my-div") {
+//!         a(href="http://zyghost.com") {
 //!             "Schellsan's website"
-//!         </a>
-//!     </div>
-//!   );
+//!         }
+//!     }
+//! );
 //! let dom: Dom = my_div.build().unwrap();
 //! dom.run().unwrap();
 //! ```
 //!
-//! [`Dom::run`] consumes the view, *handing ownership to the browser window*.
+//! [`Dom::run`] consumes the view, attaching it to the `document.body` and
+//! *handing ownership to the browser window*.
 //!
 //! ### Detaching [`Dom`]
 //!
@@ -139,15 +140,15 @@
 //! smol::block_on(async {
 //!     let (mut tx, rx) = broadcast::bounded(1);
 //!
-//!     let my_view = view!{
-//!         <div class="my-div">
-//!             <a href="http://zyghost.com">
+//!     let my_view = rsx!{
+//!         div(class="my-div") {
+//!             a(href="http://zyghost.com") {
 //!                 // start with a value and update when a message
 //!                 // is received on rx.
 //!                 {("Schellsan's website", rx)}
-//!             </a>
-//!         </div>
-//!     };
+//!             }
+//!         }
+//!     }.build().unwrap();
 //!
 //!     tx.send("Gizmo's website".to_string()).await.unwrap();
 //! });
@@ -160,42 +161,51 @@
 //!
 //! let (tx, rx) = broadcast::bounded(1);
 //!
-//! let my_view = view!{
-//!     <div class="my-div">
-//!         <a href="#" on:click=tx.contra_map(|_: DomEvent| "Gizmo's website".to_string())>
+//! let my_view = rsx!{
+//!     div(class="my-div") {
+//!         a(href="#" on:click=tx.contra_map(|_: DomEvent| "Gizmo's website".to_string())) {
 //!             // start with a value and update when a message
 //!             // is received on rx.
 //!             {("Schellsan's website", rx)}
-//!         </a>
-//!     </div>
-//! };
+//!         }
+//!     }
+//! }.build().unwrap();
 //! ```
 //!
 //! The [`Contravariant`] trait provides a few useful functions for prefix-mapping sinks, which is used
-//! above. See [futures's module level documentation](super::futures) for more info on mapping, folding and
+//! above. See [futures's module level documentation](mogwai::core::futures) for more info on mapping, folding and
 //! combining `Sink`s and `Stream`s.
 //!
-//! ### Accessing the underlying raw node
+//! ### Built views
 //!
-//! [`Dom`] contains a reference to the raw DOM node, making it possible
-//! to manipulate the DOM by hand using Javascript FFI bindings and functions
+//! Building a [`ViewBuilder`] converts it into a view. Depending on the domain your app
+//! is built for this may be a wrapper around Javascript DOM nodes or possibly even graphical
+//! game widgets (to name a few possibilities). The way a [`ViewBuilder`] gets built depends
+//! on the specific library providing the domain specific view. For those library authors, the
+//! convention is to create a trait that extends [`ViewBuilder`] with a function
+//! `fn build(self) -> anyhow::Result<YourView>`, but that specific type signature does not always
+//! make sense for the domain and may vary.
+//!
+//! #### Dom views
+//! The most popular mogwai view is `Dom`. [`Dom`] contains a reference to the raw Javascript DOM node,
+//! making it possible to manipulate the DOM by hand using Javascript FFI bindings and functions
 //! provided by the great `web_sys` crate:
 //!
-//! ```rust, no_run
+//! ```rust
 //! use::mogwai::prelude::*;
 //!
 //! mogwai::spawn(async {
 //!     let (mut tx, rx) = broadcast::bounded(1);
 //!
-//!     let my_view = view!{
-//!         <div class="my-div">
-//!             <a href="http://zyghost.com">
+//!     let my_view: Dom = rsx!{
+//!         div(class="my-div") {
+//!             a(href="http://zyghost.com") {
 //!                 // start with a value and update when a message
 //!                 // is received on rx.
 //!                 {("Schellsan's website", rx)}
-//!             </a>
-//!         </div>
-//!     };
+//!             }
+//!         }
+//!     }.build().unwrap();
 //!     tx.send("Gizmo's website".into()).await.unwrap();
 //!
 //!     // only `Some` in the browser when compiled for wasm32
@@ -208,28 +218,26 @@
 //! });
 //! ```
 //!
-//! ### Components and more advanced widgets
+//! ### Relays, Components and more advanced widgets
 //!
-//! For anything but the simplest view, it is recommended you use the
-//! [`Component`] and [`ElmComponent`] structs to build your view components.
+//! #### Components
 //!
-//! In bigger applications we often have circular dependencies between buttons,
-//! fields and other interface elements. When these complex situations arise
-//! we compartmentalize concerns into [`Component`]s.
+//! A [`Component`] is a pairing of a [`ViewBuilder`] and asynchronous logic.
+//! [`Component`]s may be nested in a [`ViewBuilder`] to build up trees of widgets.
+//! Please see the module level documentation for more info.
 //!
-//! Other times we don't need a full component with its own logic and instead
-//! we simply require a [`ViewBuilder`].
+//! #### Relays
 //!
-//! ## JavaScript interoperability
-//! The library itself is a thin layer on top of the
-//! [web-sys](https://crates.io/crates/web-sys) crate which provides raw bindings
-//! to _tons_ of browser web APIs. Many of the DOM specific structs, enums and
-//! traits come from `web-sys`. Some of those types are re-exported by Mogwai's
-//! [prelude](../prelude). The most important trait to understand for the
-//! purposes of this introduction (and for writing web apps in Rust, in general)
-//! is the [`JsCast`](../prelude/trait.JsCast.html) trait. Its `dyn_into` and
-//! `dyn_ref` functions are the primary way to cast JavaScript values as specific
-//! types.
+//! In bigger applications we often have circular dependencies between various
+//! interface components. When these complex situations arise we compartmentalize concerns into
+//! [`Relay`]s.
+//!
+//! View relays are custom structs implementing the [`Relay`] trait that contain the inputs
+//! and outputs of your view. They can be converted into [`Component`]s and can be used to
+//! communicate and control your views. If used correctly a relay can greatly reduce the complexity
+//! of your application.
+//! Please see the module level documentation for more info.
+
 #[allow(unused_imports)]
 use super::prelude::*;
 #[allow(unused_imports)]

@@ -2,15 +2,27 @@
 #![allow(deprecated)]
 //! # Mogwai
 //!
-//! Mogwai is library for user interface development using Rust-to-Wasm
-//! compilation. Its goals are simple:
-//! * provide a declarative approach to creating and managing DOM nodes
+//! Mogwai is library for multi-domain user interface development using sinks and streams.
+//!
+//! Its goals are simple:
+//! * provide a declarative approach to creating and managing interface nodes, without
+//!   a bias towards a specific UI domain (ie web, games, desktop applications, mobile)
 //! * encapsulate component state and compose components easily
-//! * explicate DOM updates
+//! * explicate mutations and updates
 //! * feel snappy
 //!
 //! ## Learn more
 //! If you're new to Mogwai, check out the [introduction](an_introduction) module.
+//!
+//! ## Acronyms
+//! If you're wondering what the acronym "mogwai" stands for, here is a table of
+//! options that work well, depending on the domain. It's fun to mix and match.
+//!
+//! | M           | O         | G           | W      | A             | I            |
+//! |-------------|-----------|-------------|--------|---------------|--------------|
+//! | minimal     | obvious   | graphical   | web    | application   | interface    |
+//! | modular     | operable  | graphable   | widget |               |              |
+//! | mostly      |           | gui         | work   |               |              |
 pub mod an_introduction;
 
 pub mod core {

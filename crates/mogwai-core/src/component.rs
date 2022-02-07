@@ -1,4 +1,30 @@
 //! Build trees of widgets using two-way message passing.
+//!
+//! Components are a pairing of a [`ViewBuilder`] and asynchronous logic.
+//! Components can be nested within [`ViewBuilder`]s and their logic is
+//! spawned into the mogwai runtime when built.
+//!
+//! ```rust
+//! let mut click_output = mogwai::core::relay::Output::default();
+//! let my_button_component = Component::from(rsx! {
+//!     button(on:click = click_output.sink().contra_map(|_| ())) {"Click me!"}
+//! })
+//! .with_logic(async move {
+//!     loop {
+//!         if let Some(()) = click_output.get().await {
+//!             println!("click received");
+//!         } else {
+//!             println!("click event stream was dropped");
+//!             break;
+//!         }
+//!     }
+//! });
+//!
+//! let my_div: Dom = rsx! {
+//!     h1 { "Click to print a line" }
+//!     {my_button_component}
+//! }.build().unwrap();
+//! ```
 use std::pin::Pin;
 
 use futures::stream::StreamExt;
@@ -55,7 +81,7 @@ impl<T: 'static> Component<T> {
 /// A component that facilitates an Elm-inspired type of composure.
 ///
 /// ## Types
-/// * `T` - Inner view type, eg [`crate::view::Dom`]
+/// * `T` - Inner view type, eg `mogwai_dom::view::Dom`
 /// * `S` - Logic state
 /// * `LogicMsg` - Message type sent to the logic
 /// * `ViewMsg` - Message type sent to the view

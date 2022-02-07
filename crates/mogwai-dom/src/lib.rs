@@ -1,5 +1,13 @@
 //! Provides trait implementations and helper functions for running mogwai
 //! html-based UI graphs in the browser and on a server.
+//!
+//! ## JavaScript interoperability
+//! This library is a thin layer on top of the //! [web-sys](https://crates.io/crates/web-sys)
+//! crate which provides raw bindings to _tons_ of browser web APIs.
+//! Many of the DOM specific structs, enums and traits come from `web-sys`.
+//! It is important to understand the [`JsCast`](../prelude/trait.JsCast.html) trait
+//! for writing web apps in Rust. Specifically its `dyn_into` and `dyn_ref` functions
+//! are the primary way to cast JavaScript values as specific Javascript types.
 pub mod builder;
 pub mod event;
 pub mod ssr;

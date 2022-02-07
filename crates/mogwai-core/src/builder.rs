@@ -221,7 +221,7 @@ impl<T: Sendable, V: Into<ViewBuilder<T>>> From<V> for AppendArg<T> {
 /// The values have been [`exhaust`]ed from the streams to be used
 /// for initialization.
 ///
-/// This is an intermediate state between a [`ViewBuilder`] and a [`View`].
+/// This is an intermediate state between a [`ViewBuilder`] and a built view.
 pub struct DecomposedViewBuilder<T> {
     /// Construction argument string.
     pub construct_with: String,

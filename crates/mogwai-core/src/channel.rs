@@ -1,6 +1,6 @@
 //! Async mpmc and broadcast channels, plus extensions.
 
-/// Errors returned when using [`Sink`] operations.
+/// Errors returned when using [`futures::Sink`] operations.
 #[derive(Debug)]
 pub enum SinkError {
     /// Receiver is closed.
@@ -150,7 +150,7 @@ pub mod broadcast {
     //! When all `Sender`s or all `Receiver`s are dropped, the channel becomes closed. When a channel is
     //! closed, no more messages can be sent, but remaining messages can still be received.
     //!
-    //! The channel can also be closed manually by calling [`Sender::close()`] or [`Receiver::close()`].
+    //! This is a small wrapper around [async_broadcast::Sender].
 
     use std::task::Poll;
 

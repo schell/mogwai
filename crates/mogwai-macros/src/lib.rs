@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! RSX for building mogwai::core DOM nodes.
 use quote::quote;
 use syn::Error;
@@ -140,7 +141,7 @@ pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 #[deprecated(
     since = "0.6",
-    note = "Use `builder!{...}.build().unwrap()` instead"
+    note = "Use `html!{...}.build().unwrap()` or `rsx!{...}.build().unwrap()`instead"
 )]
 #[proc_macro]
 /// Uses an html description to construct a `View`.

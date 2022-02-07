@@ -14,6 +14,52 @@
 //! and uses those to construct a [`ViewBuilder`](crate::builder::ViewBuilder).
 //! Updates to the view are then made by interacting with the relay struct
 //! asyncronously from within a logic loop.
+//!
+//! ## Example
+//! ```rust
+//! #[derive(Default)]
+//! struct ClickyDiv {
+//!     click: Output<()>,
+//!     text: Input<String>,
+//! }
+//!
+//! impl Relay<Dom> for ClickDiv {
+//!     type Error = String;
+//!
+//!     fn view(&mut self) -> ViewBuilder<Dom> {
+//!         rsx! {
+//!             <div on:click=self.click.sink().contra_map(|_| ())>
+//!                 {("Hi", self.text.stream().unwrap())}
+//!             </div>
+//!         }
+//!     }
+//!
+//!     fn logic(self) -> std::pin::Pin<Box<dyn Spawnable<Result<(), Self::Error>>>> {
+//!         Box::pin(async move {
+//!             let mut clicks = 0;
+//!             while let Some(()) = self.click.get().await {
+//!                 clicks += 1;
+//!                 self.text
+//!                     .set(if clicks == 1 {
+//!                         "1 click.".to_string()
+//!                     } else {
+//!                         format!("{} clicks.", clicks)
+//!                     })
+//!                     .await
+//!                     .map_err(|_| "could not set text".to_string())?;
+//!             }
+//!
+//!             Ok(())
+//!         })
+//!     }
+//! }
+//!
+//! ClickyDiv::default()
+//!     .build()
+//!     .unwrap()
+//!     .run()
+//!     .unwrap();
+//! ```
 use std::{
     pin::Pin,
     sync::{Arc, Mutex},
@@ -210,7 +256,9 @@ where
 
     /// Create a view builder.
     ///
-    /// `self` is borrowed as mutable to allow using [`Input::stream`] on all inputs.
+    /// `self` is borrowed as mutable to allow using [`Input::stream`],
+    /// [`FanInput::stream`] and other mutable functions on your
+    /// relay's inputs.
     fn view(&mut self) -> ViewBuilder<T>;
 
     /// Convert the relay into an asynchronous logic loop.
