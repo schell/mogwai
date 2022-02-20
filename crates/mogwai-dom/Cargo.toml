@@ -11,10 +11,13 @@ keywords = ["ui", "dom", "app", "reactive", "frontend"]
 categories = ["gui", "wasm", "web-programming"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["send_sync"]
+send_sync = ["mogwai-core/send", "mogwai-core/sync"]
 
 [dependencies]
 anyhow = "^1.0"
-mogwai-core = { version = "^0.1", path = "../mogwai-core" }
+mogwai-core = { version = "^0.1", path = "../mogwai-core", default-features = false }
 mogwai-macros = { version = "^0.3", path = "../mogwai-macros" }
 futures = "^0.3"
 log = "^0.4"
@@ -22,6 +25,9 @@ serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
 wasm-bindgen = { version = "^0.2", features = ["serde-serialize"] }
 wasm-bindgen-futures = "^0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+smol = "^1.2"
 
 [dependencies.web-sys]
 version = "^0.3"
@@ -44,13 +50,17 @@ features = [
 ]
 
 [dev-dependencies]
-mogwai = { path = "../mogwai", version = "^0.6", features = ["dom"] }
+mogwai = { path = "../mogwai", version = "^0.6", default-features = false }
 wasm-bindgen-test = "0.3.17"
 wasm-bindgen-futures = "^0.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+mogwai = { path = "../mogwai", version = "^0.6", default-features = false, features = ["dom"] }
 smol = "^1.2"
 smol-potat = "^1.1"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+mogwai = { path = "../mogwai", version = "^0.6", default-features = false, features = ["dom-wasm"] }
 
 [dev-dependencies.web-sys]
 version = "^0.3"

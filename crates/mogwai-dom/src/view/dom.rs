@@ -1,272 +1,29 @@
-//! Wrapped views.
-use std::{
-    convert::TryFrom,
-    ops::{Bound, RangeBounds},
-    pin::Pin,
+//! Wrapper around Javascript DOM nodes.
+
+use futures::future::Either;
+use mogwai_core::{
+    builder::{MogwaiSink, ViewBuilder},
+    futures::EitherExt,
+    patch::{HashPatch, ListPatch},
+    view::{EventTargetType, View},
 };
 use wasm_bindgen::{JsCast, JsValue};
 
-use mogwai_core::{
-    builder::{DecomposedViewBuilder, ViewBuilder},
-    component::Component,
-    event::{EventTargetType, Eventable},
-    patch::{HashPatch, ListPatch},
-    relay::Relay,
-    target::{Sinkable, Sinking},
-};
-
-pub use futures::future::Either;
-
-use crate::{event::DomEvent, ssr::SsrElement};
-
-/// Adds helpful extensions to [`Either`].
-pub trait EitherExt {
-    /// The left item.
-    type LeftItem;
-
-    /// The right item.
-    type RightItem;
-
-    /// Return the left item, if possible.
-    fn left(self) -> Option<Self::LeftItem>;
-
-    /// Return the left item, if possible.
-    fn right(self) -> Option<Self::RightItem>;
-}
-
-impl<A, B> EitherExt for Either<A, B> {
-    type LeftItem = A;
-    type RightItem = B;
-
-    fn left(self) -> Option<Self::LeftItem> {
-        match self {
-            Either::Left(a) => Some(a),
-            Either::Right(_) => None,
-        }
-    }
-
-    fn right(self) -> Option<Self::RightItem> {
-        match self {
-            Either::Right(b) => Some(b),
-            Either::Left(_) => None,
-        }
-    }
-}
-
-/// An extension trait that allows mogwai-core types to construct `Dom`.
-pub trait DomBuilderExt {
-    fn build(self) -> anyhow::Result<Dom>;
-}
-
-/// A [`ViewBuilder<Dom>`] can be built into a `Dom` by first being decomposed
-/// into [`DecomposedViewBuilder<Dom>`], creating an element, setting all initial
-/// and streaming values on the element and then returning the element.
-impl DomBuilderExt for ViewBuilder<Dom> {
-    fn build(self) -> anyhow::Result<Dom> {
-        let DecomposedViewBuilder {
-            construct_with,
-            ns,
-            texts,
-            text_stream,
-            attribs,
-            attrib_stream,
-            bool_attribs,
-            bool_attrib_stream,
-            styles,
-            style_stream,
-            children,
-            child_stream,
-            ops,
-        } = self.into();
-        let mut el: Dom = if !texts.is_empty() || construct_with.is_empty() {
-            let node = Dom::text("").map_err(|e| anyhow::anyhow!("{}", e))?;
-            node
-        } else {
-            Dom::element(&construct_with, ns.as_deref()).map_err(|e| anyhow::anyhow!("{}", e))?
-        };
-
-        crate::builder::set_initial_values(
-            &el,
-            texts.into_iter(),
-            attribs.into_iter(),
-            bool_attribs.into_iter(),
-            styles.into_iter(),
-            children.into_iter(),
-        )?;
-        crate::builder::set_streaming_values(
-            &el,
-            text_stream,
-            attrib_stream,
-            bool_attrib_stream,
-            style_stream,
-            child_stream,
-        )
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-
-        for op in ops.into_iter() {
-            (op)(&mut el);
-        }
-
-        Ok(el)
-    }
-}
-
-/// A [`Component<Dom>`] can be built into `Dom` by first successfully building its
-/// `builder` and then spawning its async logic.
-impl DomBuilderExt for Component<Dom> {
-    fn build(self) -> anyhow::Result<Dom> {
-        let dom = self.builder.build()?;
-        mogwai_core::target::spawn(self.logic);
-        Ok(dom)
-    }
-}
-
-impl Eventable for Dom {
-    type Event = DomEvent;
-
-    fn add_event_sink(
-        &mut self,
-        event_name: &str,
-        target: EventTargetType,
-        tx_event: impl Sinkable<Self::Event>,
-    ) {
-        self.set_event(target, &event_name, Box::pin(tx_event));
-    }
-}
-
-impl Dom {
-    /// Convenience function for converting from any Javascript
-    /// value.
-    ///
-    /// ## Panics
-    /// Panics if run on any target but wasm32
-    pub fn wrap_js(val: impl Into<JsValue>) -> Self {
-        let val: JsValue = val.into();
-        Dom::try_from(val).unwrap()
-    }
-
-    /// Convenience function for converting into anything that can be
-    /// cast in Javascript.
-    ///
-    /// ## Panics
-    /// Panics if run on any target but wasm32 or if self cannot be cast as
-    /// `T`
-    pub fn unwrap_js<T: JsCast>(self) -> T {
-        self.clone_as::<T>().unwrap()
-    }
-
-    /// Return a string representation of the DOM tree.
-    pub async fn html_string(&self) -> String {
-        match self.inner_read() {
-            Either::Left(val) => {
-                if let Some(element) = val.dyn_ref::<web_sys::Element>() {
-                    return element.outer_html();
-                }
-
-                if let Some(text) = val.dyn_ref::<web_sys::Text>() {
-                    return text.data();
-                }
-                panic!("Dom reference {:#?} could not be turned into a string", val);
-            }
-            Either::Right(ssr) => ssr.html_string().await,
-        }
-    }
-
-    /// Run this view in a parent container forever, never dropping it.
-    pub fn run_in_container(self, container: &Dom) -> Result<(), anyhow::Error> {
-        let patch = ListPatch::push(self);
-        container
-            .patch_children(patch)
-            .map_err(|e| anyhow::anyhow!("{}", e))
-    }
-
-    /// Run this gizmo in the document body forever, never dropping it.
-    pub fn run(self) -> Result<(), anyhow::Error> {
-        self.run_in_container(&crate::utils::body())
-    }
-}
-
-// Helper function for defining `ListPatchApply for Dom`.
-fn list_patch_apply_node(
-    self_node: &mut web_sys::Node,
-    patch: ListPatch<web_sys::Node>,
-) -> Vec<web_sys::Node> {
-    let mut removed = vec![];
-    match patch {
-        ListPatch::Splice {
-            range,
-            replace_with,
-        } => {
-            let mut replace_with = replace_with.into_iter();
-            let list: web_sys::NodeList = self_node.child_nodes();
-            let children: Vec<web_sys::Node> =
-                (0..list.length()).filter_map(|i| list.get(i)).collect();
-
-            let start_index = match range.0 {
-                Bound::Included(i) => i,
-                Bound::Excluded(i) => i,
-                Bound::Unbounded => 0,
-            };
-            let end_index = match range.1 {
-                Bound::Included(i) => i,
-                Bound::Excluded(i) => i,
-                Bound::Unbounded => (list.length() as usize).max(1) - 1,
-            };
-
-            let mut child_after = None;
-            for i in start_index..=end_index {
-                if let Some(old_child) = children.get(i) {
-                    if range.contains(&i) {
-                        if let Some(new_child) = replace_with.next() {
-                            self_node.replace_child(&new_child, &old_child).unwrap();
-                        } else {
-                            self_node.remove_child(&old_child).unwrap();
-                        }
-                        removed.push(old_child.clone());
-                    } else {
-                        child_after = Some(old_child);
-                    }
-                }
-            }
-
-            for child in replace_with {
-                self_node.insert_before(&child, child_after).unwrap();
-            }
-        }
-        ListPatch::Push(new_node) => {
-            let _ = self_node.append_child(&new_node).unwrap();
-        }
-        ListPatch::Pop => {
-            if let Some(child) = self_node.last_child() {
-                let _ = self_node.remove_child(&child).unwrap();
-                removed.push(child);
-            }
-        }
-    }
-    removed
-}
-
-/// Any type that implements [`Relay<Dom>`] can be built into `Dom`.
-impl<T> DomBuilderExt for T
-where
-    T: Relay<Dom>,
-{
-    fn build(self) -> anyhow::Result<Dom> {
-        self.into_component()
-            .build()
-    }
-}
+use crate::{event::DomEvent, ssr::SsrElement, view::DomBuilderExt};
 
 /// A DOM node.
 ///
 /// Represents DOM nodes on WASM and non-WASM targets.
 #[derive(Clone)]
 pub struct Dom {
-    // TODO: This can just be an Arc
     #[cfg(target_arch = "wasm32")]
     node: std::sync::Arc<JsValue>,
     #[cfg(not(target_arch = "wasm32"))]
     node: SsrElement,
+}
+
+impl View for Dom {
+    type Event = DomEvent;
 }
 
 impl TryFrom<JsValue> for Dom {
@@ -538,7 +295,7 @@ impl Dom {
     }
 
     /// Add an event.
-    pub fn set_event(&self, type_is: EventTargetType, name: &str, tx: Pin<Box<Sinking<DomEvent>>>) {
+    pub fn set_event(&self, type_is: EventTargetType, name: &str, tx: impl MogwaiSink<DomEvent> + Unpin) {
         #[cfg(target_arch = "wasm32")]
         {
             use mogwai_core::futures::sink::Contravariant;
@@ -568,7 +325,7 @@ impl Dom {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.node.set_event(type_is, name, tx);
+            self.node.set_event(type_is, name, Box::pin(tx));
         }
     }
 
@@ -579,8 +336,7 @@ impl Dom {
         match self.inner_read() {
             Either::Left(val) => {
                 let patch = patch.map(|d| {
-                    d.inner_read()
-                        .left()
+                    mogwai_core::futures::EitherExt::left(d.inner_read())
                         .unwrap()
                         .clone()
                         .dyn_into::<web_sys::Node>()
@@ -589,7 +345,7 @@ impl Dom {
                 let mut node = val.clone().dyn_into::<web_sys::Node>().map_err(|val| {
                     format!("could not patch children on {:?}: not an element", val)
                 })?;
-                let _ = list_patch_apply_node(&mut node, patch);
+                let _ = super::list_patch_apply_node(&mut node, patch);
             }
             Either::Right(ssr) => {
                 let patch = patch.map(|d| d.inner_read().right().unwrap().clone());
@@ -665,14 +421,54 @@ impl Dom {
             Either::Right(ssr) => ssr.get_attrib(key),
         }
     }
-}
 
-#[cfg(test)]
-pub(crate) mod test {
-    fn sendable<T: mogwai_core::target::Sendable>() {}
+    /// Convenience function for converting from any Javascript
+    /// value.
+    ///
+    /// ## Panics
+    /// Panics if run on any target but wasm32
+    pub fn wrap_js(val: impl Into<JsValue>) -> Self {
+        let val: JsValue = val.into();
+        Dom::try_from(val).unwrap()
+    }
 
-    #[test]
-    fn dom_sendable() {
-        sendable::<super::Dom>(); // compiles only if true
+    /// Convenience function for converting into anything that can be
+    /// cast in Javascript.
+    ///
+    /// ## Panics
+    /// Panics if run on any target but wasm32 or if self cannot be cast as
+    /// `T`
+    pub fn unwrap_js<T: JsCast>(self) -> T {
+        self.clone_as::<T>().unwrap()
+    }
+
+    /// Return a string representation of the DOM tree.
+    pub async fn html_string(&self) -> String {
+        match self.inner_read() {
+            Either::Left(val) => {
+                if let Some(element) = val.dyn_ref::<web_sys::Element>() {
+                    return element.outer_html();
+                }
+
+                if let Some(text) = val.dyn_ref::<web_sys::Text>() {
+                    return text.data();
+                }
+                panic!("Dom reference {:#?} could not be turned into a string", val);
+            }
+            Either::Right(ssr) => ssr.html_string().await,
+        }
+    }
+
+    /// Run this view in a parent container forever, never dropping it.
+    pub fn run_in_container(self, container: &Dom) -> Result<(), anyhow::Error> {
+        let patch = ListPatch::push(self);
+        container
+            .patch_children(patch)
+            .map_err(|e| anyhow::anyhow!("{}", e))
+    }
+
+    /// Run this gizmo in the document body forever, never dropping it.
+    pub fn run(self) -> Result<(), anyhow::Error> {
+        self.run_in_container(&crate::utils::body())
     }
 }

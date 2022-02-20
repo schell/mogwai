@@ -4,11 +4,11 @@
 //! domain specific views can implement.
 pub mod builder;
 pub mod channel;
-pub mod component;
-pub mod event;
+pub mod constraints;
+pub mod error;
 pub mod futures;
 pub mod model;
 pub mod patch;
 pub mod relay;
-pub mod target;
 pub mod time;
+pub mod view;

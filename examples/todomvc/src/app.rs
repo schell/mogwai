@@ -1,10 +1,10 @@
 use mogwai::{
-    core::futures::stream::{FuturesOrdered, FuturesUnordered},
+    futures::stream::{FuturesOrdered, FuturesUnordered},
     prelude::*,
 };
 use std::iter::FromIterator;
-use web_sys::{HashChangeEvent, HtmlInputElement};
 use wasm_bindgen::JsCast;
+use web_sys::{HashChangeEvent, HtmlInputElement};
 
 use crate::{store, store::Item, utils};
 
@@ -55,21 +55,21 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> (App, Component<Dom>) {
+    pub fn new() -> (App, ViewBuilder<Dom>) {
         let (tx_logic, rx_logic) = broadcast::bounded(16);
         let (tx_view, rx_view) = broadcast::bounded(1);
         let (tx_todo_input, rx_todo_input) = mpsc::bounded(1);
         let (tx_toggle_input, rx_toggle_input) = mpsc::bounded(1);
         let (tx_patch_items, rx_patch_items) = mpsc::bounded(1);
 
-        let component = Component::from(view(
+        let component = view(
             tx_todo_input,
             tx_toggle_input,
             tx_logic.clone(),
             rx_view,
             rx_patch_items,
-        ))
-        .with_logic(logic(
+        )
+        .with_task(logic(
             rx_logic,
             rx_todo_input,
             rx_toggle_input,
@@ -131,7 +131,7 @@ async fn logic(
     mut tx_item_patches: mpsc::Sender<ListPatch<ViewBuilder<Dom>>>,
 ) {
     let todo_input = recv_todo_input.next().await.unwrap();
-    let _ = mogwai::core::time::wait_secs(1.0).await;
+    let _ = mogwai::time::wait_secs(1.0).await;
     todo_input
         .visit_as(
             |i: &web_sys::HtmlElement| {
@@ -145,7 +145,7 @@ async fn logic(
 
     let mut items: Vec<item::Todo> = vec![];
     let mut next_index = 0;
-    let mut all_logic_sources = mogwai::core::futures::stream::select_all(vec![rx_logic.boxed()]);
+    let mut all_logic_sources = mogwai::futures::stream::select_all(vec![rx_logic.mogwai_stream()]);
 
     while let Some(msg) = all_logic_sources.next().await {
         let mut needs_check_complete = false;
@@ -160,13 +160,13 @@ async fn logic(
                 let was_removed = todo
                     .was_removed()
                     .map(move |_| AppLogic::Remove(index))
-                    .boxed();
+                    .mogwai_stream();
                 all_logic_sources.push(was_removed);
 
                 let has_changed_completion = todo
                     .has_changed_completion()
                     .map(move |complete| AppLogic::ChangedCompletion(index, complete))
-                    .boxed();
+                    .mogwai_stream();
                 all_logic_sources.push(has_changed_completion);
 
                 // Add the todo to communicate downstream later, and patch the view
@@ -198,7 +198,7 @@ async fn logic(
             }
             AppLogic::SetFilter(show, may_tx) => {
                 // Filter all the items, update the view, and then respond to the query.
-                let filter_ops = mogwai::core::futures::stream::FuturesUnordered::from_iter(
+                let filter_ops = mogwai::futures::stream::FuturesUnordered::from_iter(
                     items.iter().map(|todo| todo.filter(show.clone())),
                 );
                 let _ = filter_ops.collect::<Vec<_>>().await;
@@ -342,9 +342,9 @@ fn view(
     send_completion_toggle_input: mpsc::Sender<Dom>,
     tx: broadcast::Sender<AppLogic>,
     rx: broadcast::Receiver<AppView>,
-    item_children: impl Streamable<ListPatch<ViewBuilder<Dom>>>,
+    item_children: impl MogwaiStream<ListPatch<ViewBuilder<Dom>>>,
 ) -> ViewBuilder<Dom> {
-    builder! {
+    html! {
         <section id="todo_main" class="todoapp">
             <header class="header">
                 <h1>"todos"</h1>

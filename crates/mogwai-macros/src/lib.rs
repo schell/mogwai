@@ -1,5 +1,5 @@
 #![allow(deprecated)]
-//! RSX for building mogwai::core DOM nodes.
+//! RSX for constructing ViewBuilders
 use quote::quote;
 use syn::Error;
 
@@ -35,7 +35,7 @@ fn combine_errors(errs: Vec<Error>) -> Option<Error> {
 }
 
 fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::TokenStream, Error> {
-    let view_path = quote! { mogwai::core::builder::ViewBuilder };
+    let view_path = quote! { mogwai::builder::ViewBuilder };
     match view_token {
         ViewToken::Element {
             name,
@@ -45,7 +45,14 @@ fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::T
         } => {
             let may_type = attributes.iter().find_map(|att| match att {
                 AttributeToken::CastType(expr) => {
-                    Some(quote! { as mogwai::core::builder::ViewBuilder<#expr> })
+                    Some(quote! { as mogwai::builder::ViewBuilder<#expr> })
+                }
+                _ => None,
+            });
+
+            let may_xmlns = attributes.iter().find_map(|att| match att {
+                AttributeToken::Xmlns(expr) => {
+                    Some(expr)
                 }
                 _ => None,
             });
@@ -53,7 +60,7 @@ fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::T
             let type_is = may_type
                 .unwrap_or_else(|| {
                     if cfg!(feature = "dom") {
-                        quote! {as mogwai::core::builder::ViewBuilder<mogwai::dom::view::Dom>}
+                        quote! {as mogwai::builder::ViewBuilder<mogwai::dom::view::Dom>}
                     } else {
                         quote! {}
                     }
@@ -77,16 +84,20 @@ fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::T
             if let Some(error) = may_error {
                 Err(error)
             } else {
-                let create = quote! {#view_path::element(#name)};
-                Ok(quote! {
+                let create = if let Some(ns) = may_xmlns {
+                    quote! {#view_path::element_ns(#name, #ns)}
+                } else {
+                    quote! {#view_path::element(#name)}
+                };
+                Ok(quote! {{
                     #create
                         #(#attribute_tokens)*
                         #(#child_tokens)*
                         #type_is
-                })
+                }})
             }
         }
-        ViewToken::Text(expr) => Ok(quote! {mogwai::core::builder::ViewBuilder::text(#expr)}),
+        ViewToken::Text(expr) => Ok(quote! {mogwai::builder::ViewBuilder::text(#expr)}),
         ViewToken::Block(expr) => Ok(quote! {
             #[allow(unused_braces)]
             #expr
@@ -100,8 +111,11 @@ fn node_to_builder_token_stream(view_token: &ViewToken) -> Result<proc_macro2::T
 #[proc_macro]
 /// Uses an html description to construct a `ViewBuilder`.
 ///
+/// ## Deprecated since 0.6
+/// Use [`html!`] instead, or convert to [`rsx!`].
+///
 /// ```rust
-/// let my_div = mogwai::macros::builder! {
+/// let my_div = mogwai::builder! {
 ///     <div cast:type=mogwai::dom::view::Dom id="main">
 ///         <p>"Trolls are real"</p>
 ///     </div>
@@ -114,8 +128,13 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 #[proc_macro]
 /// Uses an html description to construct a `ViewBuilder`.
 ///
+/// Looks like real HTML, but some editors have a hard time
+/// formatting the mixture of Rust and HTML. If that seems to be
+/// the case, try converting to [`rsx!`], which editors tend to format
+/// well.
+///
 /// ```rust
-/// let my_div = mogwai::macros::html! {
+/// let my_div = mogwai::html! {
 ///     <div cast:type=mogwai::dom::view::Dom id="main">
 ///         <p>"Trolls are real"</p>
 ///     </div>
@@ -128,8 +147,11 @@ pub fn html(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 #[proc_macro]
 /// Uses a function-style description to construct a `ViewBuilder`.
 ///
+/// This is easier for editors to format than [`html!`], leading to more natural
+/// authoring.
+///
 /// ```rust
-/// let my_div = mogwai::macros::rsx! {
+/// let my_div = mogwai::rsx! {
 ///     div(cast:type=mogwai::dom::view::Dom, id="main") {
 ///         p() {"Trolls are real"}
 ///     }

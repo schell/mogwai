@@ -1,9 +1,11 @@
 //! DOM building.
+use std::pin::Pin;
 
-
-use mogwai_core::{builder::{
-        AttribStream, BooleanAttribStream, ChildStream, StyleStream, TextStream, ViewBuilder,
-    }, futures::StreamExt, patch::{HashPatch, ListPatch}, target::spawn};
+pub use mogwai_core::builder::*;
+use mogwai_core::{
+    futures::StreamExt,
+    patch::{HashPatch, ListPatch},
+};
 
 use crate::view::Dom;
 
@@ -21,15 +23,18 @@ pub fn set_initial_values(
     }
 
     for patch in attribs {
-        dom.patch_attribs(patch).map_err(|e| anyhow::anyhow!("{}", e))?;
+        dom.patch_attribs(patch)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
     }
 
     for patch in bool_attribs {
-        dom.patch_bool_attribs(patch).map_err(|e| anyhow::anyhow!("{}", e))?;
+        dom.patch_bool_attribs(patch)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
     }
 
     for patch in styles {
-        dom.patch_styles(patch).map_err(|e| anyhow::anyhow!("{}", e))?;
+        dom.patch_styles(patch)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
     }
 
     for patch in children {
@@ -42,42 +47,42 @@ pub fn set_initial_values(
 /// Set all the streaming values of a Dom node.
 pub fn set_streaming_values(
     node: &Dom,
-    mut text_stream: TextStream,
-    mut attrib_stream: AttribStream,
-    mut bool_attrib_stream: BooleanAttribStream,
-    mut style_stream: StyleStream,
-    mut child_stream: ChildStream<Dom>,
+    mut text_stream: Pin<Box<dyn MogwaiStream<String>>>,
+    mut attrib_stream: Pin<Box<dyn MogwaiStream<HashPatch<String, String>>>>,
+    mut bool_attrib_stream: Pin<Box<dyn MogwaiStream<HashPatch<String, bool>>>>,
+    mut style_stream: Pin<Box<dyn MogwaiStream<HashPatch<String, String>>>>,
+    mut child_stream: Pin<Box<dyn MogwaiStream<ListPatch<ViewBuilder<Dom>>>>>,
 ) -> Result<(), String> {
     let text_node = node.clone();
-    spawn(async move {
+    crate::spawn(async move {
         while let Some(msg) = text_stream.next().await {
             text_node.set_text(&msg).unwrap();
         }
     });
 
     let attrib_node = node.clone();
-    spawn(async move {
+    crate::spawn(async move {
         while let Some(patch) = attrib_stream.next().await {
             attrib_node.patch_attribs(patch).unwrap();
         }
     });
 
     let bool_attrib_node = node.clone();
-    spawn(async move {
+    crate::spawn(async move {
         while let Some(patch) = bool_attrib_stream.next().await {
             bool_attrib_node.patch_bool_attribs(patch).unwrap();
         }
     });
 
     let style_node = node.clone();
-    spawn(async move {
+    crate::spawn(async move {
         while let Some(patch) = style_stream.next().await {
             style_node.patch_styles(patch).unwrap();
         }
     });
 
     let parent_node = node.clone();
-    spawn(async move {
+    crate::spawn(async move {
         while let Some(patch) = child_stream.next().await {
             let _ = parent_node.build_and_patch_children(patch);
         }

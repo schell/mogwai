@@ -13,7 +13,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 /// Create an SVG circle using the xmlns attribute and the SVG namespace.
 fn my_circle() -> ViewBuilder<Dom> {
     let ns = "http://www.w3.org/2000/svg";
-    builder! {
+    html! {
         <svg xmlns=ns width="100" height="100">
             <circle xmlns=ns
                 cx="50"

@@ -299,7 +299,7 @@ async fn logic(
             }
             ItemLogic::StartEditing => {
                 is_editing = true;
-                let _ = mogwai::core::time::wait_secs(1.0).await;
+                let _ = mogwai::time::wait_secs(1.0).await;
                 edit_input.visit_as(
                     |i: &HtmlInputElement| i.focus().expect("can't focus"),
                     |_| (),

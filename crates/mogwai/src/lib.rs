@@ -25,23 +25,33 @@
 //! | mostly      |           | gui         | work   |               |              |
 pub mod an_introduction;
 
-pub mod core {
-    //! Re-export of `mogwai-core`. Core types and traits.
-    pub use mogwai_core::*;
-}
+pub use mogwai_core::*;
+pub use mogwai_macros::*;
 
-#[cfg(feature = "dom")]
+#[cfg(any(feature = "dom", feature = "dom-wasm"))]
 pub mod dom {
-    //! Re-export of `mogwai-dom` using the "dom" feature. Browser + server html
-    //! views.
+    //! Re-exports of [`mogwai_dom`].
     pub use mogwai_dom::*;
 }
 
-pub use mogwai_core::target::spawn;
+/// Spawn an async computation.
+///
+/// The implementation of `spawn` depends on the features used to compile.
+/// With `dom` or `dom-wasm` the implementation will be `mogwai_dom::spawn`.
+///
+/// ## Panics
+/// Not all view domains have `spawn`, or they may provide a different API.
+/// In those cases this function will panic.
+pub fn spawn<T: Send + Sync + 'static>(f: impl constraints::Spawnable<T>) {
+    #[cfg(any(feature = "dom", feature = "dom-wasm"))]
+    {
+        dom::spawn(f);
+    }
 
-pub mod macros {
-    //! Rexexport of `mogwai-macros`. RSX style macros for building views.
-    pub use mogwai_macros::{builder, html, rsx, view};
+    #[cfg(all(not(feature = "dom"), not(feature = "dom-wasm")))]
+    {
+        panic!("spawn has no implementation with these features");
+    }
 }
 
 pub mod prelude;

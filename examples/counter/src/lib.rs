@@ -18,7 +18,7 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     mogwai::spawn(async {
         let (to_logic, mut from_view) = broadcast::bounded::<()>(1);
         let (to_view, from_logic) = broadcast::bounded::<String>(1);
-        let bldr: ViewBuilder<Dom> = builder! {
+        let bldr: ViewBuilder<Dom> = html! {
             <button
              style:cursor = "pointer"
              on:click=to_logic.clone().with(|_| async{Ok(())})

@@ -2,7 +2,7 @@ use mogwai::prelude::*;
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
-fn new_button_view(click_chan: broadcast::Channel<()>) -> Component<Dom> {
+fn new_button_view(click_chan: broadcast::Channel<()>) -> ViewBuilder<Dom> {
     // Get a receiver from the click channel
     let mut rx_click = click_chan.receiver();
     // Create a receiver for our button to get its text from.
@@ -12,13 +12,13 @@ fn new_button_view(click_chan: broadcast::Channel<()>) -> Component<Dom> {
     //
     // The button text will start out as "Click me" and then change to whatever
     // comes in on the receiver.
-    Component::from(builder! {
+    html! (
         // The button has a style and transmits its clicks
         <button style="cursor: pointer;" on:click=click_chan.sender().contra_map(|_| ())>
             // The text starts with "Click me" and receives updates
             {("Click me", rx_text)}
         </button>
-    }).with_logic(async move {
+    ).with_task(async move {
         let mut is_red = true;
         loop {
             match rx_click.next().await {
@@ -38,7 +38,7 @@ fn new_button_view(click_chan: broadcast::Channel<()>) -> Component<Dom> {
 }
 
 fn stars() -> ViewBuilder<Dom> {
-    builder! {
+    html! {
         <div className="three-stars">
             <span>"★"</span>
             <span>"★"</span>
@@ -48,7 +48,7 @@ fn stars() -> ViewBuilder<Dom> {
 }
 
 fn star_title() -> ViewBuilder<Dom> {
-    builder! {
+    html! {
         <div class="title-component uppercase">
             {stars()}
             <div class="title-component__description">
@@ -62,7 +62,7 @@ fn star_title() -> ViewBuilder<Dom> {
 pub fn home() -> ViewBuilder<Dom> {
     // Create a channels to send button clicks into.
     let click_chan = broadcast::Channel::new(1);
-    builder! {
+    html! {
         <main class="container">
             <div class="overlay">
                 "This site is only supported in portrait mode."
@@ -78,7 +78,7 @@ pub fn home() -> ViewBuilder<Dom> {
 }
 
 pub fn not_found() -> ViewBuilder<Dom> {
-    builder! {
+    html! {
         <h1>"Not Found"</h1>
     }
 }

@@ -1,20 +1,14 @@
 //! Provides string rendering for server-side mogwai nodes.
 
-use std::{
-    collections::HashMap,
-    ops::DerefMut,
-    pin::Pin,
-    sync::Arc,
-};
+use std::{collections::HashMap, ops::DerefMut, pin::Pin, sync::Arc};
 
-use futures::{Future, StreamExt, lock::Mutex};
+use futures::{lock::Mutex, Future, Sink, StreamExt};
 
 use mogwai_core::{
     channel::SinkError,
-    event::EventTargetType,
     futures::SinkExt,
     patch::{ListPatch, ListPatchApply},
-    target::Sinking,
+    view::EventTargetType,
 };
 
 use crate::event::DomEvent;
@@ -137,7 +131,7 @@ impl SsrNode {
                 } else {
                     let kids: String = futures::stream::iter(children.into_iter())
                         .flat_map(|kid| futures::stream::once(kid.html_string()))
-                        .map(|s:String| s.trim().to_string())
+                        .map(|s: String| s.trim().to_string())
                         .collect::<Vec<String>>()
                         .await
                         .join(" ");
@@ -158,14 +152,21 @@ pub struct SsrElement {
     /// The underlying node.
     pub node: Arc<Mutex<SsrNode>>,
     /// A map of events registered with this element.
-    pub events: Arc<Mutex<HashMap<(EventTargetType, String), Pin<Box<Sinking<DomEvent>>>>>>,
+    pub events: Arc<
+        Mutex<
+            HashMap<
+                (EventTargetType, String),
+                Pin<Box<dyn Sink<DomEvent, Error = SinkError> + Send + Sync + 'static>>,
+            >,
+        >,
+    >,
 }
 
 #[cfg(test)]
 mod ssr {
     #[test]
     fn ssrelement_sendable() {
-        fn sendable<T: mogwai_core::target::Sendable>() {}
+        fn sendable<T: mogwai_core::constraints::SendConstraints>() {}
         sendable::<super::SsrElement>()
     }
 }
@@ -296,7 +297,12 @@ impl SsrElement {
     }
 
     /// Add an event.
-    pub fn set_event(&self, type_is: EventTargetType, name: &str, tx: Pin<Box<Sinking<DomEvent>>>) {
+    pub fn set_event(
+        &self,
+        type_is: EventTargetType,
+        name: &str,
+        tx: Pin<Box<dyn Sink<DomEvent, Error = SinkError> + Send + Sync + 'static>>,
+    ) {
         let mut lock = self.events.try_lock().unwrap();
         let _ = lock.insert((type_is, name.to_string()), tx);
     }

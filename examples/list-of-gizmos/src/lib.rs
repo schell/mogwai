@@ -1,6 +1,6 @@
 #![allow(unused_braces)]
 use log::Level;
-use mogwai::{core::channel::broadcast, prelude::*};
+use mogwai::prelude::*;
 use std::panic;
 use wasm_bindgen::prelude::*;
 
@@ -51,10 +51,10 @@ async fn item_logic(
 
 // ANCHOR: item_view
 fn item_view(
-    clicks: impl Stream<Item = u32> + Sendable,
+    clicks: impl MogwaiStream<u32>,
     to_logic: broadcast::Sender<ItemMsg>,
 ) -> ViewBuilder<Dom> {
-    builder! {
+    html! {
         <li>
             <button
                 style:cursor="pointer"
@@ -80,10 +80,10 @@ fn item_view(
 }
 // ANCHOR_END: item_view
 
-/// Create a new item component.
-fn item(id: usize, clicks: Model<u32>, to_list: broadcast::Sender<ListMsg>) -> Component<Dom> {
+/// Create a new item.
+fn item(id: usize, clicks: Model<u32>, to_list: broadcast::Sender<ListMsg>) -> ViewBuilder<Dom> {
     let (tx, rx) = broadcast::bounded(1);
-    Component::from(item_view(clicks.stream(), tx)).with_logic(item_logic(id, clicks, rx, to_list))
+    item_view(clicks.stream(), tx).with_task(item_logic(id, clicks, rx, to_list))
 }
 
 #[derive(Clone)]
@@ -173,9 +173,9 @@ async fn list_logic(
 // ANCHOR: list_view
 fn list_view<T>(to_logic: broadcast::Sender<ListMsg>, children: T) -> ViewBuilder<Dom>
 where
-    T: Stream<Item = ListPatch<ViewBuilder<Dom>>> + Sendable,
+    T: MogwaiStream<ListPatch<ViewBuilder<Dom>>>,
 {
-    builder! {
+    html! {
         <fieldset>
             <legend>"A List of Gizmos"</legend>
                 <button style:cursor="pointer" on:click=to_logic.contra_map(|_| ListMsg::NewItem)>
@@ -192,11 +192,10 @@ where
 // ANCHOR_END: list_view
 
 /// Create our list component.
-fn list() -> Component<Dom> {
+fn list() -> ViewBuilder<Dom> {
     let (logic_tx, logic_rx) = broadcast::bounded(1);
     let (item_patch_tx, item_patch_rx) = mpsc::bounded(1);
-    Component::from(list_view(logic_tx, item_patch_rx))
-        .with_logic(list_logic(logic_rx, item_patch_tx))
+    list_view(logic_tx, item_patch_rx).with_task(list_logic(logic_rx, item_patch_tx))
 }
 
 #[wasm_bindgen]

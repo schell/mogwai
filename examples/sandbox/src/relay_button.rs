@@ -15,36 +15,26 @@ impl Button {
             n => format!("Clicked {} times.", n),
         }
     }
-}
 
-impl Relay<Dom> for Button {
-    type Error = String;
-
-    fn view(&mut self) -> ViewBuilder<Dom> {
-        builder! {
+    fn view(mut self) -> ViewBuilder<Dom> {
+        html! (
             <button style="cursor: pointer;" on:click=self.click.sink().contra_map(|_| ())>
-                {(self.click_text(), self.text.stream().unwrap())}
+            {(self.click_text(), self.text.stream().unwrap())}
             </button>
-        }
-    }
-
-    fn logic(mut self) -> std::pin::Pin<Box<dyn Spawnable<Result<(), Self::Error>>>> {
-        Box::pin(async move {
+        ).with_task(async move {
             while let Some(()) = self.click.get().await {
                 self.clicks += 1;
                 self.text
                     .set(self.click_text())
                     .await
-                    .map_err(|_| "could not set text".to_string())?;
+                    .unwrap_or_else(|_| panic!("could not set text"));
             }
-
-            Ok(())
         })
     }
 }
 
 impl From<Button> for ViewBuilder<Dom> {
     fn from(btn: Button) -> Self {
-        btn.into_component().into()
+        btn.view()
     }
 }

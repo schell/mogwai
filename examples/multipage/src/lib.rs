@@ -46,7 +46,7 @@ pub fn main() {
 
     let initial_route = Route::from(utils::window().location().pathname().unwrap_throw());
     // Create our app's view by hydrating a gizmo from an initial state
-    let root: Component<Dom> = App::component(initial_route);
+    let root: ViewBuilder<Dom> = App::component(initial_route);
 
     // Hydrate the view and hand the app's view ownership to the window so it never
     // goes out of scope.

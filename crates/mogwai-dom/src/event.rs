@@ -14,12 +14,9 @@ use std::{
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::EventTarget;
 
-use mogwai_core::{
-    channel::SinkError,
-    target::{Sendable, Streamable},
-};
+use mogwai_core::{builder::MogwaiStream, channel::SinkError};
 
-/// A wrapper for [`web_sys::Event`] that is [`Sendable`].
+/// A wrapper for [`web_sys::Event`].
 #[derive(Clone, Debug)]
 pub struct DomEvent {
     #[cfg(target_arch = "wasm32")]
@@ -169,14 +166,14 @@ pub fn event_stream(
 }
 
 /// Listen for events of the given name on the given target.
-/// Run the event through the given function and sent the result on the given sink.
+/// Run the event through the given function and send the result on the given sink.
 ///
 /// This can be used to get a `Sendable` stream of events from a `web_sys::EventTarget`.
-pub fn event_stream_with<T: Sendable>(
+pub fn event_stream_with<T: Send + Sync + 'static>(
     ev_name: &str,
     target: &web_sys::EventTarget,
     mut f: impl FnMut(web_sys::Event) -> T + 'static,
-) -> impl Streamable<T> {
+) -> Pin<Box<dyn MogwaiStream<T>>> {
     let (mut tx, rx) = futures::channel::mpsc::unbounded();
     let mut stream = event_stream(ev_name, target);
     wasm_bindgen_futures::spawn_local(async move {
@@ -189,7 +186,7 @@ pub fn event_stream_with<T: Sendable>(
         }
     });
 
-    rx
+    Box::pin(rx)
 }
 
 /// Add an event listener of the given name to the given target. When the event happens, the
@@ -218,7 +215,7 @@ pub fn add_event(
 mod test {
     use super::*;
 
-    fn sendable<T: mogwai_core::target::Sendable>() {}
+    fn sendable<T: mogwai_core::constraints::SendConstraints>() {}
 
     #[test]
     fn domevent_is_sendable() {

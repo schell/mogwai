@@ -13,8 +13,13 @@ categories = ["gui", "asynchronous", "widgets"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["send", "sync"]
+send = []
+sync = []
 
 [dependencies]
+anyhow = "^1.0"
 async-broadcast = "^0.3"
 async-lock = "^2.4"
 async-trait = "^0.1"

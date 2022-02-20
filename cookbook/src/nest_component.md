@@ -21,8 +21,8 @@ To nest a child component within a parent, simply include it as a node using RSX
 
 ```rust, no_run
 # use mogwai::prelude::*;
-let child = builder! {<p>"My paragraph"</p>};
-let parent = builder! {<div>{child}</div>};
+let child = html! {<p>"My paragraph"</p>};
+let parent = html! {<div>{child}</div>};
 ```
 
 Or use the `ViewBuilder::append` function if you're not using RSX:

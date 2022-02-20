@@ -1,12 +1,10 @@
 //! Types and [`TryFrom`] instances that can 're-animate' views or portions of views from the DOM.
+use futures::SinkExt;
 use mogwai::{
-    core::{
-        builder::{DecomposedViewBuilder, ViewBuilder},
-        component::Component,
-        futures::EitherExt,
-        patch::{HashPatch, HashPatchApply, ListPatchApply},
-    },
-    dom::view::Dom,
+    builder::{exhaust, ViewBuilder},
+    dom::{spawn, view::Dom},
+    futures::EitherExt,
+    patch::{HashPatch, HashPatchApply, ListPatchApply},
 };
 // TODO: Standardize on anyhow instead of snafu
 use snafu::{ensure, OptionExt, Snafu};
@@ -146,49 +144,47 @@ impl From<Hydrator> for Dom {
     }
 }
 
-impl TryFrom<Component<Dom>> for Hydrator {
-    type Error = Error;
-
-    fn try_from(comp: Component<Dom>) -> Result<Self, Self::Error> {
-        let builder = ViewBuilder::from(comp);
-        Hydrator::try_from(builder)
-    }
-}
-
 impl TryFrom<ViewBuilder<Dom>> for Hydrator {
     type Error = Error;
 
-    fn try_from(value: ViewBuilder<Dom>) -> Result<Self, Self::Error> {
-        let decomp = DecomposedViewBuilder::from(value);
-        Self::try_hydrate(decomp, None)
+    fn try_from(builder: ViewBuilder<Dom>) -> Result<Self, Self::Error> {
+        Hydrator::try_hydrate(builder, None)
     }
 }
 
 impl Hydrator {
     /// Attempt to hydrate [`Dom`] from [`DecomposedViewBuilder<Dom>`].
     fn try_hydrate(
-        DecomposedViewBuilder {
-            construct_with,
-            ns: _,
-            texts: _,
-            text_stream,
+        ViewBuilder {
+            identity,
+            texts,
             attribs,
-            attrib_stream,
-            bool_attribs: _,
-            bool_attrib_stream,
-            styles: _,
-            style_stream,
+            bool_attribs,
+            styles,
             children,
-            child_stream,
+            events,
             ops,
-        }: DecomposedViewBuilder<Dom>,
+            view_sinks,
+            tasks,
+        }: ViewBuilder<Dom>,
         may_parent: Option<(usize, &Node)>,
     ) -> Result<Hydrator, Error> {
+        let construct_with = match identity {
+            mogwai::prelude::ViewIdentity::Branch(s) => s,
+            mogwai::prelude::ViewIdentity::NamespacedBranch(s, _) => s,
+            mogwai::prelude::ViewIdentity::Leaf(s) => s,
+        };
+
+        let (text_stream, _texts) = exhaust(Box::pin(futures::stream::select_all(texts)));
+        let (attrib_stream, attribs) = exhaust(Box::pin(futures::stream::select_all(attribs)));
+        let (bool_attrib_stream, _bool_attribs) =
+            exhaust(Box::pin(futures::stream::select_all(bool_attribs)));
+        let (style_stream, _styles) = exhaust(Box::pin(futures::stream::select_all(styles)));
+        let (child_stream, child_patches) =
+            exhaust(Box::pin(futures::stream::select_all(children)));
+
         let key = HydrationKey::try_new(construct_with, attribs, may_parent)?;
         let mut dom = key.hydrate()?;
-        for op in ops.into_iter() {
-            (op)(&mut dom);
-        }
 
         mogwai::dom::builder::set_streaming_values(
             &dom,
@@ -207,14 +203,34 @@ impl Hydrator {
             node: guard.clone(),
         })?;
 
-        let mut child_builders = vec![];
-        for patch in children.into_iter() {
-            let _ = child_builders.list_patch_apply(patch.map(DecomposedViewBuilder::from));
+        let mut children = vec![];
+        for patch in child_patches.into_iter() {
+            let _ = children.list_patch_apply(patch);
         }
-        for (decomp, i) in child_builders.into_iter().zip(0..) {
-            let _ = Hydrator::try_hydrate(decomp, Some((i, node)))?;
+
+        for (bldr, i) in children.into_iter().zip(0..) {
+            let _ = Hydrator::try_hydrate(bldr, Some((i, node)))?;
         }
         drop(guard);
+
+        for (event_name, event_target, event_sink) in events.into_iter() {
+            dom.set_event(event_target, &event_name, event_sink);
+        }
+
+        for op in ops.into_iter() {
+            (op)(&mut dom);
+        }
+
+        for mut sink in view_sinks.into_iter() {
+            let view = dom.clone();
+            spawn(async move {
+                let _ = sink.send(view).await;
+            });
+        }
+
+        for task in tasks.into_iter() {
+            spawn(task);
+        }
 
         Ok(Hydrator { inner: dom })
     }

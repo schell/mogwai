@@ -11,13 +11,13 @@
 //!
 //! ### Sinks
 //! A [`Sink`] is something you can send values **into**, like the sending
-//! end of a channel. See [`mogwai::core::futures::SinkExt`] for info on the other
+//! end of a channel. See [`mogwai::futures::SinkExt`] for info on the other
 //! sink operations available.
 //!
 //! ### Streams
 //! A [`Stream`] is something you can get values **out of**, like the receiving
 //! end of a channel. True to its name, a `Stream` is a stream of values in time
-//! that may end at some point in the future. See [`mogwai::core::futures::StreamExt`]
+//! that may end at some point in the future. See [`mogwai::futures::StreamExt`]
 //! for info on the other stream operations available.
 //!
 //! ### Channels
@@ -27,11 +27,11 @@
 //!
 //! There are two types of channels bundled here:
 //!
-//! - [`mogwai::core::channel::broadcast`]
+//! - [`mogwai::channel::broadcast`]
 //!   This should be the channel you use most often. If you don't have a specific
 //!   reason not to, use this channel.
 //!
-//! - [`mogwai::core::channel::mpsc`]
+//! - [`mogwai::channel::mpsc`]
 //!   This is used to send patches of [`ViewBuilder`] (more on that later) and any
 //!   other type that does not have a `Clone` implementation.
 //!
@@ -89,9 +89,6 @@
 //!     r#"<div class="my-div"><a href="http://zyghost.com">Schellsan's website</a></div>"#
 //! );
 //! ```
-//!
-//! > #### Note
-//! > The [`view`] macro creates a builder, builds it and unwraps it all in one go.
 //!
 //! As you can see the above example creates a DOM node with a link inside it:
 //!
@@ -163,7 +160,7 @@
 //!
 //! let my_view = rsx!{
 //!     div(class="my-div") {
-//!         a(href="#" on:click=tx.contra_map(|_: DomEvent| "Gizmo's website".to_string())) {
+//!         a(href="#", on:click=tx.contra_map(|_: DomEvent| "Gizmo's website".to_string())) {
 //!             // start with a value and update when a message
 //!             // is received on rx.
 //!             {("Schellsan's website", rx)}
@@ -173,7 +170,7 @@
 //! ```
 //!
 //! The [`Contravariant`] trait provides a few useful functions for prefix-mapping sinks, which is used
-//! above. See [futures's module level documentation](mogwai::core::futures) for more info on mapping, folding and
+//! above. See [futures's module level documentation](mogwai::futures) for more info on mapping, folding and
 //! combining `Sink`s and `Stream`s.
 //!
 //! ### Built views
@@ -218,22 +215,26 @@
 //! });
 //! ```
 //!
-//! ### Relays, Components and more advanced widgets
+//! ### More advanced widgets
 //!
-//! #### Components
+//! #### Logic
 //!
-//! A [`Component`] is a pairing of a [`ViewBuilder`] and asynchronous logic.
-//! [`Component`]s may be nested in a [`ViewBuilder`] to build up trees of widgets.
+//! A [`ViewBuilder`] may contain asynchronous logic. Use [`ViewBuilder::with_task`] to
+//! add an asynchronous task that will be spawned at view build time.
+//!
+//! #### Nesting
+//!
+//! [`ViewBuilder`]s may be nested to build up trees of widgets.
 //! Please see the module level documentation for more info.
 //!
 //! #### Relays
 //!
 //! In bigger applications we often have circular dependencies between various
 //! interface components. When these complex situations arise we compartmentalize concerns into
-//! [`Relay`]s.
+//! relays.
 //!
-//! View relays are custom structs implementing the [`Relay`] trait that contain the inputs
-//! and outputs of your view. They can be converted into [`Component`]s and can be used to
+//! View relays are custom structs made in part by types in the [`relay`] module that contain the inputs
+//! and outputs of your view. They should be converted into [`ViewBuilder`]s and can be used to
 //! communicate and control your views. If used correctly a relay can greatly reduce the complexity
 //! of your application.
 //! Please see the module level documentation for more info.

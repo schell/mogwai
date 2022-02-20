@@ -4,17 +4,17 @@ Consider this variable declaration:
 
 ```rust, no_run
 # use mogwai::prelude::*;
-let element = builder!{ <h1>"Hello, world!"</h1> };
+let element = html!{ <h1>"Hello, world!"</h1> };
 ```
 
 This funny tag syntax is neither a string nor HTML - it is a [`ViewBuilder<Dom>`][structviewbuilder].
 
-The macro `builder!` is using RSX, which is a "**R**ust **S**yntax E**x**tension".
+The macro `html!` is using RSX, which is a "**R**ust **S**yntax E**x**tension".
 Similarly there is a `view!` macro that creates [`View<Dom>`][structview].
 
 ```rust
 # use mogwai::prelude::*;
-let my_builder: ViewBuilder<Dom> = builder!{ <h1>"Hello, world!"</h1> };
+let my_builder: ViewBuilder<Dom> = html!{ <h1>"Hello, world!"</h1> };
 let my_view: Dom = view!{ <h1>"Hello, world!"</h1> };
 
 let my_identical_view: Dom = my_builder.build().unwrap();
@@ -31,7 +31,7 @@ written out manually:
 ```rust, no_run
 # use mogwai::prelude::*;
 let my_builder: ViewBuilder<Dom> = ViewBuilder::element("h1")
-    .with_child(ViewBuilder::text("Hello, world!"));
+    .append(ViewBuilder::text("Hello, world!"));
 ```
 
 ## Tags
@@ -39,7 +39,7 @@ You may use any html tags you wish when writing RSX.
 
 ```rust, no_run
 # use mogwai::prelude::*;
-let _: ViewBuilder<Dom> = builder! {
+let _: ViewBuilder<Dom> = html! {
     <p>"Once upon a time in a galaxy far, far away..."</p>
 };
 ```
@@ -47,7 +47,7 @@ let _: ViewBuilder<Dom> = builder! {
 Adding attributes happens the way you expect it to.
 ```rust, no_run
 # use mogwai::prelude::*;
-let _: ViewBuilder<Dom> = builder! {
+let _: ViewBuilder<Dom> = html! {
     <p id="starwars">"Once upon a time in a galaxy far, far away..."</p>
 };
 ```
@@ -68,7 +68,7 @@ for more details about types that can be turned into streams.
   Declares a single style.
   ```rust,no_run
   # use mogwai::prelude::*;
-  let _ = builder! {
+  let _ = html! {
       <a href="#burritos" style:border="1px dashed #333">"link"</a>
   };
   ```
@@ -81,7 +81,7 @@ for more details about types that can be turned into streams.
   ```rust,no_run
   # use mogwai::prelude::*;
   let (tx, _rx) = broadcast::bounded::<()>(1);
-  let _ = builder! {
+  let _ = html! {
       <div on:click=tx.contra_map(|_:DomEvent| ())>"Click me!"</div>
   };
   ```
@@ -92,7 +92,7 @@ for more details about types that can be turned into streams.
   ```rust, no_run
   # use mogwai::prelude::*;
   let (tx, rx) = broadcast::bounded::<()>(1);
-  let _ = builder! {
+  let _ = html! {
       <div window:load=tx.contra_map(|_:DomEvent| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
   };
   ```
@@ -103,7 +103,7 @@ for more details about types that can be turned into streams.
   ```rust,no_run
   # use mogwai::prelude::*;
   let (tx, rx) = broadcast::bounded::<String>(1);
-  let _ = builder! {
+  let _ = html! {
       <div document:keyup=tx.contra_map(|ev| format!("{:#?}", ev))>{("waiting for first event", rx)}</div>
   };
   ```
@@ -113,7 +113,7 @@ for more details about types that can be turned into streams.
   Declares a boolean attribute with the given name.
   ```rust,no_run
   # use mogwai::prelude::*;
-  let _ = builder! {
+  let _ = html! {
       <input boolean:checked=true />
   };
   ```
@@ -147,7 +147,7 @@ for more details about types that can be turned into streams.
   [Dom][structdom].
   ```rust,ignore
   # use mogwai::prelude::*;
-  let my_input: ViewBuilder<MyCustomInnerView> = builder! {
+  let my_input: ViewBuilder<MyCustomInnerView> = html! {
         <input cast:type=MyCustomInnerView />
   };
   ```
@@ -157,7 +157,7 @@ Rust expressions can be used as the values of attributes and as child nodes.
 ```rust, no_run
 # use mogwai::prelude::*;
 let is_cool = true;
-let _ = builder! {
+let _ = html! {
     <div>
         {
             if !is_cool {
@@ -190,14 +190,14 @@ You can use RSX to build more than one view at a time:
 ```rust, no_run
 # use mogwai::prelude::*;
 // Create a vector with three builders in it.
-let builders: Vec<ViewBuilder<Dom>> = builder! {
+let builders: Vec<ViewBuilder<Dom>> = html! {
     <div>"hello"</div>
     <div>"hola"</div>
     <div>"kia ora"</div>
 };
 
 // Then add them all into a parent tag just like any component
-let parent: ViewBuilder<Dom> = builder! {
+let parent: ViewBuilder<Dom> = html! {
     <section>{builders}</section>
 };
 ```

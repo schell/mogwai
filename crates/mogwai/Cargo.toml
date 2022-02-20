@@ -13,11 +13,14 @@ categories = ["gui", "asynchronous", "widgets"]
 
 [features]
 default = ["dom"]
-dom = ["mogwai-dom", "mogwai-macros/dom"]
+dom-wasm = ["mogwai-dom", "mogwai-macros/dom"]
+dom = ["mogwai-dom/send_sync", "mogwai-core/sync", "mogwai-core/send", "mogwai-macros/dom"]
+send = ["mogwai-core/send"]
+sync = ["mogwai-core/sync"]
 
 [dependencies]
-mogwai-core = { path = "../mogwai-core", version = "^0.1" }
-mogwai-dom = { path = "../mogwai-dom", version = "^0.1", optional = true }
+mogwai-core = { version = "^0.1", path = "../mogwai-core", default-features = false }
+mogwai-dom = { version = "^0.1", path = "../mogwai-dom", default-features = false, optional = true }
 mogwai-macros = { path = "../mogwai-macros", version = "^0.3" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

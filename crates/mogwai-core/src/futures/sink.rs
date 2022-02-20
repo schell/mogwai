@@ -6,12 +6,10 @@ use std::marker::PhantomData;
 pub use futures::sink::*;
 use futures::task;
 
-use crate::target::Sendable;
-
 /// Type for supporting contravariant mapped sinks.
 pub struct ContraMap<S, X, Y, F>
 where
-    F: Fn(X) -> Y + Sendable,
+    F: Fn(X) -> Y,
 {
     sink: S,
     map: F,
@@ -22,7 +20,7 @@ where
 impl<S, X, Y, F> Sink<X> for ContraMap<S, X, Y, F>
 where
     S: Sink<Y> + Unpin,
-    F: Fn(X) -> Y + Sendable + Unpin,
+    F: Fn(X) -> Y + Unpin,
     X: Unpin,
     Y: Unpin,
 {
@@ -62,7 +60,7 @@ where
 /// Type for supporting contravariant filter-mapped sinks.
 pub struct ContraFilterMap<S, X, Y, F>
 where
-    F: Fn(X) -> Option<Y> + Sendable,
+    F: Fn(X) -> Option<Y>,
 {
     sink: S,
     map: F,
@@ -73,7 +71,7 @@ where
 impl<S, X, Y, F> Sink<X> for ContraFilterMap<S, X, Y, F>
 where
     S: Sink<Y> + Unpin,
-    F: Fn(X) -> Option<Y> + Sendable + Unpin,
+    F: Fn(X) -> Option<Y> + Unpin,
     X: Unpin,
     Y: Unpin,
 {
@@ -119,7 +117,7 @@ pub trait Contravariant<T>: Sink<T> + Sized {
     /// but without async and without the option of failure.
     fn contra_map<S, F>(self, f: F) -> ContraMap<Self, S, T, F>
     where
-        F: Fn(S) -> T + Sendable
+        F: Fn(S) -> T
     {
         ContraMap {
             map: f,
@@ -138,7 +136,7 @@ pub trait Contravariant<T>: Sink<T> + Sized {
         f: F,
     ) -> ContraFilterMap<Self, S, T, F>
     where
-        F: Fn(S) -> Option<T> + Sendable
+        F: Fn(S) -> Option<T>
     {
         ContraFilterMap {
             map: f,

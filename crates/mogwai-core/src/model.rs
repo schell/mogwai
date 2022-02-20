@@ -7,7 +7,6 @@ use async_lock::{RwLock, RwLockReadGuard};
 
 use crate::{
     patch::{HashPatch, ListPatch},
-    target::{Sendable, Syncable},
 };
 
 pub use crate::patch::{HashPatchApply, ListPatchApply};
@@ -22,8 +21,8 @@ pub use crate::patch::{HashPatchApply, ListPatchApply};
 /// latest, unique values will be sent to downstream observers.
 ///
 /// ```rust
-/// use mogwai::core::model::*;
-/// use mogwai::core::futures::StreamExt;
+/// use mogwai::model::*;
+/// use mogwai::futures::StreamExt;
 ///
 /// smol::block_on(async {
 ///     let model_a = Model::new("hello".to_string());
@@ -62,7 +61,7 @@ impl<T> Clone for Model<T> {
     }
 }
 
-impl<T: Clone + Sendable + Syncable + PartialEq> Model<T> {
+impl<T: Clone + PartialEq> Model<T> {
     /// Create a new Model.
     pub fn new(t: T) -> Model<T> {
         let (mut tx, rx) = broadcast::<T>(1);
@@ -191,7 +190,7 @@ impl<T: Clone> ListPatchApply for ListPatchModel<T> {
 /// message of every patch applied to the model.
 ///
 /// ```rust
-/// use mogwai::core::model::*;
+/// use mogwai::model::*;
 /// smol::block_on(async {
 ///     let mut model: HashPatchModel<String, usize> = HashPatchModel::new();
 ///     model.hash_patch_insert("hello".to_string(), 666);

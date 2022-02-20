@@ -17,25 +17,21 @@
 //!
 //! ## Example
 //! ```rust
+//! use mogwai::prelude::*;
+//!
 //! #[derive(Default)]
 //! struct ClickyDiv {
 //!     click: Output<()>,
 //!     text: Input<String>,
 //! }
 //!
-//! impl Relay<Dom> for ClickDiv {
-//!     type Error = String;
-//!
-//!     fn view(&mut self) -> ViewBuilder<Dom> {
-//!         rsx! {
-//!             <div on:click=self.click.sink().contra_map(|_| ())>
-//!                 {("Hi", self.text.stream().unwrap())}
-//!             </div>
-//!         }
-//!     }
-//!
-//!     fn logic(self) -> std::pin::Pin<Box<dyn Spawnable<Result<(), Self::Error>>>> {
-//!         Box::pin(async move {
+//! impl DomBuilderExt for ClickyDiv {
+//!     fn build(mut self) -> anyhow::Result<Dom> {
+//!         rsx! (
+//!             div(on:click=self.click.sink().contra_map(|_| ())) {
+//!                 {("Hi", self.text.stream().ok_or_else(|| anyhow::anyhow!("already used text stream"))?)}
+//!             }
+//!         ).with_task(async move {
 //!             let mut clicks = 0;
 //!             while let Some(()) = self.click.get().await {
 //!                 clicks += 1;
@@ -46,11 +42,10 @@
 //!                         format!("{} clicks.", clicks)
 //!                     })
 //!                     .await
-//!                     .map_err(|_| "could not set text".to_string())?;
+//!                     .unwrap()
 //!             }
-//!
-//!             Ok(())
 //!         })
+//!         .build()
 //!     }
 //! }
 //!
@@ -60,20 +55,11 @@
 //!     .run()
 //!     .unwrap();
 //! ```
-use std::{
-    pin::Pin,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use futures::{Sink, SinkExt, Stream, StreamExt};
 
-use crate::{
-    builder::ViewBuilder,
-    channel::{broadcast, SinkError},
-    component::Component,
-    event::Eventable,
-    target::{Sendable, Spawnable},
-};
+use crate::channel::{broadcast, SinkError};
 
 /// An input to a view.
 ///
@@ -93,7 +79,7 @@ impl<T> Default for Input<T> {
     }
 }
 
-impl<T: Sendable> Clone for Input<T> {
+impl<T> Clone for Input<T> {
     fn clone(&self) -> Self {
         Self {
             setter: self.setter.clone(),
@@ -102,7 +88,7 @@ impl<T: Sendable> Clone for Input<T> {
     }
 }
 
-impl<T: Sendable> Input<T> {
+impl<T> Input<T> {
     /// Set the value of this input.
     pub async fn set(&self, item: impl Into<T>) -> Result<(), ()> {
         let mut setter = self.setter.clone();
@@ -199,7 +185,7 @@ impl<T> Default for Output<T> {
     }
 }
 
-impl<T: Sendable + Clone + Unpin> Output<T> {
+impl<T: Clone> Output<T> {
     /// Attempt to send an event through the output syncronously.
     ///
     /// This can be used by views to send events downstream.
@@ -233,47 +219,5 @@ impl<T: Sendable + Clone + Unpin> Output<T> {
     /// Convert the output into stream of event occurrences.
     pub fn into_stream(self) -> impl Stream<Item = T> {
         self.chan.receiver()
-    }
-}
-
-/// Marker trait to aid in writing relays.
-pub trait RelayView: Eventable + Sendable + Clone + Unpin {}
-impl<T> RelayView for T where T: Eventable + Sendable + Clone + Unpin {}
-
-/// Marker trait to aid in writing relays.
-pub trait RelayEvent: Sendable + Clone + Unpin {}
-impl<T> RelayEvent for T where T: Sendable + Clone + Unpin {}
-
-/// Helper trait that allows a relay to be directly converted into a [`Component`].
-pub trait Relay<T>
-where
-    T: RelayView,
-    T::Event: RelayEvent,
-    Self: Sendable + Sized,
-    Self::Error: Sendable + std::fmt::Debug,
-{
-    type Error;
-
-    /// Create a view builder.
-    ///
-    /// `self` is borrowed as mutable to allow using [`Input::stream`],
-    /// [`FanInput::stream`] and other mutable functions on your
-    /// relay's inputs.
-    fn view(&mut self) -> ViewBuilder<T>;
-
-    /// Convert the relay into an asynchronous logic loop.
-    fn logic(self) -> Pin<Box<dyn Spawnable<Result<(), Self::Error>>>> {
-        Box::pin(futures::future::ready(Ok(())))
-    }
-
-    /// Convert into a component.
-    fn into_component(mut self) -> Component<T> {
-        let builder = self.view();
-        let logic = self.logic();
-        Component::from(builder).with_logic(async move {
-            if let Err(err) = logic.await {
-                log::error!("relay run error: {:?}", err);
-            }
-        })
     }
 }

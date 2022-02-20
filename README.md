@@ -64,32 +64,25 @@ struct Button {
     text: Input<String>,
 }
 
-impl Relay<Dom> for Button {
-    type Error = ();
-
-    fn view(&mut self) -> ViewBuilder<Dom> {
-        builder! {
-            <button on:click=self.click.sink().contra_map(|_: DomEvent| ())>
+impl Button {
+    fn builder(mut self) -> ViewBuilder<Dom> {
+        rsx! (
+            button(on:click=self.click.sink().contra_map(|_: DomEvent| ())) {
                 // Using braces we can embed rust values in our UI tree.
                 // Here we're creating a text node that starts with the
                 // string "Clicked 0 times" which updates every time a
                 // message is received on the stream.
                 {("Clicked 0 times", self.text.stream().unwrap())}
-            </button>
-        }
-    }
-
-    fn logic(mut self) -> std::pin::Pin<Box<dyn Spawnable<Result<(), Self::Error>>>> {
-        Box::pin(async move {
+            }
+        ).with_task(async move {
             while let Some(()) = self.click.get().await {
                 self.clicks += 1;
                 self.text.set(if self.clicks == 1 {
                     "Clicked 1 time".to_string()
                 } else {
                     format!("Clicked {} times", self.clicks)
-                }).await?;
+                }).await.unwrap();
             }
-            Ok(())
         })
     }
 }
@@ -98,7 +91,10 @@ let btn = Button::default();
 // Get a sink to manually send events.
 let mut click_sink = btn.click.sink();
 // Build the view
-let view = btn.build().unwrap();
+let view = btn
+    .builder()
+    .build()
+    .unwrap();
 view.run().unwrap();
 
 // Spawn asyncronous updates

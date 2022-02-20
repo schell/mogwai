@@ -1,17 +1,15 @@
 use mogwai::{
-    core::{
-        builder::{DecomposedViewBuilder, ViewBuilder},
-        channel::broadcast,
-        patch::HashPatch,
-        target::Streamable,
-    },
+    builder::{MogwaiStream, ViewBuilder},
+    channel::broadcast,
     dom::view::{Dom, DomBuilderExt},
-    macros::{builder, view, rsx},
+    html,
+    patch::HashPatch,
+    rsx,
 };
 
 #[test]
 fn expand_this_builder() {
-    let _ = builder! {
+    let _ = html! {
         <div
          cast:type = mogwai::dom::view::Dom
          post:build = move |_:&mut Dom| println!("post build")
@@ -31,16 +29,20 @@ fn expand_this_builder() {
 fn node_self_closing() {
     smol::block_on(async {
         // not all nodes are void nodes
-        let div: String = view! {
+        let div: String = html! {
             <a href="http://zyghost.com" />
         }
+        .build()
+        .unwrap()
         .html_string()
         .await;
         assert_eq!(&div, r#"<a href="http://zyghost.com"></a>"#);
 
-        let div: String = view! {
+        let div: String = html! {
             <img src="http://zyghost.com/favicon.ico" />
         }
+        .build()
+        .unwrap()
         .html_string()
         .await;
         assert_eq!(&div, r#"<img src="http://zyghost.com/favicon.ico" />"#);
@@ -49,20 +51,26 @@ fn node_self_closing() {
 
 #[smol_potat::test]
 async fn node_self_closing_gt_1_att() {
-    let decomp: DecomposedViewBuilder<Dom> =
-        builder! {<a href="http://zyghost.com" class="blah"/>}.into();
+    let decomp: ViewBuilder<Dom> = html! {<a href="http://zyghost.com" class="blah"/>};
+    let (_, attribs) = mogwai::builder::exhaust::<HashPatch<_, _>, _>(
+        futures::stream::select_all(decomp.attribs),
+    );
     assert_eq!(
-        decomp.attribs[0],
+        attribs[0],
         HashPatch::Insert("href".to_string(), "http://zyghost.com".to_string())
     );
 
     // not all nodes are void nodes
-    let div: String = view! {<a href="http://zyghost.com" class="blah"/>}
+    let div: String = html! {<a href="http://zyghost.com" class="blah"/>}
+        .build()
+        .unwrap()
         .html_string()
         .await;
     assert_eq!(&div, r#"<a href="http://zyghost.com" class="blah"></a>"#);
 
-    let div: String = view! {<img src="http://zyghost.com/favicon.ico" class="blah"/>}
+    let div: String = html! {<img src="http://zyghost.com/favicon.ico" class="blah"/>}
+        .build()
+        .unwrap()
         .html_string()
         .await;
     assert_eq!(
@@ -76,7 +84,7 @@ async fn by_hand() {
     let builder: ViewBuilder<Dom> = ViewBuilder::element("a")
         .with_single_attrib_stream("href", "http://zyghost.com")
         .with_single_attrib_stream("class", "a_link")
-        .with_child(ViewBuilder::text("a text node"));
+        .append(ViewBuilder::text("a text node"));
     assert_eq!(
         r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#,
         builder.build().unwrap().html_string().await
@@ -85,9 +93,11 @@ async fn by_hand() {
 
 #[smol_potat::test]
 async fn node() {
-    let div: String = view! {
+    let div: String = html! {
         <a href="http://zyghost.com" class = "a_link">"a text node"</a>
     }
+    .build()
+    .unwrap()
     .html_string()
     .await;
     assert_eq!(
@@ -99,9 +109,11 @@ async fn node() {
 #[smol_potat::test]
 async fn block_in_text() {
     let x: u32 = 66;
-    let s: String = view! {
+    let s: String = html! {
         <pre>"just a string with the number" {format!("{}", x)} "<- blah blah"</pre>
     }
+    .build()
+    .unwrap()
     .html_string()
     .await;
 
@@ -114,9 +126,11 @@ async fn block_in_text() {
 #[smol_potat::test]
 async fn block_at_end_of_text() {
     let x: u32 = 66;
-    let s: String = view! {
+    let s: String = html! {
         <pre>"just a string with the number" {format!("{}", x)}</pre>
     }
+    .build()
+    .unwrap()
     .html_string()
     .await;
 
@@ -125,9 +139,11 @@ async fn block_at_end_of_text() {
 
 #[smol_potat::test]
 async fn lt_in_text() {
-    let s: String = view! {
+    let s: String = html! {
         <pre>"this is text <- text"</pre>
     }
+    .build()
+    .unwrap()
     .html_string()
     .await;
 
@@ -136,13 +152,15 @@ async fn lt_in_text() {
 
 #[smol_potat::test]
 async fn allow_attributes_on_next_line() {
-    let _: String = view! {
+    let _: String = html! {
         <div
             id="my_div"
             style="float: left;">
             "A string"
         </div>
     }
+    .build()
+    .unwrap()
     .html_string()
     .await;
 }
@@ -169,10 +187,10 @@ struct User {
 
 fn signed_in_view_builder(
     user: &User,
-    home_class: impl Streamable<String>,
-    editor_class: impl Streamable<String>,
-    settings_class: impl Streamable<String>,
-    profile_class: impl Streamable<String>,
+    home_class: impl MogwaiStream<String>,
+    editor_class: impl MogwaiStream<String>,
+    settings_class: impl MogwaiStream<String>,
+    profile_class: impl MogwaiStream<String>,
 ) -> ViewBuilder<Dom> {
     let o_image: Option<ViewBuilder<Dom>> = user
         .o_image
@@ -181,12 +199,12 @@ fn signed_in_view_builder(
             if image.is_empty() {
                 None
             } else {
-                Some(builder! { <img class="user-pic" src=image /> })
+                Some(html! { <img class="user-pic" src=image /> })
             }
         })
         .flatten();
 
-    builder! {
+    html! {
         <ul class="nav navbar-nav pull-xs-right">
             <li class="nav-item">
                 <a class=home_class href="#/">" Home"</a>
@@ -227,7 +245,7 @@ pub fn struct_view_macro_source() {
     }
 
     let (facade, builder): (Facade<Dom>, _) = Facade::new();
-    let view = Component::from(builder).build().unwrap();
+    let view = builder.build().unwrap();
     view.run().unwrap();
 
     let mut remote_facade: Facade<Dom> = facade.clone();
@@ -241,10 +259,10 @@ pub fn struct_view_macro_source() {
 pub fn function_style_rsx() {
     fn _signed_in_view_builder(
         user: &User,
-        home_class: impl Streamable<String>,
-        editor_class: impl Streamable<String>,
-        settings_class: impl Streamable<String>,
-        profile_class: impl Streamable<String>,
+        home_class: impl MogwaiStream<String>,
+        editor_class: impl MogwaiStream<String>,
+        settings_class: impl MogwaiStream<String>,
+        profile_class: impl MogwaiStream<String>,
     ) -> ViewBuilder<Dom> {
         let o_image: Option<ViewBuilder<Dom>> = user
             .o_image
@@ -253,7 +271,7 @@ pub fn function_style_rsx() {
                 if image.is_empty() {
                     None
                 } else {
-                    Some(builder! { <img class="user-pic" src=image /> })
+                    Some(html! { <img class="user-pic" src=image /> })
                 }
             })
             .flatten();
@@ -290,14 +308,18 @@ pub fn function_style_rsx() {
 
 #[smol_potat::test]
 async fn rsx_same_as_html() {
-    let html = builder! {
+    let html = html! {
         <p><div class="my_class">"Hello"</div></p>
-    }.build().unwrap();
+    }
+    .build()
+    .unwrap();
     let html_string = html.html_string().await;
 
     let rsx = rsx! {
         p{ div(class="my_class"){ "Hello" }}
-    }.build().unwrap();
+    }
+    .build()
+    .unwrap();
     let rsx_string = rsx.html_string().await;
 
     assert_eq!(html_string, rsx_string, "rsx and html to not agree");

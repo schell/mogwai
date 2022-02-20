@@ -24,15 +24,15 @@ pub struct App {
 }
 
 impl App {
-    pub fn component(initial_route: Route) -> Component<Dom> {
+    pub fn component(initial_route: Route) -> ViewBuilder<Dom> {
         let app = App {
             click_count: 0,
             current_route: initial_route,
         };
         let (tx_logic, rx_logic) = broadcast::bounded(1);
         let (tx_view, rx_view) = broadcast::bounded(1);
-        Component::from(app.view(tx_logic, rx_view))
-            .with_logic(app.into_logic(rx_logic, tx_view))
+        app.view(tx_logic, rx_view)
+            .with_task(app.into_logic(rx_logic, tx_view))
     }
 
     async fn into_logic(mut self, mut rx_logic: broadcast::Receiver<Route>, tx_view: broadcast::Sender<Out>) {
@@ -60,7 +60,7 @@ impl App {
             Out::RenderClicks(count) => Some(format!("{} times", count)),
             _ => None,
         }});
-        builder! {
+        html! {
             <div id="root" class="root">
                 <p>{("0 times", rx_text)}</p>
                 <nav>

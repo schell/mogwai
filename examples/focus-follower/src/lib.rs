@@ -14,15 +14,15 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 struct TextOps {}
 
 impl TextOps {
-    fn component() -> Component<Dom> {
-        Component::from(builder! {
+    fn view() -> ViewBuilder<Dom> {
+        html! {
             <div class="frow width-100" id="textops-immutable">
                 <button>"B"</button>
                 <button>"I"</button>
                 <button>"U"</button>
                 <button>"S"</button>
             </div>
-        })
+        }
     }
 }
 
@@ -45,27 +45,25 @@ impl FocusedOn {
     }
 }
 
-async fn editor_component() -> Component<Dom> {
-    let text_ops = TextOps::component().build().unwrap();
+async fn editor_component() -> ViewBuilder<Dom> {
+    let text_ops = TextOps::view().build().unwrap();
     let (tx_logic, mut rx_logic) = broadcast::bounded::<FocusedOn>(1);
 
-    Component::from(
-        builder! {
-            <section class="frow direction-column">
-                <div
-                 id="editor"
-                 on:focusin=tx_logic.contra_filter_map(|ev: DomEvent| FocusedOn::from_event(ev))
-                 class="frow direction-column width-100" data-block-editor="browser-wasm">
-                    <div contenteditable="true" class="frow direction-column width-100 row-center" data-block="heading1">
-                        <div>"This is heading 1"</div>
-                    </div>
-                    <div contenteditable="true" class="frow direction-column width-100 row-center" data-block="heading1">
-                        <div>"This is heading 2"</div>
-                    </div>
+    html! (
+        <section class="frow direction-column">
+            <div
+             id="editor"
+             on:focusin=tx_logic.contra_filter_map(|ev: DomEvent| FocusedOn::from_event(ev))
+             class="frow direction-column width-100" data-block-editor="browser-wasm">
+                <div contenteditable="true" class="frow direction-column width-100 row-center" data-block="heading1">
+                    <div>"This is heading 1"</div>
                 </div>
-            </section>
-    })
-    .with_logic(async move {
+                <div contenteditable="true" class="frow direction-column width-100 row-center" data-block="heading1">
+                    <div>"This is heading 2"</div>
+                </div>
+            </div>
+        </section>
+    ).with_task(async move {
         loop {
             match rx_logic.next().await {
                 Some(FocusedOn(dom)) => {

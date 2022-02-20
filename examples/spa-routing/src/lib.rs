@@ -94,12 +94,12 @@ impl From<Route> for String {
 impl From<&Route> for ViewBuilder<Dom> {
     fn from(route: &Route) -> Self {
         match route {
-            Route::Home => builder! {
+            Route::Home => html! {
                 <main>
                     <h1>"Welcome to the homepage"</h1>
                 </main>
             },
-            Route::Settings => builder! {
+            Route::Settings => html! {
                 <main>
                     <h1>"Update your settings"</h1>
                 </main>
@@ -107,11 +107,11 @@ impl From<&Route> for ViewBuilder<Dom> {
             Route::Profile {
                 username,
                 is_favorites,
-            } => builder! {
+            } => html! {
                 <main>
                     <h1>{username}"'s Profile"</h1>
                     {if *is_favorites {
-                        Some(builder!{
+                        Some(html!{
                             <h2>"Favorites"</h2>
                         })
                     } else {
@@ -199,7 +199,7 @@ fn view(
     rx_route_patch: mpsc::Receiver<ListPatch<ViewBuilder<Dom>>>,
 ) -> ViewBuilder<Dom> {
     let username: String = "Reasonable-Human".into();
-    builder! {
+    html! {
         <slot
             window:hashchange=tx_logic.contra_filter_map(|ev: DomEvent| {
                 let ev = ev.browser_event()?;
@@ -242,9 +242,9 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
         let (tx_logic, rx_logic) = broadcast::bounded(1);
         let (tx_view, rx_view) = broadcast::bounded(1);
         let (tx_route_patch, rx_route_patch) = mpsc::bounded(1);
-        let component = Component::from(view(&route, tx_logic, rx_view, rx_route_patch))
-            .with_logic(logic(route, rx_logic, tx_view, tx_route_patch));
-        let view = component.build().unwrap();
+        let builder = view(&route, tx_logic, rx_view, rx_route_patch)
+            .with_task(logic(route, rx_logic, tx_view, tx_route_patch));
+        let view = builder.build().unwrap();
 
         if let Some(id) = parent_id {
             let parent = mogwai::dom::utils::document()

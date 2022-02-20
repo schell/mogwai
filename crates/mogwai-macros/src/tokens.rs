@@ -4,8 +4,8 @@ use std::convert::TryFrom;
 use proc_macro2::Span;
 use quote::quote;
 use syn::{
-    parse::Parse, punctuated::Punctuated, token, Error, Expr, Ident,
-    LitStr, Token,
+    parse::Parse, punctuated::Punctuated, token, Error, Expr, Ident, LitStr,
+    Token,
 };
 use syn_rsx::{Node, NodeType};
 
@@ -121,9 +121,7 @@ impl AttributeToken {
             CaptureView(expr) => Ok(quote! {
                 .with_capture_view(#expr)
             }),
-            Xmlns(expr) => Ok(quote! {
-                .with_namespace(#expr)
-            }),
+            Xmlns(_) => Ok(quote!{}),// handled by a preprocessor
             Style(expr) => Ok(quote! {
                 .with_style_stream(#expr)
             }),
@@ -131,13 +129,13 @@ impl AttributeToken {
                 .with_single_style_stream(#name, #expr)
             }),
             On(name, expr) => Ok(quote! {
-                .with_event(#name, mogwai::core::event::EventTargetType::Myself, #expr)
+                .with_event(#name, mogwai::view::EventTargetType::Myself, #expr)
             }),
             Window(name, expr) => Ok(quote! {
-                .with_event(#name, mogwai::core::event::EventTargetType::Window, #expr)
+                .with_event(#name, mogwai::view::EventTargetType::Window, #expr)
             }),
             Document(name, expr) => Ok(quote! {
-                .with_event(#name, mogwai::core::event::EventTargetType::Document, #expr)
+                .with_event(#name, mogwai::view::EventTargetType::Document, #expr)
             }),
             BooleanSingle(name, expr) => Ok(quote! {
                 .with_single_bool_attrib_stream(#name, #expr)

@@ -1,6 +1,7 @@
 //! Types and extention traits for [`Stream`]s.
 //!
 //! Re-exports some of the futures crate, along with extensions and helper types.
+// TODO: kill this module
 use std::pin::Pin;
 
 pub use futures::stream::*;

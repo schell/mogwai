@@ -14,7 +14,7 @@ use web_sys::{Request, RequestInit, RequestMode, Response};
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
-pub fn new_button(click_chan: &broadcast::Channel<()>) -> Component<Dom> {
+pub fn new_button(click_chan: &broadcast::Channel<()>) -> ViewBuilder<Dom> {
     // Create a channel for our button to get its text from.
     let (tx_text, rx_text) = broadcast::bounded::<String>(1);
 
@@ -22,7 +22,7 @@ pub fn new_button(click_chan: &broadcast::Channel<()>) -> Component<Dom> {
     //
     // The button text will start out as "Click me" and then change to whatever
     // comes in on the receiver.
-    let builder = builder! {
+    let view = html! {
         // The button has a style and transmits its clicks
         <button
          style="cursor: pointer;"
@@ -61,16 +61,16 @@ pub fn new_button(click_chan: &broadcast::Channel<()>) -> Component<Dom> {
     };
 
     // Bundle them together to use later in a tree of widgets
-    Component::from(builder).with_logic(logic)
+    view.with_task(logic)
 }
 
 /// Creates a h1 heading that changes its color.
-pub fn new_h1(click_chan: &broadcast::Channel<()>) -> Component<Dom> {
+pub fn new_h1(click_chan: &broadcast::Channel<()>) -> ViewBuilder<Dom> {
     // Create a receiver for our heading to get its color from.
     let (tx_color, rx_color) = broadcast::bounded::<String>(1);
 
     // Create the builder for our view, giving it the receiver.
-    let builder = builder! {
+    let builder = html! {
         <h1 id="header" class="my-header"
          // set style.color with an initial value and then update it whenever
          // we get a message on rx_color
@@ -98,7 +98,7 @@ pub fn new_h1(click_chan: &broadcast::Channel<()>) -> Component<Dom> {
     };
 
     // Wrap it up into a component
-    Component::from(builder).with_logic(logic)
+    builder.with_task(logic)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -141,14 +141,14 @@ async fn click_to_text() -> Option<String> {
 
 /// Creates a button that when clicked requests the time in london and sends
 /// it down a receiver.
-pub fn time_req_button_and_pre() -> Component<Dom> {
+pub fn time_req_button_and_pre() -> ViewBuilder<Dom> {
     // In the time it takes to send a request to the time server and get a response
     // back, the user can click the button again and again, so we'll let the channel
     // handle more than one click at a time by increasing our bounds a bit.
     let (req_tx, req_rx) = broadcast::bounded::<()>(5);
     let (resp_tx, resp_rx) = broadcast::bounded::<String>(1);
 
-    Component::from(builder! {
+    html! (
         <div>
             <button
             style="cursor: pointer;"
@@ -158,8 +158,8 @@ pub fn time_req_button_and_pre() -> Component<Dom> {
             </button>
             <pre>{("(waiting)", resp_rx)}</pre>
         </div>
-    })
-    .with_logic(async move {
+    )
+    .with_task(async move {
         // Here we use `ready_chunks`, which batches all the messages that are waiting
         // in the channel (max capacity).
         let mut rx = req_rx.ready_chunks(5);
@@ -177,22 +177,26 @@ pub fn time_req_button_and_pre() -> Component<Dom> {
 }
 
 /// Creates a view that ticks a count upward every second.
-pub fn counter() -> Component<Dom> {
+pub fn counter() -> ViewBuilder<Dom> {
     // Create a channel for a string to accept our counter's text
     let (tx_txt, rx_txt) = broadcast::bounded::<String>(1);
 
-    Component::from(builder! { <h3>{("Awaiting first count", rx_txt)}</h3> })
-        // The logic loop waits a second and then increments a counter,
-        // then send a message.
-        .with_logic(async move {
-            let mut n = 0;
-            loop {
-                let _ = wait_millis(1000).await;
-                n += 1;
-                let msg = format!("Count: {}", n);
-                tx_txt.broadcast(msg).await.unwrap();
-            }
-        })
+    rsx! (
+        h3() {
+            {("Awaiting first count", rx_txt)}
+        }
+    )
+    // The logic loop waits a second and then increments a counter,
+    // then send a message.
+    .with_task(async move {
+        let mut n = 0;
+        loop {
+            let _ = wait_millis(1000).await;
+            n += 1;
+            let msg = format!("Count: {}", n);
+            tx_txt.broadcast(msg).await.unwrap();
+        }
+    })
 }
 
 #[wasm_bindgen(start)]
@@ -209,7 +213,7 @@ pub fn main() {
         let counter = counter();
 
         // Put it all in a parent view and run it right now
-        let root = view! {
+        let root = html! {
             <div>
                 {h1}
                 {btn}
@@ -221,7 +225,9 @@ pub fn main() {
                 {req}
                 {counter}
             </div>
-        };
+        }
+        .build()
+        .unwrap();
         root.run().unwrap_throw();
 
         // Here we'll start a hydration-by-hand experiment.
@@ -248,7 +254,7 @@ pub fn main() {
         // Create a channel for getting the count state from the DOM after hydration.
         let (tx_p, mut rx_p) = mpsc::bounded(1);
         // Create a builder that matches the pre-existing DOM (this builder would be how we create it server-side).
-        let builder = builder! {
+        let builder = html! {
             <div id="my_div">
                 <p
                 data-count=rx_view.clone().map(|n| format!("{}", n))
@@ -284,7 +290,7 @@ pub fn main() {
                 }
             }
         };
-        let component = Component::from(builder).with_logic(logic);
+        let component = builder.with_task(logic);
 
         {
             let hydrator = Hydrator::try_from(component).unwrap();

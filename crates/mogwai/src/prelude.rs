@@ -1,21 +1,19 @@
 //! All of Mogwai in one easy place.
-pub use mogwai_core::{
+pub use crate::{
+    builder,
     builder::*,
     channel::*,
-    component::*,
-    event::*,
-    futures::{
-        sink::Contravariant,
-        stream::{BoxStream, BoxedStreamLocal, StreamableExt},
-        EitherExt, *,
-    },
+    constraints::*,
+    futures::{sink::Contravariant, EitherExt, *},
+    html,
     model::*,
     patch::*,
     relay::*,
-    target::*,
+    rsx, spawn,
     time::*,
+    view,
+    view::*,
 };
-pub use mogwai_macros::{builder, html, rsx, view};
 
-#[cfg(feature = "dom")]
-pub use mogwai_dom::{event::*, view::*};
+#[cfg(any(feature = "dom", feature = "dom-wasm"))]
+pub use crate::dom::{event::*, view::*, *, ssr::*};

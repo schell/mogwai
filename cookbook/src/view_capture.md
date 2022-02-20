@@ -14,11 +14,11 @@ receiver:
 smol::block_on(async {
     let (tx, mut rx) = broadcast::bounded::<Dom>(1);
 
-    let builder = builder! {
+    let builder = html! {
         <div><button capture:view = tx>"Click"</button></div>
     };
 
-    let div: Dom = Component::from(builder)
+    let div: Dom = builder
         .build()
         .unwrap();
 
@@ -39,7 +39,7 @@ then use it in a `post:build` operation like so:
 # use mogwai::prelude::*;
 
 fn view(send_input: broadcast::Sender<Dom>) -> ViewBuilder<Dom> {
-    builder! {
+    html! {
         <div>
 
             <button post:build=move |dom: &mut Dom| { send_input.inner.try_broadcast(dom.clone()).unwrap(); } >
