@@ -32,6 +32,18 @@ where
     (stream, items)
 }
 
+/// Try to get an available `T` from the given stream by polling it.
+///
+/// This proxies to [`futures::stream::StreamExt::poll_next_unpin`].
+pub fn try_next<T>(stream: &mut Pin<Box<dyn MogwaiStream<T>>>) -> std::task::Poll<Option<T>> {
+    let raw_waker = RawWaker::from(Arc::new(DummyWaker));
+    let waker = unsafe { Waker::from_raw(raw_waker) };
+    let mut cx = std::task::Context::from_waker(&waker);
+
+    stream.poll_next_unpin(&mut cx)
+}
+
+
 #[cfg(test)]
 mod exhaust {
     use crate::builder::exhaust;

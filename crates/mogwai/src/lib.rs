@@ -42,10 +42,10 @@ pub mod dom {
 /// ## Panics
 /// Not all view domains have `spawn`, or they may provide a different API.
 /// In those cases this function will panic.
-pub fn spawn<T: Send + Sync + 'static>(f: impl constraints::Spawnable<T>) {
+pub fn spawn<T: Send + Sync + 'static>(_f: impl constraints::Spawnable<T>) {
     #[cfg(any(feature = "dom", feature = "dom-wasm"))]
     {
-        dom::spawn(f);
+        dom::spawn(_f);
     }
 
     #[cfg(all(not(feature = "dom"), not(feature = "dom-wasm")))]
