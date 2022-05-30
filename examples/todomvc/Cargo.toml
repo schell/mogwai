@@ -31,10 +31,11 @@ console_error_panic_hook = { version = "0.1.6", optional = true }
 # Unfortunately, `wee_alloc` requires nightly Rust when targeting wasm for now.
 wee_alloc = { version = "0.4.2", optional = true }
 
-[dependencies.mogwai]
-default-features = false
-features = ["dom-wasm"]
-path = "../../crates/mogwai"
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+mogwai = { path = "../../crates/mogwai", default-features = false, features = ["dom-wasm"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+mogwai = { path = "../../crates/mogwai", default-features = false, features = ["dom-wasm"] }
 
 [dependencies.web-sys]
 version = "^0.3"

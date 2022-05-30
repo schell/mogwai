@@ -1,0 +1,20 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+description = "Configuration, build, test and packaging tasks for Maxwell"
+
+[dependencies]
+anyhow = "^1.0"
+clap = { version = "^3.1", features = ["cargo", "derive"] }
+duct = "^0.13"
+tracing = "^0.1"
+tracing-subscriber = "^0.3"
+
+[[bin]]
+name = "xtask"
+# We explicitly specify we don't have any #[bench] functions, so that, when we
+# run `cargo bench` with options for `criterion`, it doesn't try to pass them
+# on to `libtest`.
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false

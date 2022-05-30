@@ -18,8 +18,11 @@ mogwai-hydrator = { path = "../../crates/mogwai-hydrator", version = "^0.2" }
 wasm-bindgen = "^0.2"
 wasm-bindgen-futures = "^0.4"
 
-[dependencies.mogwai]
-path = "../../crates/mogwai"
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+mogwai = { path = "../../crates/mogwai", default-features = false, features = ["dom-wasm"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+mogwai = { path = "../../crates/mogwai", default-features = false, features = ["dom-wasm"] }
 
 [dependencies.web-sys]
 version = "^0.3"

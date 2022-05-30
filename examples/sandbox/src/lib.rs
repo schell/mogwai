@@ -8,6 +8,7 @@ use mogwai::prelude::*;
 use mogwai_hydrator::Hydrator;
 use std::{convert::TryFrom, panic};
 use wasm_bindgen::{prelude::*, JsCast};
+use wasm_bindgen_futures::JsFuture;
 use web_sys::HtmlElement;
 #[cfg(target_arch = "wasm32")]
 use web_sys::{Request, RequestInit, RequestMode, Response};
