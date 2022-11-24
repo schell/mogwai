@@ -17,7 +17,7 @@
 //!
 //! ## Example
 //! ```rust
-//! use mogwai::prelude::*;
+//! use mogwai::{rsx, relay::*};
 //!
 //! #[derive(Default)]
 //! struct ClickyDiv {

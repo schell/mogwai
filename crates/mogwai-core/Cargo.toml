@@ -1,5 +1,5 @@
 [package]
-name = "mogwai-core"
+name = "mogwai"
 version = "0.1.0"
 edition = "2021"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
@@ -14,19 +14,17 @@ categories = ["gui", "asynchronous", "widgets"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["send", "sync"]
-send = []
-sync = []
+default = []
 
 [dependencies]
 anyhow = "^1.0"
 async-broadcast = "^0.3"
 async-lock = "^2.4"
-async-trait = "^0.1"
 console_log = "^0.1"
 futures = "^0.3"
 lazy_static = "^1.4"
 log = "^0.4"
+mogwai-macros = { path = "../mogwai-macros", version = "0.3.1" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 smol = "^1.2"
@@ -40,7 +38,8 @@ version = "^0.3"
 features = ["Document", "MessageChannel", "MessagePort", "Performance", "Window"]
 
 [dev-dependencies]
-mogwai = { path = "../mogwai", version = "^0.6", features = ["dom"] }
+async-executor = "^1.5"
+mogwai-dom = { path = "../mogwai-dom", version = "^0.1.0" }
 
 [dev-dependencies.web-sys]
 version = "^0.3"

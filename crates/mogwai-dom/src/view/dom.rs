@@ -1,11 +1,12 @@
 //! Wrapper around Javascript DOM nodes.
 
 use futures::future::Either;
-use mogwai_core::{
+use mogwai::{
     builder::{MogwaiSink, ViewBuilder},
-    futures::EitherExt,
+    futures::{EitherExt, sink::Sink},
     patch::{HashPatch, ListPatch},
     view::{EventTargetType, View},
+    traits::ConstraintType
 };
 use wasm_bindgen::{JsCast, JsValue};
 
@@ -295,7 +296,12 @@ impl Dom {
     }
 
     /// Add an event.
-    pub fn set_event(&self, type_is: EventTargetType, name: &str, tx: impl MogwaiSink<DomEvent> + Unpin) {
+    pub fn set_event<Si: Sink<DomEvent>, C: ConstraintType>(
+        &self,
+        type_is: EventTargetType,
+        name: &str,
+        tx: impl Into<MogwaiSink<DomEvent, Si, C>>,
+    ) {
         #[cfg(target_arch = "wasm32")]
         {
             use mogwai_core::futures::sink::Contravariant;
@@ -336,7 +342,7 @@ impl Dom {
         match self.inner_read() {
             Either::Left(val) => {
                 let patch = patch.map(|d| {
-                    mogwai_core::futures::EitherExt::left(d.inner_read())
+                    mogwai::futures::EitherExt::left(d.inner_read())
                         .unwrap()
                         .clone()
                         .dyn_into::<web_sys::Node>()
@@ -361,7 +367,7 @@ impl Dom {
     /// Fails if this is not a container element or if the patch fails.
     pub fn build_and_patch_children(
         &self,
-        patch: ListPatch<ViewBuilder<Self>>,
+        patch: ListPatch<ViewBuilder<Self, C>>,
     ) -> Result<(), anyhow::Error> {
         let patch = patch.map(|builder: ViewBuilder<Dom>| -> Dom { builder.build().unwrap() });
         self.patch_children(patch)

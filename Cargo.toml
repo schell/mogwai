@@ -1,22 +1,22 @@
 [workspace]
 
 members = [
-  "cookbook",
-  "crates/mogwai",
+  #"cookbook",
+  #"crates/mogwai",
   "crates/mogwai-core",
   "crates/mogwai-dom",
-  "crates/mogwai-hydrator",
-  "crates/mogwai-macros",
-  "crates/xtask",
-  "examples/counter",
-  "examples/nested-components",
-  "examples/focus-follower",
-  "examples/list-of-gizmos",
-  "examples/multipage",
-  "examples/sandbox",
-  "examples/spa-routing",
-  "examples/svg",
-  "examples/todomvc",
+  #"crates/mogwai-hydrator",
+  #"crates/mogwai-macros",
+  #"crates/xtask",
+  #"examples/counter",
+  #"examples/nested-components",
+  #"examples/focus-follower",
+  #"examples/list-of-gizmos",
+  #"examples/multipage",
+  #"examples/sandbox",
+  #"examples/spa-routing",
+  #"examples/svg",
+  #"examples/todomvc",
 ]
 
 resolver = "2"

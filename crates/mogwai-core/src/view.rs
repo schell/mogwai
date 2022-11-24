@@ -1,5 +1,4 @@
 //! Trait supporting domain specific views.
-use crate::constraints::{SendConstraints, SyncConstraints};
 
 /// An event target declaration.
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -15,7 +14,7 @@ pub enum EventTargetType {
 /// An interface for a domain-specific view.
 pub trait View
 where
-    Self: Sized + Clone + Unpin + SendConstraints + SyncConstraints + 'static,
+    Self: Sized + Clone + Unpin + 'static,
 {
     /// The type of view events.
     type Event;

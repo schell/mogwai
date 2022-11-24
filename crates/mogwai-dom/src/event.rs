@@ -14,7 +14,7 @@ use std::{
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::EventTarget;
 
-use mogwai_core::{builder::MogwaiStream, channel::SinkError};
+use mogwai::{traits::{NoConstraint, ConstrainedStream}, channel::SinkError};
 
 /// A wrapper for [`web_sys::Event`].
 #[derive(Clone, Debug)]
@@ -173,7 +173,7 @@ pub fn event_stream_with<T: Send + Sync + 'static>(
     ev_name: &str,
     target: &web_sys::EventTarget,
     mut f: impl FnMut(web_sys::Event) -> T + 'static,
-) -> Pin<Box<dyn MogwaiStream<T>>> {
+) -> ConstrainedStream<T, NoConstraint> {
     let (mut tx, rx) = futures::channel::mpsc::unbounded();
     let mut stream = event_stream(ev_name, target);
     wasm_bindgen_futures::spawn_local(async move {
@@ -209,16 +209,4 @@ pub fn add_event(
             }
         }
     });
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    fn sendable<T: mogwai_core::constraints::SendConstraints>() {}
-
-    #[test]
-    fn domevent_is_sendable() {
-        sendable::<DomEvent>();
-    }
 }

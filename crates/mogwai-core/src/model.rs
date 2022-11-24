@@ -5,9 +5,7 @@ use async_broadcast::{broadcast, Receiver, Sender};
 use futures::Stream;
 use async_lock::{RwLock, RwLockReadGuard};
 
-use crate::{
-    patch::{HashPatch, ListPatch},
-};
+use crate::patch::{HashPatch, ListPatch};
 
 pub use crate::patch::{HashPatchApply, ListPatchApply};
 

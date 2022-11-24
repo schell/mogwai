@@ -4,7 +4,7 @@ use std::{collections::HashMap, ops::DerefMut, pin::Pin, sync::Arc};
 
 use futures::{lock::Mutex, Future, Sink, StreamExt};
 
-use mogwai_core::{
+use mogwai::{
     channel::SinkError,
     futures::SinkExt,
     patch::{ListPatch, ListPatchApply},
@@ -166,7 +166,7 @@ pub struct SsrElement {
 mod ssr {
     #[test]
     fn ssrelement_sendable() {
-        fn sendable<T: mogwai_core::constraints::SendConstraints>() {}
+        fn sendable<T: Send + Sync + 'static>() {}
         sendable::<super::SsrElement>()
     }
 }

@@ -14,21 +14,6 @@ pub mod ssr;
 pub mod utils;
 pub mod view;
 
-/// Spawn an asynchronous task.
-pub fn spawn<T: Send + Sync + 'static>(f: impl mogwai_core::constraints::Spawnable<T>) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        wasm_bindgen_futures::spawn_local(async move {
-            let _ = f.await;
-        })
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let task = smol::spawn(f);
-        task.detach();
-    }
-}
-
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod nonwasm {
     use mogwai::prelude::*;
