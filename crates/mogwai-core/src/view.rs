@@ -132,10 +132,10 @@ where
     /// Possibly asynchronous and scoped acquisition of resources.
     ///
     /// Used to build children before patching.
-    fn with_acquired_resources<T: Send + Sync + 'static>(
+    fn with_acquired_resources<'a, T: Send + Sync + 'static>(
         &self,
-        f: impl FnOnce(Self::Resources) -> anyhow::Result<T>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + Sync + 'static>>;
+        f: impl FnOnce(Self::Resources) -> anyhow::Result<T> + Send + Sync + 'a,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + Sync + 'a>>;
 
     /// Set the text of this view.
     fn set_text(&self, s: &str) -> anyhow::Result<()>;
