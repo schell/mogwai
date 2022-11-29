@@ -5,7 +5,7 @@ use futures::SinkExt;
 use mogwai::{
     builder::ViewBuilder,
     patch::ListPatch,
-    traits::{ConstrainedFuture, ConstraintType, SendConstraint, SendSyncConstraint, NoConstraint},
+    view::{ConstrainedFuture, View},
 };
 use std::{
     future::Future,
@@ -13,8 +13,8 @@ use std::{
     pin::Pin,
 };
 
-mod dom;
-pub use dom::*;
+mod js_dom;
+pub use js_dom::*;
 
 /// Adds helpful extensions to [`Either`].
 pub trait EitherExt {
@@ -50,10 +50,10 @@ impl<A, B> EitherExt for Either<A, B> {
     }
 }
 
-fn build<'a, C: ConstraintType>(
-    spawn: impl Fn(ConstrainedFuture<(), C>),
-    builder: ViewBuilder<Dom, C>,
-) -> anyhow::Result<Dom> {
+fn build<'a, V: View>(
+    spawn: impl Fn(ConstrainedFuture<(), V>),
+    builder: ViewBuilder<V>,
+) -> anyhow::Result<JsDom> {
     let ViewBuilder {
         identity,
         texts,
@@ -68,11 +68,11 @@ fn build<'a, C: ConstraintType>(
     } = builder;
 
     let mut element = match identity {
-        mogwai::builder::ViewIdentity::Branch(tag) => Dom::element(&tag, None).unwrap(),
+        mogwai::builder::ViewIdentity::Branch(tag) => JsDom::element(&tag, None).unwrap(),
         mogwai::builder::ViewIdentity::NamespacedBranch(tag, ns) => {
-            Dom::element(&tag, Some(&ns)).unwrap()
+            JsDom::element(&tag, Some(&ns)).unwrap()
         }
-        mogwai::builder::ViewIdentity::Leaf(text) => Dom::text(&text).unwrap(),
+        mogwai::builder::ViewIdentity::Leaf(text) => JsDom::text(&text).unwrap(),
     };
 
     use mogwai::builder::exhaust;
@@ -128,21 +128,21 @@ fn build<'a, C: ConstraintType>(
 }
 
 /// An extension trait that constructs `Dom` nodes.
-pub trait DomBuilderExt<C: ConstraintType> {
-    fn build(&self, builder: ViewBuilder<Dom, C>) -> anyhow::Result<Dom>;
+pub trait DomBuilderExt<V: View> {
+    fn build(&self, builder: ViewBuilder<V>) -> anyhow::Result<V>;
 }
 
-impl<'a> DomBuilderExt<SendConstraint> for Executor<'a> {
-    fn build(&self, builder: ViewBuilder<Dom, SendConstraint>) -> anyhow::Result<Dom> {
-        build(
-            |fut| {
-                let task = self.spawn(fut);
-                task.detach();
-            },
-            builder,
-        )
-    }
-}
+//impl<'a> DomBuilderExt<SendConstraint> for Executor<'a> {
+//    fn build(&self, builder: ViewBuilder<Dom, SendConstraint>) -> anyhow::Result<Dom> {
+//        build(
+//            |fut| {
+//                let task = self.spawn(fut);
+//                task.detach();
+//            },
+//            builder,
+//        )
+//    }
+//}
 
 // Helper function for defining `ListPatchApply for Dom`.
 fn list_patch_apply_node(

@@ -11,6 +11,5 @@ pub mod model;
 pub mod patch;
 pub mod relay;
 pub mod time;
-pub mod traits;
 pub mod view;
 pub use mogwai_macros::{rsx, html};

@@ -2,7 +2,7 @@
 use wasm_bindgen::{closure::Closure, JsCast, JsValue, UnwrapThrowExt};
 use web_sys;
 
-use crate::view::Dom;
+use crate::view::JsDom;
 
 /// Return the DOM [`web_sys::Window`].
 /// #### Panics
@@ -14,19 +14,19 @@ pub fn window() -> web_sys::Window {
 /// Return the document Dom object [`web_sys::Document`]
 /// #### Panics
 /// Panics on non-wasm32 or when the document cannot be returned.
-pub fn document() -> Dom {
-    Dom::try_from(JsValue::from(window().document().expect("no global `document` exists"))).unwrap()
+pub fn document() -> JsDom {
+    JsDom::try_from(JsValue::from(window().document().expect("no global `document` exists"))).unwrap()
 }
 
 /// Return the body Dom object.
 ///
 /// ## Panics
 /// Panics on wasm32 if the body cannot be returned.
-pub fn body() -> Dom {
+pub fn body() -> JsDom {
     if cfg!(target_arch = "wasm32") {
-        Dom::try_from(JsValue::from(window().document().unwrap().body().expect("document does not have a body"))).unwrap()
+        JsDom::try_from(JsValue::from(window().document().unwrap().body().expect("document does not have a body"))).unwrap()
     } else {
-        Dom::try_from(crate::ssr::SsrElement::element("body")).map_err(|_| ()).unwrap()
+        JsDom::try_from(crate::ssr::SsrElement::element("body")).map_err(|_| ()).unwrap()
     }
 }
 

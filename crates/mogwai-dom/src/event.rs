@@ -14,7 +14,7 @@ use std::{
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::EventTarget;
 
-use mogwai::{traits::{NoConstraint, ConstrainedStream}, channel::SinkError};
+use mogwai::{channel::SinkError, builder::MogwaiStream, view::{ConstrainedStream, View}};
 
 /// A wrapper for [`web_sys::Event`].
 #[derive(Clone, Debug)]
@@ -169,11 +169,15 @@ pub fn event_stream(
 /// Run the event through the given function and send the result on the given sink.
 ///
 /// This can be used to get a `Sendable` stream of events from a `web_sys::EventTarget`.
-pub fn event_stream_with<T: Send + Sync + 'static>(
+pub fn event_stream_with<T, V>(
     ev_name: &str,
     target: &web_sys::EventTarget,
     mut f: impl FnMut(web_sys::Event) -> T + 'static,
-) -> ConstrainedStream<T, NoConstraint> {
+) -> ConstrainedStream<T, V>
+where
+    T: Send + Sync + 'static,
+    V: View,
+{
     let (mut tx, rx) = futures::channel::mpsc::unbounded();
     let mut stream = event_stream(ev_name, target);
     wasm_bindgen_futures::spawn_local(async move {
@@ -186,12 +190,12 @@ pub fn event_stream_with<T: Send + Sync + 'static>(
         }
     });
 
-    Box::pin(rx)
+    MogwaiStream::from_stream(rx).into()
 }
 
 /// Add an event listener of the given name to the given target. When the event happens, the
 /// event will be fed to the given sink. If the sink is closed, the listener will be removed.
-pub fn add_event(
+pub fn add_event<V:View>(
     ev_name: &str,
     target: &web_sys::EventTarget,
     mut tx: Pin<Box<dyn Sink<web_sys::Event, Error = SinkError> + 'static>>,

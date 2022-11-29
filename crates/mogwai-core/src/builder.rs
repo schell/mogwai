@@ -1,17 +1,11 @@
 //! A low cost intermediate structure for creating views.
 use crate::{
     channel::SinkError,
-    futures::stream,
     patch::{HashPatch, ListPatch},
-    traits::{
-        ConstrainedFuture, ConstrainedSink, ConstrainedStream, ConstraintType, NoConstraint,
-        SendConstraint, SendSyncConstraint,
-    },
     view::{EventTargetType, View},
 };
-use futures::{Future, FutureExt, Sink, SinkExt, Stream, StreamExt};
+use futures::{stream, Future, Sink, Stream, StreamExt};
 use std::{
-    marker::PhantomData,
     pin::Pin,
     sync::Arc,
     task::{RawWaker, Wake, Waker},
@@ -23,14 +17,14 @@ impl Wake for DummyWaker {
     fn wake(self: std::sync::Arc<Self>) {}
 }
 
-/// Exhaust a stream until polling returns pending.
+/// Exhaust a stream until polling returns pending or ends.
 ///
 /// Returns the stream and the gathered items.
 ///
 /// Useful for getting the starting values of a view.
 pub fn exhaust<T, St>(mut stream: St) -> (St, Vec<T>)
 where
-    St: Stream<Item = T> + Unpin,
+    St: Stream<Item = T> + Unpin + Send + Sync + 'static,
 {
     let raw_waker = RawWaker::from(Arc::new(DummyWaker));
     let waker = unsafe { Waker::from_raw(raw_waker) };
@@ -45,7 +39,7 @@ where
 /// Try to get an available `T` from the given stream by polling it.
 ///
 /// This proxies to [`futures::stream::StreamExt::poll_next_unpin`].
-pub fn try_next<T, C: ConstraintType<StreamType<T> = St>, St: Stream<Item = T> + Unpin>(
+pub fn try_next<T, V: View, St: Stream<Item = T> + Unpin>(
     stream: &mut St,
 ) -> std::task::Poll<Option<T>> {
     let raw_waker = RawWaker::from(Arc::new(DummyWaker));
@@ -82,240 +76,79 @@ mod exhaust {
     }
 }
 
-/// Stream type.
-///
-/// ## TODO: write about constraints.
-pub struct MogwaiStream<T, St: Stream<Item = T> + Unpin, C: Unpin> {
-    inner: St,
-    _phantom: PhantomData<C>,
+/// An enumeration of values that ViewBuilders accept.
+pub enum MogwaiValue<S, St> {
+    /// An owned string.
+    Owned(S),
+    /// A stream of values.
+    Stream(St),
+    /// An owned value and a stream of values.
+    OwnedAndStream(S, St),
 }
 
-impl<T, St: Stream<Item = T> + Unpin, C: Unpin> Stream for MogwaiStream<T, St, C> {
-    type Item = T;
+pub type PinBoxStream<T> = Pin<Box<dyn Stream<Item = T> + Unpin + Send + Sync + 'static>>;
 
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        self.inner.poll_next_unpin(cx)
-    }
-}
-
-impl<T, St: Stream<Item = T> + Unpin + 'static> From<MogwaiStream<T, St, NoConstraint>>
-    for Pin<Box<dyn Stream<Item = T> + Unpin + 'static>>
-{
-    fn from(value: MogwaiStream<T, St, NoConstraint>) -> Self {
-        Box::pin(value.inner)
-    }
-}
-
-impl<T, St: Stream<Item = T> + Unpin + Send + 'static> From<MogwaiStream<T, St, SendConstraint>>
-    for Pin<Box<dyn Stream<Item = T> + Unpin + Send + 'static>>
-{
-    fn from(value: MogwaiStream<T, St, SendConstraint>) -> Self {
-        Box::pin(value.inner)
-    }
-}
-
-impl<T, St: Stream<Item = T> + Unpin + Send + Sync + 'static>
-    From<MogwaiStream<T, St, SendSyncConstraint>>
-    for Pin<Box<dyn Stream<Item = T> + Unpin + Send + Sync + 'static>>
-{
-    fn from(value: MogwaiStream<T, St, SendSyncConstraint>) -> Self {
-        Box::pin(value.inner)
-    }
-}
-
-impl<T, C: Unpin> MogwaiStream<T, stream::Iter<std::iter::Once<T>>, C> {
-    pub fn from_value(t: T) -> Self {
-        MogwaiStream {
-            inner: futures::stream::iter(std::iter::once(t)),
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<T, St: Stream<Item = T> + Unpin, C: Unpin> MogwaiStream<T, St, C> {
-    pub fn from_stream(st: St) -> Self {
-        MogwaiStream {
-            inner: st,
-            _phantom: PhantomData,
-        }
-    }
-
-    pub fn from_value_and_stream(
-        t: T,
-        st: St,
-    ) -> MogwaiStream<T, stream::Chain<stream::Iter<std::iter::Once<T>>, St>, C> {
-        MogwaiStream {
-            inner: futures::stream::iter(std::iter::once(t)).chain(st),
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<C: Unpin> From<bool> for MogwaiStream<bool, stream::Iter<std::iter::Once<bool>>, C> {
+impl From<bool> for MogwaiValue<bool, PinBoxStream<bool>> {
     fn from(b: bool) -> Self {
-        MogwaiStream::from_value(b)
+        MogwaiValue::Owned(b)
     }
 }
 
-impl<'a, C: Unpin> From<&'a str>
-    for MogwaiStream<String, stream::Iter<std::iter::Once<String>>, C>
-{
+impl<'a> From<&'a str> for MogwaiValue<String, PinBoxStream<String>> {
     fn from(s: &'a str) -> Self {
-        MogwaiStream::from_value(s.to_string())
+        MogwaiValue::Owned(s.into())
     }
 }
 
-impl<Constraint: Unpin> From<&String>
-    for MogwaiStream<String, stream::Iter<std::iter::Once<String>>, Constraint>
-{
+impl From<&String> for MogwaiValue<String, PinBoxStream<String>> {
     fn from(s: &String) -> Self {
-        MogwaiStream::from_value(s.clone())
+        MogwaiValue::Owned(s.into())
     }
 }
 
-impl<Constraint: Unpin> From<String>
-    for MogwaiStream<String, stream::Iter<std::iter::Once<String>>, Constraint>
-{
+impl From<String> for MogwaiValue<String, PinBoxStream<String>> {
     fn from(s: String) -> Self {
-        MogwaiStream::from_value(s)
+        MogwaiValue::Owned(s)
     }
 }
 
-impl<S, St: Stream<Item = S> + Send + Sync + Unpin + 'static> From<St>
-    for MogwaiStream<S, St, SendSyncConstraint>
+impl<S, St> From<St> for MogwaiValue<S, St>
+where
+    S: Send + Sync + 'static,
+    St: Stream<Item = S> + Unpin + Send + Sync + 'static,
 {
     fn from(s: St) -> Self {
-        MogwaiStream::from_stream(s)
+        MogwaiValue::Stream(s)
     }
 }
 
-impl<S, St: Stream<Item = S> + Send + Unpin + 'static> From<St>
-    for MogwaiStream<S, St, SendConstraint>
+impl<S, St> From<(S, St)> for MogwaiValue<S::Owned, St>
+where
+    S: ToOwned,
+    St: Stream<Item = S::Owned> + Unpin + Send + Sync + 'static,
 {
-    fn from(s: St) -> Self {
-        MogwaiStream::from_stream(s)
+    fn from(s: (S, St)) -> Self {
+        MogwaiValue::OwnedAndStream(s.0.to_owned(), s.1)
     }
 }
 
-impl<S, St: Stream<Item = S> + Unpin + 'static> From<St> for MogwaiStream<S, St, NoConstraint> {
-    fn from(s: St) -> Self {
-        MogwaiStream::from_stream(s)
-    }
-}
-
-impl<S, St: Stream<Item = S> + Send + Sync + Unpin + 'static, X: Into<S>> From<(X, St)>
-    for MogwaiStream<S, stream::Chain<stream::Iter<std::iter::Once<S>>, St>, SendSyncConstraint>
+impl<S: Send + Sync + 'static, St: Stream<Item = S> + Unpin + Send + Sync + 'static>
+    From<MogwaiValue<S, St>> for PinBoxStream<S>
 {
-    fn from((x, s): (X, St)) -> Self {
-        MogwaiStream::from_value_and_stream(x.into(), s)
-    }
-}
-
-impl<S, St: Stream<Item = S> + Send + Unpin + 'static, X: Into<S>> From<(X, St)>
-    for MogwaiStream<S, stream::Chain<stream::Iter<std::iter::Once<S>>, St>, SendConstraint>
-{
-    fn from((x, s): (X, St)) -> Self {
-        MogwaiStream::from_value_and_stream(x.into(), s)
-    }
-}
-
-impl<S, St: Stream<Item = S> + Unpin + 'static, X: Into<S>> From<(X, St)>
-    for MogwaiStream<S, stream::Chain<stream::Iter<std::iter::Once<S>>, St>, NoConstraint>
-{
-    fn from((x, s): (X, St)) -> Self {
-        MogwaiStream::from_value_and_stream(x.into(), s)
-    }
-}
-
-/// Mogwai's future type, constrained by a type parameter.
-pub struct MogwaiFuture<T, Fut, C> {
-    inner: Fut,
-    _phantom: PhantomData<(T, C)>,
-}
-
-impl<T: Unpin, Fut: Future<Output = T> + Unpin, C: Unpin> Future for MogwaiFuture<T, Fut, C> {
-    type Output = Fut::Output;
-
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        self.get_mut().inner.poll_unpin(cx)
-    }
-}
-
-impl<T, Fut: Future<Output = T> + 'static> From<Fut> for MogwaiFuture<T, Fut, NoConstraint> {
-    fn from(inner: Fut) -> Self {
-        MogwaiFuture {
-            inner,
-            _phantom: PhantomData,
+    fn from(v: MogwaiValue<S, St>) -> Self {
+        match v {
+            MogwaiValue::Owned(s) => Box::pin(futures::stream::iter(std::iter::once(s))),
+            MogwaiValue::Stream(s) => Box::pin(s),
+            MogwaiValue::OwnedAndStream(s, st) => {
+                Box::pin(futures::stream::iter(std::iter::once(s)).chain(st))
+            }
         }
-    }
-}
-
-impl<T, Fut: Future<Output = T> + Send + 'static> From<Fut>
-    for MogwaiFuture<T, Fut, SendConstraint>
-{
-    fn from(inner: Fut) -> Self {
-        MogwaiFuture {
-            inner,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<T, Fut: Future<Output = T> + Send + Sync + 'static> From<Fut>
-    for MogwaiFuture<T, Fut, SendSyncConstraint>
-{
-    fn from(inner: Fut) -> Self {
-        MogwaiFuture {
-            inner,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-/// Sink type.
-pub struct MogwaiSink<T, Si: Sink<T, Error = SinkError>, Constraint> {
-    inner: Si,
-    _phantom: PhantomData<(T, Constraint)>,
-}
-
-impl<T: Unpin, Si: Sink<T, Error = SinkError> + Unpin, C: Unpin> Sink<T> for MogwaiSink<T, Si, C> {
-    type Error = SinkError;
-
-    fn poll_ready(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.get_mut().inner.poll_ready_unpin(cx)
-    }
-
-    fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
-        self.get_mut().inner.start_send_unpin(item)
-    }
-
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.get_mut().inner.poll_flush_unpin(cx)
-    }
-
-    fn poll_close(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.get_mut().inner.poll_close_unpin(cx)
     }
 }
 
 /// Marker trait for operations that mutate a domain specific view.
-pub trait PostBuild<T>: FnOnce(&mut T) {}
-impl<T, F: FnOnce(&mut T)> PostBuild<T> for F {}
+pub trait PostBuild<T>: FnOnce(&mut T) + Send + Sync + 'static {}
+impl<T, F: FnOnce(&mut T) + Send + Sync + 'static> PostBuild<T> for F {}
 
 /// The starting identity of a view.
 pub enum ViewIdentity {
@@ -324,35 +157,41 @@ pub enum ViewIdentity {
     Leaf(String),
 }
 
+pub type MogwaiFuture<T> = Pin<Box<dyn Future<Output = T> + Unpin + Send + Sync + 'static>>;
+
+pub type MogwaiStream<T> = Pin<Box<dyn Stream<Item = T> + Unpin + Send + Sync + 'static>>;
+
+pub type MogwaiSink<T> = Pin<Box<dyn Sink<T, Error = SinkError> + Unpin + Send + Sync + 'static>>;
+
 /// An un-built mogwai view.
 /// A ViewBuilder is the most generic view representation in the mogwai library.
 /// It is the the blueprint of a view - everything needed to create, hydrate or serialize the view.
-pub struct ViewBuilder<T: View, C: ConstraintType> {
+pub struct ViewBuilder<V: View> {
     /// The identity of the view.
     ///
     /// Either a name or a tuple of a name and a namespace.
     pub identity: ViewIdentity,
     /// Text declarations.
-    pub texts: Vec<ConstrainedStream<String, C>>,
+    pub texts: Vec<MogwaiStream<String>>,
     /// Attribute declarations.
-    pub attribs: Vec<ConstrainedStream<HashPatch<String, String>, C>>,
+    pub attribs: Vec<MogwaiStream<HashPatch<String, String>>>,
     /// Boolean attribute declarations.
-    pub bool_attribs: Vec<ConstrainedStream<HashPatch<String, bool>, C>>,
+    pub bool_attribs: Vec<MogwaiStream<HashPatch<String, bool>>>,
     /// Style declarations.
-    pub styles: Vec<ConstrainedStream<HashPatch<String, String>, C>>,
+    pub styles: Vec<MogwaiStream<HashPatch<String, String>>>,
     /// Child patch declarations.
-    pub children: Vec<ConstrainedStream<ListPatch<ViewBuilder<T, C>>, C>>,
+    pub children: Vec<MogwaiStream<ListPatch<ViewBuilder<V::Child>>>>,
     /// Event sinks.
-    pub events: Vec<(String, EventTargetType, ConstrainedSink<T::Event, C>)>,
+    pub events: Vec<(String, EventTargetType, MogwaiSink<V::Event>)>,
     /// Post build operations/computations that run and mutate the view after initialization.
-    pub ops: Vec<Box<dyn PostBuild<T>>>,
+    pub ops: Vec<Box<dyn PostBuild<V>>>,
     /// Sinks that want access to the view once it is initialized.
-    pub view_sinks: Vec<ConstrainedSink<T, C>>,
+    pub view_sinks: Vec<MogwaiSink<V>>,
     /// Asynchronous tasks that run after the view has been initialized.
-    pub tasks: Vec<ConstrainedFuture<(), C>>,
+    pub tasks: Vec<MogwaiFuture<()>>,
 }
 
-impl<T: View, C: ConstraintType + Unpin> ViewBuilder<T, C> {
+impl<V: View> ViewBuilder<V> {
     /// Create a new container element builder.
     pub fn element(tag: impl Into<String>) -> Self {
         ViewBuilder {
@@ -386,15 +225,10 @@ impl<T: View, C: ConstraintType + Unpin> ViewBuilder<T, C> {
     }
 
     /// Create a new node builder.
-    pub fn text<St: Stream<Item = String> + Unpin>(
-        t: impl Into<MogwaiStream<String, St, C>>,
-    ) -> Self
-    where
-        MogwaiStream<String, St, C>: Into<ConstrainedStream<String, C>>,
-    {
-        let mv: MogwaiStream<_, _, _> = t.into();
-        let pinbox: ConstrainedStream<String, C> = mv.into();
-        let (pinbox, texts) = exhaust(pinbox);
+    pub fn text<St: Stream<Item = String> + Unpin + Send + Sync + 'static>(
+        st: impl Into<MogwaiValue<String, St>>,
+    ) -> Self {
+        let (st, texts) = exhaust(PinBoxStream::from(st.into()));
         let identity = texts
             .into_iter()
             .fold(None, |_, text| Some(text))
@@ -402,7 +236,7 @@ impl<T: View, C: ConstraintType + Unpin> ViewBuilder<T, C> {
 
         ViewBuilder {
             identity: ViewIdentity::Leaf(identity),
-            texts: vec![pinbox],
+            texts: vec![st],
             attribs: vec![],
             bool_attribs: vec![],
             styles: vec![],
@@ -415,144 +249,79 @@ impl<T: View, C: ConstraintType + Unpin> ViewBuilder<T, C> {
     }
 
     /// Adds an asynchronous task.
-    pub fn with_task<Fut: Future<Output = ()>>(
+    pub fn with_task(
         mut self,
-        f: impl Into<MogwaiFuture<(), Fut, C>>,
-    ) -> Self
-    where
-        MogwaiFuture<(), Fut, C>: Into<ConstrainedFuture<(), C>>,
-    {
-        self.tasks.push(f.into().into());
+        f: impl Future<Output = ()> + Unpin + Send + Sync + 'static,
+    ) -> Self {
+        self.tasks.push(Box::pin(f));
         self
     }
 
     /// Add a stream to set the text of this builder.
-    pub fn with_text_stream<St: Stream<Item = String> + Unpin>(
+    pub fn with_text_stream<St: Stream<Item = String> + Unpin + Send + Sync + 'static>(
         mut self,
-        st: impl Into<MogwaiStream<String, St, C>>,
-    ) -> Self
-    where
-        MogwaiStream<String, St, C>: Into<ConstrainedStream<String, C>>,
-    {
-        self.texts.push(st.into().into());
+        st: impl Into<MogwaiValue<String, St>>,
+    ) -> Self {
+        let mv = st.into();
+        let st = PinBoxStream::<String>::from(mv);
+        self.texts.push(st);
         self
     }
 
     /// Add a stream to patch the attributes of this builder.
-    pub fn with_attrib_stream<St: Stream<Item = HashPatch<String, String>> + Unpin>(
+    pub fn with_attrib_stream<
+        St: Stream<Item = HashPatch<String, String>> + Unpin + Send + Sync + 'static,
+    >(
         mut self,
-        st: impl Into<MogwaiStream<HashPatch<String, String>, St, C>>,
-    ) -> Self
-    where
-        MogwaiStream<HashPatch<String, String>, St, C>:
-            Into<ConstrainedStream<HashPatch<String, String>, C>>,
-    {
-        self.attribs.push(st.into().into());
+        st: impl Into<MogwaiValue<HashPatch<String, String>, St>>,
+    ) -> Self {
+        self.attribs.push(PinBoxStream::from(st.into()));
         self
     }
 
     /// Add a stream to patch a single attribute of this builder.
-    pub fn with_single_attrib_stream<St: Stream<Item = String> + Unpin>(
+    pub fn with_single_attrib_stream<St: Stream<Item = String> + Unpin + Send + Sync + 'static>(
         mut self,
         k: impl Into<String>,
-        st: impl Into<MogwaiStream<String, St, C>>,
-    ) -> Self
-    where
-        ConstrainedStream<HashPatch<String, String>, C>: From<
-            MogwaiStream<
-                HashPatch<String, String>,
-                stream::Map<
-                    MogwaiStream<String, St, C>,
-                    Box<dyn Fn(String) -> HashPatch<String, String>>,
-                >,
-                C,
-            >,
-        >,
-    {
+        st: impl Into<MogwaiValue<String, St>>,
+    ) -> Self {
         let key = k.into();
-        let st = st.into();
-        let st: MogwaiStream<
-            HashPatch<String, String>,
-            stream::Map<
-                MogwaiStream<String, St, C>,
-                Box<dyn Fn(String) -> HashPatch<String, String>>,
-            >,
-            C,
-        > = MogwaiStream::from_stream(st.map(Box::new(move |v| HashPatch::Insert(key.clone(), v))));
-        self.attribs.push(st.into());
+        let st = PinBoxStream::from(st.into()).map(move |v| HashPatch::Insert(key.clone(), v));
+        self.attribs.push(Box::pin(st));
         self
     }
 
     /// Add a stream to patch the boolean attributes of this builder.
-    pub fn with_bool_attrib_stream<St: Stream<Item = HashPatch<String, bool>> + Unpin>(
+    pub fn with_bool_attrib_stream<
+        St: Stream<Item = HashPatch<String, bool>> + Unpin + Send + Sync + 'static,
+    >(
         mut self,
-        st: impl Into<MogwaiStream<HashPatch<String, bool>, St, C>>,
-    ) -> Self
-    where
-        MogwaiStream<HashPatch<String, bool>, St, C>:
-            Into<ConstrainedStream<HashPatch<String, bool>, C>>,
-    {
-        self.bool_attribs.push(st.into().into());
+        st: impl Into<MogwaiValue<HashPatch<String, bool>, St>>,
+    ) -> Self {
+        self.bool_attribs.push(PinBoxStream::from(st.into()));
         self
     }
 
     /// Add a stream to patch a single boolean attribute of this builder.
-    pub fn with_single_bool_attrib_stream<St: Stream<Item = bool> + Unpin>(
+    pub fn with_single_bool_attrib_stream<
+        St: Stream<Item = bool> + Unpin + Send + Sync + 'static,
+    >(
         mut self,
         k: impl Into<String>,
-        st: impl Into<MogwaiStream<bool, St, C>>,
-    ) -> Self
-    where
-        ConstrainedStream<HashPatch<String, bool>, C>: From<
-            MogwaiStream<
-                HashPatch<String, bool>,
-                stream::Map<
-                    MogwaiStream<bool, St, C>,
-                    Box<dyn Fn(bool) -> HashPatch<String, bool>>,
-                >,
-                C,
-            >,
-        >,
-    {
+        st: impl Into<MogwaiValue<bool, St>>,
+    ) -> Self {
         let key = k.into();
-        let st = st.into();
-        let st: MogwaiStream<
-            HashPatch<String, bool>,
-            stream::Map<MogwaiStream<bool, St, C>, Box<dyn Fn(bool) -> HashPatch<String, bool>>>,
-            C,
-        > = MogwaiStream::from_stream(st.map(Box::new(move |b| HashPatch::Insert(key.clone(), b))));
-        self.bool_attribs.push(st.into());
+        let st = PinBoxStream::from(st.into()).map(move |b| HashPatch::Insert(key.clone(), b));
+        self.bool_attribs.push(Box::pin(st));
         self
     }
 
     /// Add a stream to patch the style attribute of this builder.
-    pub fn with_style_stream<St: Stream<Item = String> + Unpin>(
+    pub fn with_style_stream<St: Stream<Item = String> + Unpin + Send + Sync + 'static>(
         mut self,
-        st: impl Into<MogwaiStream<String, St, C>>,
-    ) -> Self
-    where
-        ConstrainedStream<HashPatch<String, String>, C>: From<
-            MogwaiStream<
-                HashPatch<String, String>,
-                stream::FlatMap<
-                    MogwaiStream<String, St, C>,
-                    stream::Iter<std::vec::IntoIter<HashPatch<String, String>>>,
-                    fn(String) -> stream::Iter<std::vec::IntoIter<HashPatch<String, String>>>,
-                >,
-                C,
-            >,
-        >,
-    {
-        let st = st.into();
-        let st: MogwaiStream<
-            HashPatch<String, String>,
-            stream::FlatMap<
-                MogwaiStream<String, St, C>,
-                stream::Iter<std::vec::IntoIter<HashPatch<String, String>>>,
-                fn(String) -> stream::Iter<std::vec::IntoIter<HashPatch<String, String>>>,
-            >,
-            C,
-        > = MogwaiStream::from_stream(st.flat_map(|v: String| {
+        st: impl Into<MogwaiValue<String, St>>,
+    ) -> Self {
+        let st = PinBoxStream::from(st.into()).flat_map(|v: String| {
             let kvs = str::split(&v, ';')
                 .filter_map(|style| {
                     let (k, v) = style.split_once(':')?;
@@ -563,183 +332,147 @@ impl<T: View, C: ConstraintType + Unpin> ViewBuilder<T, C> {
                 })
                 .collect::<Vec<_>>();
             stream::iter(kvs)
-        }));
-        self.styles.push(st.into());
+        });
+        self.styles.push(Box::pin(st));
         self
     }
 
     /// Add a stream to patch a single style of this builder.
-    pub fn with_single_style_stream<St: Stream<Item = String> + Unpin>(
+    pub fn with_single_style_stream<St: Stream<Item = String> + Unpin + Send + Sync + 'static>(
         mut self,
         k: impl Into<String>,
-        st: impl Into<MogwaiStream<String, St, C>>,
-    ) -> Self
-    where
-        <C as ConstraintType>::StreamType<HashPatch<String, String>>: From<
-            MogwaiStream<
-                HashPatch<String, String>,
-                futures::stream::Map<
-                    MogwaiStream<String, St, C>,
-                    Box<dyn Fn(String) -> HashPatch<String, String>>,
-                >,
-                C,
-            >,
-        >,
-    {
+        st: impl Into<MogwaiValue<String, St>>,
+    ) -> Self {
         let key = k.into();
-        let st = st.into();
-        let st =
-            MogwaiStream::from_stream(st.map(Box::new(move |v| HashPatch::Insert(key.clone(), v))
-                as Box<dyn Fn(String) -> HashPatch<String, String>>));
-        self.styles.push(st.into());
+        let st = PinBoxStream::from(st.into());
+        let st = st.map(move |v| HashPatch::Insert(key.clone(), v));
+        self.styles.push(Box::pin(st));
         self
     }
 
     /// Add a stream to patch the list of children of this builder.
-    pub fn with_child_stream<St: Stream<Item = ListPatch<ViewBuilder<T, C>>> + Unpin>(
+    pub fn with_child_stream<
+        St: Stream<Item = ListPatch<ViewBuilder<V::Child>>> + Unpin + Send + Sync + 'static,
+    >(
         mut self,
-        st: impl Into<MogwaiStream<ListPatch<ViewBuilder<T, C>>, St, C>>,
-    ) -> Self
-    where
-        ConstrainedStream<ListPatch<ViewBuilder<T, C>>, C>:
-            From<MogwaiStream<ListPatch<ViewBuilder<T, C>>, St, C>>,
-    {
-        let st = st.into();
-        self.children.push(st.into());
+        st: impl Into<MogwaiValue<ListPatch<ViewBuilder<V::Child>>, St>>,
+    ) -> Self {
+        self.children.push(PinBoxStream::from(st.into()));
         self
     }
 
-    //    /// Append a child or iterator of children.
-    //    pub fn append<A>(self, children: A) -> Self
-    //    where
-    //        AppendArg<T>: From<A>,
-    //    {
-    //        let arg = children.into();
-    //
-    //        let bldrs = match arg {
-    //            AppendArg::Single(bldr) => vec![bldr],
-    //            AppendArg::Iter(bldrs) => bldrs,
-    //        };
-    //        let stream = Box::pin(futures::stream::iter(
-    //            bldrs.into_iter().map(|b| ListPatch::push(b)),
-    //        ));
-    //        self.with_child_stream(stream)
-    //    }
+    /// Append a child or iterator of children.
+    pub fn append<A>(self, children: A) -> Self
+    where
+        AppendArg<V::Child>: From<A>,
+    {
+        let arg = children.into();
+
+        let bldrs = match arg {
+            AppendArg::Single(bldr) => vec![bldr],
+            AppendArg::Iter(bldrs) => bldrs,
+        };
+        let stream = Box::pin(futures::stream::iter(
+            bldrs.into_iter().map(|b| ListPatch::push(b)),
+        ));
+        self.with_child_stream(stream)
+    }
 
     /// Add an operation to perform after the view has been built.
     pub fn with_post_build<F>(mut self, run: F) -> Self
     where
-        F: PostBuild<T> + 'static,
+        F: PostBuild<V>,
     {
         self.ops.push(Box::new(run));
         self
     }
 
     /// Send a clone of the inner view once it is built.
-    pub fn with_capture_view<Si: Sink<T, Error = SinkError>>(
+    pub fn with_capture_view(
         mut self,
-        sink: impl Into<MogwaiSink<T, Si, C>>,
-    ) -> Self
-    where
-        ConstrainedSink<T, C>: From<MogwaiSink<T, Si, C>>,
-    {
-        self.view_sinks.push(sink.into().into());
+        sink: impl Sink<V, Error = SinkError> + Unpin + Send + Sync + 'static,
+    ) -> Self {
+        self.view_sinks.push(Box::pin(sink));
         self
     }
 
     /// Add a sink into which view events of the given name will be sent.
-    pub fn with_event<Si: Sink<T::Event, Error = SinkError>>(
+    pub fn with_event(
         mut self,
         name: impl Into<String>,
         target: EventTargetType,
-        si: impl Into<MogwaiSink<T::Event, Si, C>>,
-    ) -> Self
-    where
-        ConstrainedSink<<T as View>::Event, C>: From<MogwaiSink<<T as View>::Event, Si, C>>,
-    {
-        self.events.push((name.into(), target, si.into().into()));
+        si: impl Sink<V::Event, Error = SinkError> + Unpin + Send + Sync + 'static,
+    ) -> Self {
+        self.events.push((name.into(), target, Box::pin(si)));
         self
     }
 }
 
 /// An enumeration of types that can be appended as children to [`ViewBuilder`].
-pub enum AppendArg<T: View, C: ConstraintType> {
+pub enum AppendArg<V: View> {
     /// A single static child.
-    Single(ViewBuilder<T, C>),
+    Single(ViewBuilder<V>),
     /// A collection of static children.
-    Iter(Vec<ViewBuilder<T, C>>),
+    Iter(Vec<ViewBuilder<V>>),
 }
 
-impl<T, V, C> From<Vec<V>> for AppendArg<T, C>
+impl<V> From<Vec<V>> for AppendArg<V>
 where
-    T: View,
-    C: ConstraintType,
-    ViewBuilder<T, C>: From<V>,
+    V: View,
+    ViewBuilder<V>: From<V>,
 {
     fn from(bldrs: Vec<V>) -> Self {
         AppendArg::Iter(bldrs.into_iter().map(ViewBuilder::from).collect())
     }
 }
 
-impl<T, C> From<&String> for ViewBuilder<T, C>
+impl<V> From<&String> for ViewBuilder<V>
 where
-    ConstrainedStream<String, C>:
-        From<MogwaiStream<String, stream::Iter<std::iter::Once<String>>, C>>,
-    T: View,
-    C: ConstraintType + Unpin,
+    V: View + Unpin,
 {
     fn from(s: &String) -> Self {
-        ViewBuilder::text(s.as_str())
+        ViewBuilder::text(stream::iter(std::iter::once(s.clone())))
     }
 }
 
-impl<T, C> From<String> for ViewBuilder<T, C>
+impl<V> From<String> for ViewBuilder<V>
 where
-    ConstrainedStream<String, C>:
-        From<MogwaiStream<String, stream::Iter<std::iter::Once<String>>, C>>,
-    T: View,
-    C: ConstraintType + Unpin,
+    V: View + Unpin,
 {
     fn from(s: String) -> Self {
-        ViewBuilder::text(s.as_str())
+        ViewBuilder::text(stream::iter(std::iter::once(s)))
     }
 }
 
-impl<T, C> From<&str> for ViewBuilder<T, C>
+impl<V> From<&str> for ViewBuilder<V>
 where
-    ConstrainedStream<String, C>:
-        From<MogwaiStream<String, stream::Iter<std::iter::Once<String>>, C>>,
-    T: View,
-    C: ConstraintType + Unpin,
+    V: View + Unpin,
 {
     fn from(s: &str) -> Self {
-        ViewBuilder::text(s)
+        ViewBuilder::text(stream::iter(std::iter::once(s.to_string())))
     }
 }
 
-impl<T: View, S, St, C: ConstraintType + Unpin> From<(S, St)> for ViewBuilder<T, C>
+impl<S, St, V: View + Unpin> From<(S, St)> for ViewBuilder<V>
 where
-    ConstrainedStream<String, C>:
-        From<MogwaiStream<String, stream::Iter<std::iter::Once<String>>, C>>,
-    ConstrainedStream<String, C>: From<MogwaiStream<String, St, C>>,
     S: AsRef<str>,
-    St: Stream<Item = String> + Unpin + 'static,
-    MogwaiStream<String, St, C>: From<St>,
+    St: Stream<Item = String> + Unpin + Send + Sync + 'static,
 {
     fn from((s, st): (S, St)) -> Self {
-        ViewBuilder::text(s.as_ref()).with_text_stream(st)
+        let iter = stream::iter(std::iter::once(s.as_ref().to_string())).chain(st);
+        ViewBuilder::text(iter)
     }
 }
 
-impl<T: View, C: ConstraintType, V: Into<ViewBuilder<T, C>>> From<V> for AppendArg<T, C> {
+impl<V: View + Into<ViewBuilder<V>>> From<V> for AppendArg<V> {
     fn from(v: V) -> Self {
         AppendArg::Single(v.into())
     }
 }
 
-impl<T: View, C: ConstraintType, V> From<Option<V>> for AppendArg<T, C>
+impl<V: View> From<Option<V>> for AppendArg<V>
 where
-    ViewBuilder<T, C>: From<V>,
+    ViewBuilder<V>: From<V>,
 {
     fn from(may_vb: Option<V>) -> Self {
         AppendArg::Iter(

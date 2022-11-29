@@ -89,12 +89,37 @@ impl<T> ListPatch<T> {
         }
     }
 
+    /// Map the patch from `T` to `X`
+    pub fn try_map<F, X, E>(self, f: F) -> Result<ListPatch<X>, E>
+    where
+        F: Fn(T) -> Result<X, E>,
+    {
+        Ok(match self {
+            ListPatch::Splice {
+                range,
+                replace_with,
+            } => ListPatch::Splice {
+                range,
+                replace_with: {
+                    let mut ts = vec![];
+                    for t in replace_with.into_iter() {
+                        let x = f(t)?;
+                        ts.push(x);
+                    }
+                    ts
+                },
+            },
+            ListPatch::Push(value) => ListPatch::Push(f(value)?),
+            ListPatch::Pop => ListPatch::Pop,
+        })
+    }
+
     /// Map the patch from `T` to `X` using a function that returns a future that produces
     /// an `X`.
     pub async fn map_future<F, X, Fut>(self, f: F) -> ListPatch<X>
     where
         F: Fn(T) -> Fut,
-        Fut: Future<Output = X>
+        Fut: Future<Output = X>,
     {
         match self {
             ListPatch::Splice {
