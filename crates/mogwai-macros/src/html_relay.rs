@@ -90,7 +90,7 @@ impl RelayAttribute {
 /// ```ignore
 /// <MyViewRelay
 ///  input:set_text = String
-///  output:get_click = DomEvent
+///  output:get_click = JsDomEvent
 ///  />
 /// ```
 ///

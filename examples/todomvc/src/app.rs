@@ -55,7 +55,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> (App, ViewBuilder<Dom>) {
+    pub fn new() -> (App, ViewBuilder<JsDom>) {
         let (tx_logic, rx_logic) = broadcast::bounded(16);
         let (tx_view, rx_view) = broadcast::bounded(1);
         let (tx_todo_input, rx_todo_input) = mpsc::bounded(1);
@@ -125,10 +125,10 @@ async fn num_items_left(todos: impl Iterator<Item = &item::Todo>) -> usize {
 
 async fn logic(
     rx_logic: broadcast::Receiver<AppLogic>,
-    mut recv_todo_input: mpsc::Receiver<Dom>,
-    mut recv_todo_toggle_input: mpsc::Receiver<Dom>,
+    mut recv_todo_input: mpsc::Receiver<JsDom>,
+    mut recv_todo_toggle_input: mpsc::Receiver<JsDom>,
     tx_view: broadcast::Sender<AppView>,
-    mut tx_item_patches: mpsc::Sender<ListPatch<ViewBuilder<Dom>>>,
+    mut tx_item_patches: mpsc::Sender<ListPatch<ViewBuilder<JsDom>>>,
 ) {
     let todo_input = recv_todo_input.next().await.unwrap();
     let _ = mogwai::time::wait_secs(1.0).await;
@@ -338,19 +338,19 @@ fn todo_list_display(rx: &broadcast::Receiver<AppView>) -> impl Stream<Item = St
 }
 
 fn view(
-    send_todo_input: mpsc::Sender<Dom>,
-    send_completion_toggle_input: mpsc::Sender<Dom>,
+    send_todo_input: mpsc::Sender<JsDom>,
+    send_completion_toggle_input: mpsc::Sender<JsDom>,
     tx: broadcast::Sender<AppLogic>,
     rx: broadcast::Receiver<AppView>,
-    item_children: impl MogwaiStream<ListPatch<ViewBuilder<Dom>>>,
-) -> ViewBuilder<Dom> {
+    item_children: impl MogwaiStream<ListPatch<ViewBuilder<JsDom>>>,
+) -> ViewBuilder<JsDom> {
     html! {
         <section id="todo_main" class="todoapp">
             <header class="header">
                 <h1>"todos"</h1>
                 <input
                  class="new-todo" id="new-todo" placeholder="What needs to be done?"
-                 on:change = tx.clone().with_flat_map(|ev: DomEvent| {
+                 on:change = tx.clone().with_flat_map(|ev: JsDomEvent| {
                      let todo_name =
                          utils::event_input_value(ev).expect("event input value");
                      if todo_name.is_empty() {
@@ -394,7 +394,7 @@ fn view(
                 </span>
                 <ul class="filters"
                     window:hashchange=
-                        tx.clone().with_flat_map(|ev: DomEvent| {
+                        tx.clone().with_flat_map(|ev: JsDomEvent| {
                             let ev: web_sys::Event = ev.browser_event().unwrap();
                             let ev: HashChangeEvent =
                                 ev.dyn_into::<HashChangeEvent>().expect("not hash event");
@@ -436,7 +436,7 @@ fn view(
                                 _ => None,
                             }})
                         )
-                    on:click=tx.contra_map(|_: DomEvent| AppLogic::RemoveCompleted)>
+                    on:click=tx.contra_map(|_: JsDomEvent| AppLogic::RemoveCompleted)>
                     "Clear completed"
                 </button>
             </footer>

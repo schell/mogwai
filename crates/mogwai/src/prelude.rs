@@ -4,7 +4,10 @@ pub use crate::{
     builder::*,
     channel::*,
     constraints::*,
-    futures::{sink::Contravariant, EitherExt, *},
+    futures::{
+        sink::{Contravariant, SinkError},
+        EitherExt, *,
+    },
     html,
     model::*,
     patch::*,
@@ -16,4 +19,4 @@ pub use crate::{
 };
 
 #[cfg(any(feature = "dom", feature = "dom-wasm"))]
-pub use crate::dom::{event::*, view::*, *, ssr::*};
+pub use crate::dom::{event::*, ssr::*, view::*, *};

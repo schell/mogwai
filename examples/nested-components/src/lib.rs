@@ -37,7 +37,7 @@ mod test {
             tx.broadcast(1).await.unwrap();
             tx.broadcast(42).await.unwrap();
         });
-        let view: Dom = comp.build().unwrap();
+        let view: JsDom = comp.build().unwrap();
         view.run().unwrap();
     }
 
@@ -67,7 +67,7 @@ mod test {
                 }
             }
         });
-        let view: Dom = comp.build().unwrap();
+        let view: JsDom = comp.build().unwrap();
         view.run().unwrap();
     }
 }
@@ -81,7 +81,7 @@ mod counter {
         Reset,
     }
 
-    pub fn counter(recv_parent_msg: broadcast::Receiver<CounterMsg>) -> ViewBuilder<Dom> {
+    pub fn counter(recv_parent_msg: broadcast::Receiver<CounterMsg>) -> ViewBuilder<JsDom> {
         let (send_self_msg, recv_self_msg): (_, broadcast::Receiver<CounterMsg>) = broadcast::bounded(1);
         let (send_num_clicks, recv_num_clicks): (_, broadcast::Receiver<u32>) = broadcast::bounded(1);
         let mut recv_msg = select_all(vec![recv_self_msg, recv_parent_msg]);
@@ -112,7 +112,7 @@ mod counter {
     }
 }
 
-fn view(counter: ViewBuilder<Dom>, send_reset_to_app: broadcast::Sender<()>) -> ViewBuilder<Dom> {
+fn view(counter: ViewBuilder<JsDom>, send_reset_to_app: broadcast::Sender<()>) -> ViewBuilder<JsDom> {
     html! {
         <div>
             "Application"<br/>
@@ -139,7 +139,7 @@ async fn logic(
     }
 }
 
-fn app() -> ViewBuilder<Dom> {
+fn app() -> ViewBuilder<JsDom> {
     let (send_counter_msg, recv_counter_msg) = broadcast::bounded(1);
     let (send_reset_to_app, recv_reset_from_app) = broadcast::bounded(1);
 

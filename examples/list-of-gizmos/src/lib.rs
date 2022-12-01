@@ -53,7 +53,7 @@ async fn item_logic(
 fn item_view(
     clicks: impl MogwaiStream<u32>,
     to_logic: broadcast::Sender<ItemMsg>,
-) -> ViewBuilder<Dom> {
+) -> ViewBuilder<JsDom> {
     html! {
         <li>
             <button
@@ -81,7 +81,7 @@ fn item_view(
 // ANCHOR_END: item_view
 
 /// Create a new item.
-fn item(id: usize, clicks: Model<u32>, to_list: broadcast::Sender<ListMsg>) -> ViewBuilder<Dom> {
+fn item(id: usize, clicks: Model<u32>, to_list: broadcast::Sender<ListMsg>) -> ViewBuilder<JsDom> {
     let (tx, rx) = broadcast::bounded(1);
     item_view(clicks.stream(), tx).with_task(item_logic(id, clicks, rx, to_list))
 }
@@ -98,7 +98,7 @@ enum ListMsg {
 /// Launch the logic loop of our list of items.
 async fn list_logic(
     input: broadcast::Receiver<ListMsg>,
-    tx_patch_children: mpsc::Sender<ListPatch<ViewBuilder<Dom>>>,
+    tx_patch_children: mpsc::Sender<ListPatch<ViewBuilder<JsDom>>>,
 ) {
     // Set up our communication from items to this logic loop by
     // * creating a list patch model
@@ -117,7 +117,7 @@ async fn list_logic(
             patch.map(move |Item { id, clicks }: Item| {
                 let to_list = to_list.clone();
                 let component = item(id, clicks, to_list);
-                let builder: ViewBuilder<Dom> = component.into();
+                let builder: ViewBuilder<JsDom> = component.into();
                 builder
             })
         })
@@ -171,9 +171,9 @@ async fn list_logic(
 }
 
 // ANCHOR: list_view
-fn list_view<T>(to_logic: broadcast::Sender<ListMsg>, children: T) -> ViewBuilder<Dom>
+fn list_view<T>(to_logic: broadcast::Sender<ListMsg>, children: T) -> ViewBuilder<JsDom>
 where
-    T: MogwaiStream<ListPatch<ViewBuilder<Dom>>>,
+    T: MogwaiStream<ListPatch<ViewBuilder<JsDom>>>,
 {
     html! {
         <fieldset>
@@ -192,7 +192,7 @@ where
 // ANCHOR_END: list_view
 
 /// Create our list component.
-fn list() -> ViewBuilder<Dom> {
+fn list() -> ViewBuilder<JsDom> {
     let (logic_tx, logic_rx) = broadcast::bounded(1);
     let (item_patch_tx, item_patch_rx) = mpsc::bounded(1);
     list_view(logic_tx, item_patch_rx).with_task(list_logic(logic_rx, item_patch_tx))

@@ -6,7 +6,7 @@ members = [
   "crates/mogwai-core",
   "crates/mogwai-dom",
   #"crates/mogwai-hydrator",
-  #"crates/mogwai-macros",
+  "crates/mogwai-macros",
   #"crates/xtask",
   #"examples/counter",
   #"examples/nested-components",

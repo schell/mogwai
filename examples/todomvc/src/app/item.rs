@@ -15,10 +15,10 @@ use super::{utils, FilterShow};
 //    pub clicked_remove: Output<()>,
 //}
 //
-//impl Relay<Dom> for TodoItem {
+//impl Relay<JsDom> for TodoItem {
 //    type Error = ();
 //
-//    fn view(&mut self) -> ViewBuilder<Dom> {
+//    fn view(&mut self) -> ViewBuilder<JsDom> {
 //        builder! {
 //            <li class=rx.clone().filter_map(|msg| async move {msg.as_list_class()})
 //                style:display=(
@@ -57,7 +57,7 @@ use super::{utils, FilterShow};
 //                class="edit"
 //                capture:view=send_edit_input
 //                on:blur=tx.clone().contra_map(|_| ItemLogic::StopEditing(EditEvent::Blur))
-//                on:keyup=tx.clone().contra_filter_map(|ev: DomEvent| {
+//                on:keyup=tx.clone().contra_filter_map(|ev: JsDomEvent| {
 //                    // Get the browser event or filter on non-wasm targets.
 //                    let ev = ev.browser_event()?;
 //                    // This came from a key event
@@ -97,7 +97,7 @@ impl Drop for Todo {
 impl Todo {
     /// Create a new todo item by returning a Todo and its ViewBuilder.
     /// from the item.
-    pub fn new(index: usize, name: impl Into<String>) -> (Todo, ViewBuilder<Dom>) {
+    pub fn new(index: usize, name: impl Into<String>) -> (Todo, ViewBuilder<JsDom>) {
         let name = name.into();
 
         let (send_completion_toggle_input, recv_completion_toggle_input) = mpsc::bounded(1);
@@ -232,8 +232,8 @@ impl ItemView {
 
 async fn logic(
     name: String,
-    mut recv_toggle_input: impl Stream<Item = Dom> + Unpin,
-    mut recv_edit_input: impl Stream<Item = Dom> + Unpin,
+    mut recv_toggle_input: impl Stream<Item = JsDom> + Unpin,
+    mut recv_edit_input: impl Stream<Item = JsDom> + Unpin,
     mut rx_logic: broadcast::Receiver<ItemLogic>,
     tx_view: broadcast::Sender<ItemView>,
     tx_changed_completion: broadcast::Sender<bool>,
@@ -354,11 +354,11 @@ async fn logic(
 
 fn view(
     name: &str,
-    send_completion_toggle_input: mpsc::Sender<Dom>,
-    send_edit_input: mpsc::Sender<Dom>,
+    send_completion_toggle_input: mpsc::Sender<JsDom>,
+    send_edit_input: mpsc::Sender<JsDom>,
     tx: broadcast::Sender<ItemLogic>,
     rx: broadcast::Receiver<ItemView>,
-) -> ViewBuilder<Dom> {
+) -> ViewBuilder<JsDom> {
     rsx! {
         li(
             class=rx.clone().filter_map(|msg| async move {msg.as_list_class()}),
@@ -406,7 +406,7 @@ fn view(
                 class="edit",
                 capture:view=send_edit_input,
                 on:blur=tx.clone().contra_map(|_| ItemLogic::StopEditing(EditEvent::Blur)),
-                on:keyup=tx.clone().contra_filter_map(|ev: DomEvent| {
+                on:keyup=tx.clone().contra_filter_map(|ev: JsDomEvent| {
                     // Get the browser event or filter on non-wasm targets.
                     let ev = ev.browser_event()?;
                     // This came from a key event

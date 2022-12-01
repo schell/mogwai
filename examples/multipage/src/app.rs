@@ -8,7 +8,7 @@ pub enum Out {
 }
 
 impl Out {
-    fn maybe_patch_route(&self) -> Option<ListPatch<ViewBuilder<Dom>>> {
+    fn maybe_patch_route(&self) -> Option<ListPatch<ViewBuilder<JsDom>>> {
         if let Out::Render { route } = self {
             Some(ListPatch::replace(0, route.into()))
         } else {
@@ -24,7 +24,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn component(initial_route: Route) -> ViewBuilder<Dom> {
+    pub fn component(initial_route: Route) -> ViewBuilder<JsDom> {
         let app = App {
             click_count: 0,
             current_route: initial_route,
@@ -54,7 +54,7 @@ impl App {
         }
     }
 
-    fn view(&self, tx: broadcast::Sender<Route>, rx: broadcast::Receiver<Out>) -> ViewBuilder<Dom> {
+    fn view(&self, tx: broadcast::Sender<Route>, rx: broadcast::Receiver<Out>) -> ViewBuilder<JsDom> {
         let rx_text = rx.clone().filter_map(|msg| async move { match msg {
             Out::RenderClicks(count) if count == 1 => Some(format!("{} time", count)),
             Out::RenderClicks(count) => Some(format!("{} times", count)),
@@ -67,7 +67,7 @@ impl App {
                     <a
                         href="/"
                         style="margin-right: 15px;"
-                        on:click=tx.clone().contra_filter_map(|e: DomEvent| {
+                        on:click=tx.clone().contra_filter_map(|e: JsDomEvent| {
                             let ev = e.browser_event()?;
                             ev.prevent_default();
                             Some(Route::Home)
@@ -78,7 +78,7 @@ impl App {
                     <a
                         href="/404"
                         style="margin-right: 15px;"
-                        on:click=tx.contra_filter_map(|e: DomEvent| {
+                        on:click=tx.contra_filter_map(|e: JsDomEvent| {
                             let ev = e.browser_event()?;
                             ev.prevent_default();
                             Some(Route::NotFound)

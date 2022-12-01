@@ -1,20 +1,17 @@
 //! Wrapped views.
-use async_executor::Executor;
+use std::{future::Future, pin::Pin};
+
+use crate::event::JsDomEvent;
+use anyhow::Context;
 pub use futures::future::Either;
-use futures::SinkExt;
-use mogwai::{
-    builder::ViewBuilder,
-    patch::ListPatch,
-    view::{ConstrainedFuture, View},
-};
-use std::{
-    future::Future,
-    ops::{Bound, RangeBounds},
-    pin::Pin,
-};
+use mogwai::prelude::*;
+use serde_json::Value;
 
 mod js_dom;
 pub use js_dom::*;
+
+mod ssr;
+pub use ssr::*;
 
 /// Adds helpful extensions to [`Either`].
 pub trait EitherExt {
@@ -50,156 +47,202 @@ impl<A, B> EitherExt for Either<A, B> {
     }
 }
 
-fn build<'a, V: View>(
-    spawn: impl Fn(ConstrainedFuture<(), V>),
-    builder: ViewBuilder<V>,
-) -> anyhow::Result<JsDom> {
-    let ViewBuilder {
-        identity,
-        texts,
-        attribs,
-        bool_attribs,
-        styles,
-        ops,
-        children,
-        events,
-        view_sinks,
-        tasks,
-    } = builder;
-
-    let mut element = match identity {
-        mogwai::builder::ViewIdentity::Branch(tag) => JsDom::element(&tag, None).unwrap(),
-        mogwai::builder::ViewIdentity::NamespacedBranch(tag, ns) => {
-            JsDom::element(&tag, Some(&ns)).unwrap()
+impl ViewResources<Dom> for Either<JsDomResources, SsrDomResources> {
+    fn init(&self, identity: ViewIdentity) -> anyhow::Result<Dom> {
+        match self {
+            Either::Left(js) => Ok(Dom::Js(js.init(identity)?)),
+            Either::Right(ss) => Ok(Dom::Ssr(ss.init(identity)?)),
         }
-        mogwai::builder::ViewIdentity::Leaf(text) => JsDom::text(&text).unwrap(),
-    };
-
-    use mogwai::builder::exhaust;
-    let (text_stream, texts) = exhaust(Box::pin(futures::stream::select_all(texts)));
-    let (attrib_stream, attribs) = exhaust(Box::pin(futures::stream::select_all(attribs)));
-    let (bool_attrib_stream, bool_attribs) =
-        exhaust(Box::pin(futures::stream::select_all(bool_attribs)));
-    let (style_stream, styles) = exhaust(Box::pin(futures::stream::select_all(styles)));
-    let (child_stream, children) = exhaust(Box::pin(futures::stream::select_all(children)));
-
-    crate::builder::set_initial_values(
-        &element,
-        texts.into_iter(),
-        attribs.into_iter(),
-        bool_attribs.into_iter(),
-        styles.into_iter(),
-        children.into_iter(),
-    )?;
-
-    crate::builder::set_streaming_values(
-        spawn,
-        &element,
-        text_stream,
-        attrib_stream,
-        bool_attrib_stream,
-        style_stream,
-        child_stream,
-    )
-    .map_err(|e| anyhow::anyhow!("{}", e))?;
-
-    for (event_name, event_target, event_sink) in events.into_iter() {
-        element.set_event(event_target, &event_name, event_sink);
     }
-
-    for op in ops.into_iter() {
-        (op)(&mut element);
-    }
-
-    for mut sink in view_sinks.into_iter() {
-        let view = element.clone();
-        spawn(Box::pin(async move {
-            // Try to send the dom but don't panic because
-            // the recv may have been dropped already, and that's ok.
-            let _ = sink.send(view).await;
-        }));
-    }
-
-    for task in tasks.into_iter() {
-        spawn(task);
-    }
-
-    Ok(element)
 }
 
-/// An extension trait that constructs `Dom` nodes.
-pub trait DomBuilderExt<V: View> {
-    fn build(&self, builder: ViewBuilder<V>) -> anyhow::Result<V>;
+/// Represents either `JsDom` or `SsrDom`.
+///
+/// Either can be picked to be constructed.
+#[derive(Clone)]
+pub enum Dom {
+    Js(JsDom),
+    Ssr(SsrDom),
 }
 
-//impl<'a> DomBuilderExt<SendConstraint> for Executor<'a> {
-//    fn build(&self, builder: ViewBuilder<Dom, SendConstraint>) -> anyhow::Result<Dom> {
-//        build(
-//            |fut| {
-//                let task = self.spawn(fut);
-//                task.detach();
-//            },
-//            builder,
-//        )
-//    }
-//}
+impl From<JsDom> for Dom {
+    fn from(js: JsDom) -> Self {
+        Dom::Js(js)
+    }
+}
 
-// Helper function for defining `ListPatchApply for Dom`.
-fn list_patch_apply_node(
-    self_node: &mut web_sys::Node,
-    patch: ListPatch<web_sys::Node>,
-) -> Vec<web_sys::Node> {
-    let mut removed = vec![];
-    match patch {
-        ListPatch::Splice {
-            range,
-            replace_with,
-        } => {
-            let mut replace_with = replace_with.into_iter();
-            let list: web_sys::NodeList = self_node.child_nodes();
-            let children: Vec<web_sys::Node> =
-                (0..list.length()).filter_map(|i| list.get(i)).collect();
+impl From<SsrDom> for Dom {
+    fn from(ssr: SsrDom) -> Self {
+        Dom::Ssr(ssr)
+    }
+}
 
-            let start_index = match range.0 {
-                Bound::Included(i) => i,
-                Bound::Excluded(i) => i,
-                Bound::Unbounded => 0,
-            };
-            let end_index = match range.1 {
-                Bound::Included(i) => i,
-                Bound::Excluded(i) => i,
-                Bound::Unbounded => (list.length() as usize).max(1) - 1,
-            };
-
-            let mut child_after = None;
-            for i in start_index..=end_index {
-                if let Some(old_child) = children.get(i) {
-                    if range.contains(&i) {
-                        if let Some(new_child) = replace_with.next() {
-                            self_node.replace_child(&new_child, &old_child).unwrap();
-                        } else {
-                            self_node.remove_child(&old_child).unwrap();
-                        }
-                        removed.push(old_child.clone());
-                    } else {
-                        child_after = Some(old_child);
-                    }
-                }
-            }
-
-            for child in replace_with {
-                self_node.insert_before(&child, child_after).unwrap();
-            }
-        }
-        ListPatch::Push(new_node) => {
-            let _ = self_node.append_child(&new_node).unwrap();
-        }
-        ListPatch::Pop => {
-            if let Some(child) = self_node.last_child() {
-                let _ = self_node.remove_child(&child).unwrap();
-                removed.push(child);
-            }
+impl Dom {
+    pub fn visit_either<T>(&self, f: impl FnOnce(&JsDom) -> T, g: impl FnOnce(&SsrDom) -> T) -> T {
+        match self {
+            Dom::Js(js) => f(js),
+            Dom::Ssr(ssr) => g(ssr),
         }
     }
-    removed
+
+    pub fn into_js(self) -> Option<JsDom> {
+        match self {
+            Dom::Js(js) => Some(js),
+            Dom::Ssr(_) => None,
+        }
+    }
+
+    pub fn into_ssr(self) -> Option<SsrDom> {
+        match self {
+            Dom::Js(_) => None,
+            Dom::Ssr(ssr) => Some(ssr),
+        }
+    }
+
+    pub async fn html_string(&self) -> String {
+        match self {
+            Dom::Js(js) => js.html_string().await,
+            Dom::Ssr(ss) => ss.html_string().await,
+        }
+    }
+
+    pub fn run_while<T: Send + 'static>(
+        &self,
+        fut: impl Future<Output = T> + Send + 'static,
+    ) -> anyhow::Result<T> {
+        match self {
+            Dom::Js(js) => js.run_while(fut),
+            Dom::Ssr(ssr) => ssr.run_while(fut),
+        }
+    }
+}
+
+/// Represents either `JsDomEvent` or `Value`.
+pub enum DomEvent {
+    Js(JsDomEvent),
+    Ssr(Value),
+}
+
+impl View for Dom {
+    /// The type of events supported by this view.
+    type Event = DomEvent;
+
+    /// The type of child views that can be nested inside this view.
+    type Child = Dom;
+
+    /// The type that holds domain specific resources used to
+    /// construct views.
+    type Resources = Either<JsDomResources, SsrDomResources>;
+
+    /// Possibly asynchronous and scoped acquisition of resources.
+    ///
+    /// Used to build children before patching.
+    fn with_acquired_resources<'a, T: Send + Sync + 'static>(
+        &self,
+        f: impl FnOnce(Self::Resources) -> anyhow::Result<T> + Send + Sync + 'a,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + Sync + 'a>> {
+        match self {
+            Dom::Js(js) => js.with_acquired_resources(|rez| f(Either::Left(rez))),
+            Dom::Ssr(ssr) => ssr.with_acquired_resources(|rez| f(Either::Right(rez))),
+        }
+    }
+
+    /// Set the text of this view.
+    fn set_text(&self, s: &str) -> anyhow::Result<()> {
+        self.visit_either(|js| js.set_text(s), |ssr| ssr.set_text(s))
+    }
+
+    /// Patch the attributes of this view.
+    fn patch_attribs(&self, patch: HashPatch<String, String>) -> anyhow::Result<()> {
+        match self {
+            Dom::Js(js) => js.patch_attribs(patch),
+            Dom::Ssr(ss) => ss.patch_attribs(patch),
+        }
+    }
+
+    /// Patch the boolean attributes of this view.
+    fn patch_bool_attribs(&self, patch: HashPatch<String, bool>) -> anyhow::Result<()> {
+        match self {
+            Dom::Js(js) => js.patch_bool_attribs(patch),
+            Dom::Ssr(ssr) => ssr.patch_bool_attribs(patch),
+        }
+    }
+
+    /// Patch the style attributes of this view.
+    fn patch_styles(&self, patch: HashPatch<String, String>) -> anyhow::Result<()> {
+        match self {
+            Dom::Js(js) => js.patch_styles(patch),
+            Dom::Ssr(ssr) => ssr.patch_styles(patch),
+        }
+    }
+
+    /// Patch the nested children of this view.
+    ///
+    /// Returns a vector of the children removed.
+    fn patch_children(&self, patch: ListPatch<Self::Child>) -> anyhow::Result<Vec<Self::Child>> {
+        Ok(match self {
+            Dom::Js(js) => js
+                .patch_children(patch.try_map(|dom| dom.into_js().context("not js"))?)?
+                .into_iter()
+                .map(Dom::from)
+                .collect(),
+            Dom::Ssr(ssr) => ssr
+                .patch_children(patch.try_map(|dom| dom.into_ssr().context("not ssr"))?)?
+                .into_iter()
+                .map(Dom::from)
+                .collect(),
+        })
+    }
+
+    /// Add an event to the element, document or window.
+    ///
+    /// When an event occurs it will be sent into the given sink.
+    fn set_event(
+        &self,
+        type_is: EventTargetType,
+        name: &str,
+        sink: impl Sink<Self::Event, Error = SinkError> + Unpin + Send + Sync + 'static,
+    ) -> anyhow::Result<()> {
+        match self {
+            Dom::Js(js) => js.set_event(type_is, name, sink.contra_map(DomEvent::Js)),
+            Dom::Ssr(ss) => ss.set_event(type_is, name, sink.contra_map(DomEvent::Ssr)),
+        }
+    }
+
+    fn spawn(&self, action: impl Future<Output = ()> + Send + 'static) {
+        match self {
+            Dom::Js(js) => js.spawn(action),
+            Dom::Ssr(ss) => ss.spawn(action),
+        }
+    }
+}
+
+pub trait DomBuilder<T> {
+    fn build(self) -> anyhow::Result<T>;
+}
+
+impl DomBuilder<JsDom> for mogwai::builder::ViewBuilder<JsDom> {
+    fn build(self) -> anyhow::Result<JsDom> {
+        self.try_into()
+    }
+}
+
+impl DomBuilder<SsrDom> for mogwai::builder::ViewBuilder<SsrDom> {
+    fn build(self) -> anyhow::Result<SsrDom> {
+        self.try_into()
+    }
+}
+
+/// When building `Dom` from a `ViewBuilder<Dom>`, the result will
+/// be `Dom::Js(_)` on WASM and `Dom::Ssr(_)` otherwise.
+impl DomBuilder<Dom> for ViewBuilder<Dom> {
+    #[cfg(target_arch = "wasm32")]
+    fn build(self) -> anyhow::Result<Dom> {
+        Either::Left(JsDomResources).build(self)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn build(self) -> anyhow::Result<Dom> {
+        let rez = Either::Right(SsrDomResources::default());
+        rez.build(self)
+    }
 }

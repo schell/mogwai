@@ -26,7 +26,7 @@
 //! }
 //!
 //! impl DomBuilderExt for ClickyDiv {
-//!     fn build(mut self) -> anyhow::Result<Dom> {
+//!     fn build(mut self) -> anyhow::Result<JsDom> {
 //!         rsx! (
 //!             div(on:click=self.click.sink().contra_map(|_| ())) {
 //!                 {("Hi", self.text.stream().ok_or_else(|| anyhow::anyhow!("already used text stream"))?)}

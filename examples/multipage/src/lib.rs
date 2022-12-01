@@ -27,7 +27,7 @@ where
     T: AsRef<str>,
 {
     let initial_route: Route = path.into();
-    let view: Dom = App::component(initial_route)
+    let view: JsDom = App::component(initial_route)
         .build()
         .map_err(|e| format!("{}", e))?;
     Ok(view.html_string().await)
@@ -46,12 +46,12 @@ pub fn main() {
 
     let initial_route = Route::from(utils::window().location().pathname().unwrap_throw());
     // Create our app's view by hydrating a gizmo from an initial state
-    let root: ViewBuilder<Dom> = App::component(initial_route);
+    let root: ViewBuilder<JsDom> = App::component(initial_route);
 
     // Hydrate the view and hand the app's view ownership to the window so it never
     // goes out of scope.
     let hydrator = Hydrator::try_from(root).unwrap();
-    let view: Dom = hydrator.into();
+    let view: JsDom = hydrator.into();
     view.run().unwrap()
 }
 
@@ -101,8 +101,8 @@ impl<T: AsRef<str>> From<T> for Route {
     }
 }
 
-impl From<&Route> for ViewBuilder<Dom> {
-    fn from(route: &Route) -> ViewBuilder<Dom> {
+impl From<&Route> for ViewBuilder<JsDom> {
+    fn from(route: &Route) -> ViewBuilder<JsDom> {
         match route {
             Route::Home => routes::home(),
             Route::NotFound => routes::not_found(),

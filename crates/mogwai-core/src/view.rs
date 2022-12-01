@@ -75,16 +75,17 @@ where
             children.into_iter(),
         )?;
 
-        element.set_streaming_values(
-            text_stream,
-            attrib_stream,
-            bool_attrib_stream,
-            style_stream,
-            child_stream,
-        )?;
+        element
+            .set_streaming_values(
+                text_stream,
+                attrib_stream,
+                bool_attrib_stream,
+                style_stream,
+                child_stream,
+            )?;
 
         for (event_name, event_target, event_sink) in events.into_iter() {
-            element.set_event(event_target, &event_name, event_sink);
+            element.set_event(event_target, &event_name, event_sink)?;
         }
 
         for op in ops.into_iter() {
@@ -93,11 +94,12 @@ where
 
         for mut sink in view_sinks.into_iter() {
             let view = element.clone();
-            element.spawn(async move {
-                // Try to send the dom but don't panic because
-                // the recv may have been dropped already, and that's ok.
-                let _ = sink.send(view).await;
-            });
+            element
+                .spawn(async move {
+                    // Try to send the dom but don't panic because
+                    // the recv may have been dropped already, and that's ok.
+                    let _ = sink.send(view).await;
+                });
         }
 
         for task in tasks.into_iter() {
@@ -121,9 +123,6 @@ where
 
     /// The type of child views that can be nested inside this view.
     type Child: View<Resources = Self::Resources>;
-
-    /// The type of asyncronous task this view can spawn.
-    type Task<T>;
 
     /// The type that holds domain specific resources used to
     /// construct views.
@@ -177,8 +176,8 @@ where
         &self,
         type_is: EventTargetType,
         name: &str,
-        sink: impl Sink<Self::Event, Error = SinkError>,
-    );
+        sink: impl Sink<Self::Event, Error = SinkError> + Unpin + Send + Sync + 'static,
+    ) -> anyhow::Result<()>;
 
     /// Set all the initial values of a view.
     fn set_initial_values(
@@ -214,68 +213,68 @@ where
     }
 
     ///// Spawn an asynchronous task.
-    fn spawn<T: Send + Sync + 'static>(&self, action: impl Future<Output = T> + Send + 'static) -> Self::Task<T>;
+    fn spawn(&self, action: impl Future<Output = ()> + Send + 'static);
 
     /// Set all the streaming values of a view, spawning async task loops that update
     /// values as items come down the streams.
     ///
-    /// Returns each async task loop in a vector.
+    /// Each task loop may panic if it encounters an error.
     fn set_streaming_values(
         &self,
         mut text_stream: impl Stream<Item = String> + Send + Sync + Unpin + 'static,
         mut attrib_stream: impl Stream<Item = HashPatch<String, String>> + Send + Sync + Unpin + 'static,
-        mut bool_attrib_stream: impl Stream<Item = HashPatch<String, bool>> + Send + Sync + Unpin + 'static,
+        mut bool_attrib_stream: impl Stream<Item = HashPatch<String, bool>>
+            + Send
+            + Sync
+            + Unpin
+            + 'static,
         mut style_stream: impl Stream<Item = HashPatch<String, String>> + Send + Unpin + Sync + 'static,
-        mut child_stream: impl Stream<Item = ListPatch<ViewBuilder<Self::Child>>> + Send + Unpin + Sync + 'static,
-    ) -> anyhow::Result<Vec<Self::Task<anyhow::Result<()>>>> {
+        mut child_stream: impl Stream<Item = ListPatch<ViewBuilder<Self::Child>>>
+            + Send
+            + Unpin
+            + Sync
+            + 'static,
+    ) -> anyhow::Result<()> {
         let text_node = self.clone();
-        let text_task = self.spawn(async move {
+        self.spawn(async move {
             while let Some(msg) = text_stream.next().await {
-                text_node.set_text(&msg)?;
+                text_node.set_text(&msg).unwrap();
             }
-            Ok(())
         });
 
         let attrib_node = self.clone();
-        let attrib_task = self.spawn(async move {
+        self.spawn(async move {
             while let Some(patch) = attrib_stream.next().await {
-                attrib_node.patch_attribs(patch)?;
+                attrib_node.patch_attribs(patch).unwrap();
             }
-            Ok(())
         });
 
         let bool_attrib_node = self.clone();
-        let bool_attrib_task = self.spawn(async move {
+        self.spawn(async move {
             while let Some(patch) = bool_attrib_stream.next().await {
-                bool_attrib_node.patch_bool_attribs(patch)?;
+                bool_attrib_node.patch_bool_attribs(patch).unwrap();
             }
-            Ok(())
         });
 
         let style_node = self.clone();
-        let style_task = self.spawn(async move {
+        self.spawn(async move {
             while let Some(patch) = style_stream.next().await {
-                style_node.patch_styles(patch)?;
+                style_node.patch_styles(patch).unwrap();
             }
-            Ok(())
         });
 
         let parent_node = self.clone();
-        let parent_task = self.spawn(async move {
+        self.spawn(async move {
             while let Some(patch) = child_stream.next().await {
-                parent_node.with_acquired_resources(|resources| {
-                    parent_node.build_and_patch_children(&resources, patch)
-                }).await?;
+                parent_node
+                    .with_acquired_resources(|resources| {
+                        parent_node.build_and_patch_children(&resources, patch)
+                    })
+                    .await
+                    .unwrap();
             }
-            anyhow::Ok(())
         });
 
-        Ok(vec![
-            text_task,
-            attrib_task,
-            bool_attrib_task,
-            style_task,
-            parent_task,
-        ])
+        Ok(())
     }
 }

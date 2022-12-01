@@ -122,12 +122,11 @@ where
     }
 }
 
-impl<S, St> From<(S, St)> for MogwaiValue<S::Owned, St>
+impl<'a, St> From<(&'a str, St)> for MogwaiValue<String, St>
 where
-    S: ToOwned,
-    St: Stream<Item = S::Owned> + Unpin + Send + Sync + 'static,
+    St: Stream<Item = String> + Unpin + Send + Sync + 'static,
 {
-    fn from(s: (S, St)) -> Self {
+    fn from(s: (&'a str, St)) -> Self {
         MogwaiValue::OwnedAndStream(s.0.to_owned(), s.1)
     }
 }
@@ -157,7 +156,7 @@ pub enum ViewIdentity {
     Leaf(String),
 }
 
-pub type MogwaiFuture<T> = Pin<Box<dyn Future<Output = T> + Unpin + Send + Sync + 'static>>;
+pub type MogwaiFuture<T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>;
 
 pub type MogwaiStream<T> = Pin<Box<dyn Stream<Item = T> + Unpin + Send + Sync + 'static>>;
 
@@ -251,7 +250,7 @@ impl<V: View> ViewBuilder<V> {
     /// Adds an asynchronous task.
     pub fn with_task(
         mut self,
-        f: impl Future<Output = ()> + Unpin + Send + Sync + 'static,
+        f: impl Future<Output = ()> + Send + Sync + 'static,
     ) -> Self {
         self.tasks.push(Box::pin(f));
         self
@@ -362,10 +361,7 @@ impl<V: View> ViewBuilder<V> {
     }
 
     /// Append a child or iterator of children.
-    pub fn append<A>(self, children: A) -> Self
-    where
-        AppendArg<V::Child>: From<A>,
-    {
+    pub fn append(self, children: impl Into<AppendArg<V::Child>>) -> Self {
         let arg = children.into();
 
         let bldrs = match arg {
@@ -416,43 +412,43 @@ pub enum AppendArg<V: View> {
     Iter(Vec<ViewBuilder<V>>),
 }
 
-impl<V> From<Vec<V>> for AppendArg<V>
+impl<T, V> From<Vec<T>> for AppendArg<V>
 where
     V: View,
-    ViewBuilder<V>: From<V>,
+    ViewBuilder<V>: From<T>,
 {
-    fn from(bldrs: Vec<V>) -> Self {
+    fn from(bldrs: Vec<T>) -> Self {
         AppendArg::Iter(bldrs.into_iter().map(ViewBuilder::from).collect())
     }
 }
 
-impl<V> From<&String> for ViewBuilder<V>
-where
-    V: View + Unpin,
-{
-    fn from(s: &String) -> Self {
-        ViewBuilder::text(stream::iter(std::iter::once(s.clone())))
-    }
-}
-
-impl<V> From<String> for ViewBuilder<V>
-where
-    V: View + Unpin,
-{
-    fn from(s: String) -> Self {
-        ViewBuilder::text(stream::iter(std::iter::once(s)))
-    }
-}
-
-impl<V> From<&str> for ViewBuilder<V>
-where
-    V: View + Unpin,
-{
-    fn from(s: &str) -> Self {
-        ViewBuilder::text(stream::iter(std::iter::once(s.to_string())))
-    }
-}
-
+//impl<V> From<&String> for ViewBuilder<V>
+//where
+//    V: View + Unpin,
+//{
+//    fn from(s: &String) -> Self {
+//        ViewBuilder::text(stream::iter(std::iter::once(s.clone())))
+//    }
+//}
+//
+//impl<V> From<String> for ViewBuilder<V>
+//where
+//    V: View + Unpin,
+//{
+//    fn from(s: String) -> Self {
+//        ViewBuilder::text(stream::iter(std::iter::once(s)))
+//    }
+//}
+//
+//impl<V> From<&str> for ViewBuilder<V>
+//where
+//    V: View + Unpin,
+//{
+//    fn from(s: &str) -> Self {
+//        ViewBuilder::text(stream::iter(std::iter::once(s.to_string())))
+//    }
+//}
+//
 impl<S, St, V: View + Unpin> From<(S, St)> for ViewBuilder<V>
 where
     S: AsRef<str>,
@@ -464,17 +460,18 @@ where
     }
 }
 
-impl<V: View + Into<ViewBuilder<V>>> From<V> for AppendArg<V> {
-    fn from(v: V) -> Self {
-        AppendArg::Single(v.into())
+impl<T: Into<ViewBuilder<V>>, V: View> From<T> for AppendArg<V> {
+    fn from(t: T) -> Self {
+        AppendArg::Single(t.into())
     }
 }
 
-impl<V: View> From<Option<V>> for AppendArg<V>
+impl<T, V> From<Option<T>> for AppendArg<V>
 where
-    ViewBuilder<V>: From<V>,
+    V: View,
+    ViewBuilder<V>: From<T>,
 {
-    fn from(may_vb: Option<V>) -> Self {
+    fn from(may_vb: Option<T>) -> Self {
         AppendArg::Iter(
             may_vb
                 .into_iter()

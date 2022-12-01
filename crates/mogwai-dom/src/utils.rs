@@ -11,11 +11,14 @@ pub fn window() -> web_sys::Window {
     web_sys::window().expect("no global `window` exists")
 }
 
-/// Return the document Dom object [`web_sys::Document`]
+/// Return the document JsDom object [`web_sys::Document`]
 /// #### Panics
 /// Panics on non-wasm32 or when the document cannot be returned.
 pub fn document() -> JsDom {
-    JsDom::try_from(JsValue::from(window().document().expect("no global `document` exists"))).unwrap()
+    JsDom::try_from(JsValue::from(
+        window().document().expect("no global `document` exists"),
+    ))
+    .unwrap()
 }
 
 /// Return the body Dom object.
@@ -23,11 +26,17 @@ pub fn document() -> JsDom {
 /// ## Panics
 /// Panics on wasm32 if the body cannot be returned.
 pub fn body() -> JsDom {
-    if cfg!(target_arch = "wasm32") {
-        JsDom::try_from(JsValue::from(window().document().unwrap().body().expect("document does not have a body"))).unwrap()
-    } else {
-        JsDom::try_from(crate::ssr::SsrElement::element("body")).map_err(|_| ()).unwrap()
-    }
+    JsDom::try_from(JsValue::from(
+        window()
+            .document()
+            .unwrap()
+            .body()
+            .expect("document does not have a body"),
+    ))
+    .unwrap()
+    //} else {
+    //    JsDom::try_from(crate::ssr::SsrElement::element("body")).map_err(|_| ()).unwrap()
+    //}
 }
 
 fn req_animation_frame(f: &Closure<dyn FnMut(JsValue)>) {
@@ -51,8 +60,8 @@ where
     let f = std::rc::Rc::new(std::cell::RefCell::new(None));
     let g = f.clone();
 
-    *g.borrow_mut() = Some(Closure::wrap(Box::new(move |ts_val:JsValue| {
-        let ts:f64 = ts_val.as_f64().unwrap_or_else(|| 0.0);
+    *g.borrow_mut() = Some(Closure::wrap(Box::new(move |ts_val: JsValue| {
+        let ts: f64 = ts_val.as_f64().unwrap_or_else(|| 0.0);
         let should_continue = logic(ts);
         if should_continue {
             req_animation_frame(f.borrow().as_ref().unwrap_throw());

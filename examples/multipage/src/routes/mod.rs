@@ -2,7 +2,7 @@ use mogwai::prelude::*;
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
-fn new_button_view(click_chan: broadcast::Channel<()>) -> ViewBuilder<Dom> {
+fn new_button_view(click_chan: broadcast::Channel<()>) -> ViewBuilder<JsDom> {
     // Get a receiver from the click channel
     let mut rx_click = click_chan.receiver();
     // Create a receiver for our button to get its text from.
@@ -37,7 +37,7 @@ fn new_button_view(click_chan: broadcast::Channel<()>) -> ViewBuilder<Dom> {
     })
 }
 
-fn stars() -> ViewBuilder<Dom> {
+fn stars() -> ViewBuilder<JsDom> {
     html! {
         <div className="three-stars">
             <span>"★"</span>
@@ -47,7 +47,7 @@ fn stars() -> ViewBuilder<Dom> {
     }
 }
 
-fn star_title() -> ViewBuilder<Dom> {
+fn star_title() -> ViewBuilder<JsDom> {
     html! {
         <div class="title-component uppercase">
             {stars()}
@@ -59,7 +59,7 @@ fn star_title() -> ViewBuilder<Dom> {
     }
 }
 
-pub fn home() -> ViewBuilder<Dom> {
+pub fn home() -> ViewBuilder<JsDom> {
     // Create a channels to send button clicks into.
     let click_chan = broadcast::Channel::new(1);
     html! {
@@ -77,7 +77,7 @@ pub fn home() -> ViewBuilder<Dom> {
     }
 }
 
-pub fn not_found() -> ViewBuilder<Dom> {
+pub fn not_found() -> ViewBuilder<JsDom> {
     html! {
         <h1>"Not Found"</h1>
     }

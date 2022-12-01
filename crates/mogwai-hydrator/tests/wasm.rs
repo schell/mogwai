@@ -34,7 +34,7 @@ async fn can_hydrate_view() {
     let hydrator = Hydrator::try_from(builder)
         .map_err(|e| panic!("{:#?}", e))
         .unwrap();
-    let _hydrated_view: Dom = Dom::from(hydrator);
+    let _hydrated_view: JsDom = JsDom::from(hydrator);
     log::info!("hydrated");
 
     tx_class.send("new_class".to_string()).await.unwrap();

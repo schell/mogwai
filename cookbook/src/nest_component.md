@@ -28,7 +28,7 @@ let parent = html! {<div>{child}</div>};
 Or use the `ViewBuilder::append` function if you're not using RSX:
 ```rust, no_run
 # use mogwai::prelude::*;
-let child: ViewBuilder<Dom> = ViewBuilder::element("p")
+let child: ViewBuilder<JsDom> = ViewBuilder::element("p")
     .append(ViewBuilder::text("My paragraph"));
 let parent = ViewBuilder::element("div")
     .append(child);

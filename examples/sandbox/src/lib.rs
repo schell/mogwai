@@ -15,7 +15,7 @@ use web_sys::{Request, RequestInit, RequestMode, Response};
 
 /// Defines a button that changes its text every time it is clicked.
 /// Once built, the button will also transmit clicks into the given transmitter.
-pub fn new_button(click_chan: &broadcast::Channel<()>) -> ViewBuilder<Dom> {
+pub fn new_button(click_chan: &broadcast::Channel<()>) -> ViewBuilder<JsDom> {
     // Create a channel for our button to get its text from.
     let (tx_text, rx_text) = broadcast::bounded::<String>(1);
 
@@ -66,7 +66,7 @@ pub fn new_button(click_chan: &broadcast::Channel<()>) -> ViewBuilder<Dom> {
 }
 
 /// Creates a h1 heading that changes its color.
-pub fn new_h1(click_chan: &broadcast::Channel<()>) -> ViewBuilder<Dom> {
+pub fn new_h1(click_chan: &broadcast::Channel<()>) -> ViewBuilder<JsDom> {
     // Create a receiver for our heading to get its color from.
     let (tx_color, rx_color) = broadcast::bounded::<String>(1);
 
@@ -142,7 +142,7 @@ async fn click_to_text() -> Option<String> {
 
 /// Creates a button that when clicked requests the time in london and sends
 /// it down a receiver.
-pub fn time_req_button_and_pre() -> ViewBuilder<Dom> {
+pub fn time_req_button_and_pre() -> ViewBuilder<JsDom> {
     // In the time it takes to send a request to the time server and get a response
     // back, the user can click the button again and again, so we'll let the channel
     // handle more than one click at a time by increasing our bounds a bit.
@@ -178,7 +178,7 @@ pub fn time_req_button_and_pre() -> ViewBuilder<Dom> {
 }
 
 /// Creates a view that ticks a count upward every second.
-pub fn counter() -> ViewBuilder<Dom> {
+pub fn counter() -> ViewBuilder<JsDom> {
     // Create a channel for a string to accept our counter's text
     let (tx_txt, rx_txt) = broadcast::bounded::<String>(1);
 
@@ -218,7 +218,7 @@ pub fn main() {
             <div>
                 {h1}
                 {btn}
-                // Since Button can be converted into ViewBuilder<Dom>, we can plug
+                // Since Button can be converted into ViewBuilder<JsDom>, we can plug
                 // it right into the DOM tree
                 {relay_button::Button::default()}
                 <br />
@@ -232,7 +232,7 @@ pub fn main() {
         root.run().unwrap_throw();
 
         // Here we'll start a hydration-by-hand experiment.
-        let body: Dom = utils::body();
+        let body: JsDom = utils::body();
         {
             // First we'll create some non-mogwai managed DOM using web_sys:
             let body: web_sys::HtmlElement = body.clone_as().unwrap_throw();
@@ -277,7 +277,7 @@ pub fn main() {
             // we can get the stored count from the DOM
             let mut count = {
                 // first get the p tag
-                let dom: Dom = rx_p.next().await.unwrap();
+                let dom: JsDom = rx_p.next().await.unwrap();
                 let s = dom.get_attribute("data-count").unwrap().unwrap();
                 s.parse::<u32>().unwrap()
             };
@@ -297,7 +297,7 @@ pub fn main() {
             let hydrator = Hydrator::try_from(component).unwrap();
             // Since this view is already attached, we don't have to `run` it.
             // Instead we can forget about it.
-            let _ = Dom::from(hydrator);
+            let _ = JsDom::from(hydrator);
         };
 
         // Pump the hydrated widget a few times.

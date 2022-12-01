@@ -1,18 +1,11 @@
-use mogwai::{
-    builder::{MogwaiStream, ViewBuilder},
-    channel::broadcast,
-    dom::view::{Dom, DomBuilderExt},
-    html,
-    patch::HashPatch,
-    rsx,
-};
+use mogwai_dom::prelude::*;
 
 #[test]
 fn expand_this_builder() {
     let _ = html! {
         <div
-         cast:type = mogwai::dom::view::Dom
-         post:build = move |_:&mut Dom| println!("post build")
+         cast:type = JsDom
+         post:build = move |_:&mut JsDom| println!("post build")
          style:background_color = "red"
          data_thing = "a string"
          checked >
@@ -51,7 +44,7 @@ fn node_self_closing() {
 
 #[smol_potat::test]
 async fn node_self_closing_gt_1_att() {
-    let decomp: ViewBuilder<Dom> = html! {<a href="http://zyghost.com" class="blah"/>};
+    let decomp: ViewBuilder<JsDom> = html! {<a href="http://zyghost.com" class="blah"/>};
     let (_, attribs) = mogwai::builder::exhaust::<HashPatch<_, _>, _>(
         futures::stream::select_all(decomp.attribs),
     );
@@ -81,7 +74,7 @@ async fn node_self_closing_gt_1_att() {
 
 #[smol_potat::test]
 async fn by_hand() {
-    let builder: ViewBuilder<Dom> = ViewBuilder::element("a")
+    let builder: ViewBuilder<JsDom> = ViewBuilder::element("a")
         .with_single_attrib_stream("href", "http://zyghost.com")
         .with_single_attrib_stream("class", "a_link")
         .append(ViewBuilder::text("a text node"));
@@ -191,8 +184,8 @@ fn signed_in_view_builder(
     editor_class: impl MogwaiStream<String>,
     settings_class: impl MogwaiStream<String>,
     profile_class: impl MogwaiStream<String>,
-) -> ViewBuilder<Dom> {
-    let o_image: Option<ViewBuilder<Dom>> = user
+) -> ViewBuilder<JsDom> {
+    let o_image: Option<ViewBuilder<JsDom>> = user
         .o_image
         .as_ref()
         .map(|image| {
@@ -244,14 +237,14 @@ pub fn struct_view_macro_source() {
         </Facade>
     }
 
-    let (facade, builder): (Facade<Dom>, _) = Facade::new();
+    let (facade, builder): (Facade<JsDom>, _) = Facade::new();
     let view = builder.build().unwrap();
     view.run().unwrap();
 
-    let mut remote_facade: Facade<Dom> = facade.clone();
+    let mut remote_facade: Facade<JsDom> = facade.clone();
     mogwai::spawn(async move {
         remote_facade.set_bg_color("red").await.unwrap();
-        let _event: DomEvent = remote_facade.get_click().await.unwrap();
+        let _event: JsDomEvent = remote_facade.get_click().await.unwrap();
     });
 }
 
@@ -263,8 +256,8 @@ pub fn function_style_rsx() {
         editor_class: impl MogwaiStream<String>,
         settings_class: impl MogwaiStream<String>,
         profile_class: impl MogwaiStream<String>,
-    ) -> ViewBuilder<Dom> {
-        let o_image: Option<ViewBuilder<Dom>> = user
+    ) -> ViewBuilder<JsDom> {
+        let o_image: Option<ViewBuilder<JsDom>> = user
             .o_image
             .as_ref()
             .map(|image| {

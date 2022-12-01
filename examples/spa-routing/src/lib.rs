@@ -91,7 +91,7 @@ impl From<Route> for String {
 /// This is just a suggestion for this specific example. The general idea is
 /// to use the route to inform your app that it needs to change the page. This
 /// is just one of many ways to accomplish that.
-impl From<&Route> for ViewBuilder<Dom> {
+impl From<&Route> for ViewBuilder<JsDom> {
     fn from(route: &Route) -> Self {
         match route {
             Route::Home => html! {
@@ -162,7 +162,7 @@ async fn logic(
     mut route: Route,
     mut rx_logic: broadcast::Receiver<AppModel>,
     tx_view: broadcast::Sender<AppError>,
-    mut tx_route_patch: mpsc::Sender<ListPatch<ViewBuilder<Dom>>>,
+    mut tx_route_patch: mpsc::Sender<ListPatch<ViewBuilder<JsDom>>>,
 ) {
     loop {
         match rx_logic.next().await {
@@ -196,12 +196,12 @@ fn view(
     route: &Route,
     tx_logic: broadcast::Sender<AppModel>,
     rx_view: broadcast::Receiver<AppError>,
-    rx_route_patch: mpsc::Receiver<ListPatch<ViewBuilder<Dom>>>,
-) -> ViewBuilder<Dom> {
+    rx_route_patch: mpsc::Receiver<ListPatch<ViewBuilder<JsDom>>>,
+) -> ViewBuilder<JsDom> {
     let username: String = "Reasonable-Human".into();
     html! {
         <slot
-            window:hashchange=tx_logic.contra_filter_map(|ev: DomEvent| {
+            window:hashchange=tx_logic.contra_filter_map(|ev: JsDomEvent| {
                 let ev = ev.browser_event()?;
                 let hev = ev.dyn_ref::<HashChangeEvent>().unwrap().clone();
                 let hash = hev.new_url();

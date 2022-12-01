@@ -7,7 +7,7 @@ pub fn input_value(input: &HtmlElement) -> Option<String> {
     Some(input.value().trim().to_string())
 }
 
-pub fn event_input_value(ev: DomEvent) -> Option<String> {
+pub fn event_input_value(ev: JsDomEvent) -> Option<String> {
     let ev = ev.browser_event()?;
     let target = ev.target()?;
     let input: &HtmlInputElement = target.unchecked_ref();

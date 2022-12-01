@@ -1,7 +1,7 @@
 //! Support for html style and function-style RSX.
 
-use std::convert::TryFrom;
 use quote::quote;
+use std::convert::TryFrom;
 
 use crate::{
     combine_errors,
@@ -35,8 +35,9 @@ pub fn parse_with(
             if let Some(error) = combine_errors(errs) {
                 return error.to_compile_error().into();
             }
-            let (tokens, errs) =
-                crate::partition_unzip(view_tokens.iter(), crate::node_to_builder_token_stream);
+            let (tokens, errs) = crate::partition_unzip(view_tokens.iter(), |token| {
+                crate::node_to_builder_token_stream(token, false)
+            });
             if let Some(error) = combine_errors(errs) {
                 return error.to_compile_error().into();
             }

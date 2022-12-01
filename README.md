@@ -65,9 +65,9 @@ struct Button {
 }
 
 impl Button {
-    fn builder(mut self) -> ViewBuilder<Dom> {
+    fn builder(mut self) -> ViewBuilder<JsDom> {
         rsx! (
-            button(on:click=self.click.sink().contra_map(|_: DomEvent| ())) {
+            button(on:click=self.click.sink().contra_map(|_: JsDomEvent| ())) {
                 // Using braces we can embed rust values in our UI tree.
                 // Here we're creating a text node that starts with the
                 // string "Clicked 0 times" which updates every time a

@@ -14,7 +14,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 struct TextOps {}
 
 impl TextOps {
-    fn view() -> ViewBuilder<Dom> {
+    fn view() -> ViewBuilder<JsDom> {
         html! {
             <div class="frow width-100" id="textops-immutable">
                 <button>"B"</button>
@@ -30,14 +30,14 @@ impl TextOps {
 struct FocusedOn(Dom);
 
 impl FocusedOn {
-    fn from_event(dom_ev: DomEvent) -> Option<FocusedOn> {
+    fn from_event(dom_ev: JsDomEvent) -> Option<FocusedOn> {
         let ev: web_sys::Event = dom_ev.browser_event()?;
         if let Some(target) = ev.target() {
             // here we're using the javascript API provided by web-sys
             // see https://rustwasm.github.io/wasm-bindgen/api/web_sys/index.html
             let focused_el = target.dyn_ref::<HtmlElement>()?;
             let focused_el: HtmlElement = focused_el.clone();
-            let focused_dom = Dom::try_from(JsValue::from(focused_el)).ok()?;
+            let focused_dom = JsDom::try_from(JsValue::from(focused_el)).ok()?;
             Some(FocusedOn(focused_dom))
         } else {
             None
@@ -45,7 +45,7 @@ impl FocusedOn {
     }
 }
 
-async fn editor_component() -> ViewBuilder<Dom> {
+async fn editor_component() -> ViewBuilder<JsDom> {
     let text_ops = TextOps::view().build().unwrap();
     let (tx_logic, mut rx_logic) = broadcast::bounded::<FocusedOn>(1);
 
@@ -53,7 +53,7 @@ async fn editor_component() -> ViewBuilder<Dom> {
         <section class="frow direction-column">
             <div
              id="editor"
-             on:focusin=tx_logic.contra_filter_map(|ev: DomEvent| FocusedOn::from_event(ev))
+             on:focusin=tx_logic.contra_filter_map(|ev: JsDomEvent| FocusedOn::from_event(ev))
              class="frow direction-column width-100" data-block-editor="browser-wasm">
                 <div contenteditable="true" class="frow direction-column width-100 row-center" data-block="heading1">
                     <div>"This is heading 1"</div>

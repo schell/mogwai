@@ -12,13 +12,13 @@ receiver:
 ```rust
 # use mogwai::prelude::*;
 smol::block_on(async {
-    let (tx, mut rx) = broadcast::bounded::<Dom>(1);
+    let (tx, mut rx) = broadcast::bounded::<JsDom>(1);
 
     let builder = html! {
         <div><button capture:view = tx>"Click"</button></div>
     };
 
-    let div: Dom = builder
+    let div: JsDom = builder
         .build()
         .unwrap();
 
@@ -32,17 +32,17 @@ smol::block_on(async {
 
 The above example is shorthand for using a post-build operation on the view in question.
 
-The view builder should take a `Sender<Dom>` (or whatever the underlying view type is) and
+The view builder should take a `Sender<JsDom>` (or whatever the underlying view type is) and
 then use it in a `post:build` operation like so:
 
 ```rust, no_run
 # use mogwai::prelude::*;
 
-fn view(send_input: broadcast::Sender<Dom>) -> ViewBuilder<Dom> {
+fn view(send_input: broadcast::Sender<JsDom>) -> ViewBuilder<JsDom> {
     html! {
         <div>
 
-            <button post:build=move |dom: &mut Dom| { send_input.inner.try_broadcast(dom.clone()).unwrap(); } >
+            <button post:build=move |dom: &mut JsDom| { send_input.inner.try_broadcast(dom.clone()).unwrap(); } >
 
                 "Click me"
 
@@ -61,8 +61,8 @@ We can retrieve the node from the `Receiver` side at the beginning of the logic 
 ```rust, no_run
 # use mogwai::prelude::*;
 
-async fn logic(mut recv_input: broadcast::Receiver<Dom>) {
-    let input: Dom = recv_input.next().await.unwrap();
+async fn logic(mut recv_input: broadcast::Receiver<JsDom>) {
+    let input: JsDom = recv_input.next().await.unwrap();
 
     loop {
         // ... do our logic as normal

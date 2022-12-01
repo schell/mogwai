@@ -1,3 +1,29 @@
+//! # Mogwai
+//!
+//! Mogwai is library for multi-domain user interface development using sinks and streams.
+//!
+//! Its goals are simple:
+//! * provide a declarative approach to creating and managing interface nodes, without
+//!   a bias towards a specific UI domain (ie web, games, desktop applications, mobile)
+//! * encapsulate component state and compose components easily
+//! * explicate mutations and updates
+//! * feel snappy
+//!
+//! ## Javascript/Browser DOM
+//! This library is specific to writing mogwai apps to run in the browser via WASM.
+//!
+//! ## Learn more
+//! Please check out the [introduction module](an_introduction).
+//!
+//! ## Acronyms
+//! If you're wondering what the acronym "mogwai" stands for, here is a table of
+//! options that work well, depending on the domain. It's fun to mix and match.
+//!
+//! | M           | O         | G           | W      | A             | I            |
+//! |-------------|-----------|-------------|--------|---------------|--------------|
+//! | minimal     | obvious   | graphical   | web    | application   | interface    |
+//! | modular     | operable  | graphable   | widget |               |              |
+//! | mostly      |           | gui         | work   |               |              |
 //! Provides trait implementations and helper functions for running mogwai
 //! html-based UI graphs in the browser and on a server.
 //!
@@ -8,15 +34,38 @@
 //! It is important to understand the [`JsCast`](../prelude/trait.JsCast.html) trait
 //! for writing web apps in Rust. Specifically its `dyn_into` and `dyn_ref` functions
 //! are the primary way to cast JavaScript values as specific Javascript types.
-pub mod builder;
+pub mod an_introduction;
 pub mod event;
-pub mod ssr;
 pub mod utils;
 pub mod view;
 
+pub mod core {
+    //! Re-export of the mogwai library.
+    pub use mogwai::*;
+}
+
+pub mod prelude {
+    //! Re-exports for convenience.
+    pub use super::event::*;
+    pub use super::utils::*;
+    pub use super::view::*;
+    pub use mogwai::prelude::*;
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod nonwasm {
-    use mogwai::prelude::*;
+    use std::sync::Arc;
+
+    use async_executor::Executor;
+
+    use crate as mogwai_dom;
+    use crate::{
+        core::{
+            channel::{broadcast, mpsc},
+            time::wait_while_async,
+        },
+        prelude::*,
+    }; // for macro features
 
     #[test]
     fn component_nest() {
@@ -45,22 +94,23 @@ mod nonwasm {
         .unwrap();
     }
 
-    #[smol_potat::test]
-    async fn capture_view() {
+    fn capture_view() {
         let (tx, mut rx) = broadcast::bounded::<Dom>(1);
-        let _view = html! {
+        let view: Dom = html! {
             <div>
                 <pre
-                 capture:view = tx >
-                    "Tack :)"
+                capture:view = tx >
+                "Tack :)"
                 </pre>
-            </div>
+                </div>
         }
         .build()
         .unwrap();
 
-        let dom = rx.next().await.unwrap();
-        assert_eq!(dom.html_string().await, "<pre>Tack :)</pre>");
+        view.run_while(async move {
+            let dom = rx.next().await.unwrap();
+            assert_eq!(dom.html_string().await, "<pre>Tack :)</pre>");
+        });
     }
 
     #[test]
@@ -77,8 +127,8 @@ mod nonwasm {
                     .with_single_attrib_stream("stroke", "green")
                     .with_single_attrib_stream("stroke-width", "4")
                     .with_single_attrib_stream("fill", "yellow")
-                    as ViewBuilder<Dom>,
-            ) as ViewBuilder<Dom>;
+                    as ViewBuilder<JsDom>,
+            ) as ViewBuilder<JsDom>;
     }
 
     #[test]
@@ -101,7 +151,7 @@ mod nonwasm {
     #[test]
     fn cast_type_in_builder() {
         let _div = rsx! {
-            div(cast:type=Dom, id="hello") {"Inner Text"}
+            div(cast:type=JsDom, id="hello") {"Inner Text"}
         };
     }
 
@@ -117,22 +167,23 @@ mod nonwasm {
             ViewBuilder::element("div").append(None as Option<ViewBuilder<Dom>>);
     }
 
-    #[smol_potat::test]
-    async fn fragments() {
+    fn fragments() {
         let vs: Vec<ViewBuilder<Dom>> = html! {
             <div>"hello"</div>
             <div>"hola"</div>
             <div>"kia ora"</div>
         };
 
-        let s: ViewBuilder<Dom> = html! {
+        let s = html! {
             <section>{vs}</section>
         };
-        let view: Dom = s.build().unwrap();
-        assert_eq!(
-            view.html_string().await,
-            "<section><div>hello</div> <div>hola</div> <div>kia ora</div></section>"
-        );
+        let view = s.build().unwrap();
+        Executor::default().run(async move {
+            assert_eq!(
+                view.html_string().await,
+                "<section><div>hello</div> <div>hola</div> <div>kia ora</div></section>"
+            );
+        });
     }
 
     #[test]
@@ -141,136 +192,149 @@ mod nonwasm {
 
         let _div = ViewBuilder::element("div")
             .with_single_attrib_stream("id", "hello")
-            .with_post_build(move |_: &mut Dom| {
+            .with_post_build(move |_: &mut JsDom| {
                 let _ = tx.inner.try_broadcast(()).unwrap();
             })
             .append(ViewBuilder::text("Hello"));
     }
 
-    #[smol_potat::test]
     async fn post_build_rsx() {
-        let (tx, mut rx) = broadcast::bounded::<()>(1);
+        let executor = Arc::new(Executor::default());
+        executor.run(async {
+            let (tx, mut rx) = broadcast::bounded::<()>(1);
 
-        let _div = html! {
-            <div id="hello" post:build=move |_: &mut Dom| {
-                let _ = tx.inner.try_broadcast(()).unwrap();
-            }>
-                "Hello"
-            </div>
-        }
-        .build()
-        .unwrap();
-
-        rx.recv().await.unwrap();
-    }
-
-    #[smol_potat::test]
-    async fn can_construct_text_builder_from_tuple() {
-        let (_tx, rx) = broadcast::bounded::<String>(1);
-        let _div: Dom = html! {
-            <div>{("initial", rx)}</div>
-        }
-        .build()
-        .unwrap();
-    }
-
-    #[smol_potat::test]
-    async fn ssr_properties_overwrite() {
-        let el: SsrElement = SsrElement::element("div");
-        el.set_style("float", "right").unwrap();
-        assert_eq!(
-            el.html_string().await,
-            r#"<div style="float: right;"></div>"#
-        );
-
-        el.set_style("float", "left").unwrap();
-        assert_eq!(
-            el.html_string().await,
-            r#"<div style="float: left;"></div>"#
-        );
-
-        el.set_style("width", "100px").unwrap();
-        assert_eq!(
-            el.html_string().await,
-            r#"<div style="float: left; width: 100px;"></div>"#
-        );
-    }
-
-    #[smol_potat::test]
-    async fn ssr_attrib_overwrite() {
-        let el: SsrElement = SsrElement::element("div");
-
-        el.set_attrib("class", Some("my_class")).unwrap();
-        assert_eq!(el.html_string().await, r#"<div class="my_class"></div>"#);
-
-        el.set_attrib("class", Some("your_class")).unwrap();
-        assert_eq!(el.html_string().await, r#"<div class="your_class"></div>"#);
-    }
-
-    #[smol_potat::test]
-    pub async fn can_alter_ssr_views() {
-        let (tx_text, rx_text) = broadcast::bounded::<String>(1);
-        let (tx_style, rx_style) = broadcast::bounded::<String>(1);
-        let (tx_class, rx_class) = broadcast::bounded::<String>(1);
-        let view = html! {
-            <div style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
-        }.build().unwrap();
-        assert_eq!(
-            view.html_string().await,
-            r#"<div style="float: left;"><p class="p_class">here</p></div>"#
-        );
-
-        let _ = tx_text.inner.try_broadcast("there".to_string()).unwrap();
-        smol::block_on(async { tx_text.until_empty().await });
-
-        assert_eq!(
-            view.html_string().await,
-            r#"<div style="float: left;"><p class="p_class">there</p></div>"#
-        );
-
-        let _ = tx_style.inner.try_broadcast("right".to_string()).unwrap();
-        smol::block_on(async { tx_style.until_empty().await });
-
-        assert_eq!(
-            view.html_string().await,
-            r#"<div style="float: right;"><p class="p_class">there</p></div>"#
-        );
-
-        let _ = tx_class
-            .inner
-            .try_broadcast("my_p_class".to_string())
-            .unwrap();
-        smol::block_on(async { tx_class.until_empty().await });
-
-        assert_eq!(
-            view.html_string().await,
-            r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#
-        );
-    }
-
-    #[smol_potat::test]
-    async fn can_use_string_stream_as_child() {
-        let clicks = futures::stream::iter(vec![0, 1, 2]);
-        let bldr = html! {
-            <span>
-            {
-                ViewBuilder::text(clicks.map(|clicks| match clicks {
-                    1 => "1 click".to_string(),
-                    n => format!("{} clicks", n),
-                }))
+            let _div = html! {
+                <div id="hello" post:build=move |_: &mut Dom| {
+                    let _ = tx.inner.try_broadcast(()).unwrap();
+                }>
+                    "Hello"
+                    </div>
             }
-            </span>
-        };
-        let _ = bldr.build().unwrap();
+            .build()
+            .unwrap();
+
+            rx.recv().await.unwrap();
+        });
+    }
+
+    async fn can_construct_text_builder_from_tuple() {
+        let executor = Arc::new(Executor::default());
+        executor.run(async {
+            let (_tx, rx) = broadcast::bounded::<String>(1);
+            let _div: Dom = html! {
+                <div>{("initial", rx)}</div>
+            }
+            .build()
+            .unwrap();
+        });
+    }
+
+    fn ssr_properties_overwrite() {
+        let executor = Arc::new(Executor::default());
+        executor.run(async {
+            let el: SsrDom = SsrDom::element(executor.clone(), "div");
+            el.set_style("float", "right").unwrap();
+            assert_eq!(
+                el.html_string().await,
+                r#"<div style="float: right;"></div>"#
+            );
+
+            el.set_style("float", "left").unwrap();
+            assert_eq!(
+                el.html_string().await,
+                r#"<div style="float: left;"></div>"#
+            );
+
+            el.set_style("width", "100px").unwrap();
+            assert_eq!(
+                el.html_string().await,
+                r#"<div style="float: left; width: 100px;"></div>"#
+            );
+        });
+    }
+
+    fn ssr_attrib_overwrite() {
+        let executor = Arc::new(Executor::default());
+        executor.run(async {
+            let el: SsrDom = SsrDom::element(executor.clone(), "div");
+
+            el.set_attrib("class", Some("my_class")).unwrap();
+            assert_eq!(el.html_string().await, r#"<div class="my_class"></div>"#);
+
+            el.set_attrib("class", Some("your_class")).unwrap();
+            assert_eq!(el.html_string().await, r#"<div class="your_class"></div>"#);
+        });
+    }
+
+    pub fn can_alter_ssr_views() {
+        let executor = Arc::new(Executor::default());
+        executor.run(async {
+            let (tx_text, rx_text) = broadcast::bounded::<String>(1);
+            let (tx_style, rx_style) = broadcast::bounded::<String>(1);
+            let (tx_class, rx_class) = broadcast::bounded::<String>(1);
+            let view = html! {
+                <div cast:type = SsrDom style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
+            }.build().unwrap();
+            assert_eq!(
+                view.html_string().await,
+                r#"<div style="float: left;"><p class="p_class">here</p></div>"#
+            );
+
+            let _ = tx_text.inner.try_broadcast("there".to_string()).unwrap();
+            tx_text.until_empty().await;
+
+            assert_eq!(
+                view.html_string().await,
+                r#"<div style="float: left;"><p class="p_class">there</p></div>"#
+            );
+
+            let _ = tx_style.inner.try_broadcast("right".to_string()).unwrap();
+            tx_style.until_empty().await;
+
+            assert_eq!(
+                view.html_string().await,
+                r#"<div style="float: right;"><p class="p_class">there</p></div>"#
+            );
+
+            let _ = tx_class
+                .inner
+                .try_broadcast("my_p_class".to_string())
+                .unwrap();
+            tx_class.until_empty().await;
+
+            assert_eq!(
+                view.html_string().await,
+                r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#
+            );
+        });
+    }
+
+    fn can_use_string_stream_as_child() {
+        let executor = Arc::new(Executor::default());
+        executor.run(async {
+            let clicks = futures::stream::iter(vec![0, 1, 2]);
+            let bldr = html! {
+                <span>
+                {
+                    ViewBuilder::text(clicks.map(|clicks| match clicks {
+                        1 => "1 click".to_string(),
+                        n => format!("{} clicks", n),
+                    }))
+                }
+                </span>
+            };
+            let _ = bldr.build().unwrap();
+        });
     }
 
     #[test]
     fn test_use_tx_in_logic_loop() {
-        smol::block_on(async {
+        let exe = Executor::default();
+        exe.run(async {
             let (tx, mut rx) = broadcast::bounded::<()>(1);
             let (tx_end, mut rx_end) = broadcast::bounded::<()>(1);
             let tx_logic = tx.clone();
-            crate::spawn(async move {
+            exe.spawn(async move {
                 let mut ticks = 0u32;
                 loop {
                     match rx.next().await {
@@ -296,35 +360,37 @@ mod nonwasm {
         });
     }
 
-    #[smol_potat::test]
-    async fn patch_children_rsx_md() {
-        // ANCHOR: patch_children_rsx
-        let (mut tx, rx) = mpsc::bounded(1);
-        let my_view = html! {
-            <div id="main" patch:children=rx>"Waiting for a patch message..."</div>
-        }
-        .build()
-        .unwrap();
+    fn patch_children_rsx_md() {
+        let exe = Executor::default();
+        exe.run(async {
+            // ANCHOR: patch_children_rsx
+            let (mut tx, rx) = mpsc::bounded(1);
+            let my_view: Dom = html! {
+                <div id="main" patch:children=rx>"Waiting for a patch message..."</div>
+            }
+            .build()
+            .unwrap();
 
-        tx.send(ListPatch::drain()).await.unwrap();
-        // just as a sanity check we wait until the view has updated
-        wait_while_async(1.0, || async {
-            my_view.html_string().await != r#"<div id="main"></div>"#
-        })
-        .await
-        .unwrap();
+            tx.send(ListPatch::drain()).await.unwrap();
+            // just as a sanity check we wait until the view has updated
+            wait_while_async(1.0, || async {
+                my_view.html_string().await != r#"<div id="main"></div>"#
+            })
+            .await
+            .unwrap();
 
-        let other_viewbuilder = html! {
-            <h1>"Hello!"</h1>
-        };
+            let other_viewbuilder = html! {
+                <h1>"Hello!"</h1>
+            };
 
-        tx.send(ListPatch::push(other_viewbuilder)).await.unwrap();
-        wait_while_async(1.0, || async {
-            my_view.html_string().await != r#"<div id="main"><h1>Hello!</h1></div>"#
-        })
-        .await
-        .unwrap();
-        // ANCHOR_END:patch_children_rsx
+            tx.send(ListPatch::push(other_viewbuilder)).await.unwrap();
+            wait_while_async(1.0, || async {
+                my_view.html_string().await != r#"<div id="main"><h1>Hello!</h1></div>"#
+            })
+            .await
+            .unwrap();
+            // ANCHOR_END:patch_children_rsx
+        });
     }
 
     #[test]
@@ -342,42 +408,40 @@ mod wasm {
 
     wasm_bindgen_test_configure!(run_in_browser);
 
-    type DomBuilder = ViewBuilder<Dom>;
+    type JsDomBuilder = ViewBuilder<JsDom>;
 
     #[wasm_bindgen_test]
     async fn can_create_text_view_node_from_str() {
-        let _view: Dom = ViewBuilder::text("Hello!").build().unwrap();
+        let _view: JsDom = ViewBuilder::text("Hello!").try_into().unwrap();
     }
 
     #[wasm_bindgen_test]
     async fn can_create_text_view_node_from_string() {
-        let _view: Dom = ViewBuilder::text("Hello!".to_string())
-            .build()
-            .unwrap();
+        let _view: JsDom = ViewBuilder::text("Hello!".to_string()).try_into().unwrap();
     }
 
     #[wasm_bindgen_test]
     async fn can_create_text_view_node_from_stream() {
         let s = stream::once(async { "Hello!".to_string() });
-        let _view: Dom = ViewBuilder::text(s).build().unwrap();
+        let _view: JsDom = ViewBuilder::text(s).try_into().unwrap();
     }
 
     #[wasm_bindgen_test]
     async fn can_create_text_view_node_from_string_and_stream() {
         let s = "Hello!".to_string();
         let st = stream::once(async { "Goodbye!".to_string() });
-        let _view: Dom = ViewBuilder::text((s, st)).build().unwrap();
+        let _view: JsDom = ViewBuilder::text((s, st)).try_into().unwrap();
     }
 
     #[wasm_bindgen_test]
     async fn can_create_text_view_node_from_str_and_stream() {
         let st = stream::once(async { "Goodbye!".to_string() });
-        let _view: Dom = ViewBuilder::text(("Hello!", st)).build().unwrap();
+        let _view: JsDom = ViewBuilder::text(("Hello!", st)).try_into().unwrap();
     }
 
     #[wasm_bindgen_test]
     async fn can_nest_created_text_view_node() {
-        let view: Dom = ViewBuilder::element("div")
+        let view: JsDom = ViewBuilder::element("div")
             .append(ViewBuilder::text("Hello!"))
             .with_single_attrib_stream("id", "view1")
             .with_single_style_stream("color", "red")
@@ -385,7 +449,7 @@ mod wasm {
                 "width",
                 futures::stream::once(async { "100px".to_string() }),
             )
-            .build()
+            .try_into()
             .unwrap();
 
         assert_eq!(
@@ -396,7 +460,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn ssr_can_nest_created_text_view_node() {
-        let view: Dom = ViewBuilder::element("div")
+        let view: JsDom = ViewBuilder::element("div")
             .append(ViewBuilder::text("Hello!"))
             .with_single_attrib_stream("id", "view1")
             .with_single_style_stream("color", "red")
@@ -404,7 +468,7 @@ mod wasm {
                 "width",
                 futures::stream::once(async { "100px".to_string() }),
             )
-            .build()
+            .try_into()
             .unwrap();
 
         assert_eq!(
@@ -417,14 +481,14 @@ mod wasm {
     async fn can_use_rsx_to_make_builder() {
         let (tx, _) = broadcast::bounded::<DomEvent>(1);
 
-        let rsx: DomBuilder = html! {
+        let rsx: JsDomBuilder = html! {
             <div id="view_zero" style:background_color="red">
                 <pre on:click=tx.clone()>"this has text"</pre>
             </div>
         };
-        let rsx_view = rsx.build().unwrap();
+        let rsx_view = rsx.try_into().unwrap();
 
-        let manual: DomBuilder = ViewBuilder::element("div")
+        let manual: JsDomBuilder = ViewBuilder::element("div")
             .with_single_attrib_stream("id", "view_zero")
             .with_single_style_stream("background-color", "red")
             .append(
@@ -432,7 +496,7 @@ mod wasm {
                     .with_event("click", EventTargetType::Myself, tx)
                     .append(ViewBuilder::text("this has text")),
             );
-        let manual_view = manual.build().unwrap();
+        let manual_view = manual.try_into().unwrap();
 
         assert_eq!(
             rsx_view.html_string().await,
@@ -442,14 +506,14 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn viewbuilder_child_order() {
-        let v: Dom = html! {
+        let v: JsDom = html! {
             <div>
                 <p id="one">"i am 1"</p>
                 <p id="two">"i am 2"</p>
                 <p id="three">"i am 3"</p>
             </div>
         }
-        .build()
+        .try_into()
         .unwrap();
 
         let val = v.inner_read().left().unwrap();
@@ -479,7 +543,7 @@ mod wasm {
                     <pre>"some text"</pre>
                     </div>
             }
-            .build()
+            .try_into()
             .unwrap();
             assert!(
                 div.clone_as::<web_sys::HtmlElement>()
@@ -518,7 +582,7 @@ mod wasm {
                 </div>
             </div>
         }
-        .build()
+        .try_into()
         .unwrap();
         let el = root.clone_as::<web_sys::HtmlElement>().unwrap();
         if let Some(branch) = el.first_child() {
@@ -546,7 +610,7 @@ mod wasm {
             " <- number"
                 </div>
         }
-        .build()
+        .try_into()
         .unwrap();
         assert_eq!(
             &div.clone_as::<web_sys::Element>().unwrap().outer_html(),
@@ -560,7 +624,7 @@ mod wasm {
         let div = html! {
             <div class=("now", rx) />
         }
-        .build()
+        .try_into()
         .unwrap();
         let div_el: web_sys::HtmlElement = div.clone_as::<web_sys::HtmlElement>().unwrap();
         assert_eq!(div_el.outer_html(), r#"<div class="now"></div>"#);
@@ -574,7 +638,9 @@ mod wasm {
     #[wasm_bindgen_test]
     async fn rx_style_jsx() {
         let (tx, rx) = broadcast::bounded::<String>(1);
-        let div = html! { <div style:display=("block", rx) /> }.build().unwrap();
+        let div = html! { <div style:display=("block", rx) /> }
+            .try_into()
+            .unwrap();
         let div_el = div.clone_as::<web_sys::HtmlElement>().unwrap();
         assert_eq!(
             div_el.outer_html(),
@@ -595,7 +661,7 @@ mod wasm {
                 "Hello there"
             </div>
         }
-        .build()
+        .try_into()
         .unwrap();
 
         let () = rx.recv().await.unwrap();
@@ -605,10 +671,10 @@ mod wasm {
     pub async fn rx_text() {
         let (tx, rx) = broadcast::bounded::<String>(1);
 
-        let div: Dom = html! {
+        let div: JsDom = html! {
             <div>{("initial", rx)}</div>
         }
-        .build()
+        .try_into()
         .unwrap();
 
         let el = div.clone_as::<web_sys::HtmlElement>().unwrap();
@@ -625,7 +691,7 @@ mod wasm {
         let (tx, rx) = broadcast::bounded(1);
 
         log::info!("test!");
-        let rx = rx.scan(0, |n: &mut i32, _: DomEvent| {
+        let rx = rx.scan(0, |n: &mut i32, _: JsDomEvent| {
             log::info!("event!");
             *n += 1;
             let r = Some(if *n == 1 {
@@ -639,7 +705,7 @@ mod wasm {
         let button = html! {
             <button on:click=tx.clone()>{("Clicked 0 times", rx)}</button>
         }
-        .build()
+        .try_into()
         .unwrap();
 
         let el = button.clone_as::<web_sys::HtmlElement>().unwrap();
@@ -660,14 +726,14 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn can_patch_children() {
-        let (mut tx, rx) = mpsc::bounded::<ListPatch<ViewBuilder<Dom>>>(1);
+        let (mut tx, rx) = mpsc::bounded::<ListPatch<ViewBuilder<JsDom>>>(1);
         let view = html! {
             <ol id="main" patch:children=rx>
                 <li>"Zero"</li>
                 <li>"One"</li>
             </ol>
         }
-        .build()
+        .try_into()
         .unwrap();
 
         let dom: HtmlElement = view.clone_as::<HtmlElement>().unwrap();
@@ -774,7 +840,7 @@ mod wasm {
                 "Zero ""One"
             </p>
         }
-        .build()
+        .try_into()
         .unwrap();
 
         let dom: HtmlElement = view.clone_as().unwrap();
@@ -815,14 +881,14 @@ mod wasm {
             }
             </span>
         };
-        let _ = bldr.build().unwrap();
+        let _ = bldr.try_into().unwrap();
     }
 
     fn sendable<T: SendConstraints>(_: &T) {}
 
     #[wasm_bindgen_test]
     pub fn output_sendable() {
-        let output: Output<Dom> = Output::default();
+        let output: Output<JsDom> = Output::default();
         sendable(&output);
 
         mogwai::spawn(async move {
@@ -832,11 +898,11 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn can_capture_with_captured() {
-        let capture: Captured<Dom> = Captured::default().clone();
+        let capture: Captured<JsDom> = Captured::default().clone();
         let b = html! {
             <div id="chappie" capture:view=capture.sink()></div>
         };
-        let _ = b.build().unwrap();
+        let _ = b.try_into().unwrap();
         let dom = capture.get().await;
         assert_eq!(dom.html_string().await, r#"<div id="chappie"></div>"#);
     }
@@ -844,7 +910,10 @@ mod wasm {
 
 #[cfg(test)]
 mod test {
-    use mogwai::prelude::*;
+    use crate as mogwai_dom;
+    use crate::prelude::*;
+    use crate::view::DomBuilder; // for macros
+    use async_executor::Executor;
 
     #[test]
     fn can_relay() {
@@ -864,7 +933,8 @@ mod test {
                     ) {
                         {("Hi", self.text.stream().unwrap())}
                     }
-                ).with_task(async move {
+                )
+                .with_task(async move {
                     let mut clicks = 0;
                     while let Some(()) = self.click.get().await {
                         clicks += 1;
@@ -882,19 +952,22 @@ mod test {
         }
 
         let thing = Thing::default();
-        let dom = thing.view().build().unwrap();
-        dom.run().unwrap();
+        let dom: Dom = thing.view().build().unwrap();
+        match dom {
+            Dom::Js(js) => js.run().unwrap(),
+            Dom::Ssr(_) => {}
+        }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[smol_potat::test]
-    async fn can_capture_with_captured() {
+    fn can_capture_with_captured() {
         let capture: Captured<Dom> = Captured::default();
         let b = rsx! {
             div(id="chappie", capture:view=capture.sink()){}
         };
-        let _ = b.build().unwrap();
-        let dom = capture.get().await;
-        assert_eq!(dom.html_string().await, r#"<div id="chappie"></div>"#);
+        let dom: Dom = b.build().unwrap();
+        Executor::default().run(async move {
+            let dom = capture.get().await;
+            assert_eq!(dom.html_string().await, r#"<div id="chappie"></div>"#);
+        });
     }
 }

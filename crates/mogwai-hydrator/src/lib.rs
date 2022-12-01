@@ -127,7 +127,7 @@ impl HydrationKey {
             }
         };
 
-        let dom = Dom::try_from(JsValue::from(el));
+        let dom = JsDom::try_from(JsValue::from(el));
         ensure!(dom.is_ok(), WASMOnly);
 
         Ok(dom.unwrap())
@@ -135,25 +135,25 @@ impl HydrationKey {
 }
 
 pub struct Hydrator {
-    inner: Dom,
+    inner: JsDom,
 }
 
-impl From<Hydrator> for Dom {
+impl From<Hydrator> for JsDom {
     fn from(Hydrator { inner }: Hydrator) -> Self {
         inner
     }
 }
 
-impl TryFrom<ViewBuilder<Dom>> for Hydrator {
+impl TryFrom<ViewBuilder<JsDom>> for Hydrator {
     type Error = Error;
 
-    fn try_from(builder: ViewBuilder<Dom>) -> Result<Self, Self::Error> {
+    fn try_from(builder: ViewBuilder<JsDom>) -> Result<Self, Self::Error> {
         Hydrator::try_hydrate(builder, None)
     }
 }
 
 impl Hydrator {
-    /// Attempt to hydrate [`Dom`] from [`DecomposedViewBuilder<Dom>`].
+    /// Attempt to hydrate [`Dom`] from [`DecomposedViewBuilder<JsDom>`].
     fn try_hydrate(
         ViewBuilder {
             identity,
@@ -166,7 +166,7 @@ impl Hydrator {
             ops,
             view_sinks,
             tasks,
-        }: ViewBuilder<Dom>,
+        }: ViewBuilder<JsDom>,
         may_parent: Option<(usize, &Node)>,
     ) -> Result<Hydrator, Error> {
         let construct_with = match identity {

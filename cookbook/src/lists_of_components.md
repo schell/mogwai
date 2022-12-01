@@ -10,7 +10,7 @@ definitions. In this example we'll use a `List` component and an `Item` componen
 
 ## Explanation
 
-The `List` defines its view to include a `button` to create new items and an `ol` to hold each item. Logic messages will be sent into a channel and child items are patched in using the `patch:children` RSX attribute, which we can fill in with anything that implements `Stream<Item = ListPatch<ViewBuilder<Dom>>`.
+The `List` defines its view to include a `button` to create new items and an `ol` to hold each item. Logic messages will be sent into a channel and child items are patched in using the `patch:children` RSX attribute, which we can fill in with anything that implements `Stream<Item = ListPatch<ViewBuilder<JsDom>>`.
 
 ```rust, ignore
 {{#include ../../examples/list-of-gizmos/src/lib.rs:list_view}}
@@ -43,7 +43,7 @@ keeping the list in sync with its view:
 
 Above we use [`ListPatchModel`][structlistpatchmodel] to maintain our list if items. [`ListPatchModel`][structlistpatchmodel]
 is special in that every time it is patched it sends a clone of that patch to downstream listeners. This makes it easy to
-map the patch from `Item` to `ViewBuilder<Dom>` and use the resulting stream to patch the list's view.
+map the patch from `Item` to `ViewBuilder<JsDom>` and use the resulting stream to patch the list's view.
 
 This is a good example of how `mogwai` separates component state from component views. The list logic doesn't own the
 view and doesn't maintain the list of DOM nodes. Instead, the list logic sets up a patching mechanism and then

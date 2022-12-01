@@ -7,17 +7,17 @@ Consider this variable declaration:
 let element = html!{ <h1>"Hello, world!"</h1> };
 ```
 
-This funny tag syntax is neither a string nor HTML - it is a [`ViewBuilder<Dom>`][structviewbuilder].
+This funny tag syntax is neither a string nor HTML - it is a [`ViewBuilder<JsDom>`][structviewbuilder].
 
 The macro `html!` is using RSX, which is a "**R**ust **S**yntax E**x**tension".
-Similarly there is a `view!` macro that creates [`View<Dom>`][structview].
+Similarly there is a `view!` macro that creates [`View<JsDom>`][structview].
 
 ```rust
 # use mogwai::prelude::*;
-let my_builder: ViewBuilder<Dom> = html!{ <h1>"Hello, world!"</h1> };
-let my_view: Dom = view!{ <h1>"Hello, world!"</h1> };
+let my_builder: ViewBuilder<JsDom> = html!{ <h1>"Hello, world!"</h1> };
+let my_view: JsDom = view!{ <h1>"Hello, world!"</h1> };
 
-let my_identical_view: Dom = my_builder.build().unwrap();
+let my_identical_view: JsDom = my_builder.build().unwrap();
 ```
 
 We recommend using these macros in mogwai to describe the DOM nodes used by your
@@ -30,7 +30,7 @@ written out manually:
 
 ```rust, no_run
 # use mogwai::prelude::*;
-let my_builder: ViewBuilder<Dom> = ViewBuilder::element("h1")
+let my_builder: ViewBuilder<JsDom> = ViewBuilder::element("h1")
     .append(ViewBuilder::text("Hello, world!"));
 ```
 
@@ -39,7 +39,7 @@ You may use any html tags you wish when writing RSX.
 
 ```rust, no_run
 # use mogwai::prelude::*;
-let _: ViewBuilder<Dom> = html! {
+let _: ViewBuilder<JsDom> = html! {
     <p>"Once upon a time in a galaxy far, far away..."</p>
 };
 ```
@@ -47,7 +47,7 @@ let _: ViewBuilder<Dom> = html! {
 Adding attributes happens the way you expect it to.
 ```rust, no_run
 # use mogwai::prelude::*;
-let _: ViewBuilder<Dom> = html! {
+let _: ViewBuilder<JsDom> = html! {
     <p id="starwars">"Once upon a time in a galaxy far, far away..."</p>
 };
 ```
@@ -118,7 +118,7 @@ for more details about types that can be turned into streams.
   };
   ```
 
-- **patch:children** = `impl Stream<ListPatch<ViewBuilder<Dom>>>`
+- **patch:children** = `impl Stream<ListPatch<ViewBuilder<JsDom>>>`
 
   Declares that this element's children will be updated with a stream of [ListPatch][enumlistpatch].
   #### Note
@@ -190,14 +190,14 @@ You can use RSX to build more than one view at a time:
 ```rust, no_run
 # use mogwai::prelude::*;
 // Create a vector with three builders in it.
-let builders: Vec<ViewBuilder<Dom>> = html! {
+let builders: Vec<ViewBuilder<JsDom>> = html! {
     <div>"hello"</div>
     <div>"hola"</div>
     <div>"kia ora"</div>
 };
 
 // Then add them all into a parent tag just like any component
-let parent: ViewBuilder<Dom> = html! {
+let parent: ViewBuilder<JsDom> = html! {
     <section>{builders}</section>
 };
 ```

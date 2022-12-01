@@ -16,7 +16,7 @@ impl Button {
         }
     }
 
-    fn view(mut self) -> ViewBuilder<Dom> {
+    fn view(mut self) -> ViewBuilder<JsDom> {
         html! (
             <button style="cursor: pointer;" on:click=self.click.sink().contra_map(|_| ())>
             {(self.click_text(), self.text.stream().unwrap())}
@@ -33,7 +33,7 @@ impl Button {
     }
 }
 
-impl From<Button> for ViewBuilder<Dom> {
+impl From<Button> for ViewBuilder<JsDom> {
     fn from(btn: Button) -> Self {
         btn.view()
     }
