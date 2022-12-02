@@ -1,16 +1,15 @@
 //! Provides string rendering for server-side mogwai nodes.
 use anyhow::Context;
 use async_executor::Executor;
-use futures::{Future, Sink, StreamExt};
 use async_lock::RwLock;
-use std::{collections::HashMap, ops::DerefMut, pin::Pin, sync::Arc};
+use futures::{Future, Sink, StreamExt};
+use std::{any::Any, collections::HashMap, ops::DerefMut, pin::Pin, sync::Arc};
 
 use mogwai::{
-    builder::{ViewBuilder, ViewIdentity},
     channel::SinkError,
-    futures::SinkExt,
+    futures::{sink::Contravariant, SinkExt},
     patch::{HashPatch, ListPatch, ListPatchApply},
-    view::{EventTargetType, View, ViewResources},
+    view::{AnyEvent, AnyView, Update, View, ViewBuilder, ViewIdentity, ViewResources},
 };
 use serde_json::Value;
 
@@ -150,7 +149,6 @@ impl SsrNode {
 /// A server side renderable DOM element.
 #[derive(Clone)]
 pub struct SsrDom {
-    /// A shared executor for spawning and running futures.
     pub executor: Arc<Executor<'static>>,
     /// The underlying node.
     pub node: Arc<RwLock<SsrNode>>,
@@ -158,17 +156,17 @@ pub struct SsrDom {
     pub events: Arc<
         RwLock<
             HashMap<
-                (EventTargetType, String),
+                (String, String),
                 Pin<Box<dyn Sink<Value, Error = SinkError> + Send + Sync + 'static>>,
             >,
         >,
     >,
 }
 
-impl TryFrom<ViewBuilder<SsrDom>> for SsrDom {
+impl TryFrom<ViewBuilder> for SsrDom {
     type Error = anyhow::Error;
 
-    fn try_from(value: ViewBuilder<SsrDom>) -> Result<Self, Self::Error> {
+    fn try_from(value: ViewBuilder) -> Result<Self, Self::Error> {
         let executor = Arc::new(Executor::default());
         SsrDomResources(executor).build(value)
     }
@@ -315,7 +313,7 @@ impl SsrDom {
     /// Fails if no such event exists or if sending to the sink encounters an error.
     pub async fn fire_event(
         &self,
-        type_is: EventTargetType,
+        type_is: String,
         name: String,
         event: Value,
     ) -> Result<(), futures::future::Either<(), SinkError>> {
@@ -329,9 +327,9 @@ impl SsrDom {
     }
 
     /// Removes an event.
-    pub fn remove_event(&self, type_is: EventTargetType, name: &str) {
+    pub fn remove_event(&self, type_is: &str, name: &str) {
         let mut lock = self.events.try_write().unwrap();
-        let _ = lock.remove(&(type_is, name.to_string()));
+        let _ = lock.remove(&(type_is.to_string(), name.to_string()));
     }
 
     /// String value
@@ -341,26 +339,6 @@ impl SsrDom {
             let lock = node.read().await;
             lock.html_string().await
         })
-    }
-
-    pub fn run_while<T: Send + 'static>(
-        &self,
-        fut: impl Future<Output = T> + Send + 'static,
-    ) -> anyhow::Result<T> {
-        let (mut tx, mut rx) = mogwai::channel::mpsc::bounded::<T>(1);
-        let send = async move {
-            let t = fut.await;
-            tx.send(t).await.unwrap();
-        };
-        let _task = self.executor.spawn(send);
-        loop {
-            match rx.inner.try_next() {
-                Err(_) => {}
-                Ok(may_t) => {
-                    return may_t.ok_or_else(|| anyhow::anyhow!("future cannot finish"));
-                }
-            }
-        }
     }
 }
 
@@ -381,90 +359,81 @@ impl ViewResources<SsrDom> for SsrDomResources {
             ViewIdentity::Leaf(text) => SsrDom::text(self.0.clone(), &text),
         })
     }
+
+    fn spawn(&self, action: impl Future<Output = ()> + Send + 'static) {
+        self.0.spawn(action).detach();
+    }
 }
 
 impl View for SsrDom {
-    type Event = Value;
-    type Child = Self;
-    type Resources = SsrDomResources;
-
-    /// Possibly asynchronous and scoped acquisition of resources.
-    ///
-    /// Used to build children before patching.
-    fn with_acquired_resources<'a, T: Send + Sync + 'static>(
-        &self,
-        f: impl FnOnce(Self::Resources) -> anyhow::Result<T> + Send + Sync + 'a,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + Sync + 'a>> {
-        let rez = SsrDomResources(self.executor.clone());
-        Box::pin(async move { f(rez) })
-    }
-
-    /// Set the text of this view.
-    fn set_text(&self, s: &str) -> anyhow::Result<()> {
-        self.set_text(s)
-    }
-
-    /// Patch the attributes of this view.
-    fn patch_attribs(&self, patch: HashPatch<String, String>) -> anyhow::Result<()> {
-        match patch {
-            HashPatch::Insert(k, v) => self.set_attrib(&k, Some(&v)),
-            HashPatch::Remove(k) => self.remove_attrib(&k),
-        }
-    }
-
-    /// Patch the boolean attributes of this view.
-    fn patch_bool_attribs(&self, patch: HashPatch<String, bool>) -> anyhow::Result<()> {
-        match patch {
-            HashPatch::Insert(k, v) => {
-                if v {
-                    self.set_attrib(&k, None)
+    fn update(&self, update: Update) -> anyhow::Result<()> {
+        match update {
+            Update::Text(s) => {
+                self.set_text(&s)?;
+            }
+            Update::Attribute(patch) => match patch {
+                HashPatch::Insert(k, v) => self.set_attrib(&k, Some(&v))?,
+                HashPatch::Remove(k) => self.remove_attrib(&k)?,
+            },
+            Update::BooleanAttribute(patch) => match patch {
+                HashPatch::Insert(k, v) => {
+                    if v {
+                        self.set_attrib(&k, None)?
+                    } else {
+                        self.remove_attrib(&k)?
+                    }
+                }
+                HashPatch::Remove(k) => self.remove_attrib(&k)?,
+            },
+            Update::Style(patch) => match patch {
+                HashPatch::Insert(k, v) => self.set_style(&k, &v)?,
+                HashPatch::Remove(k) => self.remove_style(&k)?,
+            },
+            Update::Child(patch) => {
+                let patch = patch.try_map(|builder: ViewBuilder| {
+                    let ssr = SsrDomResources(self.executor.clone()).build(builder)?;
+                    anyhow::Ok(ssr)
+                })?;
+                let mut lock = self.node.try_write().context("can't lock")?;
+                if let SsrNode::Container { children, .. } = lock.deref_mut() {
+                    let _ = children.list_patch_apply(patch);
                 } else {
-                    self.remove_attrib(&k)
+                    anyhow::bail!("not a container")
                 }
             }
-            HashPatch::Remove(k) => self.remove_attrib(&k),
+            Update::Listener {
+                event_name,
+                event_target,
+                sink,
+            } => {
+                let sink = Box::pin(sink.contra_map(AnyEvent::new));
+                let mut lock = self.events.try_write().context("can't lock")?;
+                let _ = lock.insert((event_target, event_name), sink);
+            }
+            Update::PostBuild(f) => {
+                let node = self.clone();
+                (f)(AnyView::new(node))?;
+            }
         }
-    }
 
-    /// Patch the style attributes of this view.
-    fn patch_styles(&self, patch: HashPatch<String, String>) -> anyhow::Result<()> {
-        match patch {
-            HashPatch::Insert(k, v) => self.set_style(&k, &v),
-            HashPatch::Remove(k) => self.remove_style(&k),
-        }
-    }
-
-    /// Patch the nested children of this view.
-    ///
-    /// Returns a vector of the children removed.
-    fn patch_children(&self, patch: ListPatch<Self::Child>) -> anyhow::Result<Vec<Self::Child>> {
-        let mut lock = self.node.try_write().context("can't lock")?;
-        if let SsrNode::Container { children, .. } = lock.deref_mut() {
-            Ok(children.list_patch_apply(patch))
-        } else {
-            anyhow::bail!("not a container")
-        }
-    }
-
-    /// Add an event to the element, document or window.
-    ///
-    /// When an event occurs it will be sent into the given sink.
-    fn set_event(
-        &self,
-        type_is: EventTargetType,
-        name: &str,
-        sink: impl Sink<Self::Event, Error = SinkError> + Unpin + Send + Sync + 'static,
-    ) -> anyhow::Result<()> {
-        let mut lock = self.events.try_write().context("can't lock")?;
-        let _ = lock.insert((type_is, name.to_string()), Box::pin(sink));
         Ok(())
     }
+    ///// Add an event to the element, document or window.
+    /////
+    ///// When an event occurs it will be sent into the given sink.
+    //fn set_event(
+    //    &self,
+    //    type_is: EventTargetType,
+    //    name: &str,
+    //    sink: impl Sink<Self::Event, Error = SinkError> + Unpin + Send + Sync + 'static,
+    //) -> anyhow::Result<()> {
+    //}
 
-    ///// Spawn an asynchronous task.
-    fn spawn(
-        &self,
-        action: impl Future<Output = ()> + Send + 'static,
-    ) {
-        self.executor.spawn(action).detach()
-    }
+    /////// Spawn an asynchronous task.
+    //fn spawn(
+    //    &self,
+    //    action: impl Future<Output = ()> + Send + 'static,
+    //) {
+    //    self.executor.spawn(action).detach()
+    //}
 }

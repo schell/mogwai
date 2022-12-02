@@ -16,7 +16,6 @@ fn under_to_dash(s: impl AsRef<str>) -> String {
 #[derive(Clone, Debug)]
 /// An enumeration of all supported attribute types.
 pub enum AttributeToken {
-    CastType(syn::Expr),
     PostBuild(syn::Expr),
     CaptureView(syn::Expr),
     Xmlns(syn::Expr),
@@ -81,7 +80,6 @@ impl AttributeToken {
     pub fn from_keys_expr_pair(keys: &[impl AsRef<str>], expr: Expr) -> Self {
         let ks = keys.iter().map(|s| s.as_ref()).collect::<Vec<_>>();
         match ks.as_slice() {
-            ["cast", "type"] => AttributeToken::CastType(expr),
             ["post", "build"] => AttributeToken::PostBuild(expr),
             ["capture", "view"] => AttributeToken::CaptureView(expr),
             ["xmlns"] => AttributeToken::Xmlns(expr),
@@ -114,7 +112,6 @@ impl AttributeToken {
     ) -> Result<proc_macro2::TokenStream, Error> {
         use AttributeToken::*;
         match self {
-            CastType(_) => Ok(quote! {}), // handled by a preprocessor
             PostBuild(expr) => Ok(quote! {
                 .with_post_build(#expr)
             }),
@@ -129,13 +126,13 @@ impl AttributeToken {
                 .with_single_style_stream(#name, #expr)
             }),
             On(name, expr) => Ok(quote! {
-                .with_event(#name, mogwai::view::EventTargetType::Myself, #expr)
+                .with_event(#name, "myself", #expr)
             }),
             Window(name, expr) => Ok(quote! {
-                .with_event(#name, mogwai::view::EventTargetType::Window, #expr)
+                .with_event(#name, "window", #expr)
             }),
             Document(name, expr) => Ok(quote! {
-                .with_event(#name, mogwai::view::EventTargetType::Document, #expr)
+                .with_event(#name, "document", #expr)
             }),
             BooleanSingle(name, expr) => Ok(quote! {
                 .with_single_bool_attrib_stream(#name, #expr)

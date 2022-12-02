@@ -36,7 +36,7 @@ pub fn parse_with(
                 return error.to_compile_error().into();
             }
             let (tokens, errs) = crate::partition_unzip(view_tokens.iter(), |token| {
-                crate::node_to_builder_token_stream(token, false)
+                crate::node_to_builder_token_stream(token)
             });
             if let Some(error) = combine_errors(errs) {
                 return error.to_compile_error().into();

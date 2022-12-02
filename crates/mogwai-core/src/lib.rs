@@ -31,7 +31,6 @@
 //! | minimal     | obvious   | graphical   | web    | application   | interface    |
 //! | modular     | operable  | graphable   | widget |               |              |
 //! | mostly      |           | gui         | work   |               |              |
-pub mod builder;
 pub mod channel;
 //pub mod constraints;
 pub mod error;
@@ -41,13 +40,12 @@ pub mod patch;
 pub mod relay;
 pub mod time;
 pub mod view;
-pub use mogwai_macros::{rsx, html};
+pub use mogwai_macros::{rsx, html, builder};
 
 pub mod prelude {
     //! Re-exports for convenience
-    pub use super::builder::*;
     pub use super::view::*;
-    pub use super::{rsx, html};
+    pub use super::{rsx, html, builder};
     pub use super::futures::{Stream, StreamExt, Sink, SinkExt, sink::Contravariant, Captured};
     pub use super::patch::{HashPatch, HashPatchApply, ListPatch, ListPatchApply};
     pub use super::relay::*;

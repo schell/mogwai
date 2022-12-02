@@ -149,13 +149,6 @@ mod nonwasm {
     }
 
     #[test]
-    fn cast_type_in_builder() {
-        let _div = rsx! {
-            div(cast:type=JsDom, id="hello") {"Inner Text"}
-        };
-    }
-
-    #[test]
     fn can_append_vec() {
         let _div: ViewBuilder<Dom> =
             ViewBuilder::element("div").append(vec![ViewBuilder::element("p")]);
@@ -203,12 +196,11 @@ mod nonwasm {
         executor.run(async {
             let (tx, mut rx) = broadcast::bounded::<()>(1);
 
-            let _div = html! {
-                <div id="hello" post:build=move |_: &mut Dom| {
-                    let _ = tx.inner.try_broadcast(()).unwrap();
-                }>
-                    "Hello"
-                    </div>
+            let _div: SsrDom = rsx! {
+                div(id="hello", post:build=move |_: &mut SsrDom| {
+                    let _ = tx.inner.try_broadcast(())?;
+                    Ok(())
+                }) { "Hello" }
             }
             .build()
             .unwrap();
@@ -221,7 +213,7 @@ mod nonwasm {
         let executor = Arc::new(Executor::default());
         executor.run(async {
             let (_tx, rx) = broadcast::bounded::<String>(1);
-            let _div: Dom = html! {
+            let _div: SsrDom = html! {
                 <div>{("initial", rx)}</div>
             }
             .build()
@@ -272,8 +264,8 @@ mod nonwasm {
             let (tx_text, rx_text) = broadcast::bounded::<String>(1);
             let (tx_style, rx_style) = broadcast::bounded::<String>(1);
             let (tx_class, rx_class) = broadcast::bounded::<String>(1);
-            let view = html! {
-                <div cast:type = SsrDom style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
+            let view: SsrDom = html! {
+                <div style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
             }.build().unwrap();
             assert_eq!(
                 view.html_string().await,
@@ -323,7 +315,7 @@ mod nonwasm {
                 }
                 </span>
             };
-            let _ = bldr.build().unwrap();
+            let _: SsrDom = bldr.build().unwrap();
         });
     }
 
@@ -919,13 +911,13 @@ mod test {
     fn can_relay() {
         #[derive(Default)]
         struct Thing {
-            view: Output<Dom>,
+            view: Output<AnyView>,
             click: Output<()>,
             text: Input<String>,
         }
 
         impl Thing {
-            fn view(mut self) -> ViewBuilder<Dom> {
+            fn view(mut self) -> ViewBuilder {
                 rsx! (
                     div(
                         capture:view=self.view.sink(),

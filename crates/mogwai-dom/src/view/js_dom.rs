@@ -1,5 +1,6 @@
 //! Wrapper around Javascript DOM nodes.
 use std::{
+    any::Any,
     future::Future,
     ops::{Bound, RangeBounds},
     pin::Pin,
@@ -7,11 +8,10 @@ use std::{
 
 use anyhow::Context;
 use mogwai::{
-    builder::{ViewBuilder, ViewIdentity},
     channel::SinkError,
     futures::sink::{Sink, SinkExt},
     patch::{HashPatch, ListPatch},
-    view::{EventTargetType, View, ViewResources},
+    view::{AnyEvent, AnyView, Update, View, ViewBuilder, ViewIdentity, ViewResources},
 };
 use send_wrapper::SendWrapper;
 use wasm_bindgen::{JsCast, JsValue};
@@ -28,6 +28,10 @@ impl ViewResources<JsDom> for JsDomResources {
             ViewIdentity::NamespacedBranch(tag, ns) => JsDom::element(&tag, Some(&ns)),
             ViewIdentity::Leaf(text) => JsDom::text(&text),
         }
+    }
+
+    fn spawn(&self, action: impl Future<Output = ()> + Send + 'static) {
+        wasm_bindgen_futures::spawn_local(action)
     }
 }
 
@@ -48,193 +52,173 @@ impl From<JsValue> for JsDom {
 }
 
 impl View for JsDom {
-    type Event = JsDomEvent;
-    type Child = JsDom;
-    type Resources = JsDomResources;
-
-    fn with_acquired_resources<'a, T: Send + Sync + 'static>(
-        &self,
-        f: impl FnOnce(Self::Resources) -> anyhow::Result<T> + Send + Sync + 'a,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + Sync + 'a>> {
-        Box::pin(async { f(JsDomResources) })
-    }
-
-    fn set_text(&self, s: &str) -> anyhow::Result<()> {
-        self.inner
-            .dyn_ref::<web_sys::Text>()
-            .context("not a text node")?
-            .set_data(s);
-        Ok(())
-    }
-
-    fn patch_attribs(&self, patch: HashPatch<String, String>) -> anyhow::Result<()> {
-        match patch {
-            HashPatch::Insert(k, v) => {
+    fn update(&self, update: Update) -> anyhow::Result<()> {
+        match update {
+            Update::Text(s) => {
                 self.inner
-                    .dyn_ref::<web_sys::Element>()
-                    .with_context(|| {
-                        format!(
-                            "could not set attribute {}={} on {:?}: not an element",
-                            k, v, self.inner
-                        )
-                    })?
-                    .set_attribute(&k, &v)
-                    .map_err(|_| anyhow::anyhow!("could not set attrib"))?;
+                    .dyn_ref::<web_sys::Text>()
+                    .context("not a text node")?
+                    .set_data(&s);
             }
-            HashPatch::Remove(k) => {
-                self.inner
-                    .dyn_ref::<web_sys::Element>()
-                    .with_context(|| {
-                        format!(
-                            "could remove attribute {} on {:?}: not an element",
-                            k, self.inner
-                        )
-                    })?
-                    .remove_attribute(&k)
-                    .map_err(|_| anyhow::anyhow!("could remove attrib"))?;
-            }
-        }
-        Ok(())
-    }
-
-    fn patch_bool_attribs(&self, patch: HashPatch<String, bool>) -> anyhow::Result<()> {
-        match patch {
-            HashPatch::Insert(k, v) => {
-                if v {
+            Update::Attribute(patch) => match patch {
+                HashPatch::Insert(k, v) => {
                     self.inner
                         .dyn_ref::<web_sys::Element>()
                         .with_context(|| {
                             format!(
-                                "could not set boolean attribute {}={} on {:?}: not an element",
+                                "could not set attribute {}={} on {:?}: not an element",
                                 k, v, self.inner
                             )
                         })?
-                        .set_attribute(&k, "")
-                        .map_err(|_| anyhow::anyhow!("could not set boolean attrib"))?;
-                } else {
+                        .set_attribute(&k, &v)
+                        .map_err(|_| anyhow::anyhow!("could not set attrib"))?;
+                }
+                HashPatch::Remove(k) => {
                     self.inner
                         .dyn_ref::<web_sys::Element>()
                         .with_context(|| {
                             format!(
-                                "could not remove boolean attribute {}={} on {:?}: not an element",
-                                k, v, self.inner
+                                "could remove attribute {} on {:?}: not an element",
+                                k, self.inner
                             )
                         })?
                         .remove_attribute(&k)
-                        .map_err(|_| anyhow::anyhow!("could not remove boolean attrib"))?;
+                        .map_err(|_| anyhow::anyhow!("could remove attrib"))?;
+                }
+            },
+            Update::BooleanAttribute(patch) => match patch {
+                HashPatch::Insert(k, v) => {
+                    if v {
+                        self.inner
+                            .dyn_ref::<web_sys::Element>()
+                            .with_context(|| {
+                                format!(
+                                    "could not set boolean attribute {}={} on {:?}: not an element",
+                                    k, v, self.inner
+                                )
+                            })?
+                            .set_attribute(&k, "")
+                            .map_err(|_| anyhow::anyhow!("could not set boolean attrib"))?;
+                    } else {
+                        self.inner
+                            .dyn_ref::<web_sys::Element>()
+                            .with_context(|| {
+                                format!(
+                                "could not remove boolean attribute {}={} on {:?}: not an element",
+                                k, v, self.inner
+                            )
+                            })?
+                            .remove_attribute(&k)
+                            .map_err(|_| anyhow::anyhow!("could not remove boolean attrib"))?;
+                    }
+                }
+                HashPatch::Remove(k) => {
+                    self.inner
+                        .dyn_ref::<web_sys::Element>()
+                        .with_context(|| {
+                            format!(
+                                "could not remove boolean attribute {} on {:?}: not an element",
+                                k, self.inner
+                            )
+                        })?
+                        .remove_attribute(&k)
+                        .map_err(|_| {
+                            anyhow::anyhow!("could not remove boolean attrib".to_string())
+                        })?;
+                }
+            },
+            Update::Style(patch) => {
+                let style = self
+                    .inner
+                    .dyn_ref::<web_sys::HtmlElement>()
+                    .map(|el| el.style())
+                    .or_else(|| {
+                        self.inner
+                            .dyn_ref::<web_sys::SvgElement>()
+                            .map(|el| el.style())
+                    })
+                    .with_context(|| {
+                        format!("could not patch style on {:?}: not an element", self.inner)
+                    })?;
+                match patch {
+                    HashPatch::Insert(k, v) => {
+                        style
+                            .set_property(&k, &v)
+                            .map_err(|_| anyhow::anyhow!("could not set style"))?;
+                    }
+                    HashPatch::Remove(k) => {
+                        style
+                            .remove_property(&k)
+                            .map_err(|_| anyhow::anyhow!("could not remove style"))?;
+                    }
                 }
             }
-            HashPatch::Remove(k) => {
-                self.inner
-                    .dyn_ref::<web_sys::Element>()
-                    .with_context(|| {
-                        format!(
-                            "could not remove boolean attribute {} on {:?}: not an element",
-                            k, self.inner
-                        )
-                    })?
-                    .remove_attribute(&k)
-                    .map_err(|_| anyhow::anyhow!("could not remove boolean attrib".to_string()))?;
+            Update::Child(patch) => {
+                let patch: ListPatch<web_sys::Node> =
+                    patch.try_map(|builder: ViewBuilder| -> anyhow::Result<web_sys::Node> {
+                        let child: JsDom = builder.try_into()?;
+                        child
+                            .inner
+                            .dyn_ref::<web_sys::Node>()
+                            .cloned()
+                            .context("not a dom node")
+                    })?;
+                let mut node = self
+                    .inner
+                    .dyn_ref::<web_sys::Node>()
+                    .cloned()
+                    .context("could not patch children parent is not an element")?;
+                let _ = list_patch_apply_node(&mut node, patch);
+            }
+            Update::Listener {
+                event_name,
+                event_target,
+                sink,
+            } => {
+                use mogwai::futures::sink::Contravariant;
+                let tx =
+                    sink.contra_map(|event: web_sys::Event| AnyEvent::new(JsDomEvent::from(event)));
+                match event_target.as_str() {
+                    "myself" => {
+                        crate::event::add_event::<JsDom>(
+                            &event_name,
+                            self.inner
+                                .dyn_ref::<web_sys::EventTarget>()
+                                .ok_or_else(|| "not an event target".to_string())
+                                .unwrap(),
+                            Box::pin(tx),
+                        );
+                    }
+                    "window" => {
+                        crate::event::add_event::<JsDom>(
+                            &event_name,
+                            &web_sys::window().unwrap(),
+                            Box::pin(tx),
+                        );
+                    }
+                    "document" => {
+                        crate::event::add_event::<JsDom>(
+                            &event_name,
+                            &web_sys::window().unwrap().document().unwrap(),
+                            Box::pin(tx),
+                        );
+                    }
+                    _ => anyhow::bail!("unsupported event target {}", event_target),
+                }
+            }
+            Update::PostBuild(f) => {
+                let node = self.clone();
+                (f)(AnyView::new(node))?;
             }
         }
+
         Ok(())
     }
 
-    fn patch_styles(&self, patch: HashPatch<String, String>) -> anyhow::Result<()> {
-        let style = self
-            .inner
-            .dyn_ref::<web_sys::HtmlElement>()
-            .map(|el| el.style())
-            .or_else(|| {
-                self.inner
-                    .dyn_ref::<web_sys::SvgElement>()
-                    .map(|el| el.style())
-            })
-            .with_context(|| {
-                format!("could not patch style on {:?}: not an element", self.inner)
-            })?;
-        match patch {
-            HashPatch::Insert(k, v) => {
-                style
-                    .set_property(&k, &v)
-                    .map_err(|_| anyhow::anyhow!("could not set style"))?;
-            }
-            HashPatch::Remove(k) => {
-                style
-                    .remove_property(&k)
-                    .map_err(|_| anyhow::anyhow!("could not remove style"))?;
-            }
-        }
-        Ok(())
-    }
-
-    fn patch_children(&self, patch: ListPatch<Self::Child>) -> anyhow::Result<Vec<Self::Child>> {
-        let patch = patch.try_map(|d| {
-            d.inner
-                .dyn_ref::<web_sys::Node>()
-                .cloned()
-                .context("not a dom node")
-        })?;
-        let mut node = self
-            .inner
-            .dyn_ref::<web_sys::Node>()
-            .cloned()
-            .context("could not patch children parent is not an element")?;
-        Ok(list_patch_apply_node(&mut node, patch)
-            .into_iter()
-            .map(|node| JsDom::from(JsValue::from(node)))
-            .collect())
-    }
-
-    fn set_event(
-        &self,
-        type_is: EventTargetType,
-        name: &str,
-        sink: impl Sink<Self::Event, Error = SinkError> + Unpin + Send + Sync + 'static,
-    ) -> anyhow::Result<()> {
-        use mogwai::futures::sink::Contravariant;
-        let tx = sink.contra_map(JsDomEvent::from);
-        match type_is {
-            EventTargetType::Myself => {
-                crate::event::add_event::<JsDom>(
-                    name,
-                    self.inner
-                        .dyn_ref::<web_sys::EventTarget>()
-                        .ok_or_else(|| "not an event target".to_string())
-                        .unwrap(),
-                    Box::pin(tx),
-                );
-            }
-            EventTargetType::Window => {
-                crate::event::add_event::<JsDom>(name, &web_sys::window().unwrap(), Box::pin(tx));
-            }
-            EventTargetType::Document => {
-                crate::event::add_event::<JsDom>(
-                    name,
-                    &web_sys::window().unwrap().document().unwrap(),
-                    Box::pin(tx),
-                );
-            }
-        }
-        Ok(())
-    }
-
-    fn spawn(&self, action: impl Future<Output = ()> + Send + 'static) {
-        wasm_bindgen_futures::spawn_local(action)
-    }
+    //fn spawn(&self, action: impl Future<Output = ()> + Send + 'static) {
+    //    wasm_bindgen_futures::spawn_local(action)
+    //}
 }
-//impl TryFrom<SsrElement> for JsDom {
-//    type Error = SsrElement;
-//
-//    #[cfg(target_arch = "wasm32")]
-//    fn try_from(node: SsrElement) -> Result<Self, Self::Error> {
-//        Err(node)
-//    }
-//    #[cfg(not(target_arch = "wasm32"))]
-//    fn try_from(node: SsrElement) -> Result<Self, Self::Error> {
-//        Ok(JsDom { node })
-//    }
-//}
 
 // TODO: Make errors returned by JsDom methods Box<dyn Error>
 impl JsDom {
@@ -370,36 +354,24 @@ impl JsDom {
 
     /// Run this view in a parent container forever, never dropping it.
     pub fn run_in_container(self, container: &JsDom) -> anyhow::Result<()> {
-        let patch = ListPatch::push(self);
-        container.patch_children(patch).map(|_| ())
+        let node: web_sys::Node = self
+            .inner
+            .dyn_ref::<web_sys::Node>()
+            .context("could not downcast to Node")?
+            .clone();
+        let mut container_node: web_sys::Node = container
+            .inner
+            .dyn_ref::<web_sys::Node>()
+            .context("could not downcast to Node")?
+            .clone();
+        let patch = ListPatch::push(node);
+        let _ = list_patch_apply_node(&mut container_node, patch);
+        Ok(())
     }
 
     /// Run this gizmo in the document body forever, never dropping it.
     pub fn run(self) -> Result<(), anyhow::Error> {
         self.run_in_container(&crate::utils::body())
-    }
-
-    pub fn run_while<T: Send + 'static>(
-        &self,
-        fut: impl Future<Output = T> + Send + 'static,
-    ) -> anyhow::Result<T> {
-        let (mut tx, mut rx) = mogwai::channel::mpsc::bounded::<T>(1);
-        let send = async move {
-            let t = fut.await;
-            tx.send(t).await.unwrap();
-        };
-        let dom = self.clone();
-        dom.spawn(send);
-        dom.run()?;
-        loop {
-            match rx.inner.try_next() {
-                Err(_) => {}
-                Ok(may_t) => {
-                    self.detach();
-                    return may_t.ok_or_else(|| anyhow::anyhow!("future cannot finish"));
-                }
-            }
-        }
     }
 }
 
@@ -463,10 +435,10 @@ fn list_patch_apply_node(
     removed
 }
 
-impl TryFrom<ViewBuilder<JsDom>> for JsDom {
+impl TryFrom<ViewBuilder> for JsDom {
     type Error = anyhow::Error;
 
-    fn try_from(value: ViewBuilder<JsDom>) -> Result<Self, Self::Error> {
+    fn try_from(value: ViewBuilder) -> Result<Self, Self::Error> {
         JsDomResources.build(value)
     }
 }

@@ -36,12 +36,11 @@ fn combine_errors(errs: Vec<Error>) -> Option<Error> {
 
 fn node_to_builder_token_stream(
     view_token: &ViewToken,
-    suppress_auto_cast: bool,
 ) -> Result<proc_macro2::TokenStream, Error> {
     #[cfg(feature = "dom")]
     let mogwai_path = quote! { mogwai_dom::core };
     #[cfg(not(feature = "dom"))]
-    let view_path = quote! { mogwai };
+    let mogwai_path = quote! { mogwai };
     match view_token {
         ViewToken::Element {
             name,
@@ -49,25 +48,9 @@ fn node_to_builder_token_stream(
             attributes,
             children,
         } => {
-            let may_type = attributes.iter().find_map(|att| match att {
-                AttributeToken::CastType(expr) => {
-                    Some(quote! { as #mogwai_path::builder::ViewBuilder<#expr> })
-                }
-                _ => None,
-            });
-
             let may_xmlns = attributes.iter().find_map(|att| match att {
                 AttributeToken::Xmlns(expr) => Some(expr),
                 _ => None,
-            });
-
-            let suppress_auto_cast = suppress_auto_cast || may_type.is_some();
-            let type_is = may_type.unwrap_or_else(|| {
-                if !suppress_auto_cast && cfg!(feature = "dom") {
-                    quote! {as #mogwai_path::builder::ViewBuilder<mogwai_dom::view::Dom>}
-                } else {
-                    quote! {}
-                }
             });
 
             let mut errs = vec![];
@@ -76,7 +59,7 @@ fn node_to_builder_token_stream(
             errs.extend(attribute_errs);
 
             let (child_tokens, child_errs) = partition_unzip(children.iter(), |token| {
-                node_to_builder_token_stream(token, suppress_auto_cast)
+                node_to_builder_token_stream(token)
             });
             let child_tokens = child_tokens.into_iter().map(|child| {
                 quote! {
@@ -90,19 +73,18 @@ fn node_to_builder_token_stream(
                 Err(error)
             } else {
                 let create = if let Some(ns) = may_xmlns {
-                    quote! {#mogwai_path::builder::ViewBuilder::element_ns(#name, #ns)}
+                    quote! {#mogwai_path::view::ViewBuilder::element_ns(#name, #ns)}
                 } else {
-                    quote! {#mogwai_path::builder::ViewBuilder::element(#name)}
+                    quote! {#mogwai_path::view::ViewBuilder::element(#name)}
                 };
                 Ok(quote! {{
                     #create
                         #(#attribute_tokens)*
                         #(#child_tokens)*
-                        #type_is
                 }})
             }
         }
-        ViewToken::Text(expr) => Ok(quote! {#mogwai_path::builder::ViewBuilder::text(#expr)}),
+        ViewToken::Text(expr) => Ok(quote! {#mogwai_path::view::ViewBuilder::text(#expr)}),
         ViewToken::Block(expr) => Ok(quote! {
             #[allow(unused_braces)]
             #expr

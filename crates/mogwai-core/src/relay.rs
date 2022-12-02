@@ -17,7 +17,7 @@
 //!
 //! ## Example
 //! ```rust
-//! use mogwai::{rsx, relay::*};
+//! use mogwai_dom::prelude::*;
 //!
 //! #[derive(Default)]
 //! struct ClickyDiv {
@@ -25,10 +25,10 @@
 //!     text: Input<String>,
 //! }
 //!
-//! impl DomBuilderExt for ClickyDiv {
-//!     fn build(mut self) -> anyhow::Result<JsDom> {
+//! impl DomBuilder<Dom> for ClickyDiv {
+//!     fn build(mut self) -> anyhow::Result<Dom> {
 //!         rsx! (
-//!             div(on:click=self.click.sink().contra_map(|_| ())) {
+//!             div(on:click=self.click.sink().contra_map(|_: DomEvent| ())) {
 //!                 {("Hi", self.text.stream().ok_or_else(|| anyhow::anyhow!("already used text stream"))?)}
 //!             }
 //!         ).with_task(async move {
