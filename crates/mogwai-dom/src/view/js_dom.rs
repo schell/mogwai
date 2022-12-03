@@ -1,7 +1,7 @@
 //! Wrapper around Javascript DOM nodes.
 use std::{
     future::Future,
-    ops::{Bound, RangeBounds},
+    ops::{Bound, RangeBounds, Deref},
 };
 
 use anyhow::Context;
@@ -37,6 +37,14 @@ impl ViewResources<JsDom> for JsDomResources {
 #[derive(Clone)]
 pub struct JsDom {
     inner: SendWrapper<std::sync::Arc<JsValue>>,
+}
+
+impl Deref for JsDom {
+    type Target = JsValue;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 impl From<JsValue> for JsDom {

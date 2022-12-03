@@ -108,12 +108,12 @@ impl View for AnyView {
     }
 }
 
-pub fn any_view_update<V: View>(any_view: &AnyView, update: Update) -> anyhow::Result<()> {
+fn any_view_update<V: View>(any_view: &AnyView, update: Update) -> anyhow::Result<()> {
     let v: &V = any_view.downcast_ref().unwrap();
     v.update(update)
 }
 
-pub fn any_view_clone<V: View>(any_view: &AnyView) -> AnyView {
+fn any_view_clone<V: View>(any_view: &AnyView) -> AnyView {
     let v: &V = any_view.downcast_ref().unwrap();
     AnyView {
         inner: Box::new(v.clone()) as Box<dyn Any + Send + Sync>,
@@ -146,21 +146,37 @@ impl AnyView {
     }
 }
 
+fn any_event_clone<T: Any + Send + Sync + Clone>(any_event: &AnyEvent) -> AnyEvent {
+    let ev: &T = any_event.inner.downcast_ref::<T>().unwrap();
+    AnyEvent {
+        inner: Box::new(ev.clone()),
+        clone_fn: any_event_clone::<T>,
+    }
+}
+
 /// A type erased view event.
 ///
 /// Used to write view builders in a domain-agnostic way.
 pub struct AnyEvent {
     inner: Box<dyn Any + Send + Sync>,
+    clone_fn: fn(&AnyEvent) -> AnyEvent,
+}
+
+impl Clone for AnyEvent {
+    fn clone(&self) -> Self {
+        (self.clone_fn)(self)
+    }
 }
 
 impl AnyEvent {
-    pub fn new(inner: impl Any + Send + Sync) -> Self {
+    pub fn new<T: Any + Send + Sync + Clone>(inner: T) -> Self {
         AnyEvent {
             inner: Box::new(inner),
+            clone_fn: any_event_clone::<T>,
         }
     }
 
-    pub fn downcast<Ev: Any + Send + Sync>(self) -> anyhow::Result<Ev> {
+    pub fn downcast<Ev: Any + Send + Sync + Clone>(self) -> anyhow::Result<Ev> {
         let v: Box<Ev> = self.inner.downcast().ok().with_context(|| {
             format!(
                 "could not downcast AnyEvent to '{}'",
@@ -168,6 +184,10 @@ impl AnyEvent {
             )
         })?;
         Ok(*v)
+    }
+
+    pub fn downcast_ref<Ev: Any + Send + Sync + Clone>(&self) -> Option<&Ev> {
+        self.inner.downcast_ref::<Ev>()
     }
 }
 
@@ -295,7 +315,9 @@ where
     }
 }
 
-impl<S: 'static, St: Stream<Item = S> + 'static> From<MogwaiValue<S, St>> for Pin<Box<dyn Stream<Item = S>>> {
+impl<S: 'static, St: Stream<Item = S> + 'static> From<MogwaiValue<S, St>>
+    for Pin<Box<dyn Stream<Item = S>>>
+{
     fn from(v: MogwaiValue<S, St>) -> Self {
         match v {
             MogwaiValue::Owned(s) => Box::pin(futures::stream::iter(std::iter::once(s))),
@@ -330,7 +352,7 @@ pub enum ViewIdentity {
 
 pub type MogwaiFuture<T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>;
 pub type MogwaiStream<T> = Pin<Box<dyn Stream<Item = T> + Send + 'static>>;
-pub type MogwaiSink<T> = Pin<Box<dyn Sink<T, Error = SinkError> + Unpin + Send + Sync + 'static>>;
+pub type MogwaiSink<T> = Box<dyn Sink<T, Error = SinkError> + Send + Sync + Unpin + 'static>;
 pub type PostBuild = Box<dyn FnOnce(AnyView) -> anyhow::Result<()> + Send + Sync + 'static>;
 
 /// All the updates that a view can undergo.
@@ -447,9 +469,7 @@ impl ViewBuilder {
     }
 
     /// Add a stream to patch the attributes of this builder.
-    pub fn with_attrib_stream<
-        St: Stream<Item = HashPatch<String, String>> + Send + 'static,
-    >(
+    pub fn with_attrib_stream<St: Stream<Item = HashPatch<String, String>> + Send + 'static>(
         mut self,
         st: impl Into<MogwaiValue<HashPatch<String, String>, St>>,
     ) -> Self {
@@ -472,9 +492,7 @@ impl ViewBuilder {
     }
 
     /// Add a stream to patch the boolean attributes of this builder.
-    pub fn with_bool_attrib_stream<
-        St: Stream<Item = HashPatch<String, bool>> + Send + 'static,
-    >(
+    pub fn with_bool_attrib_stream<St: Stream<Item = HashPatch<String, bool>> + Send + 'static>(
         mut self,
         st: impl Into<MogwaiValue<HashPatch<String, bool>, St>>,
     ) -> Self {
@@ -485,9 +503,7 @@ impl ViewBuilder {
     }
 
     /// Add a stream to patch a single boolean attribute of this builder.
-    pub fn with_single_bool_attrib_stream<
-        St: Stream<Item = bool> + Send + 'static,
-    >(
+    pub fn with_single_bool_attrib_stream<St: Stream<Item = bool> + Send + 'static>(
         mut self,
         k: impl Into<String>,
         st: impl Into<MogwaiValue<bool, St>>,
@@ -534,9 +550,7 @@ impl ViewBuilder {
     }
 
     /// Add a stream to patch the list of children of this builder.
-    pub fn with_child_stream<
-        St: Stream<Item = ListPatch<ViewBuilder>> + Send + 'static,
-    >(
+    pub fn with_child_stream<St: Stream<Item = ListPatch<ViewBuilder>> + Send + 'static>(
         mut self,
         st: impl Into<MogwaiValue<ListPatch<ViewBuilder>, St>>,
     ) -> Self {
@@ -586,7 +600,7 @@ impl ViewBuilder {
         sink: impl Sink<V, Error = SinkError> + Unpin + Send + Sync + 'static,
     ) -> Self {
         let sink: MogwaiSink<AnyView> =
-            Box::pin(sink.contra_map(|any_view: AnyView| any_view.downcast::<V>().unwrap()));
+            Box::new(sink.contra_map(|any_view: AnyView| any_view.downcast::<V>().unwrap()));
         self.view_sinks.push(sink);
         self
     }
@@ -596,13 +610,13 @@ impl ViewBuilder {
     /// ## Panics
     /// If the domain specific view cannot be downcast a panic will happen when
     /// the boxed view is sent into the sink.
-    pub fn with_event<Event: Any + Unpin + Send + Sync>(
+    pub fn with_event<Event: Any + Send + Sync + Unpin + Clone>(
         mut self,
         name: impl Into<String>,
         target: impl Into<String>,
-        si: impl Sink<Event, Error = SinkError> + Unpin + Send + Sync + 'static,
+        si: impl Sink<Event, Error = SinkError> + Send + Sync + Unpin + 'static,
     ) -> Self {
-        let sink = Box::pin(si.contra_map(|any: AnyEvent| {
+        let sink = Box::new(si.contra_map(|any: AnyEvent| {
             let event: Event = any.downcast::<Event>().unwrap();
             event
         }));
@@ -636,33 +650,24 @@ where
     }
 }
 
-//impl<V> From<&String> for ViewBuilder
-//where
-//    V: View + Unpin,
-//{
-//    fn from(s: &String) -> Self {
-//        ViewBuilder::text(stream::iter(std::iter::once(s.clone())))
-//    }
-//}
-//
-//impl<V> From<String> for ViewBuilder
-//where
-//    V: View + Unpin,
-//{
-//    fn from(s: String) -> Self {
-//        ViewBuilder::text(stream::iter(std::iter::once(s)))
-//    }
-//}
-//
-//impl<V> From<&str> for ViewBuilder
-//where
-//    V: View + Unpin,
-//{
-//    fn from(s: &str) -> Self {
-//        ViewBuilder::text(stream::iter(std::iter::once(s.to_string())))
-//    }
-//}
-//
+impl From<&String> for ViewBuilder {
+    fn from(s: &String) -> Self {
+        ViewBuilder::text(stream::iter(std::iter::once(s.clone())))
+    }
+}
+
+impl From<String> for ViewBuilder {
+    fn from(s: String) -> Self {
+        ViewBuilder::text(stream::iter(std::iter::once(s)))
+    }
+}
+
+impl From<&str> for ViewBuilder {
+    fn from(s: &str) -> Self {
+        ViewBuilder::text(stream::iter(std::iter::once(s.to_string())))
+    }
+}
+
 impl<S, St> From<(S, St)> for ViewBuilder
 where
     S: AsRef<str>,

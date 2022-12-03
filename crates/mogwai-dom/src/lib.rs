@@ -415,8 +415,6 @@ mod wasm {
 
     wasm_bindgen_test_configure!(run_in_browser);
 
-    type JsDomBuilder = ViewBuilder;
-
     #[wasm_bindgen_test]
     async fn can_create_text_view_node_from_str() {
         let _view: JsDom = ViewBuilder::text("Hello!").try_into().unwrap();
@@ -486,16 +484,16 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn can_use_rsx_to_make_builder() {
-        let (tx, _) = broadcast::bounded::<DomEvent>(1);
+        let (tx, _) = broadcast::bounded::<AnyEvent>(1);
 
-        let rsx: JsDomBuilder = html! {
+        let rsx = html! {
             <div id="view_zero" style:background_color="red">
                 <pre on:click=tx.clone()>"this has text"</pre>
             </div>
         };
-        let rsx_view = rsx.try_into().unwrap();
+        let rsx_view: JsDom = rsx.try_into().unwrap();
 
-        let manual: JsDomBuilder = ViewBuilder::element("div")
+        let manual = ViewBuilder::element("div")
             .with_single_attrib_stream("id", "view_zero")
             .with_single_style_stream("background-color", "red")
             .append(
@@ -503,7 +501,7 @@ mod wasm {
                     .with_event("click", "myself", tx)
                     .append(ViewBuilder::text("this has text")),
             );
-        let manual_view = manual.try_into().unwrap();
+        let manual_view: JsDom = manual.try_into().unwrap();
 
         assert_eq!(
             rsx_view.html_string().await,
@@ -523,8 +521,7 @@ mod wasm {
         .try_into()
         .unwrap();
 
-        let val = v.inner_read().left().unwrap();
-        let nodes = val.dyn_ref::<web_sys::Node>().unwrap().child_nodes();
+        let nodes = v.dyn_ref::<web_sys::Node>().unwrap().child_nodes();
         let len = nodes.length();
         assert_eq!(len, 3);
         let mut ids = vec![];
@@ -545,7 +542,7 @@ mod wasm {
         // Since the pre tag is *not* dropped after the scope block the last assert
         // should show that the div tag has a child.
         let div = {
-            let div = html! {
+            let div: JsDom = html! {
                 <div id="parent-div">
                     <pre>"some text"</pre>
                     </div>
@@ -580,7 +577,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn gizmo_tree() {
-        let root = html! {
+        let root: JsDom = html! {
             <div id="root">
                 <div id="branch">
                     <div id="leaf">
@@ -609,7 +606,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn gizmo_texts() {
-        let div = html! {
+        let div: JsDom = html! {
             <div>
                 "here is some text "
             // i can use comments, yay!
@@ -628,7 +625,7 @@ mod wasm {
     #[wasm_bindgen_test]
     async fn rx_attribute_jsx() {
         let (tx, rx) = broadcast::bounded::<String>(1);
-        let div = html! {
+        let div: JsDom = html! {
             <div class=("now", rx) />
         }
         .try_into()
@@ -645,7 +642,7 @@ mod wasm {
     #[wasm_bindgen_test]
     async fn rx_style_jsx() {
         let (tx, rx) = broadcast::bounded::<String>(1);
-        let div = html! { <div style:display=("block", rx) /> }
+        let div: JsDom = html! { <div style:display=("block", rx) /> }
             .try_into()
             .unwrap();
         let div_el = div.clone_as::<web_sys::HtmlElement>().unwrap();
@@ -663,8 +660,8 @@ mod wasm {
     #[wasm_bindgen_test]
     async fn capture_view_and_contra_map() {
         let (tx, mut rx) = broadcast::bounded::<()>(1);
-        let _div = html! {
-            <div id="hello" capture:view=tx.contra_map(|_| ())>
+        let _div: JsDom = html! {
+            <div id="hello" capture:view=tx.contra_map(|_: JsDom| ())>
                 "Hello there"
             </div>
         }
@@ -709,7 +706,7 @@ mod wasm {
             futures::future::ready(r)
         });
 
-        let button = html! {
+        let button: JsDom = html! {
             <button on:click=tx.clone()>{("Clicked 0 times", rx)}</button>
         }
         .try_into()
@@ -734,7 +731,7 @@ mod wasm {
     #[wasm_bindgen_test]
     async fn can_patch_children() {
         let (mut tx, rx) = mpsc::bounded::<ListPatch<ViewBuilder>>(1);
-        let view = html! {
+        let view: JsDom = html! {
             <ol id="main" patch:children=rx>
                 <li>"Zero"</li>
                 <li>"One"</li>
@@ -842,7 +839,7 @@ mod wasm {
     #[wasm_bindgen_test]
     async fn can_patch_children_into() {
         let (mut tx, rx) = mpsc::bounded::<ListPatch<String>>(1);
-        let view = html! {
+        let view: JsDom = html! {
             <p id="main" patch:children=rx.map(|p| p.map(|s| ViewBuilder::text(s)))>
                 "Zero ""One"
             </p>
@@ -888,7 +885,7 @@ mod wasm {
             }
             </span>
         };
-        let _ = bldr.try_into().unwrap();
+        let _: JsDom = bldr.try_into().unwrap();
     }
 
     fn sendable<T: Send + Sync + 'static>(_: &T) {}
@@ -909,7 +906,7 @@ mod wasm {
         let b = html! {
             <div id="chappie" capture:view=capture.sink()></div>
         };
-        let _ = b.try_into().unwrap();
+        let _: JsDom = b.try_into().unwrap();
         let dom = capture.get().await;
         assert_eq!(dom.html_string().await, r#"<div id="chappie"></div>"#);
     }
