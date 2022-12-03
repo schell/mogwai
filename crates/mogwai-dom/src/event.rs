@@ -5,7 +5,6 @@
 //! is dropped, its resources are cleaned up automatically.
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use send_wrapper::SendWrapper;
-use serde::de::DeserializeOwned;
 use std::{
     pin::Pin,
     sync::{Arc, Mutex},

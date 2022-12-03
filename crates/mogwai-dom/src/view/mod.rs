@@ -1,5 +1,5 @@
 //! Wrapped views.
-use mogwai::view::{ViewBuilder, AnyView};
+use mogwai::view::{Update, AnyView, View};
 mod js_dom;
 
 pub use js_dom::*;
@@ -30,6 +30,12 @@ impl Dom {
         } else {
             Ok(())
         }
+    }
+}
+
+impl View for Dom {
+    fn update(&self, update: Update) -> anyhow::Result<()> {
+        self.0.update(update)
     }
 }
 

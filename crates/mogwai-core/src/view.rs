@@ -13,7 +13,7 @@ use crate::{
 };
 use anyhow::Context;
 pub use anyhow::Error;
-use futures::{stream, Future, Sink, Stream, StreamExt};
+use futures::{stream, Future, Sink, SinkExt, Stream, StreamExt};
 struct DummyWaker;
 
 impl Wake for DummyWaker {
@@ -34,10 +34,11 @@ where
             identity,
             updates,
             tasks,
+            view_sinks,
         } = builder;
 
         let element = self.init(identity)?;
-
+        let updates = stream::select_all(updates);
         let (mut update_stream, initial_values) = exhaust(updates);
 
         for update in initial_values.into_iter() {
@@ -54,6 +55,13 @@ where
         for task in tasks.into_iter() {
             self.spawn(task);
         }
+
+        let node = element.clone();
+        self.spawn(async move {
+            for mut sink in view_sinks.into_iter() {
+                let _ = sink.send(AnyView::new(node.clone())).await;
+            }
+        });
 
         Ok(element)
     }
@@ -80,6 +88,7 @@ where
 pub struct AnyView {
     inner: Box<dyn Any + Send + Sync>,
     clone_fn: fn(&AnyView) -> AnyView,
+    update_fn: fn(&AnyView, Update) -> anyhow::Result<()>,
 }
 
 impl Clone for AnyView {
@@ -88,15 +97,28 @@ impl Clone for AnyView {
         Self {
             inner: cloned_view.inner,
             clone_fn: self.clone_fn.clone(),
+            update_fn: self.update_fn.clone(),
         }
     }
+}
+
+impl View for AnyView {
+    fn update(&self, update: Update) -> anyhow::Result<()> {
+        (self.update_fn)(self, update)
+    }
+}
+
+pub fn any_view_update<V: View>(any_view: &AnyView, update: Update) -> anyhow::Result<()> {
+    let v: &V = any_view.downcast_ref().unwrap();
+    v.update(update)
 }
 
 pub fn any_view_clone<V: View>(any_view: &AnyView) -> AnyView {
     let v: &V = any_view.downcast_ref().unwrap();
     AnyView {
         inner: Box::new(v.clone()) as Box<dyn Any + Send + Sync>,
-        clone_fn: any_view_clone::<V>
+        clone_fn: any_view_clone::<V>,
+        update_fn: any_view_update::<V>,
     }
 }
 
@@ -104,7 +126,8 @@ impl AnyView {
     pub fn new<V: View>(inner: V) -> Self {
         AnyView {
             inner: Box::new(inner),
-            clone_fn: any_view_clone::<V>
+            clone_fn: any_view_clone::<V>,
+            update_fn: any_view_update::<V>,
         }
     }
 
@@ -153,10 +176,11 @@ impl AnyEvent {
 /// Returns the stream and the gathered items.
 ///
 /// Useful for getting the starting values of a view.
-pub fn exhaust<T, St>(mut stream: St) -> (St, Vec<T>)
+pub fn exhaust<T, St>(stream: St) -> (St, Vec<T>)
 where
-    St: Stream<Item = T> + Unpin + Send + Sync + 'static,
+    St: Stream<Item = T> + Send + Unpin + 'static,
 {
+    let mut stream = Box::pin(stream);
     let raw_waker = RawWaker::from(Arc::new(DummyWaker));
     let waker = unsafe { Waker::from_raw(raw_waker) };
     let mut cx = std::task::Context::from_waker(&waker);
@@ -164,7 +188,7 @@ where
     while let std::task::Poll::Ready(Some(t)) = stream.poll_next_unpin(&mut cx) {
         items.push(t);
     }
-    (stream, items)
+    (*Pin::into_inner(stream), items)
 }
 
 /// Try to get an available `T` from the given stream by polling it.
@@ -217,7 +241,7 @@ pub enum MogwaiValue<S, St> {
     OwnedAndStream(S, St),
 }
 
-pub type PinBoxStream<T> = Pin<Box<dyn Stream<Item = T> + Unpin + Send + Sync + 'static>>;
+pub type PinBoxStream<T> = Pin<Box<dyn Stream<Item = T> + Send + 'static>>;
 
 impl From<bool> for MogwaiValue<bool, PinBoxStream<bool>> {
     fn from(b: bool) -> Self {
@@ -245,8 +269,8 @@ impl From<String> for MogwaiValue<String, PinBoxStream<String>> {
 
 impl<S, St> From<St> for MogwaiValue<S, St>
 where
-    S: Send + Sync + 'static,
-    St: Stream<Item = S> + Unpin + Send + Sync + 'static,
+    S: Send + 'static,
+    St: Stream<Item = S>,
 {
     fn from(s: St) -> Self {
         MogwaiValue::Stream(s)
@@ -255,15 +279,36 @@ where
 
 impl<'a, St> From<(&'a str, St)> for MogwaiValue<String, St>
 where
-    St: Stream<Item = String> + Unpin + Send + Sync + 'static,
+    St: Stream<Item = String>,
 {
     fn from(s: (&'a str, St)) -> Self {
         MogwaiValue::OwnedAndStream(s.0.to_owned(), s.1)
     }
 }
 
-impl<S: Send + Sync + 'static, St: Stream<Item = S> + Unpin + Send + Sync + 'static>
-    From<MogwaiValue<S, St>> for PinBoxStream<S>
+impl<'a, St> From<(String, St)> for MogwaiValue<String, St>
+where
+    St: Stream<Item = String>,
+{
+    fn from(s: (String, St)) -> Self {
+        MogwaiValue::OwnedAndStream(s.0, s.1)
+    }
+}
+
+impl<S: 'static, St: Stream<Item = S> + 'static> From<MogwaiValue<S, St>> for Pin<Box<dyn Stream<Item = S>>> {
+    fn from(v: MogwaiValue<S, St>) -> Self {
+        match v {
+            MogwaiValue::Owned(s) => Box::pin(futures::stream::iter(std::iter::once(s))),
+            MogwaiValue::Stream(s) => Box::pin(s),
+            MogwaiValue::OwnedAndStream(s, st) => {
+                Box::pin(futures::stream::iter(std::iter::once(s)).chain(st))
+            }
+        }
+    }
+}
+
+impl<S: Send + 'static, St: Stream<Item = S> + Send + 'static> From<MogwaiValue<S, St>>
+    for Pin<Box<dyn Stream<Item = S> + Send + 'static>>
 {
     fn from(v: MogwaiValue<S, St>) -> Self {
         match v {
@@ -284,7 +329,7 @@ pub enum ViewIdentity {
 }
 
 pub type MogwaiFuture<T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>;
-pub type MogwaiStream<T> = Pin<Box<dyn Stream<Item = T> + Unpin + Send + Sync + 'static>>;
+pub type MogwaiStream<T> = Pin<Box<dyn Stream<Item = T> + Send + 'static>>;
 pub type MogwaiSink<T> = Pin<Box<dyn Sink<T, Error = SinkError> + Unpin + Send + Sync + 'static>>;
 pub type PostBuild = Box<dyn FnOnce(AnyView) -> anyhow::Result<()> + Send + Sync + 'static>;
 
@@ -303,20 +348,43 @@ pub enum Update {
     PostBuild(PostBuild),
 }
 
+impl std::fmt::Debug for Update {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Text(arg0) => f.debug_tuple("Text").field(arg0).finish(),
+            Self::Attribute(arg0) => f.debug_tuple("Attribute").field(arg0).finish(),
+            Self::BooleanAttribute(arg0) => f.debug_tuple("BooleanAttribute").field(arg0).finish(),
+            Self::Style(arg0) => f.debug_tuple("Style").field(arg0).finish(),
+            Self::Child(arg0) => f.debug_tuple("Child").field(arg0).finish(),
+            Self::Listener {
+                event_name,
+                event_target,
+                sink: _,
+            } => f
+                .debug_struct("Listener")
+                .field("event_name", event_name)
+                .field("event_target", event_target)
+                .field("sink", &())
+                .finish(),
+            Self::PostBuild(_) => f.debug_tuple("PostBuild").finish(),
+        }
+    }
+}
+
 /// An un-built mogwai view.
-/// A ViewBuilder is the most generic view representation in the mogwai library.
-/// It is the the blueprint of a view - everything needed to create, hydrate or serialize the view.
+/// A ViewBuilder is a generic view representation.
+/// It is the the blueprint of a view - everything needed to create or hydrate the view.
 pub struct ViewBuilder {
     /// The identity of the view.
     ///
     /// Either a name or a tuple of a name and a namespace.
     pub identity: ViewIdentity,
     /// All declarative updates this view will undergo.
-    pub updates: stream::SelectAll<MogwaiStream<Update>>,
+    pub updates: Vec<MogwaiStream<Update>>,
     ///// Post build operations/computations that run and mutate the view after initialization.
     //pub ops: Vec<Box<dyn FnOnce(&mut Box<dyn Any>) -> anyhow::Result<()> + Send + Sync + 'static>>,
     ///// Sinks that want a clone of the view once it is initialized.
-    //pub view_sinks: Vec<MogwaiSink<Box<dyn Any + Send + Sync + 'static>>>,
+    pub view_sinks: Vec<MogwaiSink<AnyView>>,
     /// Asynchronous tasks that run after the view has been initialized.
     pub tasks: Vec<MogwaiFuture<()>>,
 }
@@ -327,6 +395,7 @@ impl ViewBuilder {
         ViewBuilder {
             identity: ViewIdentity::Branch(tag.into()),
             updates: Default::default(),
+            view_sinks: vec![],
             tasks: vec![],
         }
     }
@@ -336,12 +405,13 @@ impl ViewBuilder {
         ViewBuilder {
             identity: ViewIdentity::NamespacedBranch(tag.into(), ns.into()),
             updates: Default::default(),
+            view_sinks: vec![],
             tasks: vec![],
         }
     }
 
     /// Create a new node builder.
-    pub fn text<St: Stream<Item = String> + Unpin + Send + Sync + 'static>(
+    pub fn text<St: Stream<Item = String> + Send + 'static>(
         st: impl Into<MogwaiValue<String, St>>,
     ) -> Self {
         let (st, texts) = exhaust(PinBoxStream::from(st.into()));
@@ -349,13 +419,13 @@ impl ViewBuilder {
             .into_iter()
             .fold(None, |_, text| Some(text))
             .unwrap_or_else(|| String::new());
-        let mut updates: stream::SelectAll<MogwaiStream<Update>> = stream::SelectAll::default();
-        updates.push(Box::pin(st.map(Update::Text)));
+        let updates = vec![Box::pin(st.map(Update::Text)) as MogwaiStream<_>];
 
         ViewBuilder {
             identity: ViewIdentity::Leaf(identity),
             updates,
             tasks: vec![],
+            view_sinks: vec![],
         }
     }
 
@@ -366,7 +436,7 @@ impl ViewBuilder {
     }
 
     /// Add a stream to set the text of this builder.
-    pub fn with_text_stream<St: Stream<Item = String> + Unpin + Send + Sync + 'static>(
+    pub fn with_text_stream<St: Stream<Item = String> + Send + 'static>(
         mut self,
         st: impl Into<MogwaiValue<String, St>>,
     ) -> Self {
@@ -378,7 +448,7 @@ impl ViewBuilder {
 
     /// Add a stream to patch the attributes of this builder.
     pub fn with_attrib_stream<
-        St: Stream<Item = HashPatch<String, String>> + Unpin + Send + Sync + 'static,
+        St: Stream<Item = HashPatch<String, String>> + Send + 'static,
     >(
         mut self,
         st: impl Into<MogwaiValue<HashPatch<String, String>, St>>,
@@ -390,7 +460,7 @@ impl ViewBuilder {
     }
 
     /// Add a stream to patch a single attribute of this builder.
-    pub fn with_single_attrib_stream<St: Stream<Item = String> + Unpin + Send + Sync + 'static>(
+    pub fn with_single_attrib_stream<St: Stream<Item = String> + Send + 'static>(
         mut self,
         k: impl Into<String>,
         st: impl Into<MogwaiValue<String, St>>,
@@ -403,7 +473,7 @@ impl ViewBuilder {
 
     /// Add a stream to patch the boolean attributes of this builder.
     pub fn with_bool_attrib_stream<
-        St: Stream<Item = HashPatch<String, bool>> + Unpin + Send + Sync + 'static,
+        St: Stream<Item = HashPatch<String, bool>> + Send + 'static,
     >(
         mut self,
         st: impl Into<MogwaiValue<HashPatch<String, bool>, St>>,
@@ -416,7 +486,7 @@ impl ViewBuilder {
 
     /// Add a stream to patch a single boolean attribute of this builder.
     pub fn with_single_bool_attrib_stream<
-        St: Stream<Item = bool> + Unpin + Send + Sync + 'static,
+        St: Stream<Item = bool> + Send + 'static,
     >(
         mut self,
         k: impl Into<String>,
@@ -430,7 +500,7 @@ impl ViewBuilder {
     }
 
     /// Add a stream to patch the style attribute of this builder.
-    pub fn with_style_stream<St: Stream<Item = String> + Unpin + Send + Sync + 'static>(
+    pub fn with_style_stream<St: Stream<Item = String> + Send + 'static>(
         mut self,
         st: impl Into<MogwaiValue<String, St>>,
     ) -> Self {
@@ -451,7 +521,7 @@ impl ViewBuilder {
     }
 
     /// Add a stream to patch a single style of this builder.
-    pub fn with_single_style_stream<St: Stream<Item = String> + Unpin + Send + Sync + 'static>(
+    pub fn with_single_style_stream<St: Stream<Item = String> + Send + 'static>(
         mut self,
         k: impl Into<String>,
         st: impl Into<MogwaiValue<String, St>>,
@@ -465,7 +535,7 @@ impl ViewBuilder {
 
     /// Add a stream to patch the list of children of this builder.
     pub fn with_child_stream<
-        St: Stream<Item = ListPatch<ViewBuilder>> + Unpin + Send + Sync + 'static,
+        St: Stream<Item = ListPatch<ViewBuilder>> + Send + 'static,
     >(
         mut self,
         st: impl Into<MogwaiValue<ListPatch<ViewBuilder>, St>>,
@@ -506,22 +576,20 @@ impl ViewBuilder {
         self
     }
 
-    ///// Send a clone of the inner view once it is built.
-    /////
-    ///// ## Panics
-    ///// If the domain specific view cannot be downcast a panic will happen when
-    ///// the boxed view is sent into the sink.
-    //pub fn with_capture_view<V: Any + Unpin + Send + Sync>(
-    //    mut self,
-    //    sink: impl Sink<V, Error = SinkError> + Unpin + Send + Sync + 'static,
-    //) -> Self {
-    //    let sink = sink.contra_map(|any: Box<dyn Any + Send + Sync + 'static>| {
-    //        let box_v: Box<V> = any.downcast::<V>().unwrap();
-    //        *box_v
-    //    });
-    //    self.view_sinks.push(Box::pin(sink));
-    //    self
-    //}
+    /// Send a clone of the inner view once it is built.
+    ///
+    /// ## Panics
+    /// If the domain specific view cannot be downcast a panic will happen when
+    /// the boxed view is sent into the sink.
+    pub fn with_capture_view<V: View>(
+        mut self,
+        sink: impl Sink<V, Error = SinkError> + Unpin + Send + Sync + 'static,
+    ) -> Self {
+        let sink: MogwaiSink<AnyView> =
+            Box::pin(sink.contra_map(|any_view: AnyView| any_view.downcast::<V>().unwrap()));
+        self.view_sinks.push(sink);
+        self
+    }
 
     /// Add a sink into which view events of the given name will be sent.
     ///

@@ -1,15 +1,11 @@
 //! Wrapper around Javascript DOM nodes.
 use std::{
-    any::Any,
     future::Future,
     ops::{Bound, RangeBounds},
-    pin::Pin,
 };
 
 use anyhow::Context;
 use mogwai::{
-    channel::SinkError,
-    futures::sink::{Sink, SinkExt},
     patch::{HashPatch, ListPatch},
     view::{AnyEvent, AnyView, Update, View, ViewBuilder, ViewIdentity, ViewResources},
 };

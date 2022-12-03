@@ -3,12 +3,12 @@ use anyhow::Context;
 use async_executor::Executor;
 use async_lock::RwLock;
 use futures::{Future, Sink, StreamExt};
-use std::{any::Any, collections::HashMap, ops::DerefMut, pin::Pin, sync::Arc};
+use std::{collections::HashMap, ops::DerefMut, pin::Pin, sync::Arc};
 
 use mogwai::{
     channel::SinkError,
     futures::{sink::Contravariant, SinkExt},
-    patch::{HashPatch, ListPatch, ListPatchApply},
+    patch::{HashPatch, ListPatchApply},
     view::{AnyEvent, AnyView, Update, View, ViewBuilder, ViewIdentity, ViewResources},
 };
 use serde_json::Value;
@@ -169,15 +169,6 @@ impl TryFrom<ViewBuilder> for SsrDom {
     fn try_from(value: ViewBuilder) -> Result<Self, Self::Error> {
         let executor = Arc::new(Executor::default());
         SsrDomResources(executor).build(value)
-    }
-}
-
-#[cfg(test)]
-mod ssr {
-    #[test]
-    fn ssrelement_sendable() {
-        fn sendable<T: Send + Sync + 'static>() {}
-        sendable::<super::SsrDom>()
     }
 }
 
@@ -436,4 +427,13 @@ impl View for SsrDom {
     //) {
     //    self.executor.spawn(action).detach()
     //}
+}
+
+#[cfg(test)]
+mod ssr {
+    #[test]
+    fn ssrelement_sendable() {
+        fn sendable<T: Send + Sync + 'static>() {}
+        sendable::<super::SsrDom>()
+    }
 }

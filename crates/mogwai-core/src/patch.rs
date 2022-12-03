@@ -16,7 +16,7 @@ fn clone_bound<T: Copy>(bound: Bound<&T>) -> Bound<T> {
 }
 
 /// Variants used to patch the items in a list.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum ListPatch<T> {
     /// Replace the specified range in the list with the given `replace_with` items.
     /// Zero-indexed.
@@ -32,6 +32,23 @@ pub enum ListPatch<T> {
 
     /// Remove the last item.
     Pop,
+}
+
+impl<T> std::fmt::Debug for ListPatch<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Splice {
+                range,
+                replace_with,
+            } => f
+                .debug_struct("Splice")
+                .field("range", range)
+                .field("replace_with", &format!("vec len={}", replace_with.len()))
+                .finish(),
+            Self::Push(_) => f.debug_tuple("Push").field(&()).finish(),
+            Self::Pop => write!(f, "Pop"),
+        }
+    }
 }
 
 impl<T> ListPatch<T> {
