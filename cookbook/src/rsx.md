@@ -2,23 +2,23 @@
 
 Consider this variable declaration:
 
-```rust, no_run
-# use mogwai::prelude::*;
+```rust
+# use mogwai_dom::prelude::*;
+let element = rsx!{ h1(){"Hello, world!"} };
+```
+
+This funny tag syntax is neither a string nor Rust code - it is a [`ViewBuilder`][structviewbuilder].
+
+The macro `rsx!` is using RSX, which is a "**R**ust **S**yntax E**x**tension".
+Similarly there is a `html!` macro that creates [`ViewBuilder`][structviewbuilder] from an HTML-ish
+syntax:
+
+```rust,
+# use mogwai_dom::prelude::*;
 let element = html!{ <h1>"Hello, world!"</h1> };
 ```
 
-This funny tag syntax is neither a string nor HTML - it is a [`ViewBuilder<JsDom>`][structviewbuilder].
-
-The macro `html!` is using RSX, which is a "**R**ust **S**yntax E**x**tension".
-Similarly there is a `view!` macro that creates [`View<JsDom>`][structview].
-
-```rust
-# use mogwai::prelude::*;
-let my_builder: ViewBuilder<JsDom> = html!{ <h1>"Hello, world!"</h1> };
-let my_view: JsDom = view!{ <h1>"Hello, world!"</h1> };
-
-let my_identical_view: JsDom = my_builder.build().unwrap();
-```
+The two definitions are synonymous.
 
 We recommend using these macros in mogwai to describe the DOM nodes used by your
 components.
@@ -29,25 +29,25 @@ You can always write your components without RSX - here is the same example abov
 written out manually:
 
 ```rust, no_run
-# use mogwai::prelude::*;
-let my_builder: ViewBuilder<JsDom> = ViewBuilder::element("h1")
+# use mogwai_dom::prelude::*;
+let my_builder: ViewBuilder = ViewBuilder::element("h1")
     .append(ViewBuilder::text("Hello, world!"));
 ```
 
 ## Tags
-You may use any html tags you wish when writing RSX.
+You may use any html tags you wish when writing RSX with `mogwai_dom`.
 
 ```rust, no_run
-# use mogwai::prelude::*;
-let _: ViewBuilder<JsDom> = html! {
+# use mogwai_dom::prelude::*;
+let _: ViewBuilder = html! {
     <p>"Once upon a time in a galaxy far, far away..."</p>
 };
 ```
 ## Attributes
 Adding attributes happens the way you expect it to.
 ```rust, no_run
-# use mogwai::prelude::*;
-let _: ViewBuilder<JsDom> = html! {
+# use mogwai_dom::prelude::*;
+let _: ViewBuilder = html! {
     <p id="starwars">"Once upon a time in a galaxy far, far away..."</p>
 };
 ```
@@ -67,7 +67,7 @@ for more details about types that can be turned into streams.
 
   Declares a single style.
   ```rust,no_run
-  # use mogwai::prelude::*;
+  # use mogwai_dom::prelude::*;
   let _ = html! {
       <a href="#burritos" style:border="1px dashed #333">"link"</a>
   };
@@ -78,8 +78,10 @@ for more details about types that can be turned into streams.
   Declares that the events of a certain type (`event`) occurring on the element should
   be sent on the given sender. You will often see the use of
   [Contravariant][traitcontravariant] in this position to map the type of the `Sender`.
-  ```rust,no_run
-  # use mogwai::prelude::*;
+  ```rust
+  use mogwai_dom::prelude::*;
+  use mogwai_dom::core::channel::broadcast;
+
   let (tx, _rx) = broadcast::bounded::<()>(1);
   let _ = html! {
       <div on:click=tx.contra_map(|_:DomEvent| ())>"Click me!"</div>
@@ -89,8 +91,11 @@ for more details about types that can be turned into streams.
 - **window:{event}** = `impl Sink<DomEvent>`
 
   Declares that the windows's matching events should be sent on the given sender.
-  ```rust, no_run
-  # use mogwai::prelude::*;
+  ```rust
+  use mogwai_dom::prelude::*;
+  use mogwai_dom::core::channel::broadcast;
+
+  # use mogwai_dom::prelude::*;
   let (tx, rx) = broadcast::bounded::<()>(1);
   let _ = html! {
       <div window:load=tx.contra_map(|_:DomEvent| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
@@ -101,33 +106,34 @@ for more details about types that can be turned into streams.
 
   Declares that the document's matching events should be sent on the given transmitter.
   ```rust,no_run
-  # use mogwai::prelude::*;
+  use mogwai_dom::prelude::*;
+  use mogwai_dom::core::channel::broadcast;
+
   let (tx, rx) = broadcast::bounded::<String>(1);
   let _ = html! {
-      <div document:keyup=tx.contra_map(|ev| format!("{:#?}", ev))>{("waiting for first event", rx)}</div>
+      <div document:keyup=tx.contra_map(|ev: DomEvent| format!("{:#?}", ev))>{("waiting for first event", rx)}</div>
   };
   ```
 
-- **boolean:{name}** = `impl Into<MogwaiValue<'a, bool, Stream<Item = bool>>`
+- **boolean:{name}** = `impl Into<MogwaiValue<bool, Stream<Item = bool>>`
 
   Declares a boolean attribute with the given name.
   ```rust,no_run
-  # use mogwai::prelude::*;
+  # use mogwai_dom::prelude::*;
   let _ = html! {
       <input boolean:checked=true />
   };
   ```
 
-- **patch:children** = `impl Stream<ListPatch<ViewBuilder<JsDom>>>`
+- **patch:children** = `impl Stream<ListPatch<ViewBuilder>>`
 
   Declares that this element's children will be updated with a stream of [ListPatch][enumlistpatch].
   #### Note
   [ViewBuilder][structviewbuilder] is not `Clone`. For this reason we cannot use `mogwai::channel::broadcast::{Sender, Receiver}`
   channels to send patches, because a broadcast channel requires its messages to be `Clone`. Instead use
   `mogwai::channel::mpsc::{Sender, Receiver}` channels, which have no such requirement. Just remember that even though
-  the channels are technically "multi-producer and multi-consumer", if a `mpsc::Sender` has more than one `mpsc::Receiver`
-  listening, only one will receive the message and the winning `Receiver` seems to alternate in round-robin style. So you
-  are advised to use the `mpsc` channel as a "multi-producer, _single_ consumer" alternative to the broadcast channel.
+  the `Receiver` can be cloned, if a `mpsc::Sender` has more than one `mpsc::Receiver`
+  listening, only one will receive the message and the winning `Receiver` seems to alternate in round-robin style.
   ```rust, ignore
   {{#include ../../mogwai-dom/lib.rs:patch_children_rsx}}
   ```
@@ -146,7 +152,7 @@ for more details about types that can be turned into streams.
   Declares the inner type of the resulting [ViewBuilder][structviewbuilder]. By default this is
   [Dom][structdom].
   ```rust,ignore
-  # use mogwai::prelude::*;
+  # use mogwai_dom::prelude::*;
   let my_input: ViewBuilder<MyCustomInnerView> = html! {
         <input cast:type=MyCustomInnerView />
   };
@@ -155,7 +161,7 @@ for more details about types that can be turned into streams.
 ## Expressions
 Rust expressions can be used as the values of attributes and as child nodes.
 ```rust, no_run
-# use mogwai::prelude::*;
+# use mogwai_dom::prelude::*;
 let is_cool = true;
 let _ = html! {
     <div>
@@ -188,16 +194,16 @@ Below we display a user's image if they have one:
 You can use RSX to build more than one view at a time:
 
 ```rust, no_run
-# use mogwai::prelude::*;
+# use mogwai_dom::prelude::*;
 // Create a vector with three builders in it.
-let builders: Vec<ViewBuilder<JsDom>> = html! {
+let builders: Vec<ViewBuilder> = html! {
     <div>"hello"</div>
     <div>"hola"</div>
     <div>"kia ora"</div>
 };
 
 // Then add them all into a parent tag just like any component
-let parent: ViewBuilder<JsDom> = html! {
+let parent: ViewBuilder = html! {
     <section>{builders}</section>
 };
 ```

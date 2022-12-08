@@ -55,6 +55,3 @@ pub fn spawn<T: Send + Sync + 'static>(_f: impl constraints::Spawnable<T>) {
 }
 
 pub mod prelude;
-
-#[cfg(doctest)]
-doc_comment::doctest!("../../../README.md");

@@ -7,9 +7,7 @@ use std::{
 };
 
 use futures::future::Either;
-pub use futures::{
-    future, select, select_biased, stream_select, Sink, SinkExt, Stream, StreamExt,
-};
+pub use futures::{future, select, select_biased, stream_select, Sink, SinkExt, Stream, StreamExt};
 
 use crate::channel::{broadcast, SinkError};
 
@@ -18,8 +16,8 @@ pub mod stream;
 
 pub mod lock {
     //! Re-exports of futures::lock and async_lock.
+    pub use async_lock::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
     pub use futures::lock::*;
-    pub use async_lock::{RwLock, RwLockReadGuard, RwLockWriteGuard, RwLockUpgradableReadGuard};
 }
 
 /// Adds helpful extensions to [`Either`].
@@ -29,6 +27,9 @@ pub trait EitherExt {
 
     /// The right item.
     type RightItem;
+
+    /// A type that is the result of `map_either`.
+    type Mapped<F, G>: EitherExt;
 
     /// Return the left item, if possible.
     fn left(self) -> Option<Self::LeftItem>;
@@ -41,11 +42,25 @@ pub trait EitherExt {
 
     /// Return a ref to the left item, if possible.
     fn as_right(&self) -> Option<&Self::RightItem>;
+
+    /// Map either the left with `f` or the right with `g`
+    fn bimap<F, G>(
+        self,
+        f: impl FnMut(Self::LeftItem) -> F,
+        g: impl FnMut(Self::RightItem) -> G,
+    ) -> Self::Mapped<F, G>;
+
+    fn map_either<T>(
+        self,
+        f: impl FnMut(Self::LeftItem) -> T,
+        g: impl FnMut(Self::RightItem) -> T,
+    ) -> T;
 }
 
 impl<A, B> EitherExt for Either<A, B> {
     type LeftItem = A;
     type RightItem = B;
+    type Mapped<F, G> = Either<F, G>;
 
     fn left(self) -> Option<Self::LeftItem> {
         match self {
@@ -73,6 +88,25 @@ impl<A, B> EitherExt for Either<A, B> {
             Either::Left(_) => None,
             Either::Right(b) => Some(&b),
         }
+    }
+
+    fn bimap<F, G>(
+        self,
+        mut f: impl FnMut(Self::LeftItem) -> F,
+        mut g: impl FnMut(Self::RightItem) -> G,
+    ) -> Self::Mapped<F, G> {
+        match self {
+            Either::Left(l) => Either::Left(f(l)),
+            Either::Right(r) => Either::Right(g(r)),
+        }
+    }
+
+    fn map_either<T>(
+        self,
+        f: impl FnMut(Self::LeftItem) -> T,
+        g: impl FnMut(Self::RightItem) -> T,
+    ) -> T {
+        self.bimap(f, g).into_inner()
     }
 }
 

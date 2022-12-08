@@ -9,7 +9,7 @@ use mogwai::{
     channel::SinkError,
     futures::{sink::Contravariant, SinkExt},
     patch::{HashPatch, ListPatchApply},
-    view::{AnyEvent, AnyView, Update, View, ViewBuilder, ViewIdentity, ViewResources},
+    view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity, ViewResources},
 };
 use serde_json::Value;
 
@@ -338,95 +338,86 @@ impl SsrDom {
 #[derive(Default)]
 pub struct SsrDomResources(Arc<Executor<'static>>);
 
-impl ViewResources<SsrDom> for SsrDomResources {
-    fn init(&self, identity: ViewIdentity) -> anyhow::Result<SsrDom> {
-        Ok(match identity {
-            ViewIdentity::Branch(tag) => SsrDom::element(self.0.clone(), &tag),
-            ViewIdentity::NamespacedBranch(tag, ns) => {
-                let el = SsrDom::element(self.0.clone(), &tag);
-                el.set_attrib("xmlns", Some(&ns))?;
-                el
+fn init(
+    rez: &mut SsrDomResources,
+    identity: ViewIdentity,
+    initial_values: Vec<Update>,
+) -> anyhow::Result<SsrDom> {
+    let element = match identity {
+        ViewIdentity::Branch(tag) => SsrDom::element(rez.0.clone(), &tag),
+        ViewIdentity::NamespacedBranch(tag, ns) => {
+            let el = SsrDom::element(rez.0.clone(), &tag);
+            el.set_attrib("xmlns", Some(&ns))?;
+            el
+        }
+        ViewIdentity::Leaf(text) => SsrDom::text(rez.0.clone(), &text),
+    };
+
+    for update in initial_values.into_iter() {
+        update_ssr_dom(&element, update)?;
+    }
+    Ok(element)
+}
+
+fn update_ssr_dom(ssr_dom: &SsrDom, update: Update) -> anyhow::Result<()> {
+    match update {
+        Update::Text(s) => {
+            ssr_dom.set_text(&s)?;
+        }
+        Update::Attribute(patch) => match patch {
+            HashPatch::Insert(k, v) => ssr_dom.set_attrib(&k, Some(&v))?,
+            HashPatch::Remove(k) => ssr_dom.remove_attrib(&k)?,
+        },
+        Update::BooleanAttribute(patch) => match patch {
+            HashPatch::Insert(k, v) => {
+                if v {
+                    ssr_dom.set_attrib(&k, None)?
+                } else {
+                    ssr_dom.remove_attrib(&k)?
+                }
             }
-            ViewIdentity::Leaf(text) => SsrDom::text(self.0.clone(), &text),
+            HashPatch::Remove(k) => ssr_dom.remove_attrib(&k)?,
+        },
+        Update::Style(patch) => match patch {
+            HashPatch::Insert(k, v) => ssr_dom.set_style(&k, &v)?,
+            HashPatch::Remove(k) => ssr_dom.remove_style(&k)?,
+        },
+        Update::Child(patch) => {
+            log::trace!("got child patch: {:?}", patch);
+            let patch = patch.try_map(|builder: ViewBuilder| {
+                let ssr = SsrDomResources(ssr_dom.executor.clone()).build(builder)?;
+                anyhow::Ok(ssr)
+            })?;
+            let mut lock = ssr_dom.node.try_write().context("can't lock")?;
+            if let SsrNode::Container { children, .. } = lock.deref_mut() {
+                let _ = children.list_patch_apply(patch);
+            } else {
+                anyhow::bail!("not a container")
+            }
+        }
+    }
+
+    Ok(())
+}
+
+impl ViewResources<SsrDom> for SsrDomResources {
+    fn build(&mut self, builder: ViewBuilder) -> anyhow::Result<SsrDom> {
+        super::build(self, builder, init, update_ssr_dom, |ssr, listener| {
+            let Listener {
+                event_name,
+                event_target,
+                sink,
+            } = listener;
+            let sink = Box::pin(sink.contra_map(AnyEvent::new));
+            let mut lock = ssr.events.try_write().context("can't lock")?;
+            let _ = lock.insert((event_target, event_name), sink);
+            Ok(())
         })
     }
 
     fn spawn(&self, action: impl Future<Output = ()> + Send + 'static) {
         self.0.spawn(action).detach();
     }
-}
-
-impl View for SsrDom {
-    fn update(&self, update: Update) -> anyhow::Result<()> {
-        match update {
-            Update::Text(s) => {
-                self.set_text(&s)?;
-            }
-            Update::Attribute(patch) => match patch {
-                HashPatch::Insert(k, v) => self.set_attrib(&k, Some(&v))?,
-                HashPatch::Remove(k) => self.remove_attrib(&k)?,
-            },
-            Update::BooleanAttribute(patch) => match patch {
-                HashPatch::Insert(k, v) => {
-                    if v {
-                        self.set_attrib(&k, None)?
-                    } else {
-                        self.remove_attrib(&k)?
-                    }
-                }
-                HashPatch::Remove(k) => self.remove_attrib(&k)?,
-            },
-            Update::Style(patch) => match patch {
-                HashPatch::Insert(k, v) => self.set_style(&k, &v)?,
-                HashPatch::Remove(k) => self.remove_style(&k)?,
-            },
-            Update::Child(patch) => {
-                let patch = patch.try_map(|builder: ViewBuilder| {
-                    let ssr = SsrDomResources(self.executor.clone()).build(builder)?;
-                    anyhow::Ok(ssr)
-                })?;
-                let mut lock = self.node.try_write().context("can't lock")?;
-                if let SsrNode::Container { children, .. } = lock.deref_mut() {
-                    let _ = children.list_patch_apply(patch);
-                } else {
-                    anyhow::bail!("not a container")
-                }
-            }
-            Update::Listener {
-                event_name,
-                event_target,
-                sink,
-            } => {
-                let sink = Box::pin(sink.contra_map(AnyEvent::new));
-                let mut lock = self.events.try_write().context("can't lock")?;
-                let _ = lock.insert((event_target, event_name), sink);
-            }
-            Update::PostBuild(f) => {
-                let node = self.clone();
-                (f)(AnyView::new(node))?;
-            }
-        }
-
-        Ok(())
-    }
-    ///// Add an event to the element, document or window.
-    /////
-    ///// When an event occurs it will be sent into the given sink.
-    //fn set_event(
-    //    &self,
-    //    type_is: EventTargetType,
-    //    name: &str,
-    //    sink: impl Sink<Self::Event, Error = SinkError> + Unpin + Send + Sync + 'static,
-    //) -> anyhow::Result<()> {
-    //}
-
-    /////// Spawn an asynchronous task.
-    //fn spawn(
-    //    &self,
-    //    action: impl Future<Output = ()> + Send + 'static,
-    //) {
-    //    self.executor.spawn(action).detach()
-    //}
 }
 
 #[cfg(test)]

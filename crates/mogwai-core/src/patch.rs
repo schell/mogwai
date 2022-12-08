@@ -16,7 +16,7 @@ fn clone_bound<T: Copy>(bound: Bound<&T>) -> Bound<T> {
 }
 
 /// Variants used to patch the items in a list.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ListPatch<T> {
     /// Replace the specified range in the list with the given `replace_with` items.
     /// Zero-indexed.
@@ -32,23 +32,6 @@ pub enum ListPatch<T> {
 
     /// Remove the last item.
     Pop,
-}
-
-impl<T> std::fmt::Debug for ListPatch<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Splice {
-                range,
-                replace_with,
-            } => f
-                .debug_struct("Splice")
-                .field("range", range)
-                .field("replace_with", &format!("vec len={}", replace_with.len()))
-                .finish(),
-            Self::Push(_) => f.debug_tuple("Push").field(&()).finish(),
-            Self::Pop => write!(f, "Pop"),
-        }
-    }
 }
 
 impl<T> ListPatch<T> {
@@ -89,9 +72,9 @@ impl<T> ListPatch<T> {
     }
 
     /// Map the patch from `T` to `X`
-    pub fn map<F, X>(self, f: F) -> ListPatch<X>
+    pub fn map<F, X>(self, mut f: F) -> ListPatch<X>
     where
-        F: Fn(T) -> X,
+        F: FnMut(T) -> X,
     {
         match self {
             ListPatch::Splice {
@@ -107,9 +90,9 @@ impl<T> ListPatch<T> {
     }
 
     /// Map the patch from `T` to `X`
-    pub fn try_map<F, X, E>(self, f: F) -> Result<ListPatch<X>, E>
+    pub fn try_map<F, X, E>(self, mut f: F) -> Result<ListPatch<X>, E>
     where
-        F: Fn(T) -> Result<X, E>,
+        F: FnMut(T) -> Result<X, E>,
     {
         Ok(match self {
             ListPatch::Splice {

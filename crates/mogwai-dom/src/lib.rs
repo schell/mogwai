@@ -24,11 +24,9 @@
 //! | minimal     | obvious   | graphical   | web    | application   | interface    |
 //! | modular     | operable  | graphable   | widget |               |              |
 //! | mostly      |           | gui         | work   |               |              |
-//! Provides trait implementations and helper functions for running mogwai
-//! html-based UI graphs in the browser and on a server.
 //!
 //! ## JavaScript interoperability
-//! This library is a thin layer on top of the //! [web-sys](https://crates.io/crates/web-sys)
+//! This library is a thin layer on top of the [web-sys](https://crates.io/crates/web-sys)
 //! crate which provides raw bindings to _tons_ of browser web APIs.
 //! Many of the DOM specific structs, enums and traits come from `web-sys`.
 //! It is important to understand the [`JsCast`](../prelude/trait.JsCast.html) trait
@@ -38,6 +36,7 @@ pub mod an_introduction;
 pub mod event;
 pub mod utils;
 pub mod view;
+pub use mogwai_macros::{rsx, html, builder};
 
 pub mod core {
     //! Re-export of the mogwai library.
@@ -52,6 +51,9 @@ pub mod prelude {
     pub use mogwai::prelude::*;
 }
 
+#[cfg(doctest)]
+doc_comment::doctest!("../../../README.md");
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod nonwasm {
     use std::sync::Arc;
@@ -62,7 +64,7 @@ mod nonwasm {
     use crate::{
         core::{
             channel::{broadcast, mpsc},
-            time::wait_while_async,
+            time::repeat_times,
         },
         prelude::*,
     }; // for macro features
@@ -186,7 +188,7 @@ mod nonwasm {
 
         let _div = ViewBuilder::element("div")
             .with_single_attrib_stream("id", "hello")
-            .with_post_build(move |_: JsDom| {
+            .with_post_build(move |_: &mut JsDom| {
                 let _ = tx.inner.try_broadcast(())?;
                 Ok(())
             })
@@ -199,7 +201,7 @@ mod nonwasm {
             let (tx, mut rx) = broadcast::bounded::<()>(1);
 
             let _div: SsrDom = rsx! {
-                div(id="hello", post:build=move |_: SsrDom| {
+                div(id="hello", post:build=move |_: &mut SsrDom| {
                     let _ = tx.inner.try_broadcast(())?;
                     Ok(())
                 }) { "Hello" }
@@ -375,9 +377,10 @@ mod nonwasm {
 
             my_view.executor.run(async {
                 tx.send(ListPatch::drain()).await.unwrap();
-                // just as a sanity check we wait until the view has updated
-                wait_while_async(1.0, || async {
-                    my_view.html_string().await != r#"<div id="main"></div>"#
+                // just as a sanity check we wait until the view has removed all child
+                // nodes
+                repeat_times(0.1, 10, || async {
+                    my_view.html_string().await == r#"<div id="main"></div>"#
                 })
                     .await
                     .unwrap();
@@ -387,9 +390,10 @@ mod nonwasm {
                 };
 
                 tx.send(ListPatch::push(other_viewbuilder)).await.unwrap();
-                wait_while_async(1.0, || async {
+                // now wait until the view has been patched with the new child
+                repeat_times(0.1, 10, || async {
                     let html_string = my_view.html_string().await;
-                    html_string != r#"<div id="main"><h1>Hello!</h1></div>"#
+                    html_string == r#"<div id="main"><h1>Hello!</h1></div>"#
                 })
                     .await
                     .unwrap();

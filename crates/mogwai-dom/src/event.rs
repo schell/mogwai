@@ -173,7 +173,7 @@ where
 
 /// Add an event listener of the given name to the given target. When the event happens, the
 /// event will be fed to the given sink. If the sink is closed, the listener will be removed.
-pub fn add_event<V: View>(
+pub fn add_event(
     ev_name: &str,
     target: &web_sys::EventTarget,
     mut tx: Pin<Box<dyn Sink<web_sys::Event, Error = SinkError> + 'static>>,

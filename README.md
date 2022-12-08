@@ -54,8 +54,8 @@ The main concepts behind `mogwai` are
 ## example
 Here is an example of a button that counts the number of times it has been clicked:
 
-```rust
-use mogwai::prelude::*;
+```rust, no_run
+use mogwai_dom::prelude::*;
 
 #[derive(Default)]
 struct Button {
@@ -65,7 +65,8 @@ struct Button {
 }
 
 impl Button {
-    fn builder(mut self) -> ViewBuilder<JsDom> {
+    /// Convert into a `ViewBuilder`
+    fn builder(mut self) -> ViewBuilder {
         rsx! (
             button(on:click=self.click.sink().contra_map(|_: JsDomEvent| ())) {
                 // Using braces we can embed rust values in our UI tree.
@@ -90,15 +91,16 @@ impl Button {
 let btn = Button::default();
 // Get a sink to manually send events.
 let mut click_sink = btn.click.sink();
-// Build the view
-let view = btn
+// Build the view to render in the browser
+let view: JsDom = btn
     .builder()
     .build()
     .unwrap();
+// Attach it to the DOM
 view.run().unwrap();
 
 // Spawn asyncronous updates
-mogwai::spawn(async move {
+wasm_bindgen_futures::spawn_local(async move {
     // Queue some messages for the view as if the button had been clicked:
     click_sink.send(()).await.unwrap();
     click_sink.send(()).await.unwrap();

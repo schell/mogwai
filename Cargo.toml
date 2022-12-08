@@ -1,7 +1,7 @@
 [workspace]
 
 members = [
-  #"cookbook",
+  "cookbook",
   #"crates/mogwai",
   "crates/mogwai-core",
   "crates/mogwai-dom",

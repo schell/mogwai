@@ -57,6 +57,7 @@
 //! ```
 use std::sync::{Arc, Mutex};
 
+use anyhow::Context;
 use futures::{Sink, SinkExt, Stream, StreamExt};
 
 use crate::channel::{broadcast, SinkError};
@@ -90,17 +91,23 @@ impl<T> Clone for Input<T> {
 
 impl<T> Input<T> {
     /// Set the value of this input.
-    pub async fn set(&self, item: impl Into<T>) -> Result<(), ()> {
+    pub async fn set(&self, item: impl Into<T>) -> anyhow::Result<()> {
         let mut setter = self.setter.clone();
-        setter.send(item.into()).await.map_err(|_| ())
+        setter
+            .send(item.into())
+            .await
+            .with_context(|| format!("could not set input of {}", std::any::type_name::<T>()))
     }
 
     /// Attempt to set the value of this input syncronously.
     ///
     /// When this fails it is because the input has an existing value
     /// set that has not been consumed.
-    pub fn try_set(&mut self, item: impl Into<T>) -> Result<(), ()> {
-        self.setter.try_send(item.into()).map_err(|_| ())
+    pub fn try_set(&mut self, item: impl Into<T>) -> anyhow::Result<()> {
+        self.setter
+            .try_send(item.into())
+            .ok()
+            .with_context(|| format!("could not try_set input of {}", std::any::type_name::<T>()))
     }
 
     /// Attempt to acquire a stream of updates to this input.
@@ -108,6 +115,8 @@ impl<T> Input<T> {
     /// An `Input` can have at most **one** consumer in the destination view.
     /// For this reason this function returns `Some` the first time it is called,
     /// and `None` each subsequent call.
+    ///
+    /// If you need more than one consumer for this stream, use [`FanInput`] instead.
     ///
     /// It is suggested you use `input.stream().unwrap()` (or similar) when constructing
     /// a [`ViewBuilder`](crate::builder::ViewBuilder) from an `Input` so that

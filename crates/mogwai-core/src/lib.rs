@@ -1,15 +1,17 @@
 //! # Mogwai
 //!
-//! Mogwai is library for multi-domain user interface development using sinks and streams.
+//! Mogwai is library for user interface development using sinks and streams.
 //!
 //! Its goals are simple:
-//! * provide a declarative approach to creating and managing interface nodes, without
+//! * provide a declarative way to create and manage interface nodes, without
 //!   a bias towards a specific UI domain (ie web, games, desktop applications, mobile)
 //! * encapsulate component state and compose components easily
 //! * explicate mutations and updates
 //! * feel snappy
+//! * allow the library user to access the underlying raw views when necessary, ie - you have
+//!   an "escape hatch"
 //!
-//! ## UI JsDomains
+//! ## UI Domains
 //! Mogwai has domain-specific libraries for certain user interface domains that re-export this
 //! core library and specialize it for the domain.
 //!
@@ -31,9 +33,8 @@
 //! | minimal     | obvious   | graphical   | web    | application   | interface    |
 //! | modular     | operable  | graphable   | widget |               |              |
 //! | mostly      |           | gui         | work   |               |              |
+//!
 pub mod channel;
-//pub mod constraints;
-pub mod error;
 pub mod futures;
 pub mod model;
 pub mod patch;

@@ -1,11 +1,12 @@
-use mogwai_dom::prelude::*;
+use std::convert::TryFrom;
+
+use mogwai_dom::{core::channel::broadcast, prelude::*};
 
 #[test]
 fn expand_this_builder() {
     let _ = html! {
         <div
-         cast:type = JsDom
-         post:build = move |_:&mut JsDom| println!("post build")
+         post:build = move |_:&mut JsDom| Ok(println!("post build"))
          style:background_color = "red"
          data_thing = "a string"
          checked >
@@ -22,50 +23,47 @@ fn expand_this_builder() {
 fn node_self_closing() {
     smol::block_on(async {
         // not all nodes are void nodes
-        let div: String = html! {
+        let div: SsrDom = html! {
             <a href="http://zyghost.com" />
         }
         .build()
-        .unwrap()
-        .html_string()
-        .await;
+        .unwrap();
+        let div: String = div.html_string().await;
         assert_eq!(&div, r#"<a href="http://zyghost.com"></a>"#);
 
-        let div: String = html! {
+        let div: SsrDom = html! {
             <img src="http://zyghost.com/favicon.ico" />
         }
         .build()
-        .unwrap()
-        .html_string()
-        .await;
+        .unwrap();
+        let div = div.html_string().await;
         assert_eq!(&div, r#"<img src="http://zyghost.com/favicon.ico" />"#);
     });
 }
 
 #[smol_potat::test]
 async fn node_self_closing_gt_1_att() {
-    let decomp: ViewBuilder<JsDom> = html! {<a href="http://zyghost.com" class="blah"/>};
-    let (_, attribs) = mogwai::builder::exhaust::<HashPatch<_, _>, _>(
-        futures::stream::select_all(decomp.attribs),
-    );
-    assert_eq!(
-        attribs[0],
-        HashPatch::Insert("href".to_string(), "http://zyghost.com".to_string())
-    );
+    let decomp: ViewBuilder = html! {<a href="http://zyghost.com" class="blah"/>};
+    let (_, updates) = mogwai_dom::core::view::exhaust(futures::stream::select_all(decomp.updates));
+    match &updates[0] {
+        Update::Attribute(HashPatch::Insert(k, v)) => {
+            assert_eq!("href", k.as_str());
+            assert_eq!("http://zyghost.com", v.as_str());
+        }
+        att => panic!("unmatched attribute: {:?}", att),
+    }
 
     // not all nodes are void nodes
-    let div: String = html! {<a href="http://zyghost.com" class="blah"/>}
+    let div: SsrDom = html! {<a href="http://zyghost.com" class="blah"/>}
         .build()
-        .unwrap()
-        .html_string()
-        .await;
+        .unwrap();
+    let div: String = div.html_string().await;
     assert_eq!(&div, r#"<a href="http://zyghost.com" class="blah"></a>"#);
 
-    let div: String = html! {<img src="http://zyghost.com/favicon.ico" class="blah"/>}
+    let div: SsrDom = html! {<img src="http://zyghost.com/favicon.ico" class="blah"/>}
         .build()
-        .unwrap()
-        .html_string()
-        .await;
+        .unwrap();
+    let div: String = div.html_string().await;
     assert_eq!(
         &div,
         r#"<img src="http://zyghost.com/favicon.ico" class="blah" />"#
@@ -74,22 +72,21 @@ async fn node_self_closing_gt_1_att() {
 
 #[smol_potat::test]
 async fn by_hand() {
-    let builder: ViewBuilder<JsDom> = ViewBuilder::element("a")
+    let builder: ViewBuilder = ViewBuilder::element("a")
         .with_single_attrib_stream("href", "http://zyghost.com")
         .with_single_attrib_stream("class", "a_link")
         .append(ViewBuilder::text("a text node"));
     assert_eq!(
         r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#,
-        builder.build().unwrap().html_string().await
+        SsrDom::try_from(builder).unwrap().html_string().await
     );
 }
 
 #[smol_potat::test]
 async fn node() {
-    let div: String = html! {
+    let div: String = SsrDom::try_from(html! {
         <a href="http://zyghost.com" class = "a_link">"a text node"</a>
-    }
-    .build()
+    })
     .unwrap()
     .html_string()
     .await;
@@ -102,10 +99,9 @@ async fn node() {
 #[smol_potat::test]
 async fn block_in_text() {
     let x: u32 = 66;
-    let s: String = html! {
+    let s: String = SsrDom::try_from(html! {
         <pre>"just a string with the number" {format!("{}", x)} "<- blah blah"</pre>
-    }
-    .build()
+    })
     .unwrap()
     .html_string()
     .await;
@@ -119,10 +115,9 @@ async fn block_in_text() {
 #[smol_potat::test]
 async fn block_at_end_of_text() {
     let x: u32 = 66;
-    let s: String = html! {
+    let s: String = SsrDom::try_from(html! {
         <pre>"just a string with the number" {format!("{}", x)}</pre>
-    }
-    .build()
+    })
     .unwrap()
     .html_string()
     .await;
@@ -132,10 +127,9 @@ async fn block_at_end_of_text() {
 
 #[smol_potat::test]
 async fn lt_in_text() {
-    let s: String = html! {
+    let s: String = SsrDom::try_from(html! {
         <pre>"this is text <- text"</pre>
-    }
-    .build()
+    })
     .unwrap()
     .html_string()
     .await;
@@ -145,14 +139,13 @@ async fn lt_in_text() {
 
 #[smol_potat::test]
 async fn allow_attributes_on_next_line() {
-    let _: String = html! {
+    let _: String = SsrDom::try_from(html! {
         <div
             id="my_div"
             style="float: left;">
             "A string"
         </div>
-    }
-    .build()
+    })
     .unwrap()
     .html_string()
     .await;
@@ -180,12 +173,12 @@ struct User {
 
 fn signed_in_view_builder(
     user: &User,
-    home_class: impl MogwaiStream<String>,
-    editor_class: impl MogwaiStream<String>,
-    settings_class: impl MogwaiStream<String>,
-    profile_class: impl MogwaiStream<String>,
-) -> ViewBuilder<JsDom> {
-    let o_image: Option<ViewBuilder<JsDom>> = user
+    home_class: impl Stream<Item = String> + Send + 'static,
+    editor_class: impl Stream<Item = String>+ Send + 'static,
+    settings_class: impl Stream<Item = String>+ Send + 'static,
+    profile_class: impl Stream<Item = String>+ Send + 'static,
+) -> ViewBuilder {
+    let o_image: Option<ViewBuilder> = user
         .o_image
         .as_ref()
         .map(|image| {
@@ -224,40 +217,16 @@ fn signed_in_view_builder(
     }
 }
 
-#[cfg(feature = "never")]
-#[test]
-pub fn struct_view_macro_source() {
-    struct_view! {
-        <Facade>
-            <div
-             style:background_color = set_bg_color
-             on:click = get_click >
-                "Hello"
-            </div>
-        </Facade>
-    }
-
-    let (facade, builder): (Facade<JsDom>, _) = Facade::new();
-    let view = builder.build().unwrap();
-    view.run().unwrap();
-
-    let mut remote_facade: Facade<JsDom> = facade.clone();
-    mogwai::spawn(async move {
-        remote_facade.set_bg_color("red").await.unwrap();
-        let _event: JsDomEvent = remote_facade.get_click().await.unwrap();
-    });
-}
-
 #[test]
 pub fn function_style_rsx() {
     fn _signed_in_view_builder(
         user: &User,
-        home_class: impl MogwaiStream<String>,
-        editor_class: impl MogwaiStream<String>,
-        settings_class: impl MogwaiStream<String>,
-        profile_class: impl MogwaiStream<String>,
-    ) -> ViewBuilder<JsDom> {
-        let o_image: Option<ViewBuilder<JsDom>> = user
+        home_class: impl Stream<Item = String> + Send + 'static,
+        editor_class: impl Stream<Item = String> + Send + 'static,
+        settings_class: impl Stream<Item = String> + Send + 'static,
+        profile_class: impl Stream<Item = String> + Send + 'static,
+    ) -> ViewBuilder {
+        let o_image: Option<ViewBuilder> = user
             .o_image
             .as_ref()
             .map(|image| {
@@ -301,14 +270,14 @@ pub fn function_style_rsx() {
 
 #[smol_potat::test]
 async fn rsx_same_as_html() {
-    let html = html! {
+    let html: SsrDom = html! {
         <p><div class="my_class">"Hello"</div></p>
     }
     .build()
     .unwrap();
     let html_string = html.html_string().await;
 
-    let rsx = rsx! {
+    let rsx: SsrDom = rsx! {
         p{ div(class="my_class"){ "Hello" }}
     }
     .build()

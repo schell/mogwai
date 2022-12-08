@@ -13,74 +13,29 @@ use crate::{
 };
 use anyhow::Context;
 pub use anyhow::Error;
-use futures::{stream, Future, Sink, SinkExt, Stream, StreamExt};
-struct DummyWaker;
+use futures::{stream, Future, Sink, Stream, StreamExt};
+
+/// A struct with a no-op implementation of Waker
+pub struct DummyWaker;
 
 impl Wake for DummyWaker {
     fn wake(self: std::sync::Arc<Self>) {}
 }
 
 /// Resources needed to build a view `V` from a [`ViewBuilder`].
-pub trait ViewResources<V>
-where
-    V: View,
-{
-    /// Initialize a new view.
-    fn init(&self, identity: ViewIdentity) -> anyhow::Result<V>;
-
+pub trait ViewResources<V: View> {
     /// Convert a view builder into a view.
-    fn build(&self, builder: ViewBuilder) -> anyhow::Result<V> {
-        let ViewBuilder {
-            identity,
-            updates,
-            tasks,
-            view_sinks,
-        } = builder;
-
-        let element = self.init(identity)?;
-        let updates = stream::select_all(updates);
-        let (mut update_stream, initial_values) = exhaust(updates);
-
-        for update in initial_values.into_iter() {
-            element.update(update)?;
-        }
-
-        let node = element.clone();
-        self.spawn(async move {
-            while let Some(update) = update_stream.next().await {
-                node.update(update).unwrap();
-            }
-        });
-
-        for task in tasks.into_iter() {
-            self.spawn(task);
-        }
-
-        let node = element.clone();
-        self.spawn(async move {
-            for mut sink in view_sinks.into_iter() {
-                let _ = sink.send(AnyView::new(node.clone())).await;
-            }
-        });
-
-        Ok(element)
-    }
-
-    ///// Spawn an asynchronous task.
+    fn build(&mut self, builder: ViewBuilder) -> anyhow::Result<V>;
+    /// Spawn an asynchronous task.
     fn spawn(&self, action: impl Future<Output = ()> + Send + 'static);
 }
 
-/// An interface for a domain-specific view.
+/// A marker trait for domain-specific views.
 ///
-/// A view should be a type that can be cheaply cloned, where clones all refer
+/// A view is a smart pointer that can be cheaply cloned, where clones all refer
 /// to the same underlying user interface node.
-pub trait View
-where
-    Self: Any + Sized + Clone + Unpin + Send + Sync,
-{
-    /// Update the view
-    fn update(&self, update: Update) -> anyhow::Result<()>;
-}
+pub trait View: Any + Sized + Clone + Unpin + Send + Sync {}
+impl<T: Any + Sized + Clone + Unpin + Send + Sync> View for T {}
 
 /// A type erased view.
 ///
@@ -88,7 +43,6 @@ where
 pub struct AnyView {
     inner: Box<dyn Any + Send + Sync>,
     clone_fn: fn(&AnyView) -> AnyView,
-    update_fn: fn(&AnyView, Update) -> anyhow::Result<()>,
 }
 
 impl Clone for AnyView {
@@ -97,20 +51,8 @@ impl Clone for AnyView {
         Self {
             inner: cloned_view.inner,
             clone_fn: self.clone_fn.clone(),
-            update_fn: self.update_fn.clone(),
         }
     }
-}
-
-impl View for AnyView {
-    fn update(&self, update: Update) -> anyhow::Result<()> {
-        (self.update_fn)(self, update)
-    }
-}
-
-fn any_view_update<V: View>(any_view: &AnyView, update: Update) -> anyhow::Result<()> {
-    let v: &V = any_view.downcast_ref().unwrap();
-    v.update(update)
 }
 
 fn any_view_clone<V: View>(any_view: &AnyView) -> AnyView {
@@ -118,7 +60,6 @@ fn any_view_clone<V: View>(any_view: &AnyView) -> AnyView {
     AnyView {
         inner: Box::new(v.clone()) as Box<dyn Any + Send + Sync>,
         clone_fn: any_view_clone::<V>,
-        update_fn: any_view_update::<V>,
     }
 }
 
@@ -127,12 +68,15 @@ impl AnyView {
         AnyView {
             inner: Box::new(inner),
             clone_fn: any_view_clone::<V>,
-            update_fn: any_view_update::<V>,
         }
     }
 
     pub fn downcast_ref<V: View>(&self) -> Option<&V> {
         self.inner.downcast_ref()
+    }
+
+    pub fn downcast_mut<V: View>(&mut self) -> Option<&mut V> {
+        self.inner.downcast_mut()
     }
 
     pub fn downcast<V: View>(self) -> anyhow::Result<V> {
@@ -344,6 +288,7 @@ impl<S: Send + 'static, St: Stream<Item = S> + Send + 'static> From<MogwaiValue<
 }
 
 /// The starting identity of a view.
+#[derive(Debug)]
 pub enum ViewIdentity {
     Branch(String),
     NamespacedBranch(String, String),
@@ -353,43 +298,53 @@ pub enum ViewIdentity {
 pub type MogwaiFuture<T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>;
 pub type MogwaiStream<T> = Pin<Box<dyn Stream<Item = T> + Send + 'static>>;
 pub type MogwaiSink<T> = Box<dyn Sink<T, Error = SinkError> + Send + Sync + Unpin + 'static>;
-pub type PostBuild = Box<dyn FnOnce(AnyView) -> anyhow::Result<()> + Send + Sync + 'static>;
+pub type PostBuild = Box<dyn FnOnce(&mut AnyView) -> anyhow::Result<()> + Send + Sync + 'static>;
 
 /// All the updates that a view can undergo.
+#[derive(Debug)]
 pub enum Update {
     Text(String),
     Attribute(HashPatch<String, String>),
     BooleanAttribute(HashPatch<String, bool>),
     Style(HashPatch<String, String>),
     Child(ListPatch<ViewBuilder>),
-    Listener {
-        event_name: String,
-        event_target: String,
-        sink: MogwaiSink<AnyEvent>,
-    },
-    PostBuild(PostBuild),
 }
 
-impl std::fmt::Debug for Update {
+//impl std::fmt::Debug for Update {
+//    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//        match self {
+//            Self::Text(arg0) => f.debug_tuple("Text").field(arg0).finish(),
+//            Self::Attribute(arg0) => f.debug_tuple("Attribute").field(arg0).finish(),
+//            Self::BooleanAttribute(arg0) => f.debug_tuple("BooleanAttribute").field(arg0).finish(),
+//            Self::Style(arg0) => f.debug_tuple("Style").field(arg0).finish(),
+//            Self::Child(arg0) => f.debug_tuple("Child").field(arg0).finish(),
+//        }
+//    }
+//}
+
+/// A listener (sink) of certain events.
+///
+/// In some domains like the web, events have string names that can be used
+/// to subscribe to them. In other domains (like those in languages with sum types)
+/// the name doesn't matter, and you may simply filter based on the enum's variant.
+pub struct Listener {
+    pub event_name: String,
+    pub event_target: String,
+    pub sink: MogwaiSink<AnyEvent>,
+}
+
+impl std::fmt::Debug for Listener {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Text(arg0) => f.debug_tuple("Text").field(arg0).finish(),
-            Self::Attribute(arg0) => f.debug_tuple("Attribute").field(arg0).finish(),
-            Self::BooleanAttribute(arg0) => f.debug_tuple("BooleanAttribute").field(arg0).finish(),
-            Self::Style(arg0) => f.debug_tuple("Style").field(arg0).finish(),
-            Self::Child(arg0) => f.debug_tuple("Child").field(arg0).finish(),
-            Self::Listener {
-                event_name,
-                event_target,
-                sink: _,
-            } => f
-                .debug_struct("Listener")
-                .field("event_name", event_name)
-                .field("event_target", event_target)
-                .field("sink", &())
-                .finish(),
-            Self::PostBuild(_) => f.debug_tuple("PostBuild").finish(),
-        }
+        let Listener {
+            event_name,
+            event_target,
+            sink: _,
+        } = self;
+        f.debug_struct("Listener")
+            .field("event_name", event_name)
+            .field("event_target", event_target)
+            .field("sink", &())
+            .finish()
     }
 }
 
@@ -403,21 +358,45 @@ pub struct ViewBuilder {
     pub identity: ViewIdentity,
     /// All declarative updates this view will undergo.
     pub updates: Vec<MogwaiStream<Update>>,
-    ///// Post build operations/computations that run and mutate the view after initialization.
-    //pub ops: Vec<Box<dyn FnOnce(&mut Box<dyn Any>) -> anyhow::Result<()> + Send + Sync + 'static>>,
-    ///// Sinks that want a clone of the view once it is initialized.
+    /// Post build operations/computations that run and mutate the view after initialization.
+    pub post_build_ops: Vec<PostBuild>,
+    /// Sinks that want a clone of the view once it is initialized.
     pub view_sinks: Vec<MogwaiSink<AnyView>>,
+    /// All event listeners (event sinks)
+    pub listeners: Vec<Listener>,
     /// Asynchronous tasks that run after the view has been initialized.
     pub tasks: Vec<MogwaiFuture<()>>,
 }
 
+impl std::fmt::Debug for ViewBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ViewBuilder")
+            .field("identity", &self.identity)
+            .field("updates", &format!("vec len={}", self.updates.len()))
+            .field(
+                "post_build_ops",
+                &format!("vec len={}", self.post_build_ops.len()),
+            )
+            .field("view_sinks", &format!("vec len={}", self.view_sinks.len()))
+            .field("tasks", &format!("vec len={}", self.tasks.len()))
+            .finish()
+    }
+}
+
 impl ViewBuilder {
+    /// Returns whether this builder is a leaf element, ie _not_ a container element.
+    pub fn is_leaf(&self) -> bool {
+        matches!(self.identity, ViewIdentity::Leaf(_))
+    }
+
     /// Create a new container element builder.
     pub fn element(tag: impl Into<String>) -> Self {
         ViewBuilder {
             identity: ViewIdentity::Branch(tag.into()),
             updates: Default::default(),
+            post_build_ops: vec![],
             view_sinks: vec![],
+            listeners: vec![],
             tasks: vec![],
         }
     }
@@ -427,7 +406,9 @@ impl ViewBuilder {
         ViewBuilder {
             identity: ViewIdentity::NamespacedBranch(tag.into(), ns.into()),
             updates: Default::default(),
+            post_build_ops: vec![],
             view_sinks: vec![],
+            listeners: vec![],
             tasks: vec![],
         }
     }
@@ -446,7 +427,9 @@ impl ViewBuilder {
         ViewBuilder {
             identity: ViewIdentity::Leaf(identity),
             updates,
+            post_build_ops: vec![],
             tasks: vec![],
+            listeners: vec![],
             view_sinks: vec![],
         }
     }
@@ -577,16 +560,15 @@ impl ViewBuilder {
     pub fn with_post_build<V, F>(mut self, f: F) -> Self
     where
         V: View,
-        F: FnOnce(V) -> anyhow::Result<()> + Send + Sync + 'static,
+        F: FnOnce(&mut V) -> anyhow::Result<()> + Send + Sync + 'static,
     {
-        let g = |any_view: AnyView| {
-            let v: V = any_view.downcast::<V>()?;
+        let g = |any_view: &mut AnyView| {
+            let v: &mut V = any_view
+                .downcast_mut::<V>()
+                .context("cannot downcast_mut this AnyView")?;
             f(v)
         };
-        self.updates
-            .push(Box::pin(stream::iter(std::iter::once(Update::PostBuild(
-                Box::new(g),
-            )))));
+        self.post_build_ops.push(Box::new(g) as PostBuild);
         self
     }
 
@@ -621,14 +603,13 @@ impl ViewBuilder {
             event
         }));
 
-        let listener = Update::Listener {
+        let listener = Listener {
             event_name: name.into(),
             event_target: target.into(),
             sink,
         };
 
-        self.updates
-            .push(Box::pin(stream::iter(std::iter::once(listener))));
+        self.listeners.push(listener);
         self
     }
 }

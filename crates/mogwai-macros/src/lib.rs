@@ -39,7 +39,9 @@ fn node_to_builder_token_stream(
 ) -> Result<proc_macro2::TokenStream, Error> {
     #[cfg(feature = "dom")]
     let mogwai_path = quote! { mogwai_dom::core };
-    #[cfg(not(feature = "dom"))]
+    #[cfg(feature = "pxy")]
+    let mogwai_path = quote! { pxy_mogwai::core };
+    #[cfg(not(any(feature = "dom", feature = "pxy")))]
     let mogwai_path = quote! { mogwai };
     match view_token {
         ViewToken::Element {
@@ -99,8 +101,8 @@ fn node_to_builder_token_stream(
 /// Use [`html!`] instead, or convert to [`rsx!`].
 ///
 /// ```rust
-/// let my_div = mogwai::builder! {
-///     <div cast:type=mogwai_dom::view::JsDom id="main">
+/// let my_div = mogwai_dom::html! {
+///     <div id="main">
 ///         <p>"Trolls are real"</p>
 ///     </div>
 /// };
@@ -118,8 +120,8 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// well.
 ///
 /// ```rust
-/// let my_div = mogwai::html! {
-///     <div cast:type=mogwai::dom::view::Dom id="main">
+/// let my_div = mogwai_dom::html! {
+///     <div id="main">
 ///         <p>"Trolls are real"</p>
 ///     </div>
 /// };
@@ -135,8 +137,8 @@ pub fn html(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// authoring.
 ///
 /// ```rust
-/// let my_div = mogwai::rsx! {
-///     div(cast:type=mogwai::dom::view::Dom, id="main") {
+/// let my_div = mogwai_dom::rsx! {
+///     div(id="main") {
 ///         p() {"Trolls are real"}
 ///     }
 /// };
@@ -154,9 +156,9 @@ pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 ///
 /// This is the same as the following:
 /// ```rust
-/// # use mogwai::prelude::*;
-/// let my_view = builder! {
-///     <div cast:type=Dom id="main">
+/// # use mogwai_dom::prelude::*;
+/// let my_view: SsrDom = html! {
+///     <div id="main">
 ///         <p>"Trolls are real"</p>
 ///     </div>
 /// }.build().unwrap();

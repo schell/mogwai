@@ -276,29 +276,30 @@ pub async fn wait_for_async<'a, T, A: Future<Output = Option<T>>>(
     }
 }
 
-/// Wait until the given async-producing-function produces `true`, or timeout.
-pub async fn wait_while_async<'a, A: Future<Output = bool>>(
+/// Run the given async-producing-function evaluating if it produces `true`,
+/// if `false` wait for a given amount of time and try again N-1 times.
+pub async fn repeat_times<'a, A: Future<Output = bool>>(
     timeout_seconds: f64,
+    mut n_times: usize,
     mut f: impl FnMut() -> A + 'a
 ) -> Result<Found<()>, f64> {
     let start = now();
 
-    loop {
-        let elapsed_seconds = (now() - start) / 1000.0;
-
-        if elapsed_seconds >= timeout_seconds {
-            return Err(elapsed_seconds);
-        }
+    while n_times > 0 {
+        n_times -= 1;
 
         if f().await {
             return Ok(Found {
                 found: (),
-                elapsed_seconds,
+                elapsed_seconds: (now() - start) / 1000.0,
             })
         } else {
-            wait_one_frame().await;
+            let _ = wait_secs(timeout_seconds).await;
         }
-    }}
+    }
+
+    Err((now() - start) / 1000.0)
+}
 
 pub async fn wait_until_next_for<T>(
     timeout_seconds: f64,
