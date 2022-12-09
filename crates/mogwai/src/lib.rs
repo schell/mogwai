@@ -16,13 +16,20 @@
 //! core library and specialize it for the domain.
 //!
 //! ### Javascript/Browser DOM
-//! TODO: Write about `mogwai-dom`
+//! [mogwai-dom](https://crates.io/crates/mogwai-dom) is a library for building browser applications
+//! using the Javascript API. It is a mogwai wrapper around [web_sys](https://crates.io/crates/web-sys).
 //!
 //! ### Terminal UI
 //! TODO: implement `mogwai-tui`
 //!
 //! ### Write your own
-//! TODO: Explain how to write your own domain-specific mogwai library
+//! Would you like to be able to build mogwai apps in a domain that doesn't exist yet?
+//! You can build it! For the most part the bulk of the work is writing an implementation of
+//! `TryFrom<ViewBuilder>` (or a similar conversion) for your domain-specific view type. See the
+//! [`mogwai-dom` source code](https://github.com/schell/mogwai/tree/no-constraints/crates/mogwai-dom)
+//! for an example of prior art.
+//!
+//! TODO: change the link for `mogwai-dom` to `main` after merging
 //!
 //! ## Acronyms
 //! If you're wondering what the acronym "mogwai" stands for, here is a table of

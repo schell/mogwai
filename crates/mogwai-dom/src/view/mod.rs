@@ -3,15 +3,17 @@ use std::{future::Future, pin::Pin, sync::Arc};
 
 use anyhow::Context;
 use async_executor::Executor;
-use futures::{stream, SinkExt, StreamExt};
+use futures::{stream::SelectAll, stream, SinkExt, StreamExt};
 use mogwai::{
     patch::{ListPatch, ListPatchApply},
     view::{exhaust, AnyView, Listener, Update, View, ViewBuilder, ViewIdentity},
+    view::{MogwaiFuture, MogwaiSink, MogwaiStream, PostBuild},
 };
-mod js_dom;
 
 pub use crate::event::JsDomEvent;
-pub use js_dom::{JsDom, JsDomResources};
+
+pub mod js;
+pub use js::{JsDom, JsDomResources};
 
 mod ssr;
 pub use serde_json::Value;
@@ -21,11 +23,13 @@ pub use futures::future::Either;
 pub use mogwai::futures::EitherExt;
 use wasm_bindgen::JsCast;
 
-fn build<V: View, R>(
+/// Build the `ViewBuilder` in a way that can be used by the browser and server-side
+/// and both.
+pub(crate) fn build<V: View, R>(
     rez: R,
     builder: ViewBuilder,
     init: impl FnOnce(&R, ViewIdentity) -> anyhow::Result<V>,
-    update_view: impl Fn(&V, Update) -> anyhow::Result<()> + Send + 'static,
+    update_view: fn(&V, Update) -> anyhow::Result<()>,
     add_event: impl Fn(&V, Listener) -> anyhow::Result<()>,
 ) -> anyhow::Result<(V, Vec<Pin<Box<dyn Future<Output = ()> + Send>>>)> {
     let ViewBuilder {
@@ -37,13 +41,49 @@ fn build<V: View, R>(
         view_sinks,
     } = builder;
 
-    let mut to_spawn: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![];
     let updates = stream::select_all(updates);
-    let (mut update_stream, initial_values) = exhaust(updates);
-    let element: V = init(&rez, identity)?;
+    let (update_stream, initial_values) = exhaust(updates);
+    let element: V = initialize_build(&rez, init, update_view, identity, initial_values)?; //
+    finalize_build(
+        element,
+        update_stream,
+        post_build_ops,
+        listeners,
+        tasks,
+        view_sinks,
+        add_event,
+        update_view
+    )
+}
+
+/// Initialize the DOM build by creating the element and applying any
+/// updates that are ready and waiting.
+pub(crate) fn initialize_build<V: View, R>(
+    rez: &R,
+    init: impl FnOnce(&R, ViewIdentity) -> anyhow::Result<V>,
+    update_view: impl Fn(&V, Update) -> anyhow::Result<()> + Send + 'static,
+    identity: ViewIdentity,
+    initial_values: Vec<Update>,
+) -> anyhow::Result<V> {
+    let view = init(&rez, identity)?;
     for update in initial_values.into_iter() {
-        update_view(&element, update)?;
+        update_view(&view, update)?;
     }
+    Ok(view)
+}
+
+/// Finalize the DOM build by making the element reactive.
+pub(crate) fn finalize_build<V: View>(
+    element: V,
+    mut update_stream: SelectAll<MogwaiStream<Update>>,
+    post_build_ops: Vec<PostBuild>,
+    listeners: Vec<Listener>,
+    tasks: Vec<MogwaiFuture<()>>,
+    view_sinks: Vec<MogwaiSink<AnyView>>,
+    add_event: impl Fn(&V, Listener) -> anyhow::Result<()>,
+    update_view: impl Fn(&V, Update) -> anyhow::Result<()> + Send + 'static,
+) -> anyhow::Result<(V, Vec<Pin<Box<dyn Future<Output = ()> + Send>>>)> {
+    let mut to_spawn: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![];
 
     for listener in listeners.into_iter() {
         (add_event)(&element, listener)?;
@@ -99,14 +139,14 @@ impl Dom {
         identity: ViewIdentity,
     ) -> anyhow::Result<Self> {
         Ok(match rez {
-            Either::Left(()) => Dom::from(js_dom::init(&(), identity)?),
+            Either::Left(()) => Dom::from(js::init(&(), identity)?),
             Either::Right(executor) => Dom::from(ssr::init(executor, identity)?),
         })
     }
 
     fn add_event(&self, listener: Listener) -> anyhow::Result<()> {
         match &self.0 {
-            Either::Left(js) => js_dom::add_event(js, listener),
+            Either::Left(js) => js::add_event(js, listener),
             Either::Right(ssr) => ssr::add_event(ssr, listener),
         }
     }
@@ -226,7 +266,7 @@ impl Dom {
                 }
             }
             update => match self.as_either_ref() {
-                Either::Left(js) => js_dom::update_js_dom(js, update),
+                Either::Left(js) => js::update_js_dom(js, update),
                 Either::Right(ssr) => ssr::update_ssr_dom(ssr, update),
             },
         }

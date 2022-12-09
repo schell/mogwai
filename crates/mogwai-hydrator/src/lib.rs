@@ -1,12 +1,7 @@
-//! Types and [`TryFrom`] instances that can 're-animate' views or portions of views from the DOM.
-use futures::SinkExt;
-use mogwai::{
-    builder::{exhaust, ViewBuilder},
-    dom::{spawn, view::Dom},
-    futures::EitherExt,
-    patch::{HashPatch, HashPatchApply, ListPatchApply},
-};
-// TODO: Standardize on anyhow instead of snafu
+//! Types and [`TryFrom`] instances that can 're-animate' `mogwai-dom` views or portions
+//! of views from the DOM.
+use mogwai_dom::prelude::*;
+use mogwai_dom::core::futures::stream;
 use snafu::{ensure, OptionExt, Snafu};
 use std::collections::HashMap;
 pub use std::{convert::TryFrom, ops::Deref};
@@ -76,12 +71,12 @@ impl HydrationKey {
         Err(Error::NoHydrationOption { tag })
     }
 
-    pub fn hydrate(self) -> Result<Dom, Error> {
+    pub fn hydrate(self) -> Result<JsDom, Error> {
         snafu::ensure!(cfg!(target_arch = "wasm32"), WASMOnly);
 
         let el: Node = match self {
             HydrationKey::Id(id) => {
-                let el = mogwai::dom::utils::document()
+                let el = mogwai_dom::utils::document()
                     .clone_as::<web_sys::Document>()
                     .with_context(|| WASMOnly)?
                     .get_element_by_id(&id)
@@ -127,10 +122,8 @@ impl HydrationKey {
             }
         };
 
-        let dom = JsDom::try_from(JsValue::from(el));
-        ensure!(dom.is_ok(), WASMOnly);
-
-        Ok(dom.unwrap())
+        let dom = JsDom::from_jscast(&el);
+        Ok(dom)
     }
 }
 
@@ -144,49 +137,44 @@ impl From<Hydrator> for JsDom {
     }
 }
 
-impl TryFrom<ViewBuilder<JsDom>> for Hydrator {
+impl TryFrom<ViewBuilder> for Hydrator {
     type Error = Error;
 
-    fn try_from(builder: ViewBuilder<JsDom>) -> Result<Self, Self::Error> {
+    fn try_from(builder: ViewBuilder) -> Result<Self, Self::Error> {
         Hydrator::try_hydrate(builder, None)
     }
 }
 
 impl Hydrator {
-    /// Attempt to hydrate [`Dom`] from [`DecomposedViewBuilder<JsDom>`].
+    /// Attempt to hydrate [`JsDom`] from [`ViewBuilder`].
     fn try_hydrate(
-        ViewBuilder {
-            identity,
-            texts,
-            attribs,
-            bool_attribs,
-            styles,
-            children,
-            events,
-            ops,
-            view_sinks,
-            tasks,
-        }: ViewBuilder<JsDom>,
+        builder: ViewBuilder,
         may_parent: Option<(usize, &Node)>,
     ) -> Result<Hydrator, Error> {
+        let ViewBuilder {
+            identity,
+            updates,
+            post_build_ops,
+            view_sinks,
+            listeners,
+            tasks,
+        } = builder;
         let construct_with = match identity {
-            mogwai::prelude::ViewIdentity::Branch(s) => s,
-            mogwai::prelude::ViewIdentity::NamespacedBranch(s, _) => s,
-            mogwai::prelude::ViewIdentity::Leaf(s) => s,
+            ViewIdentity::Branch(s) => s,
+            ViewIdentity::NamespacedBranch(s, _) => s,
+            ViewIdentity::Leaf(s) => s,
         };
 
-        let (text_stream, _texts) = exhaust(Box::pin(futures::stream::select_all(texts)));
-        let (attrib_stream, attribs) = exhaust(Box::pin(futures::stream::select_all(attribs)));
-        let (bool_attrib_stream, _bool_attribs) =
-            exhaust(Box::pin(futures::stream::select_all(bool_attribs)));
-        let (style_stream, _styles) = exhaust(Box::pin(futures::stream::select_all(styles)));
-        let (child_stream, child_patches) =
-            exhaust(Box::pin(futures::stream::select_all(children)));
+        let (update_stream, updates) = exhaust(stream::select_all(updates));
+        let attribs = updates.into_iter().filter_map(|update| match update {
+            Update::Attribute(patch) => Some(patch),
+            _ => None
+        });
 
         let key = HydrationKey::try_new(construct_with, attribs, may_parent)?;
         let mut dom = key.hydrate()?;
 
-        mogwai::dom::builder::set_streaming_values(
+        mogwai_dom::builder::set_streaming_values(
             &dom,
             text_stream,
             attrib_stream,

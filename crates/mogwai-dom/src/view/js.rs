@@ -1,14 +1,15 @@
 //! Wrapper around Javascript DOM nodes.
 use std::{
+    collections::HashMap,
     future::Future,
     ops::{Bound, Deref, RangeBounds},
 };
 
 use anyhow::Context;
-use futures::{channel::mpsc, SinkExt, StreamExt};
+use futures::{channel::mpsc, stream::select_all, SinkExt, StreamExt};
 use mogwai::{
     futures::sink::Contravariant,
-    patch::{HashPatch, ListPatch, ListPatchApply},
+    patch::{HashPatch, HashPatchApply, ListPatch, ListPatchApply},
     view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity},
 };
 use send_wrapper::SendWrapper;
@@ -19,10 +20,7 @@ use crate::event::JsDomEvent;
 /// An empty type because we don't need anything but static references to build browser DOM.
 pub struct JsDomResources;
 
-pub(crate) fn init(
-    _: &(),
-    identity: ViewIdentity,
-) -> anyhow::Result<JsDom> {
+pub(crate) fn init(_: &(), identity: ViewIdentity) -> anyhow::Result<JsDom> {
     let element = match identity {
         ViewIdentity::Branch(tag) => JsDom::element(&tag, None),
         ViewIdentity::NamespacedBranch(tag, ns) => JsDom::element(&tag, Some(&ns)),
@@ -44,8 +42,7 @@ pub(crate) fn add_event(
         "myself" => {
             crate::event::add_event(
                 &event_name,
-                view
-                    .inner
+                view.inner
                     .dyn_ref::<web_sys::EventTarget>()
                     .ok_or_else(|| "not an event target".to_string())
                     .unwrap(),
@@ -53,11 +50,7 @@ pub(crate) fn add_event(
             );
         }
         "window" => {
-            crate::event::add_event(
-                &event_name,
-                &web_sys::window().unwrap(),
-                Box::pin(tx),
-            );
+            crate::event::add_event(&event_name, &web_sys::window().unwrap(), Box::pin(tx));
         }
         "document" => {
             crate::event::add_event(
@@ -363,12 +356,12 @@ impl JsDom {
         let node: web_sys::Node = self
             .inner
             .dyn_ref::<web_sys::Node>()
-            .context("could not downcast to Node")?
+            .context("could not downcast to web_sys::Node")?
             .clone();
         let mut container_node: web_sys::Node = container
             .inner
             .dyn_ref::<web_sys::Node>()
-            .context("could not downcast to Node")?
+            .context("could not downcast to web_sys::Node")?
             .clone();
         let patch = ListPatch::push(node);
         let _ = list_patch_apply_node(&mut container_node, patch);
@@ -380,7 +373,10 @@ impl JsDom {
         self.run_in_container(&crate::utils::body())
     }
 
-    pub async fn run_while<T: 'static>(&self, fut: impl Future<Output = T> + 'static) -> anyhow::Result<T> {
+    pub async fn run_while<T: 'static>(
+        &self,
+        fut: impl Future<Output = T> + 'static,
+    ) -> anyhow::Result<T> {
         let (mut tx, mut rx) = mpsc::channel(1);
         wasm_bindgen_futures::spawn_local(async move {
             let t = fut.await;
@@ -462,7 +458,10 @@ impl ListPatchApply for JsDom {
         });
 
         let mut parent = self.inner.dyn_ref::<web_sys::Node>().unwrap().clone();
-        list_patch_apply_node(&mut parent, patch).into_iter().map(|t| JsDom::from_jscast(&t)).collect()
+        list_patch_apply_node(&mut parent, patch)
+            .into_iter()
+            .map(|t| JsDom::from_jscast(&t))
+            .collect()
     }
 }
 
@@ -475,5 +474,194 @@ impl TryFrom<ViewBuilder> for JsDom {
             wasm_bindgen_futures::spawn_local(task);
         }
         Ok(js)
+    }
+}
+
+/// Used to identify an existing node when hydrating `JsDom`.
+pub enum HydrationKey {
+    Id(String),
+    IndexedChildOf { node: web_sys::Node, index: u32 },
+}
+
+impl HydrationKey {
+    pub fn try_new(
+        tag: String,
+        attribs: Vec<HashPatch<String, String>>,
+        may_parent: Option<(usize, &web_sys::Node)>,
+    ) -> anyhow::Result<Self> {
+        let mut attributes = HashMap::new();
+        for patch in attribs.into_iter() {
+            let _ = attributes.hash_patch_apply(patch);
+        }
+
+        if let Some(id) = attributes.remove("id") {
+            return Ok(HydrationKey::Id(id));
+        }
+
+        if let Some((index, parent)) = may_parent {
+            return Ok(HydrationKey::IndexedChildOf {
+                node: parent.clone(),
+                index: index as u32,
+            });
+        }
+
+        anyhow::bail!("Missing any hydration option for node '{}' - must be the child of a node or have an id", tag)
+    }
+
+    pub fn hydrate(self) -> anyhow::Result<JsDom> {
+        anyhow::ensure!(
+            cfg!(target_arch = "wasm32"),
+            "Hydration only available on WASM"
+        );
+
+        let el: web_sys::Node = match self {
+            HydrationKey::Id(id) => {
+                let el = crate::utils::document()
+                    .clone_as::<web_sys::Document>()
+                    .with_context(|| "wasm only")?
+                    .get_element_by_id(&id)
+                    .with_context(|| format!("Could not find an element with id '{}'", id))?;
+                el.clone().dyn_into::<web_sys::Node>().map_err(|_| {
+                    anyhow::anyhow!(
+                        "Could not convert from '{}' to '{}' for value: {:#?}",
+                        "Element",
+                        "Node",
+                        el,
+                    )
+                })?
+            }
+            HydrationKey::IndexedChildOf { node, index } => {
+                let children = node.child_nodes();
+                let mut non_empty_children = vec![];
+                for i in 0..children.length() {
+                    let child = children.get(i).with_context(|| {
+                        format!(
+                            "Child at index {} could not be found in node '{}' containing '{:?}'",
+                            index,
+                            node.node_name(),
+                            node.node_value()
+                        )
+                    })?;
+                    if child.node_type() == 3 {
+                        // This is a text node
+                        let has_text: bool = child
+                            .node_value()
+                            .map(|s| !s.trim().is_empty())
+                            .unwrap_or_else(|| false);
+                        if has_text {
+                            non_empty_children.push(child);
+                        }
+                    } else {
+                        non_empty_children.push(child);
+                    }
+                }
+                let el = non_empty_children
+                    .get(index as usize)
+                    .with_context(|| {
+                        format!(
+                            "Child at index {} could not be found in node '{}' containing '{:?}'",
+                            index,
+                            node.node_name(),
+                            node.node_value()
+                        )
+                    })?
+                    .clone();
+                el
+            }
+        };
+
+        let dom = JsDom::from_jscast(&el);
+        Ok(dom)
+    }
+}
+
+/// Used to "hydrate" a `JsDom` from a ViewBuilder and pre-built DOM.
+///
+/// We use this when creating `JsDom` from DOM that was pre-rendered server-side.
+pub struct Hydrator {
+    inner: JsDom,
+}
+
+impl From<Hydrator> for JsDom {
+    fn from(Hydrator { inner }: Hydrator) -> Self {
+        inner
+    }
+}
+
+impl TryFrom<ViewBuilder> for Hydrator {
+    type Error = anyhow::Error;
+
+    fn try_from(builder: ViewBuilder) -> anyhow::Result<Self> {
+        Hydrator::try_hydrate(builder, None)
+    }
+}
+
+impl Hydrator {
+    /// Attempt to hydrate [`JsDom`] from [`ViewBuilder`].
+    fn try_hydrate(
+        builder: ViewBuilder,
+        may_parent: Option<(usize, &web_sys::Node)>,
+    ) -> anyhow::Result<Hydrator> {
+        let ViewBuilder {
+            identity,
+            updates,
+            post_build_ops,
+            view_sinks,
+            listeners,
+            tasks,
+        } = builder;
+        let construct_with = match identity {
+            ViewIdentity::Branch(s) => s,
+            ViewIdentity::NamespacedBranch(s, _) => s,
+            ViewIdentity::Leaf(s) => s,
+        };
+
+        let (update_stream, updates) = crate::core::view::exhaust(select_all(updates));
+        let (updates, attribs) = updates
+            .into_iter()
+            .fold((vec![], vec![]),|(mut updates, mut attribs), update| {
+                match update {
+                    Update::Attribute(patch) => attribs.push(patch),
+                    update => updates.push(update),
+                }
+                (updates, attribs)
+            });
+
+        let key = HydrationKey::try_new(construct_with, attribs, may_parent)?;
+        let dom = key.hydrate()?;
+
+        let (dom, tasks) = super::finalize_build(
+            dom,
+            update_stream,
+            post_build_ops,
+            listeners,
+            tasks,
+            view_sinks,
+            add_event,
+            update_js_dom,
+        )?;
+
+        let node = dom.clone_as::<web_sys::Node>().context("element is not a node")?;
+        let child_patches = updates.into_iter().filter_map(|update| match update {
+            Update::Child(patch) => Some(patch),
+            _ => None
+        });
+        let mut children: Vec<ViewBuilder> = vec![];
+        for patch in child_patches.into_iter() {
+            let _ = children.list_patch_apply(patch);
+        }
+
+        for (bldr, i) in children.into_iter().zip(0..) {
+            // we don't need to do anything with the hydrated JsDom because it is already
+            // attached and its reactivity has been spawned
+            let _ = Hydrator::try_hydrate(bldr, Some((i, &node)))?;
+        }
+
+        // lastly spawn all our tasks
+        for task in tasks.into_iter() {
+            wasm_bindgen_futures::spawn_local(task);
+        }
+
+        Ok(Hydrator { inner: dom })
     }
 }

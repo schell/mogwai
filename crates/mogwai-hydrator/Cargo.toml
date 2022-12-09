@@ -1,6 +1,6 @@
 [package]
 name = "mogwai-hydrator"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 edition = "2018"
 description = "View hydration for the mogwai library"
@@ -16,9 +16,9 @@ documentation = "https://docs.rs/mogwai/"
 [dependencies]
 anyhow = "^1.0"
 futures = "^0.3"
-mogwai = { path = "../../crates/mogwai", version = "^0.6", default-features = false, features = ["dom-wasm"] }
+mogwai-dom = { path = "../../crates/mogwai-dom", version = "^0.1" }
 snafu = "^0.6"
-wasm-bindgen = "0.2.73"
+wasm-bindgen = "^0.2"
 
 [dependencies.web-sys]
 version = "^0.3"

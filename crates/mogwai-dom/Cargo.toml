@@ -55,6 +55,7 @@ features = [
 [dev-dependencies]
 doc-comment = "^0.3"
 fast_log = "1.5.47"
+console_log = "^0.1"
 wasm-bindgen-test = "0.3.17"
 wasm-bindgen-futures = "^0.4"
 
