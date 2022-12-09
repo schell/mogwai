@@ -71,7 +71,7 @@
 //! Here we're creating `mogwai_dom::view::Dom` for use in the browser:
 //!
 //! ```rust
-//! use::mogwai::prelude::*;
+//! use::mogwai_dom::prelude::*;
 //! use std::convert::TryFrom;
 //!
 //! let my_div: ViewBuilder<JsDom> = rsx!{
@@ -81,7 +81,7 @@
 //!         }
 //!     }
 //!   };
-//! let view: JsDom = my_div.build().unwrap();
+//! let view = JsDom::try_from(my_div).unwrap();
 //!
 //! let html: String = smol::block_on(async { view.html_string().await });
 //! assert_eq!(

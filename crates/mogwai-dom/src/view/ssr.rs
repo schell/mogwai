@@ -8,8 +8,8 @@ use std::{collections::HashMap, ops::DerefMut, pin::Pin, sync::Arc};
 use mogwai::{
     channel::SinkError,
     futures::{sink::Contravariant, SinkExt},
-    patch::{HashPatch, ListPatchApply},
-    view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity, ViewResources},
+    patch::{HashPatch, ListPatch, ListPatchApply},
+    view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity},
 };
 use serde_json::Value;
 
@@ -166,13 +166,21 @@ pub struct SsrDom {
 impl TryFrom<ViewBuilder> for SsrDom {
     type Error = anyhow::Error;
 
-    fn try_from(value: ViewBuilder) -> Result<Self, Self::Error> {
+    fn try_from(builder: ViewBuilder) -> Result<Self, Self::Error> {
         let executor = Arc::new(Executor::default());
-        SsrDomResources(executor).build(value)
+        SsrDom::new(executor, builder)
     }
 }
 
 impl SsrDom {
+    pub fn new(executor: Arc<Executor<'static>>, builder: ViewBuilder) -> anyhow::Result<Self> {
+        let (ssr, to_spawn) = super::build(executor.clone(), builder, init, update_ssr_dom, add_event)?;
+        for task in to_spawn.into_iter() {
+            executor.spawn(task).detach();
+        }
+        Ok(ssr)
+    }
+
     /// Creates a text node.
     pub fn text(executor: Arc<Executor<'static>>, s: &str) -> Self {
         SsrDom {
@@ -331,35 +339,31 @@ impl SsrDom {
             lock.html_string().await
         })
     }
+
+    pub async fn run_while<T: 'static>(&self, fut: impl Future<Output = T> + 'static) -> anyhow::Result<T> {
+        let t = self.executor.run(fut).await;
+        Ok(t)
+    }
 }
 
-/// A wrapper around `async_executor::Executor`, which is needed to create
-/// an `SsrDom`.
-#[derive(Default)]
-pub struct SsrDomResources(Arc<Executor<'static>>);
-
-fn init(
-    rez: &mut SsrDomResources,
+pub(crate) fn init(
+    rez: &Arc<Executor<'static>>,
     identity: ViewIdentity,
-    initial_values: Vec<Update>,
 ) -> anyhow::Result<SsrDom> {
     let element = match identity {
-        ViewIdentity::Branch(tag) => SsrDom::element(rez.0.clone(), &tag),
+        ViewIdentity::Branch(tag) => SsrDom::element(rez.clone(), &tag),
         ViewIdentity::NamespacedBranch(tag, ns) => {
-            let el = SsrDom::element(rez.0.clone(), &tag);
+            let el = SsrDom::element(rez.clone(), &tag);
             el.set_attrib("xmlns", Some(&ns))?;
             el
         }
-        ViewIdentity::Leaf(text) => SsrDom::text(rez.0.clone(), &text),
+        ViewIdentity::Leaf(text) => SsrDom::text(rez.clone(), &text),
     };
 
-    for update in initial_values.into_iter() {
-        update_ssr_dom(&element, update)?;
-    }
     Ok(element)
 }
 
-fn update_ssr_dom(ssr_dom: &SsrDom, update: Update) -> anyhow::Result<()> {
+pub(crate) fn update_ssr_dom(ssr_dom: &SsrDom, update: Update) -> anyhow::Result<()> {
     match update {
         Update::Text(s) => {
             ssr_dom.set_text(&s)?;
@@ -385,7 +389,7 @@ fn update_ssr_dom(ssr_dom: &SsrDom, update: Update) -> anyhow::Result<()> {
         Update::Child(patch) => {
             log::trace!("got child patch: {:?}", patch);
             let patch = patch.try_map(|builder: ViewBuilder| {
-                let ssr = SsrDomResources(ssr_dom.executor.clone()).build(builder)?;
+                let ssr = SsrDom::new(ssr_dom.executor.clone(), builder)?;
                 anyhow::Ok(ssr)
             })?;
             let mut lock = ssr_dom.node.try_write().context("can't lock")?;
@@ -400,24 +404,29 @@ fn update_ssr_dom(ssr_dom: &SsrDom, update: Update) -> anyhow::Result<()> {
     Ok(())
 }
 
-impl ViewResources<SsrDom> for SsrDomResources {
-    fn build(&mut self, builder: ViewBuilder) -> anyhow::Result<SsrDom> {
-        super::build(self, builder, init, update_ssr_dom, |ssr, listener| {
-            let Listener {
-                event_name,
-                event_target,
-                sink,
-            } = listener;
-            let sink = Box::pin(sink.contra_map(AnyEvent::new));
-            let mut lock = ssr.events.try_write().context("can't lock")?;
-            let _ = lock.insert((event_target, event_name), sink);
-            Ok(())
-        })
-    }
+impl ListPatchApply for SsrDom {
+    type Item = SsrDom;
 
-    fn spawn(&self, action: impl Future<Output = ()> + Send + 'static) {
-        self.0.spawn(action).detach();
+    fn list_patch_apply(&mut self, patch: ListPatch<Self::Item>) -> Vec<Self::Item> {
+        let mut lock = self.node.try_write().unwrap();
+        if let SsrNode::Container { children, .. } = lock.deref_mut() {
+            children.list_patch_apply(patch)
+        } else {
+            panic!("not a container")
+        }
     }
+}
+
+pub(crate) fn add_event(ssr: &SsrDom, listener: Listener) -> anyhow::Result<()> {
+    let Listener {
+        event_name,
+        event_target,
+        sink,
+    } = listener;
+    let sink = Box::pin(sink.contra_map(AnyEvent::new));
+    let mut lock = ssr.events.try_write().context("can't lock")?;
+    let _ = lock.insert((event_target, event_name), sink);
+    Ok(())
 }
 
 #[cfg(test)]

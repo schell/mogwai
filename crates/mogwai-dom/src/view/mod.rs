@@ -1,30 +1,33 @@
 //! Wrapped views.
+use std::{future::Future, pin::Pin, sync::Arc};
+
 use anyhow::Context;
+use async_executor::Executor;
 use futures::{stream, SinkExt, StreamExt};
-use mogwai::view::{
-    exhaust, AnyView, Listener, Update, View, ViewBuilder, ViewIdentity, ViewResources,
+use mogwai::{
+    patch::{ListPatch, ListPatchApply},
+    view::{exhaust, AnyView, Listener, Update, View, ViewBuilder, ViewIdentity},
 };
 mod js_dom;
 
-pub use js_dom::*;
+pub use crate::event::JsDomEvent;
+pub use js_dom::{JsDom, JsDomResources};
 
 mod ssr;
-use serde_json::Value;
-pub use ssr::*;
+pub use serde_json::Value;
+pub use ssr::SsrDom;
 
 pub use futures::future::Either;
 pub use mogwai::futures::EitherExt;
 use wasm_bindgen::JsCast;
 
-use crate::prelude::JsDomEvent;
-
-fn build<V: View, R: ViewResources<V>>(
-    rez: &mut R,
+fn build<V: View, R>(
+    rez: R,
     builder: ViewBuilder,
-    init: impl FnOnce(&mut R, ViewIdentity, Vec<Update>) -> anyhow::Result<V>,
+    init: impl FnOnce(&R, ViewIdentity) -> anyhow::Result<V>,
     update_view: impl Fn(&V, Update) -> anyhow::Result<()> + Send + 'static,
     add_event: impl Fn(&V, Listener) -> anyhow::Result<()>,
-) -> anyhow::Result<V> {
+) -> anyhow::Result<(V, Vec<Pin<Box<dyn Future<Output = ()> + Send>>>)> {
     let ViewBuilder {
         identity,
         updates,
@@ -34,9 +37,13 @@ fn build<V: View, R: ViewResources<V>>(
         view_sinks,
     } = builder;
 
+    let mut to_spawn: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![];
     let updates = stream::select_all(updates);
     let (mut update_stream, initial_values) = exhaust(updates);
-    let element = init(rez, identity, initial_values)?;
+    let element: V = init(&rez, identity)?;
+    for update in initial_values.into_iter() {
+        update_view(&element, update)?;
+    }
 
     for listener in listeners.into_iter() {
         (add_event)(&element, listener)?;
@@ -49,52 +56,102 @@ fn build<V: View, R: ViewResources<V>>(
     let element = any_view.downcast::<V>()?;
 
     let node = element.clone();
-    rez.spawn(async move {
+    to_spawn.push(Box::pin(async move {
         while let Some(update) = update_stream.next().await {
             update_view(&node, update).unwrap();
         }
-    });
+    }));
 
     for task in tasks.into_iter() {
-        rez.spawn(task);
+        to_spawn.push(task);
     }
-    let node = element.clone();
-    rez.spawn(async move {
+    let node: V = element.clone();
+    println!("using {} node for sinks", std::any::type_name::<V>());
+    to_spawn.push(Box::pin(async move {
         for mut sink in view_sinks.into_iter() {
-            let _ = sink.send(AnyView::new(node.clone())).await;
+            let any_view = AnyView::new(node.clone());
+            println!("sinking {:?}", any_view);
+            let _ = sink.send(any_view).await;
         }
-    });
+    }));
 
-    Ok(element)
+    Ok((element, to_spawn))
 }
 
 #[derive(Clone)]
-pub struct Dom(mogwai::view::AnyView);
+pub struct Dom(Either<JsDom, SsrDom>);
 
 impl From<JsDom> for Dom {
     fn from(v: JsDom) -> Self {
-        Dom(AnyView::new(v))
+        Dom(Either::Left(v))
     }
 }
 
 impl From<SsrDom> for Dom {
     fn from(v: SsrDom) -> Self {
-        Dom(AnyView::new(v))
+        Dom(Either::Right(v))
     }
 }
 
 impl Dom {
-    pub fn as_either_ref(&self) -> Either<&JsDom, &SsrDom> {
-        if cfg!(target_arch = "wasm32") {
-            // UNWRAP: safe because we only construct JsDom values
-            // on wasm32
-            let js: &JsDom = self.0.downcast_ref().unwrap();
-            Either::Left(js)
+    fn init(
+        rez: &Either<(), Arc<Executor<'static>>>,
+        identity: ViewIdentity,
+    ) -> anyhow::Result<Self> {
+        Ok(match rez {
+            Either::Left(()) => Dom::from(js_dom::init(&(), identity)?),
+            Either::Right(executor) => Dom::from(ssr::init(executor, identity)?),
+        })
+    }
+
+    fn add_event(&self, listener: Listener) -> anyhow::Result<()> {
+        match &self.0 {
+            Either::Left(js) => js_dom::add_event(js, listener),
+            Either::Right(ssr) => ssr::add_event(ssr, listener),
+        }
+    }
+
+    pub fn new(
+        executor: Option<Arc<Executor<'static>>>,
+        builder: ViewBuilder,
+    ) -> anyhow::Result<Self> {
+        let (dom, to_spawn) = build(
+            executor
+                .clone()
+                .map(Either::Right)
+                .unwrap_or_else(|| Either::Left(())),
+            builder,
+            Dom::init,
+            Dom::update,
+            Dom::add_event,
+        )?;
+        if let Some(executor) = executor {
+            for task in to_spawn.into_iter() {
+                executor.spawn(task).detach();
+            }
         } else {
-            // UNWRAP: safe because we only construct SsrDom values
-            // on targets other than wasm32
-            let ssr: &SsrDom = self.0.downcast_ref().unwrap();
-            Either::Right(ssr)
+            for task in to_spawn.into_iter() {
+                wasm_bindgen_futures::spawn_local(task);
+            }
+        }
+        Ok(dom)
+    }
+
+    pub fn executor(&self) -> Option<&Arc<Executor<'static>>> {
+        self.as_either_ref().right().map(|ssr| &ssr.executor)
+    }
+
+    pub fn as_either_ref(&self) -> Either<&JsDom, &SsrDom> {
+        match &self.0 {
+            Either::Left(js) => Either::Left(js),
+            Either::Right(ssr) => Either::Right(ssr),
+        }
+    }
+
+    pub fn as_either_mut(&mut self) -> Either<&mut JsDom, &mut SsrDom> {
+        match &mut self.0 {
+            Either::Left(js) => Either::Left(js),
+            Either::Right(ssr) => Either::Right(ssr),
         }
     }
 
@@ -103,20 +160,12 @@ impl Dom {
         js.clone_as::<T>()
     }
 
-    pub fn run(self) -> anyhow::Result<()> {
-        if cfg!(target_arch = "wasm32") {
-            let js_dom: JsDom = self.0.downcast()?;
-            js_dom.run()
-        } else {
-            Ok(())
-        }
-    }
-
     pub fn detach(&self) -> anyhow::Result<()> {
-        if cfg!(target_arch = "wasm32") {
-            let js_dom: &JsDom = self.0.downcast_ref().context("not JsDom")?;
-            js_dom.detach();
-        }
+        let js: &JsDom = self
+            .as_either_ref()
+            .left()
+            .context("cannot detach an SsrDom yet")?;
+        js.detach();
         Ok(())
     }
 
@@ -126,38 +175,85 @@ impl Dom {
             Either::Right(ssr) => ssr.html_string().await,
         }
     }
+
+    pub async fn run_while<T: 'static>(
+        &self,
+        fut: impl Future<Output = T> + 'static,
+    ) -> anyhow::Result<T> {
+        match self.as_either_ref() {
+            Either::Left(js) => js.run_while(fut).await,
+            Either::Right(ssr) => ssr.run_while(fut).await,
+        }
+    }
+
+    /// Run this element forever.
+    ///
+    /// ## Note
+    /// * On WASM this hands ownership over to Javascript (in the browser window)
+    /// * On other targets this loops forever, running the server-side rendered node's
+    ///   async tasks.
+    pub fn run(self) -> anyhow::Result<()> {
+        match self.0 {
+            Either::Left(js) => js.run(),
+            Either::Right(ssr) => loop {
+                let _ = ssr.executor.try_tick();
+            },
+        }
+    }
+
+    fn update(&self, update: Update) -> anyhow::Result<()> {
+        match update {
+            Update::Child(patch) => {
+                let patch: ListPatch<Dom> =
+                    patch.try_map(|builder: ViewBuilder| -> anyhow::Result<Dom> {
+                        Dom::new(self.executor().cloned(), builder)
+                    })?;
+                match self.clone().as_either_mut() {
+                    Either::Left(js) => {
+                        let patch: ListPatch<JsDom> = patch.try_map(|dom| {
+                            anyhow::Ok(dom.as_either_ref().left().context("not js")?.clone())
+                        })?;
+                        let _ = js.list_patch_apply(patch);
+                        Ok(())
+                    }
+                    Either::Right(ssr) => {
+                        let patch: ListPatch<SsrDom> = patch.try_map(|dom| {
+                            anyhow::Ok(dom.as_either_ref().right().context("not ssr")?.clone())
+                        })?;
+                        let _ = ssr.list_patch_apply(patch);
+                        Ok(())
+                    }
+                }
+            }
+            update => match self.as_either_ref() {
+                Either::Left(js) => js_dom::update_js_dom(js, update),
+                Either::Right(ssr) => ssr::update_ssr_dom(ssr, update),
+            },
+        }
+    }
 }
 
 impl TryFrom<ViewBuilder> for Dom {
     type Error = anyhow::Error;
 
-    fn try_from(value: ViewBuilder) -> Result<Self, Self::Error> {
-        if cfg!(target_arch = "wasm32") {
-            let js_dom: JsDom = value.build()?;
-            Ok(Dom(AnyView::new(js_dom)))
+    fn try_from(builder: ViewBuilder) -> Result<Self, Self::Error> {
+        let executor = if cfg!(target_arch = "wasm32") {
+            None
         } else {
-            let ssr_dom: SsrDom = value.build()?;
-            Ok(Dom(AnyView::new(ssr_dom)))
-        }
+            Some(Arc::new(Executor::default()))
+        };
+        Dom::new(executor, builder)
     }
 }
 
-
 #[derive(Clone)]
-pub struct DomEvent(mogwai::view::AnyEvent);
+pub struct DomEvent(Either<JsDomEvent, Value>);
 
 impl DomEvent {
     pub fn as_either_ref(&self) -> Either<&JsDomEvent, &Value> {
-        if cfg!(target_arch = "wasm32") {
-            // UNWRAP: safe because we only construct JsDom values
-            // on wasm32
-            let js: &JsDomEvent = self.0.downcast_ref().unwrap();
-            Either::Left(js)
-        } else {
-            // UNWRAP: safe because we only construct SsrDom values
-            // on targets other than wasm32
-            let ssr: &Value = self.0.downcast_ref().unwrap();
-            Either::Right(ssr)
+        match &self.0 {
+            Either::Left(js) => Either::Left(js),
+            Either::Right(val) => Either::Right(val),
         }
     }
 }
@@ -168,27 +264,5 @@ impl std::fmt::Debug for DomEvent {
             Either::Left(js) => f.debug_tuple("DomEvent").field(js).finish(),
             Either::Right(val) => f.debug_tuple("DomEvent").field(val).finish(),
         }
-    }
-}
-
-pub trait DomBuilder<T> {
-    fn build(self) -> anyhow::Result<T>;
-}
-
-impl DomBuilder<JsDom> for mogwai::view::ViewBuilder {
-    fn build(self) -> anyhow::Result<JsDom> {
-        self.try_into()
-    }
-}
-
-impl DomBuilder<SsrDom> for mogwai::view::ViewBuilder {
-    fn build(self) -> anyhow::Result<SsrDom> {
-        self.try_into()
-    }
-}
-
-impl DomBuilder<Dom> for mogwai::view::ViewBuilder {
-    fn build(self) -> anyhow::Result<Dom> {
-        self.try_into()
     }
 }

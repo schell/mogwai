@@ -81,7 +81,7 @@
 //!         }
 //!     }
 //!   };
-//! let view: Dom = my_div.build().unwrap();
+//! let view = Dom::try_from(my_div).unwrap();
 //!
 //! let html: String = futures::executor::block_on(async { view.html_string().await });
 //! assert_eq!(
@@ -125,7 +125,7 @@
 //!         }
 //!     }
 //! );
-//! let dom: JsDom = my_div.build().unwrap();
+//! let dom  = JsDom::try_from(my_div).unwrap();
 //! dom.run().unwrap();
 //! ```
 //!
@@ -199,7 +199,7 @@
 //! futures::executor::block_on(async {
 //!     let (mut tx, rx) = broadcast::bounded(1);
 //!
-//!     let my_view: Dom = rsx!{
+//!     let my_view = Dom::try_from(rsx!{
 //!         div(class="my-div") {
 //!             a(href="http://zyghost.com") {
 //!                 // start with a value and update when a message
@@ -207,7 +207,8 @@
 //!                 {("Schellsan's website", rx)}
 //!             }
 //!         }
-//!     }.build().unwrap();
+//!     })
+//!     .unwrap();
 //!     tx.send("Gizmo's website".into()).await.unwrap();
 //!
 //!     // only `Some` in the browser when compiled for wasm32

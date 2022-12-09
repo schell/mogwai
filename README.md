@@ -92,11 +92,8 @@ let btn = Button::default();
 // Get a sink to manually send events.
 let mut click_sink = btn.click.sink();
 // Build the view to render in the browser
-let view: JsDom = btn
-    .builder()
-    .build()
-    .unwrap();
-// Attach it to the DOM
+let view = Dom::try_from(btn.builder()).unwrap();
+// Attach it to the browser's DOM tree
 view.run().unwrap();
 
 // Spawn asyncronous updates

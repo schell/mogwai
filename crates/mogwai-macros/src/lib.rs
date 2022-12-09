@@ -149,24 +149,25 @@ pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 #[deprecated(
     since = "0.6",
-    note = "Use `html!{...}.build().unwrap()` or `rsx!{...}.build().unwrap()`instead"
+    note = "Use `html!{...}.try_into().unwrap()` or `rsx!{...}.try_into().unwrap()`instead"
 )]
 #[proc_macro]
 /// Uses an html description to construct a `View`.
 ///
 /// This is the same as the following:
 /// ```rust
-/// # use mogwai_dom::prelude::*;
-/// let my_view: SsrDom = html! {
+/// use mogwai_dom::prelude::*;
+///
+/// let my_view = SsrDom::try_from(html! {
 ///     <div id="main">
 ///         <p>"Trolls are real"</p>
 ///     </div>
-/// }.build().unwrap();
+/// }).unwrap();
 /// ```
 pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let builder: proc_macro2::TokenStream = builder(input).into();
     let token = quote! {{
-        {#builder}.build().unwrap()
+        {#builder}.try_into().unwrap()
     }};
     proc_macro::TokenStream::from(token)
 }

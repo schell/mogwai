@@ -63,7 +63,7 @@ side is allowed to be a `String`, an `&str`, an `impl Stream<Item = String>` or 
 tuple of a stringy type and a string stream. See [MogwaiValue][enummogwaivalue]
 for more details about types that can be turned into streams.
 
-- **style:{name}** = `impl Into<MogwaiValue<'a, String or &'a str, Stream<Item = String>>`
+- **style:{name}** = `impl Into<MogwaiValue<String or &str, Stream<Item = String>>`
 
   Declares a single style.
   ```rust,no_run

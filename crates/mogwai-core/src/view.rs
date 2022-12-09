@@ -22,14 +22,6 @@ impl Wake for DummyWaker {
     fn wake(self: std::sync::Arc<Self>) {}
 }
 
-/// Resources needed to build a view `V` from a [`ViewBuilder`].
-pub trait ViewResources<V: View> {
-    /// Convert a view builder into a view.
-    fn build(&mut self, builder: ViewBuilder) -> anyhow::Result<V>;
-    /// Spawn an asynchronous task.
-    fn spawn(&self, action: impl Future<Output = ()> + Send + 'static);
-}
-
 /// A marker trait for domain-specific views.
 ///
 /// A view is a smart pointer that can be cheaply cloned, where clones all refer
@@ -43,6 +35,21 @@ impl<T: Any + Sized + Clone + Unpin + Send + Sync> View for T {}
 pub struct AnyView {
     inner: Box<dyn Any + Send + Sync>,
     clone_fn: fn(&AnyView) -> AnyView,
+    #[cfg(debug_assertions)]
+    inner_type_name: &'static str,
+}
+
+impl std::fmt::Debug for AnyView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        #[cfg(not(debug_assertions))]
+        let type_name = "unknown w/o debug_assertions";
+        #[cfg(debug_assertions)]
+        let type_name = self.inner_type_name;
+
+        f.debug_struct("AnyView")
+            .field("inner_type", &format!("{}", type_name))
+            .finish()
+    }
 }
 
 impl Clone for AnyView {
@@ -51,6 +58,8 @@ impl Clone for AnyView {
         Self {
             inner: cloned_view.inner,
             clone_fn: self.clone_fn.clone(),
+            #[cfg(debug_assertions)]
+            inner_type_name: self.inner_type_name,
         }
     }
 }
@@ -60,6 +69,8 @@ fn any_view_clone<V: View>(any_view: &AnyView) -> AnyView {
     AnyView {
         inner: Box::new(v.clone()) as Box<dyn Any + Send + Sync>,
         clone_fn: any_view_clone::<V>,
+        #[cfg(debug_assertions)]
+        inner_type_name: std::any::type_name::<V>(),
     }
 }
 
@@ -68,6 +79,8 @@ impl AnyView {
         AnyView {
             inner: Box::new(inner),
             clone_fn: any_view_clone::<V>,
+            #[cfg(debug_assertions)]
+            inner_type_name: std::any::type_name::<V>(),
         }
     }
 
@@ -81,8 +94,12 @@ impl AnyView {
 
     pub fn downcast<V: View>(self) -> anyhow::Result<V> {
         let v: Box<V> = self.inner.downcast().ok().with_context(|| {
+            #[cfg(not(debug_assertions))]
+            let type_name = "unknown";
+            #[cfg(debug_assertions)]
+            let type_name = self.inner_type_name;
             format!(
-                "could not downcast AnyView to '{}'",
+                "could not downcast AnyView {{{type_name}}} to '{}'",
                 std::any::type_name::<V>()
             )
         })?;
@@ -95,6 +112,8 @@ fn any_event_clone<T: Any + Send + Sync + Clone>(any_event: &AnyEvent) -> AnyEve
     AnyEvent {
         inner: Box::new(ev.clone()),
         clone_fn: any_event_clone::<T>,
+        #[cfg(debug_assertions)]
+        inner_type_name: any_event.inner_type_name,
     }
 }
 
@@ -104,6 +123,8 @@ fn any_event_clone<T: Any + Send + Sync + Clone>(any_event: &AnyEvent) -> AnyEve
 pub struct AnyEvent {
     inner: Box<dyn Any + Send + Sync>,
     clone_fn: fn(&AnyEvent) -> AnyEvent,
+    #[cfg(debug_assertions)]
+    inner_type_name: &'static str,
 }
 
 impl Clone for AnyEvent {
@@ -117,13 +138,20 @@ impl AnyEvent {
         AnyEvent {
             inner: Box::new(inner),
             clone_fn: any_event_clone::<T>,
+            #[cfg(debug_assertions)]
+            inner_type_name: std::any::type_name::<T>(),
         }
     }
 
     pub fn downcast<Ev: Any + Send + Sync + Clone>(self) -> anyhow::Result<Ev> {
+        #[cfg(debug_assertions)]
+        let type_name = self.inner_type_name;
+        #[cfg(not(debug_assertions))]
+        let type_name = "unknown";
+
         let v: Box<Ev> = self.inner.downcast().ok().with_context(|| {
             format!(
-                "could not downcast AnyEvent to '{}'",
+                "could not downcast AnyEvent{{{type_name}}} to '{}'",
                 std::any::type_name::<Ev>()
             )
         })?;
@@ -574,9 +602,10 @@ impl ViewBuilder {
 
     /// Send a clone of the inner view once it is built.
     ///
+    /// Wraps `V` in `AnyView` to erase its type until it is built.
+    ///
     /// ## Panics
-    /// If the domain specific view cannot be downcast a panic will happen when
-    /// the boxed view is sent into the sink.
+    /// Panics if the `AnyView` cannot be downcast back into `V`.
     pub fn with_capture_view<V: View>(
         mut self,
         sink: impl Sink<V, Error = SinkError> + Unpin + Send + Sync + 'static,

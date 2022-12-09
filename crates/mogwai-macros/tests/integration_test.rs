@@ -23,18 +23,16 @@ fn expand_this_builder() {
 fn node_self_closing() {
     smol::block_on(async {
         // not all nodes are void nodes
-        let div: SsrDom = html! {
+        let div = SsrDom::try_from(html! {
             <a href="http://zyghost.com" />
-        }
-        .build()
+        })
         .unwrap();
         let div: String = div.html_string().await;
         assert_eq!(&div, r#"<a href="http://zyghost.com"></a>"#);
 
-        let div: SsrDom = html! {
+        let div = SsrDom::try_from(html! {
             <img src="http://zyghost.com/favicon.ico" />
-        }
-        .build()
+        })
         .unwrap();
         let div = div.html_string().await;
         assert_eq!(&div, r#"<img src="http://zyghost.com/favicon.ico" />"#);
@@ -54,15 +52,12 @@ async fn node_self_closing_gt_1_att() {
     }
 
     // not all nodes are void nodes
-    let div: SsrDom = html! {<a href="http://zyghost.com" class="blah"/>}
-        .build()
-        .unwrap();
+    let div = SsrDom::try_from(html! {<a href="http://zyghost.com" class="blah"/>}).unwrap();
     let div: String = div.html_string().await;
     assert_eq!(&div, r#"<a href="http://zyghost.com" class="blah"></a>"#);
 
-    let div: SsrDom = html! {<img src="http://zyghost.com/favicon.ico" class="blah"/>}
-        .build()
-        .unwrap();
+    let div =
+        SsrDom::try_from(html! {<img src="http://zyghost.com/favicon.ico" class="blah"/>}).unwrap();
     let div: String = div.html_string().await;
     assert_eq!(
         &div,
@@ -174,9 +169,9 @@ struct User {
 fn signed_in_view_builder(
     user: &User,
     home_class: impl Stream<Item = String> + Send + 'static,
-    editor_class: impl Stream<Item = String>+ Send + 'static,
-    settings_class: impl Stream<Item = String>+ Send + 'static,
-    profile_class: impl Stream<Item = String>+ Send + 'static,
+    editor_class: impl Stream<Item = String> + Send + 'static,
+    settings_class: impl Stream<Item = String> + Send + 'static,
+    profile_class: impl Stream<Item = String> + Send + 'static,
 ) -> ViewBuilder {
     let o_image: Option<ViewBuilder> = user
         .o_image
@@ -270,17 +265,15 @@ pub fn function_style_rsx() {
 
 #[smol_potat::test]
 async fn rsx_same_as_html() {
-    let html: SsrDom = html! {
+    let html = SsrDom::try_from(html! {
         <p><div class="my_class">"Hello"</div></p>
-    }
-    .build()
+    })
     .unwrap();
     let html_string = html.html_string().await;
 
-    let rsx: SsrDom = rsx! {
+    let rsx = SsrDom::try_from(rsx! {
         p{ div(class="my_class"){ "Hello" }}
-    }
-    .build()
+    })
     .unwrap();
     let rsx_string = rsx.html_string().await;
 

@@ -25,17 +25,19 @@
 //!     text: Input<String>,
 //! }
 //!
-//! impl DomBuilder<Dom> for ClickyDiv {
-//!     fn build(mut self) -> anyhow::Result<Dom> {
-//!         rsx! (
-//!             div(on:click=self.click.sink().contra_map(|_: DomEvent| ())) {
-//!                 {("Hi", self.text.stream().ok_or_else(|| anyhow::anyhow!("already used text stream"))?)}
+//! impl TryFrom<ClickyDiv> for ViewBuilder {
+//!     type Error = anyhow::Error;
+//!
+//!     fn try_from(mut cd: ClickyDiv) -> anyhow::Result<ViewBuilder> {
+//!         Ok(rsx! {
+//!             div(on:click = cd.click.sink().contra_map(|_: DomEvent| ())) {
+//!                 {("Hi", cd.text.stream().ok_or_else(|| anyhow::anyhow!("already used text stream"))?)}
 //!             }
-//!         ).with_task(async move {
+//!         }.with_task(async move {
 //!             let mut clicks = 0;
-//!             while let Some(()) = self.click.get().await {
+//!             while let Some(()) = cd.click.get().await {
 //!                 clicks += 1;
-//!                 self.text
+//!                 cd.text
 //!                     .set(if clicks == 1 {
 //!                         "1 click.".to_string()
 //!                     } else {
@@ -44,16 +46,13 @@
 //!                     .await
 //!                     .unwrap()
 //!             }
-//!         })
-//!         .build()
+//!         }))
 //!     }
 //! }
 //!
-//! ClickyDiv::default()
-//!     .build()
-//!     .unwrap()
-//!     .run()
-//!     .unwrap();
+//! let cd = ClickyDiv::default();
+//! let builder = ViewBuilder::try_from(cd).unwrap();
+//! let dom = Dom::try_from(builder).unwrap();
 //! ```
 use std::sync::{Arc, Mutex};
 

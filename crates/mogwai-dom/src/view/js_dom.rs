@@ -5,10 +5,11 @@ use std::{
 };
 
 use anyhow::Context;
+use futures::{channel::mpsc, SinkExt, StreamExt};
 use mogwai::{
     futures::sink::Contravariant,
-    patch::{HashPatch, ListPatch},
-    view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity, ViewResources},
+    patch::{HashPatch, ListPatch, ListPatchApply},
+    view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity},
 };
 use send_wrapper::SendWrapper;
 use wasm_bindgen::{JsCast, JsValue};
@@ -18,23 +19,19 @@ use crate::event::JsDomEvent;
 /// An empty type because we don't need anything but static references to build browser DOM.
 pub struct JsDomResources;
 
-fn init(
-    _rez: &mut JsDomResources,
+pub(crate) fn init(
+    _: &(),
     identity: ViewIdentity,
-    initial_values: Vec<Update>,
 ) -> anyhow::Result<JsDom> {
     let element = match identity {
         ViewIdentity::Branch(tag) => JsDom::element(&tag, None),
         ViewIdentity::NamespacedBranch(tag, ns) => JsDom::element(&tag, Some(&ns)),
         ViewIdentity::Leaf(text) => JsDom::text(&text),
     }?;
-    for update in initial_values.into_iter() {
-        update_js_dom(&element, update)?;
-    }
     Ok(element)
 }
 
-fn add_event(
+pub(crate) fn add_event(
     view: &JsDom,
     Listener {
         event_name,
@@ -74,16 +71,6 @@ fn add_event(
     Ok(())
 }
 
-impl ViewResources<JsDom> for JsDomResources {
-    fn build(&mut self, builder: ViewBuilder) -> anyhow::Result<JsDom> {
-        super::build(self, builder, init, update_js_dom, add_event)
-    }
-
-    fn spawn(&self, action: impl Future<Output = ()> + Send + 'static) {
-        wasm_bindgen_futures::spawn_local(action)
-    }
-}
-
 /// A Javascript/browser DOM node.
 ///
 /// Represents DOM nodes when a view is built on a WASM target.
@@ -108,7 +95,7 @@ impl From<JsValue> for JsDom {
     }
 }
 
-fn update_js_dom(js_dom: &JsDom, update: Update) -> anyhow::Result<()> {
+pub(crate) fn update_js_dom(js_dom: &JsDom, update: Update) -> anyhow::Result<()> {
     match update {
         Update::Text(s) => {
             js_dom
@@ -389,13 +376,23 @@ impl JsDom {
     }
 
     /// Run this gizmo in the document body forever, never dropping it.
-    pub fn run(self) -> Result<(), anyhow::Error> {
+    pub fn run(self) -> anyhow::Result<()> {
         self.run_in_container(&crate::utils::body())
+    }
+
+    pub async fn run_while<T: 'static>(&self, fut: impl Future<Output = T> + 'static) -> anyhow::Result<T> {
+        let (mut tx, mut rx) = mpsc::channel(1);
+        wasm_bindgen_futures::spawn_local(async move {
+            let t = fut.await;
+            let _ = tx.send(t).await.unwrap();
+        });
+        let t = rx.next().await.context("future never finished")?;
+        Ok(t)
     }
 }
 
 // Helper function for defining `ListPatchApply for JsDom`.
-fn list_patch_apply_node(
+pub(crate) fn list_patch_apply_node(
     self_node: &mut web_sys::Node,
     patch: ListPatch<web_sys::Node>,
 ) -> Vec<web_sys::Node> {
@@ -454,10 +451,29 @@ fn list_patch_apply_node(
     removed
 }
 
+impl ListPatchApply for JsDom {
+    type Item = JsDom;
+
+    fn list_patch_apply(&mut self, patch: ListPatch<JsDom>) -> Vec<JsDom> {
+        let patch: ListPatch<web_sys::Node> = patch.map(|child: JsDom| {
+            let node: Option<&web_sys::Node> = child.inner.dyn_ref::<web_sys::Node>();
+            let node: web_sys::Node = node.unwrap().clone();
+            node
+        });
+
+        let mut parent = self.inner.dyn_ref::<web_sys::Node>().unwrap().clone();
+        list_patch_apply_node(&mut parent, patch).into_iter().map(|t| JsDom::from_jscast(&t)).collect()
+    }
+}
+
 impl TryFrom<ViewBuilder> for JsDom {
     type Error = anyhow::Error;
 
-    fn try_from(value: ViewBuilder) -> Result<Self, Self::Error> {
-        JsDomResources.build(value)
+    fn try_from(builder: ViewBuilder) -> Result<Self, Self::Error> {
+        let (js, to_spawn) = super::build((), builder, init, update_js_dom, add_event)?;
+        for task in to_spawn.into_iter() {
+            wasm_bindgen_futures::spawn_local(task);
+        }
+        Ok(js)
     }
 }
