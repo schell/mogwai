@@ -17,6 +17,14 @@ use wasm_bindgen::{JsCast, JsValue};
 
 use crate::event::JsDomEvent;
 
+/// Re-export of [`wasm_bindgen_futures::spawn_local`].
+pub fn spawn_local<F>(future: F)
+where
+    F: Future<Output = ()> + 'static,
+{
+    wasm_bindgen_futures::spawn_local(future)
+}
+
 /// An empty type because we don't need anything but static references to build browser DOM.
 pub struct JsDomResources;
 
@@ -257,17 +265,6 @@ impl JsDom {
         Ok(JsDom { inner })
     }
 
-    ///// Create an element.
-    //#[cfg(not(target_arch = "wasm32"))]
-    //pub fn element(tag: &str, namespace: Option<&str>) -> Result<Self, String> {
-    //    let node = SsrElement::element(tag);
-    //    if namespace.is_some() {
-    //        node.set_attrib("xmlns", namespace)
-    //            .map_err(|_| "not a container".to_string())?;
-    //    }
-    //    Ok(JsDom { node })
-    //}
-
     /// Create a text node
     pub fn text(s: &str) -> anyhow::Result<Self> {
         let text = web_sys::Text::new()
@@ -291,26 +288,11 @@ impl JsDom {
         self.inner.dyn_ref::<T>().cloned()
     }
 
-    ///// Visits the inner raw node with a function for each target.
-    //pub fn visit_as<T: JsCast, F, G, A>(&self, f: F, g: G) -> Option<A>
-    //where
-    //    F: FnOnce(&T) -> A,
-    //{
-    //    let el: Option<&T> = self.inner.dyn_ref::<T>();
-    //    el.map(f)
-    //    //    Either::Right(ssr) => Some(g(ssr)),
-    //    //}
-    //}
-
-    ///// Visites the inner JsCast type with a function.
-    /////
-    ///// ## Panics
-    ///// Panics if run on any target besides wasm32, or if self cannot be cast
-    ///// as `T`.
-    //pub fn visit_js<T: JsCast, A>(&self, f: impl FnOnce(T) -> A) -> A {
-    //    let t = self.clone_as::<T>().unwrap();
-    //    f(t)
-    //}
+    /// Visits the inner node with a function, if the node can be cast correctly.
+    pub fn visit_as<T: JsCast, A>(&self, f: impl FnOnce(&T) -> A) -> Option<A> {
+        let el: &T = self.inner.dyn_ref::<T>()?;
+        Some(f(el))
+    }
 
     ///// Attempt to get an attribute value.
     //pub fn get_attribute(&self, key: &str) -> Result<Option<String>, String> {
