@@ -155,7 +155,7 @@ mod test {
 
     #[test]
     fn can_contra_map() {
-        smol::block_on(async {
+        futures::executor::block_on(async {
             let (tx, mut rx) = crate::channel::broadcast::bounded::<String>(1);
 
             // sanity

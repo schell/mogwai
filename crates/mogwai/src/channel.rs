@@ -314,7 +314,7 @@ pub mod broadcast {
 
         #[test]
         fn can_sink_stream() {
-            smol::block_on(async {
+            futures::executor::block_on(async {
                 let (mut tx, mut rx) = bounded::<String>(1);
                 tx.send("hello".into()).await.unwrap();
                 let _ = rx.next().await.unwrap();
@@ -336,7 +336,7 @@ mod test {
         let u32stream = u32rx.map(|u| format!("{}", u)).boxed();
         let formatted = futures::stream::select_all(vec![u32stream, f32stream]);
 
-        smol::block_on(async move {
+        futures::executor::block_on(async move {
             f32tx.broadcast(1.5).await.unwrap();
             u32tx.broadcast(666).await.unwrap();
             f32tx.broadcast(2.3).await.unwrap();

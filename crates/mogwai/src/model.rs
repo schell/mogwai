@@ -19,10 +19,10 @@ pub use crate::patch::{HashPatchApply, ListPatchApply};
 /// latest, unique values will be sent to downstream observers.
 ///
 /// ```rust
-/// use mogwai::model::*;
-/// use mogwai::futures::StreamExt;
+/// use mogwai::prelude::*;
+/// use mogwai::model::Model;
 ///
-/// smol::block_on(async {
+/// futures::executor::block_on(async {
 ///     let model_a = Model::new("hello".to_string());
 ///     let updates = model_a.stream();
 ///     model_a.visit_mut(|t| *t = "hi".to_string()).await;
@@ -188,8 +188,9 @@ impl<T: Clone> ListPatchApply for ListPatchModel<T> {
 /// message of every patch applied to the model.
 ///
 /// ```rust
-/// use mogwai::model::*;
-/// smol::block_on(async {
+/// use mogwai::prelude::*;
+/// use mogwai::model::HashPatchModel;
+/// futures::executor::block_on(async {
 ///     let mut model: HashPatchModel<String, usize> = HashPatchModel::new();
 ///     model.hash_patch_insert("hello".to_string(), 666);
 ///     assert_eq!(model.read().await.get("hello"), Some(&666));

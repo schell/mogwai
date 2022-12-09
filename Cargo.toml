@@ -2,8 +2,7 @@
 
 members = [
   "cookbook",
-  #"crates/mogwai",
-  "crates/mogwai-core",
+  "crates/mogwai",
   "crates/mogwai-dom",
   #"crates/mogwai-hydrator",
   "crates/mogwai-macros",
