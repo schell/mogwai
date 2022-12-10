@@ -1,6 +1,6 @@
-#![allow(unused_braces)]
 use log::Level;
-use mogwai::prelude::*;
+use mogwai_dom::core::futures::stream;
+use mogwai_dom::prelude::*;
 use std::panic;
 use wasm_bindgen::prelude::*;
 
@@ -10,9 +10,84 @@ use wasm_bindgen::prelude::*;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
+#[derive(Clone)]
+enum CounterMsg {
+    Click,
+    Reset,
+}
+
+fn counter(recv_parent_msg: impl Stream<Item = CounterMsg> + Send + 'static) -> ViewBuilder {
+    let clicked = Output::<CounterMsg>::default();
+    let mut num_clicks = Input::<u32>::default();
+    let click_stream = clicked.get_stream();
+
+    rsx! (
+        button(on:click = clicked.sink().contra_map(|_: JsDomEvent| CounterMsg::Click)) {
+            {(
+                "clicks = 0",
+                num_clicks.stream().unwrap().map(|n| format!("clicks = {}", n))
+            )}
+        }
+    )
+    .with_task(async move {
+        let mut msg = stream::select_all(vec![click_stream.boxed(), recv_parent_msg.boxed()]);
+        let mut clicks: u32 = 0;
+        loop {
+            match msg.next().await {
+                Some(CounterMsg::Click) => {
+                    clicks += 1;
+                }
+                Some(CounterMsg::Reset) => {
+                    clicks = 0;
+                }
+                None => break,
+            }
+
+            num_clicks.set(clicks).await.unwrap();
+        }
+    })
+}
+
+fn app() -> ViewBuilder {
+    let reset_clicked = Output::<CounterMsg>::default();
+
+    rsx! {
+        div() {
+            "Application"
+            br(){}
+            {counter(reset_clicked.get_stream())}
+            button(on:click = reset_clicked.sink().contra_map(|_:JsDomEvent| CounterMsg::Reset)){
+                "Click to reset"
+            }
+        }
+    }
+}
+
+#[wasm_bindgen]
+pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
+    panic::set_hook(Box::new(console_error_panic_hook::hook));
+    console_log::init_with_level(Level::Trace).unwrap();
+
+    let view = JsDom::try_from(app()).unwrap();
+
+    if let Some(id) = parent_id {
+        let parent = mogwai_dom::utils::document()
+            .visit_as::<web_sys::Document, JsDom>(|doc| {
+                JsDom::from_jscast(&doc.get_element_by_id(&id).unwrap())
+            })
+            .unwrap();
+        view.run_in_container(&parent)
+    } else {
+        view.run()
+    }
+    .unwrap();
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
-    use mogwai::prelude::*;
+    use mogwai_dom::prelude::*;
 
     #[test]
     fn can_component_from_viewbuilder() {
@@ -37,7 +112,7 @@ mod test {
             tx.broadcast(1).await.unwrap();
             tx.broadcast(42).await.unwrap();
         });
-        let view: JsDom = comp.build().unwrap();
+        let view = JsDom::try_from(comp).unwrap();
         view.run().unwrap();
     }
 
@@ -67,108 +142,7 @@ mod test {
                 }
             }
         });
-        let view: JsDom = comp.build().unwrap();
+        let view = JsDom::try_from(comp).unwrap();
         view.run().unwrap();
     }
-}
-
-mod counter {
-    use mogwai::prelude::{stream::select_all, *};
-
-    #[derive(Clone)]
-    pub enum CounterMsg {
-        Click,
-        Reset,
-    }
-
-    pub fn counter(recv_parent_msg: broadcast::Receiver<CounterMsg>) -> ViewBuilder<JsDom> {
-        let (send_self_msg, recv_self_msg): (_, broadcast::Receiver<CounterMsg>) = broadcast::bounded(1);
-        let (send_num_clicks, recv_num_clicks): (_, broadcast::Receiver<u32>) = broadcast::bounded(1);
-        let mut recv_msg = select_all(vec![recv_self_msg, recv_parent_msg]);
-
-        html! (
-            <button on:click=send_self_msg.clone().contra_map(|_| CounterMsg::Click)>
-            {(
-                "clicks = 0",
-                recv_num_clicks.map(|n| format!("clicks = {}", n))
-            )}
-            </button>
-        ).with_task(async move {
-            let mut clicks: u32 = 0;
-            loop {
-                match recv_msg.next().await {
-                    Some(CounterMsg::Click) => {
-                        clicks += 1;
-                    }
-                    Some(CounterMsg::Reset) => {
-                        clicks = 0;
-                    }
-                    None => break,
-                }
-
-                send_num_clicks.broadcast(clicks).await.unwrap();
-            }
-        })
-    }
-}
-
-fn view(counter: ViewBuilder<JsDom>, send_reset_to_app: broadcast::Sender<()>) -> ViewBuilder<JsDom> {
-    html! {
-        <div>
-            "Application"<br/>
-            {counter}
-            <button on:click=send_reset_to_app.clone().contra_map(|_| ())>"Click to reset"</button>
-        </div>
-    }
-}
-
-async fn logic(
-    send_reset_to_counter: broadcast::Sender<counter::CounterMsg>,
-    mut recv_reset: broadcast::Receiver<()>,
-) {
-    loop {
-        match recv_reset.next().await {
-            Some(()) => {
-                send_reset_to_counter
-                    .broadcast(counter::CounterMsg::Reset)
-                    .await
-                    .unwrap();
-            }
-            None => break,
-        }
-    }
-}
-
-fn app() -> ViewBuilder<JsDom> {
-    let (send_counter_msg, recv_counter_msg) = broadcast::bounded(1);
-    let (send_reset_to_app, recv_reset_from_app) = broadcast::bounded(1);
-
-    let app_logic = logic(send_counter_msg.clone(), recv_reset_from_app);
-    let counter = counter::counter(recv_counter_msg);
-    let app_view = view(counter, send_reset_to_app);
-    app_view.with_task(app_logic)
-}
-
-#[wasm_bindgen]
-pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
-    panic::set_hook(Box::new(console_error_panic_hook::hook));
-    console_log::init_with_level(Level::Trace).unwrap();
-
-    mogwai::spawn(async {
-        let view = app().build().unwrap();
-
-        if let Some(id) = parent_id {
-            let parent = mogwai::dom::utils::document()
-                .unwrap_js::<web_sys::Document>()
-                .get_element_by_id(&id)
-                .map(Dom::wrap_js)
-                .unwrap();
-            view.run_in_container(&parent)
-        } else {
-            view.run()
-        }
-        .unwrap();
-    });
-
-    Ok(())
 }

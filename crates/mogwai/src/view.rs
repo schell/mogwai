@@ -323,7 +323,7 @@ pub enum ViewIdentity {
     Leaf(String),
 }
 
-pub type MogwaiFuture<T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>;
+pub type MogwaiFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 pub type MogwaiStream<T> = Pin<Box<dyn Stream<Item = T> + Send + 'static>>;
 pub type MogwaiSink<T> = Box<dyn Sink<T, Error = SinkError> + Send + Sync + Unpin + 'static>;
 pub type PostBuild = Box<dyn FnOnce(&mut AnyView) -> anyhow::Result<()> + Send + Sync + 'static>;
@@ -463,7 +463,7 @@ impl ViewBuilder {
     }
 
     /// Adds an asynchronous task.
-    pub fn with_task(mut self, f: impl Future<Output = ()> + Send + Sync + 'static) -> Self {
+    pub fn with_task(mut self, f: impl Future<Output = ()> + Send + 'static) -> Self {
         self.tasks.push(Box::pin(f));
         self
     }
