@@ -3,10 +3,12 @@ use std::{
     collections::HashMap,
     future::Future,
     ops::{Bound, Deref, RangeBounds},
+    sync::Arc,
 };
 
 use anyhow::Context;
-use futures::{channel::mpsc, stream::select_all, SinkExt, StreamExt};
+use async_lock::{RwLock, RwLockUpgradableReadGuard};
+use futures::{channel::mpsc, stream::select_all, FutureExt, SinkExt, StreamExt};
 use mogwai::{
     futures::sink::Contravariant,
     patch::{HashPatch, HashPatchApply, ListPatch, ListPatchApply},
@@ -17,59 +19,144 @@ use wasm_bindgen::{JsCast, JsValue};
 
 use crate::event::JsDomEvent;
 
-/// Re-export of [`wasm_bindgen_futures::spawn_local`].
-pub fn spawn_local<F>(future: F)
-where
-    F: Future<Output = ()> + 'static,
-{
-    wasm_bindgen_futures::spawn_local(future)
+use super::FutureTask;
+
+pub struct JsTask<T> {
+    tx_cancel_task: async_channel::Sender<()>,
+    inner: Arc<RwLock<Option<T>>>,
+    // TODO: remove this debugging string
+    name: String,
 }
 
-/// An empty type because we don't need anything but static references to build browser DOM.
-pub struct JsDomResources;
+impl<T> Clone for JsTask<T> {
+    fn clone(&self) -> Self {
+        Self {
+            tx_cancel_task: self.tx_cancel_task.clone(),
+            inner: self.inner.clone(),
+            name: self.name.clone(),
+        }
+    }
+}
 
-pub(crate) fn init(_: &(), identity: ViewIdentity) -> anyhow::Result<JsDom> {
+impl<T> Drop for JsTask<T> {
+    fn drop(&mut self) {
+        let _ = self.tx_cancel_task.try_send(());
+        log::trace!("dropping JsTask '{}'", self.name);
+    }
+}
+
+impl<T: Send + 'static> JsTask<T> {
+    pub fn is_finished(&self) -> bool {
+        self.inner
+            .try_read()
+            .map(|r| r.is_some())
+            .unwrap_or_default()
+    }
+
+    pub async fn try_into_inner(self) -> Result<T, JsTask<T>> {
+        let r = self.inner.upgradable_read().await;
+        if r.is_some() {
+            let mut w = RwLockUpgradableReadGuard::upgrade(r).await;
+            Ok(w.take().unwrap())
+        } else {
+            drop(r);
+            Err(self)
+        }
+    }
+}
+
+/// Spawn an async task and return a `JsTask<T>`.
+pub fn spawn_local<T: 'static>(name: &str, future: impl Future<Output = T> + 'static) -> JsTask<T> {
+    let inner = Arc::new(RwLock::new(None));
+    let inner_spawned = inner.clone();
+    let (tx_cancel_task, mut rx_cancel_task) = async_channel::bounded(1);
+    wasm_bindgen_futures::spawn_local(async move {
+        let task_done = async move {
+            let t = future.await;
+            let mut w = inner_spawned.write().await;
+            *w = Some(t);
+        }
+        .into_stream()
+        .boxed_local();
+        let task_cancelled = async move {
+            rx_cancel_task.next().await;
+        }
+        .into_stream()
+        .boxed_local();
+        select_all(vec![task_done, task_cancelled]).next().await;
+    });
+    JsTask {
+        tx_cancel_task,
+        inner,
+        name: name.to_string(),
+    }
+}
+
+pub(crate) fn init(
+    _: &(),
+    id_string: &str,
+    node_id: usize,
+    identity: ViewIdentity,
+) -> anyhow::Result<JsDom> {
     let element = match identity {
-        ViewIdentity::Branch(tag) => JsDom::element(&tag, None),
-        ViewIdentity::NamespacedBranch(tag, ns) => JsDom::element(&tag, Some(&ns)),
-        ViewIdentity::Leaf(text) => JsDom::text(&text),
-    }?;
+        ViewIdentity::Branch(tag) => {
+            let mut dom = JsDom::element(&tag, None)?;
+            dom.name = format!("{}_{}_{}", tag, id_string, node_id);
+            dom
+        }
+        ViewIdentity::NamespacedBranch(tag, ns) => {
+            let mut dom = JsDom::element(&tag, Some(&ns))?;
+            dom.name = format!("{}_{}_{}", tag, id_string, node_id);
+            dom
+        }
+        ViewIdentity::Leaf(text) => {
+            let mut dom = JsDom::text(&text)?;
+            dom.name = format!("\"{}\"_{}_{}", text, id_string, node_id);
+            dom
+        }
+    };
     Ok(element)
 }
 
 pub(crate) fn add_event(
+    id_string: &str,
+    node_id: usize,
     view: &JsDom,
     Listener {
         event_name,
         event_target,
         sink,
     }: Listener,
-) -> anyhow::Result<()> {
-    let tx = sink.contra_map(|event: web_sys::Event| AnyEvent::new(JsDomEvent::from(event)));
-    match event_target.as_str() {
-        "myself" => {
-            crate::event::add_event(
-                &event_name,
-                view.inner
-                    .dyn_ref::<web_sys::EventTarget>()
-                    .ok_or_else(|| "not an event target".to_string())
-                    .unwrap(),
-                Box::pin(tx),
-            );
-        }
-        "window" => {
-            crate::event::add_event(&event_name, &web_sys::window().unwrap(), Box::pin(tx));
-        }
-        "document" => {
-            crate::event::add_event(
-                &event_name,
-                &web_sys::window().unwrap().document().unwrap(),
-                Box::pin(tx),
-            );
-        }
+) -> anyhow::Result<FutureTask<()>> {
+    let tx = sink.contra_map(|event: JsDomEvent| AnyEvent::new(event));
+    let task = match event_target.as_str() {
+        "myself" => crate::event::add_event(
+            id_string,
+            node_id,
+            &event_name,
+            view.inner
+                .dyn_ref::<web_sys::EventTarget>()
+                .ok_or_else(|| "not an event target".to_string())
+                .unwrap(),
+            Box::pin(tx),
+        ),
+        "window" => crate::event::add_event(
+            id_string,
+            node_id,
+            &event_name,
+            &web_sys::window().unwrap(),
+            Box::pin(tx),
+        ),
+        "document" => crate::event::add_event(
+            id_string,
+            node_id,
+            &event_name,
+            &web_sys::window().unwrap().document().unwrap(),
+            Box::pin(tx),
+        ),
         _ => anyhow::bail!("unsupported event target {}", event_target),
-    }
-    Ok(())
+    };
+    Ok(task)
 }
 
 /// A Javascript/browser DOM node.
@@ -77,7 +164,38 @@ pub(crate) fn add_event(
 /// Represents DOM nodes when a view is built on a WASM target.
 #[derive(Clone)]
 pub struct JsDom {
-    inner: SendWrapper<std::sync::Arc<JsValue>>,
+    pub(crate) name: String,
+    pub(crate) inner: SendWrapper<std::sync::Arc<JsValue>>,
+    pub(crate) tasks: Arc<RwLock<Vec<JsTask<()>>>>,
+    pub(crate) children: Arc<RwLock<Vec<JsDom>>>,
+}
+
+impl Drop for JsDom {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.children) == 1 {
+            log::trace!("dropping js '{}'", self.name);
+        }
+    }
+}
+
+impl std::fmt::Debug for JsDom {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JsDom")
+            .field("name", &self.name)
+            .field("inner", &self.inner)
+            .field(
+                "tasks",
+                &format!(
+                    "vec(len={})",
+                    self.tasks
+                        .try_read()
+                        .map(|vs| vs.len().to_string())
+                        .unwrap_or("?".to_string())
+                ),
+            )
+            .field("children", &self.children)
+            .finish()
+    }
 }
 
 impl Deref for JsDom {
@@ -91,7 +209,15 @@ impl Deref for JsDom {
 impl From<JsValue> for JsDom {
     fn from(value: JsValue) -> Self {
         JsDom {
+            name: format!(
+                "{:?}",
+                value
+                    .dyn_ref::<web_sys::Element>()
+                    .map(|el| el.outer_html())
+            ),
             inner: SendWrapper::new(std::sync::Arc::new(value)),
+            tasks: Default::default(),
+            children: Default::default(),
         }
     }
 }
@@ -206,21 +332,8 @@ pub(crate) fn update_js_dom(js_dom: &JsDom, update: Update) -> anyhow::Result<()
             }
         }
         Update::Child(patch) => {
-            let patch: ListPatch<web_sys::Node> =
-                patch.try_map(|builder: ViewBuilder| -> anyhow::Result<web_sys::Node> {
-                    let child: JsDom = builder.try_into()?;
-                    child
-                        .inner
-                        .dyn_ref::<web_sys::Node>()
-                        .cloned()
-                        .context("not a dom node")
-                })?;
-            let mut node = js_dom
-                .inner
-                .dyn_ref::<web_sys::Node>()
-                .cloned()
-                .context("could not patch children parent is not an element")?;
-            let _ = list_patch_apply_node(&mut node, patch);
+            let patch: ListPatch<JsDom> = patch.try_map(JsDom::try_from)?;
+            let _ = js_dom.patch(patch);
         }
     }
 
@@ -262,7 +375,12 @@ impl JsDom {
             }?
             .into(),
         ));
-        Ok(JsDom { inner })
+        Ok(JsDom {
+            name: tag.to_string(),
+            inner,
+            tasks: Default::default(),
+            children: Default::default(),
+        })
     }
 
     /// Create a text node
@@ -272,7 +390,12 @@ impl JsDom {
         text.set_data(s);
         let node: JsValue = text.into();
         let inner = SendWrapper::new(std::sync::Arc::new(node));
-        Ok(JsDom { inner })
+        Ok(JsDom {
+            name: format!("\"{s}\""),
+            inner,
+            tasks: Default::default(),
+            children: Default::default(),
+        })
     }
 
     ///// Create a text node
@@ -333,26 +456,35 @@ impl JsDom {
         //Either::Right(ssr) => ssr.html_string().await,
     }
 
+    pub fn patch(&self, patch: ListPatch<JsDom>) -> Vec<JsDom> {
+        let node_patch = patch
+            .clone()
+            .map(|js| js.clone_as::<web_sys::Node>().unwrap());
+
+        log::trace!("patching '{}' with {:?}", self.name, patch);
+        let mut parent = self.inner.dyn_ref::<web_sys::Node>().unwrap().clone();
+        list_patch_apply_node(&mut parent, node_patch);
+
+        let mut w = self.children.try_write().unwrap();
+        let removed = w.list_patch_apply(patch);
+        log::trace!("removed {} children from '{}'", removed.len(), self.name);
+        removed
+    }
+
     /// Run this view in a parent container forever, never dropping it.
-    pub fn run_in_container(self, container: &JsDom) -> anyhow::Result<()> {
-        let node: web_sys::Node = self
-            .inner
-            .dyn_ref::<web_sys::Node>()
-            .context("could not downcast to web_sys::Node")?
-            .clone();
-        let mut container_node: web_sys::Node = container
-            .inner
-            .dyn_ref::<web_sys::Node>()
-            .context("could not downcast to web_sys::Node")?
-            .clone();
-        let patch = ListPatch::push(node);
-        let _ = list_patch_apply_node(&mut container_node, patch);
+    pub fn run_in_container(self, container: JsDom) -> anyhow::Result<()> {
+        log::info!("run in container");
+        container.patch(ListPatch::push(self));
+        crate::utils::request_animation_frame(move |_| {
+            let _ = container;
+            true
+        });
         Ok(())
     }
 
     /// Run this gizmo in the document body forever, never dropping it.
     pub fn run(self) -> anyhow::Result<()> {
-        self.run_in_container(&crate::utils::body())
+        self.run_in_container(crate::utils::body())
     }
 
     pub async fn run_while<T: 'static>(
@@ -433,17 +565,7 @@ impl ListPatchApply for JsDom {
     type Item = JsDom;
 
     fn list_patch_apply(&mut self, patch: ListPatch<JsDom>) -> Vec<JsDom> {
-        let patch: ListPatch<web_sys::Node> = patch.map(|child: JsDom| {
-            let node: Option<&web_sys::Node> = child.inner.dyn_ref::<web_sys::Node>();
-            let node: web_sys::Node = node.unwrap().clone();
-            node
-        });
-
-        let mut parent = self.inner.dyn_ref::<web_sys::Node>().unwrap().clone();
-        list_patch_apply_node(&mut parent, patch)
-            .into_iter()
-            .map(|t| JsDom::from_jscast(&t))
-            .collect()
+        self.patch(patch)
     }
 }
 
@@ -452,8 +574,10 @@ impl TryFrom<ViewBuilder> for JsDom {
 
     fn try_from(builder: ViewBuilder) -> Result<Self, Self::Error> {
         let (js, to_spawn) = super::build((), builder, init, update_js_dom, add_event)?;
-        for task in to_spawn.into_iter() {
-            wasm_bindgen_futures::spawn_local(task);
+        for future_task in to_spawn.into_iter() {
+            log::trace!("spawning js task '{}'", future_task.name);
+            let mut ts = js.tasks.try_write().unwrap();
+            ts.push(spawn_local(&future_task.name, future_task.fut));
         }
         Ok(js)
     }
@@ -552,7 +676,13 @@ impl HydrationKey {
             }
         };
 
-        let dom = JsDom::from_jscast(&el);
+        //let dom = JsDom::from_jscast(&el);
+        let dom = JsDom {
+            name: "hydrated".to_string(),
+            inner: SendWrapper::new(Arc::new(JsValue::from(el))),
+            tasks: Default::default(),
+            children: Default::default(),
+        };
         Ok(dom)
     }
 }
@@ -599,20 +729,23 @@ impl Hydrator {
         };
 
         let (update_stream, updates) = crate::core::view::exhaust(select_all(updates));
-        let (updates, attribs) = updates
-            .into_iter()
-            .fold((vec![], vec![]),|(mut updates, mut attribs), update| {
-                match update {
-                    Update::Attribute(patch) => attribs.push(patch),
-                    update => updates.push(update),
-                }
-                (updates, attribs)
-            });
+        let (updates, attribs) =
+            updates
+                .into_iter()
+                .fold((vec![], vec![]), |(mut updates, mut attribs), update| {
+                    match update {
+                        Update::Attribute(patch) => attribs.push(patch),
+                        update => updates.push(update),
+                    }
+                    (updates, attribs)
+                });
 
         let key = HydrationKey::try_new(construct_with, attribs, may_parent)?;
         let dom = key.hydrate()?;
 
         let (dom, tasks) = super::finalize_build(
+            "unknown".to_string(),
+            0,
             dom,
             update_stream,
             post_build_ops,
@@ -623,10 +756,12 @@ impl Hydrator {
             update_js_dom,
         )?;
 
-        let node = dom.clone_as::<web_sys::Node>().context("element is not a node")?;
+        let node = dom
+            .clone_as::<web_sys::Node>()
+            .context("element is not a node")?;
         let child_patches = updates.into_iter().filter_map(|update| match update {
             Update::Child(patch) => Some(patch),
-            _ => None
+            _ => None,
         });
         let mut children: Vec<ViewBuilder> = vec![];
         for patch in child_patches.into_iter() {
@@ -640,8 +775,10 @@ impl Hydrator {
         }
 
         // lastly spawn all our tasks
-        for task in tasks.into_iter() {
-            wasm_bindgen_futures::spawn_local(task);
+        for fut_task in tasks.into_iter() {
+            log::trace!("hydrator spawning task '{}'", fut_task.name);
+            let mut ts = dom.tasks.try_write().unwrap();
+            ts.push(spawn_local(&fut_task.name, fut_task.fut));
         }
 
         Ok(Hydrator { inner: dom })

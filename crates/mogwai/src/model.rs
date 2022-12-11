@@ -3,7 +3,7 @@ use std::{collections::HashMap, ops::DerefMut, sync::Arc};
 
 use async_broadcast::{broadcast, Receiver, Sender};
 use futures::Stream;
-use async_lock::{RwLock, RwLockReadGuard};
+use async_lock::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard};
 
 use crate::patch::{HashPatch, ListPatch};
 
@@ -126,18 +126,19 @@ impl<T: Clone + PartialEq> Model<T> {
 /// every patch applied to the model.
 ///
 /// Unlike [`Model`], [`ListPatchModel`] is not meant to be shared by cloning.
+#[derive(Clone)]
 pub struct ListPatchModel<T> {
-    value: RwLock<Vec<T>>,
-    chan: (Sender<ListPatch<T>>, Receiver<ListPatch<T>>),
+    value: Arc<RwLock<Vec<T>>>,
+    chan: (Arc<RwLock<Sender<ListPatch<T>>>>, Receiver<ListPatch<T>>),
 }
 
 impl<T: Clone> ListPatchModel<T> {
     /// Create a new, empty ListPatchModel.
     pub fn new() -> Self {
-        let downstream = broadcast::<ListPatch<T>>(4);
+        let (tx, rx) = broadcast::<ListPatch<T>>(4);
         ListPatchModel {
             value: Default::default(),
-            chan: downstream,
+            chan: (Arc::new(RwLock::new(tx)), rx),
         }
     }
 
@@ -157,6 +158,27 @@ impl<T: Clone> ListPatchModel<T> {
     pub fn stream(&self) -> impl Stream<Item = ListPatch<T>> {
         self.chan.1.clone()
     }
+
+    async fn ensure_room(&self) {
+        let tx = self.chan.0.upgradable_read().await;
+        let len = tx.len();
+        if tx.is_full() {
+            RwLockUpgradableReadGuard::upgrade(tx).await.set_capacity(1 + len);
+        }
+    }
+
+    /// Apply the given patch to the `ListPatchModel`.
+    ///
+    /// ## Panics
+    /// Panics if the downstream channel is full, or the model is being read at the time
+    /// of application (which cannot happen in the browser).
+    pub async fn patch(&self, patch: ListPatch<T>) -> Vec<T> {
+        self.ensure_room().await;
+        let tx = self.chan.0.read().await;
+        let items = self.value.write().await.list_patch_apply(patch.clone());
+        let _ = tx.try_broadcast(patch).unwrap();
+        items
+    }
 }
 
 impl<T: Clone> ListPatchApply for ListPatchModel<T> {
@@ -164,16 +186,11 @@ impl<T: Clone> ListPatchApply for ListPatchModel<T> {
 
     /// Apply the given patch to the `ListPatchModel`.
     ///
-    /// Blocks until a write lock can be acquired.
-    ///
     /// ## Panics
-    /// Panics if the downstream channel is full.
+    /// Panics if the downstream channel is full, or the model is being read at the time
+    /// of application (which cannot happen in the browser).
     fn list_patch_apply(&mut self, patch: ListPatch<Self::Item>) -> Vec<Self::Item> {
-        let items = self.value.get_mut().list_patch_apply(patch.clone());
-        let tx = &mut self.chan.0;
-        tx.set_capacity(1 + tx.len());
-        let _ = tx.try_broadcast(patch).unwrap();
-        items
+        futures::executor::block_on(self.patch(patch))
     }
 }
 
@@ -196,8 +213,9 @@ impl<T: Clone> ListPatchApply for ListPatchModel<T> {
 ///     assert_eq!(model.read().await.get("hello"), Some(&666));
 /// });
 /// ```
+#[derive(Clone)]
 pub struct HashPatchModel<K, V> {
-    value: RwLock<HashMap<K, V>>,
+    value: Arc<RwLock<HashMap<K, V>>>,
     chan: (Sender<HashPatch<K, V>>, Receiver<HashPatch<K, V>>),
 }
 
@@ -235,12 +253,14 @@ impl<K: Clone + std::hash::Hash + Eq, V: Clone> HashPatchApply for HashPatchMode
 
     /// Apply the given patch to the `HashPatchModel`.
     ///
-    /// Blocks until all downstream observers have received the patch.
+    /// ## Panics
+    /// Panics if the downstream channel is full, or the model is being read at the time
+    /// of application (which cannot happen in the browser).
     fn hash_patch_apply(
         &mut self,
         patch: HashPatch<Self::Key, Self::Value>,
     ) -> Option<Self::Value> {
-        let item = self.value.get_mut().hash_patch_apply(patch.clone());
+        let item = self.value.try_write().unwrap().hash_patch_apply(patch.clone());
         let tx = &mut self.chan.0;
         tx.set_capacity(1 + tx.len());
         let _ = tx.try_broadcast(patch).unwrap();

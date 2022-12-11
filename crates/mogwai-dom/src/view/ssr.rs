@@ -2,7 +2,7 @@
 use anyhow::Context;
 use async_executor::Executor;
 use async_lock::RwLock;
-use futures::{Future, Sink, StreamExt};
+use futures::{Future, FutureExt, Sink, StreamExt};
 use std::{collections::HashMap, ops::DerefMut, pin::Pin, sync::Arc};
 
 use mogwai::{
@@ -12,6 +12,8 @@ use mogwai::{
     view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity},
 };
 use serde_json::Value;
+
+use super::FutureTask;
 
 // Only certain nodes can be "void" - which means written as <tag /> when
 // the node contains no children. Writing non-void nodes in void notation
@@ -174,9 +176,11 @@ impl TryFrom<ViewBuilder> for SsrDom {
 
 impl SsrDom {
     pub fn new(executor: Arc<Executor<'static>>, builder: ViewBuilder) -> anyhow::Result<Self> {
-        let (ssr, to_spawn) = super::build(executor.clone(), builder, init, update_ssr_dom, add_event)?;
-        for task in to_spawn.into_iter() {
-            executor.spawn(task).detach();
+        let (ssr, to_spawn) =
+            super::build(executor.clone(), builder, init, update_ssr_dom, add_event)?;
+        for future_task in to_spawn.into_iter() {
+            log::trace!("spawning ssr task '{}'", future_task.name);
+            executor.spawn(future_task.fut).detach();
         }
         Ok(ssr)
     }
@@ -340,7 +344,10 @@ impl SsrDom {
         })
     }
 
-    pub async fn run_while<T: 'static>(&self, fut: impl Future<Output = T> + 'static) -> anyhow::Result<T> {
+    pub async fn run_while<T: 'static>(
+        &self,
+        fut: impl Future<Output = T> + 'static,
+    ) -> anyhow::Result<T> {
         let t = self.executor.run(fut).await;
         Ok(t)
     }
@@ -348,6 +355,8 @@ impl SsrDom {
 
 pub(crate) fn init(
     rez: &Arc<Executor<'static>>,
+    _id_string: &str,
+    _node_id: usize,
     identity: ViewIdentity,
 ) -> anyhow::Result<SsrDom> {
     let element = match identity {
@@ -417,7 +426,12 @@ impl ListPatchApply for SsrDom {
     }
 }
 
-pub(crate) fn add_event(ssr: &SsrDom, listener: Listener) -> anyhow::Result<()> {
+pub(crate) fn add_event(
+    id_string: &str,
+    node_id: usize,
+    ssr: &SsrDom,
+    listener: Listener,
+) -> anyhow::Result<FutureTask<()>> {
     let Listener {
         event_name,
         event_target,
@@ -426,7 +440,10 @@ pub(crate) fn add_event(ssr: &SsrDom, listener: Listener) -> anyhow::Result<()> 
     let sink = Box::pin(sink.contra_map(AnyEvent::new));
     let mut lock = ssr.events.try_write().context("can't lock")?;
     let _ = lock.insert((event_target, event_name), sink);
-    Ok(())
+    Ok(FutureTask {
+        name: format!("ssr_event_{}_{}", id_string, node_id),
+        fut: Box::pin(async { () }),
+    })
 }
 
 #[cfg(test)]

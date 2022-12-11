@@ -8,7 +8,7 @@ members = [
   "examples/counter",
   "examples/nested-components",
   #"examples/focus-follower",
-  #"examples/list-of-gizmos",
+  "examples/list-of-gizmos",
   #"examples/multipage",
   #"examples/sandbox",
   #"examples/spa-routing",
