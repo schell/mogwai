@@ -3,7 +3,10 @@ use std::{
     collections::HashMap,
     future::Future,
     ops::{Bound, Deref, RangeBounds},
-    sync::Arc,
+    sync::{
+        atomic::{self, AtomicUsize},
+        Arc,
+    }, pin::Pin,
 };
 
 use anyhow::Context;
@@ -20,6 +23,8 @@ use wasm_bindgen::{JsCast, JsValue};
 use crate::event::JsDomEvent;
 
 use super::FutureTask;
+
+static NODE_ID: AtomicUsize = AtomicUsize::new(0);
 
 pub struct JsTask<T> {
     tx_cancel_task: async_channel::Sender<()>,
@@ -92,35 +97,16 @@ pub fn spawn_local<T: 'static>(name: &str, future: impl Future<Output = T> + 'st
     }
 }
 
-pub(crate) fn init(
-    _: &(),
-    id_string: &str,
-    node_id: usize,
-    identity: ViewIdentity,
-) -> anyhow::Result<JsDom> {
+pub(crate) fn init(_: &(), identity: ViewIdentity) -> anyhow::Result<JsDom> {
     let element = match identity {
-        ViewIdentity::Branch(tag) => {
-            let mut dom = JsDom::element(&tag, None)?;
-            dom.name = format!("{}_{}_{}", tag, id_string, node_id);
-            dom
-        }
-        ViewIdentity::NamespacedBranch(tag, ns) => {
-            let mut dom = JsDom::element(&tag, Some(&ns))?;
-            dom.name = format!("{}_{}_{}", tag, id_string, node_id);
-            dom
-        }
-        ViewIdentity::Leaf(text) => {
-            let mut dom = JsDom::text(&text)?;
-            dom.name = format!("\"{}\"_{}_{}", text, id_string, node_id);
-            dom
-        }
-    };
+        ViewIdentity::Branch(tag) => JsDom::element(&tag, None),
+        ViewIdentity::NamespacedBranch(tag, ns) => JsDom::element(&tag, Some(&ns)),
+        ViewIdentity::Leaf(text) => JsDom::text(&text),
+    }?;
     Ok(element)
 }
 
 pub(crate) fn add_event(
-    id_string: &str,
-    node_id: usize,
     view: &JsDom,
     Listener {
         event_name,
@@ -131,8 +117,7 @@ pub(crate) fn add_event(
     let tx = sink.contra_map(|event: JsDomEvent| AnyEvent::new(event));
     let task = match event_target.as_str() {
         "myself" => crate::event::add_event(
-            id_string,
-            node_id,
+            &view.name,
             &event_name,
             view.inner
                 .dyn_ref::<web_sys::EventTarget>()
@@ -141,15 +126,13 @@ pub(crate) fn add_event(
             Box::pin(tx),
         ),
         "window" => crate::event::add_event(
-            id_string,
-            node_id,
+            &view.name,
             &event_name,
             &web_sys::window().unwrap(),
             Box::pin(tx),
         ),
         "document" => crate::event::add_event(
-            id_string,
-            node_id,
+            &view.name,
             &event_name,
             &web_sys::window().unwrap().document().unwrap(),
             Box::pin(tx),
@@ -164,16 +147,27 @@ pub(crate) fn add_event(
 /// Represents DOM nodes when a view is built on a WASM target.
 #[derive(Clone)]
 pub struct JsDom {
-    pub(crate) name: String,
+    pub(crate) name: Arc<String>,
     pub(crate) inner: SendWrapper<std::sync::Arc<JsValue>>,
     pub(crate) tasks: Arc<RwLock<Vec<JsTask<()>>>>,
     pub(crate) children: Arc<RwLock<Vec<JsDom>>>,
+    pub(crate) parents_children: Option<Arc<RwLock<Vec<JsDom>>>>,
+}
+
+impl std::fmt::Display for JsDom {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JsDom").field("name", &self.name).finish()
+    }
 }
 
 impl Drop for JsDom {
     fn drop(&mut self) {
         if Arc::strong_count(&self.children) == 1 {
-            log::trace!("dropping js '{}'", self.name);
+            log::trace!(
+                "dropping {}, which has {} refs",
+                self,
+                Arc::strong_count(&self.name)
+            );
         }
     }
 }
@@ -209,15 +203,11 @@ impl Deref for JsDom {
 impl From<JsValue> for JsDom {
     fn from(value: JsValue) -> Self {
         JsDom {
-            name: format!(
-                "{:?}",
-                value
-                    .dyn_ref::<web_sys::Element>()
-                    .map(|el| el.outer_html())
-            ),
+            name: Arc::new(format!("from {:?}", value)),
             inner: SendWrapper::new(std::sync::Arc::new(value)),
             tasks: Default::default(),
             children: Default::default(),
+            parents_children: None,
         }
     }
 }
@@ -340,6 +330,12 @@ pub(crate) fn update_js_dom(js_dom: &JsDom, update: Update) -> anyhow::Result<()
     Ok(())
 }
 
+impl mogwai::view::View for JsDom {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
 // TODO: Make errors returned by JsDom methods Box<dyn Error>
 impl JsDom {
     /// Create a `JsDom` from anything that implements `JsCast`.
@@ -375,11 +371,13 @@ impl JsDom {
             }?
             .into(),
         ));
+        let node_id = NODE_ID.fetch_add(1, atomic::Ordering::Relaxed);
         Ok(JsDom {
-            name: tag.to_string(),
+            name: Arc::new(format!("{}{}{}", tag, namespace.unwrap_or(""), node_id)),
             inner,
             tasks: Default::default(),
             children: Default::default(),
+            parents_children: None,
         })
     }
 
@@ -390,11 +388,17 @@ impl JsDom {
         text.set_data(s);
         let node: JsValue = text.into();
         let inner = SendWrapper::new(std::sync::Arc::new(node));
+        let node_id = NODE_ID.fetch_add(1, atomic::Ordering::Relaxed);
+        let len = s.char_indices().count();
+        let tenth_ndx = s.char_indices().take(10).fold(0, |_, (ndx, _)| ndx);
+        let ext = if len > 10 { "..." } else { "" };
+        let trunc = &s[..tenth_ndx];
         Ok(JsDom {
-            name: format!("\"{s}\""),
+            name: Arc::new(format!("'{}{}'{}", trunc, ext, node_id)),
             inner,
             tasks: Default::default(),
             children: Default::default(),
+            parents_children: None,
         })
     }
 
@@ -461,23 +465,53 @@ impl JsDom {
             .clone()
             .map(|js| js.clone_as::<web_sys::Node>().unwrap());
 
-        log::trace!("patching '{}' with {:?}", self.name, patch);
+        log::trace!(
+            "patching {} with {:?}",
+            self,
+            patch.as_ref().map(|js| format!("{}", js))
+        );
         let mut parent = self.inner.dyn_ref::<web_sys::Node>().unwrap().clone();
         list_patch_apply_node(&mut parent, node_patch);
 
         let mut w = self.children.try_write().unwrap();
-        let removed = w.list_patch_apply(patch);
-        log::trace!("removed {} children from '{}'", removed.len(), self.name);
+        let mut removed = w.list_patch_apply(patch.map(|mut js_dom| {
+            js_dom.parents_children = Some(self.children.clone());
+            js_dom
+        }));
+        for removed_child in removed.iter_mut() {
+            removed_child.parents_children = None;
+        }
+        log::trace!("removed {} children from {}", removed.len(), self);
         removed
+    }
+
+    /// Conduct upkeep of this node, trimming any finished tasks
+    fn upkeep<'a, 'b: 'a>(&'b self) -> Pin<Box<dyn Future<Output = usize> + 'a>> {
+        Box::pin(async {
+            let mut tasks = self.tasks.write().await;
+            tasks.retain(|task| !task.is_finished());
+            let mut total_retained_tasks = tasks.len();
+            drop(tasks);
+
+            let children = self.children.read().await;
+            for child in children.iter() {
+                let child_retained_tasks = child.upkeep().await;
+                total_retained_tasks += child_retained_tasks;
+            }
+            total_retained_tasks
+        })
     }
 
     /// Run this view in a parent container forever, never dropping it.
     pub fn run_in_container(self, container: JsDom) -> anyhow::Result<()> {
         log::info!("run in container");
         container.patch(ListPatch::push(self));
-        crate::utils::request_animation_frame(move |_| {
-            let _ = container;
-            true
+        wasm_bindgen_futures::spawn_local(async move {
+            loop {
+                crate::core::time::wait_millis(10_000).await;
+                let tasks = container.upkeep().await;
+                log::info!("{} retained {} tasks after upkeep", container, tasks);
+            }
         });
         Ok(())
     }
@@ -678,10 +712,11 @@ impl HydrationKey {
 
         //let dom = JsDom::from_jscast(&el);
         let dom = JsDom {
-            name: "hydrated".to_string(),
+            name: Arc::new("hydrated".to_string()),
             inner: SendWrapper::new(Arc::new(JsValue::from(el))),
             tasks: Default::default(),
             children: Default::default(),
+            parents_children: None,
         };
         Ok(dom)
     }
@@ -744,8 +779,6 @@ impl Hydrator {
         let dom = key.hydrate()?;
 
         let (dom, tasks) = super::finalize_build(
-            "unknown".to_string(),
-            0,
             dom,
             update_stream,
             post_build_ops,

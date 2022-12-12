@@ -35,6 +35,20 @@ pub enum ListPatch<T> {
 }
 
 impl<T> ListPatch<T> {
+    pub fn as_ref(&self) -> ListPatch<&T> {
+        match self {
+            ListPatch::Splice {
+                range,
+                replace_with,
+            } => ListPatch::Splice {
+                range: *range,
+                replace_with: replace_with.iter().collect(),
+            },
+            ListPatch::Push(t) => ListPatch::Push(&t),
+            ListPatch::Pop => ListPatch::Pop,
+        }
+    }
+
     /// Construct a ListPatch that splices the given range with the given replacements.
     pub fn splice(range: impl RangeBounds<usize>, replace_with: impl Iterator<Item = T>) -> Self {
         ListPatch::Splice {

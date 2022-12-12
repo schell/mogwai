@@ -130,8 +130,7 @@
 //! ```
 //!
 //! [`JsDom::run`], [`SsrDom::run`] and [`Dom::run`] consume the view, attaching it to
-//! the `document.body` (where appropriate) and *handing ownership to the browser window
-//! when running on WASM*.
+//! the `document.body` (where appropriate) and *never dropping the node*.
 //!
 //! ### Detaching [`Dom`]
 //!

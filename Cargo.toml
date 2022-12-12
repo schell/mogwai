@@ -14,7 +14,7 @@ members = [
   #"examples/spa-routing",
   #"examples/svg",
   #"examples/todomvc",
-  #"crates/xtask",
+  "crates/xtask",
 ]
 
 resolver = "2"

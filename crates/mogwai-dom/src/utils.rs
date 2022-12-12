@@ -15,10 +15,7 @@ pub fn window() -> web_sys::Window {
 /// #### Panics
 /// Panics on non-wasm32 or when the document cannot be returned.
 pub fn document() -> JsDom {
-    JsDom::try_from(JsValue::from(
-        window().document().expect("no global `document` exists"),
-    ))
-    .unwrap()
+    JsDom::from_jscast(&window().document().expect("no global `document` exists"))
 }
 
 /// Return the body Dom object.
@@ -26,17 +23,13 @@ pub fn document() -> JsDom {
 /// ## Panics
 /// Panics on wasm32 if the body cannot be returned.
 pub fn body() -> JsDom {
-    JsDom::try_from(JsValue::from(
-        window()
+    JsDom::from_jscast(
+        &window()
             .document()
             .unwrap()
             .body()
             .expect("document does not have a body"),
-    ))
-    .unwrap()
-    //} else {
-    //    JsDom::try_from(crate::ssr::SsrElement::element("body")).map_err(|_| ()).unwrap()
-    //}
+    )
 }
 
 fn req_animation_frame(f: &Closure<dyn FnMut(JsValue)>) {

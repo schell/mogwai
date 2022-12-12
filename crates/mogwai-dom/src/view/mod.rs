@@ -3,7 +3,6 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{
-        atomic::{self, AtomicUsize},
         Arc,
     },
 };
@@ -30,8 +29,6 @@ pub use futures::future::Either;
 pub use mogwai::futures::EitherExt;
 use wasm_bindgen::JsCast;
 
-static NODE_ID: AtomicUsize = AtomicUsize::new(0);
-
 pub(crate) struct FutureTask<T> {
     pub(crate) name: String,
     pub(crate) fut: Pin<Box<dyn Future<Output = T> + Send>>,
@@ -42,9 +39,9 @@ pub(crate) struct FutureTask<T> {
 pub(crate) fn build<V: View, R>(
     rez: R,
     builder: ViewBuilder,
-    init: impl FnOnce(&R, &str, usize, ViewIdentity) -> anyhow::Result<V>,
+    init: impl FnOnce(&R, ViewIdentity) -> anyhow::Result<V>,
     update_view: fn(&V, Update) -> anyhow::Result<()>,
-    add_event: impl Fn(&str, usize, &V, Listener) -> anyhow::Result<FutureTask<()>>,
+    add_event: impl Fn(&V, Listener) -> anyhow::Result<FutureTask<()>>,
 ) -> anyhow::Result<(V, Vec<FutureTask<()>>)> {
     let ViewBuilder {
         identity,
@@ -55,26 +52,16 @@ pub(crate) fn build<V: View, R>(
         view_sinks,
     } = builder;
 
-    let id_string = match &identity {
-        ViewIdentity::Leaf(text) => format!("\"{}\"", text),
-        ViewIdentity::Branch(tag) => tag.clone(),
-        ViewIdentity::NamespacedBranch(tag, _) => tag.clone(),
-    };
-    let node_id = NODE_ID.fetch_add(1, atomic::Ordering::Relaxed);
     let updates = stream::select_all(updates);
     let (update_stream, initial_values) = exhaust(updates);
     let element: V = initialize_build(
         &rez,
-        &id_string,
-        node_id,
         init,
         update_view,
         identity,
         initial_values,
-    )?; //
+    )?;
     finalize_build(
-        id_string,
-        node_id,
         element,
         update_stream,
         post_build_ops,
@@ -90,14 +77,12 @@ pub(crate) fn build<V: View, R>(
 /// updates that are ready and waiting.
 pub(crate) fn initialize_build<V: View, R>(
     rez: &R,
-    id_string: &str,
-    node_id: usize,
-    init: impl FnOnce(&R, &str, usize, ViewIdentity) -> anyhow::Result<V>,
+    init: impl FnOnce(&R, ViewIdentity) -> anyhow::Result<V>,
     update_view: impl Fn(&V, Update) -> anyhow::Result<()> + Send + 'static,
     identity: ViewIdentity,
     initial_values: Vec<Update>,
 ) -> anyhow::Result<V> {
-    let view = init(&rez, id_string, node_id, identity)?;
+    let view = init(&rez, identity)?;
     for update in initial_values.into_iter() {
         update_view(&view, update)?;
     }
@@ -106,21 +91,19 @@ pub(crate) fn initialize_build<V: View, R>(
 
 /// Finalize the DOM build by making the element reactive.
 pub(crate) fn finalize_build<V: View>(
-    id_string: String,
-    node_id: usize,
     element: V,
-    update_stream: SelectAll<MogwaiStream<Update>>,
+    mut update_stream: SelectAll<MogwaiStream<Update>>,
     post_build_ops: Vec<PostBuild>,
     listeners: Vec<Listener>,
     tasks: Vec<MogwaiFuture<()>>,
     view_sinks: Vec<MogwaiSink<AnyView>>,
-    add_event: impl Fn(&str, usize, &V, Listener) -> anyhow::Result<FutureTask<()>>,
+    add_event: impl Fn(&V, Listener) -> anyhow::Result<FutureTask<()>>,
     update_view: impl Fn(&V, Update) -> anyhow::Result<()> + Send + 'static,
 ) -> anyhow::Result<(V, Vec<FutureTask<()>>)> {
     let mut to_spawn: Vec<FutureTask<()>> = vec![];
 
     for listener in listeners.into_iter() {
-        let fut_task = (add_event)(&id_string, node_id, &element, listener)?;
+        let fut_task = (add_event)(&element, listener)?;
         to_spawn.push(fut_task);
     }
 
@@ -130,59 +113,30 @@ pub(crate) fn finalize_build<V: View>(
     }
     let element = any_view.downcast::<V>()?;
 
-    enum Upkeep {
-        Timeout,
-        Input(Update),
-        End,
-    }
     let node = element.clone();
-    let id_string_clone = id_string.clone();
     to_spawn.push(FutureTask {
-        name: format!("upkeep_{}_{}", id_string, node_id),
+        name: format!("{}_update", node.name()),
         fut: Box::pin(async move {
-            let mut update_or_upkeep = stream::select_all(vec![
-                update_stream
-                    .map(Upkeep::Input)
-                    .chain(stream::iter(std::iter::once(Upkeep::End)))
-                    .boxed(),
-                stream::unfold((), |()| async {
-                    let _ = crate::core::time::wait_millis(1000).await;
-                    Some((Upkeep::Timeout, ()))
-                })
-                .boxed(),
-            ]);
-            while let Some(upkeep) = update_or_upkeep.next().await {
-                match upkeep {
-                    Upkeep::Timeout => {
-                        // do upkeep
-                        log::trace!("upkeep on {} {}", node_id, id_string_clone);
-                    }
-                    Upkeep::Input(update) => {
-                        update_view(&node, update).unwrap();
-                    }
-                    Upkeep::End => {
-                        log::trace!("update task ending for {} {}", node_id, id_string_clone);
-                        break;
-                    }
-                }
+            while let Some(update) = update_stream.next().await {
+                update_view(&node, update).unwrap();
             }
+            log::trace!("update stream ended for {}", node.name());
         }),
     });
 
     for (i, task) in tasks.into_iter().enumerate() {
         to_spawn.push(FutureTask {
-            name: format!("viewbuilder_task_{}_{}#{}", id_string, node_id, i),
+            name: format!("{}_task#{}", element.name(), i),
             fut: task,
         });
     }
     let node: V = element.clone();
-    println!("using {} node for sinks", std::any::type_name::<V>());
     to_spawn.push(FutureTask {
-        name: format!("viewsink_{}_{}", id_string, node_id),
+        name: format!("{}_viewsink", node.name()),
         fut: Box::pin(async move {
             for mut sink in view_sinks.into_iter() {
                 let any_view = AnyView::new(node.clone());
-                println!("sinking {:?}", any_view);
+                println!("sinking {} as {:?}", node.name(), any_view);
                 let _ = sink.send(any_view).await;
             }
         }),
@@ -193,6 +147,12 @@ pub(crate) fn finalize_build<V: View>(
 
 #[derive(Clone)]
 pub struct Dom(Either<JsDom, SsrDom>);
+
+impl View for Dom {
+    fn name(&self) -> &str {
+        self.as_either_ref().map_either(View::name, View::name)
+    }
+}
 
 impl From<JsDom> for Dom {
     fn from(v: JsDom) -> Self {
@@ -209,27 +169,23 @@ impl From<SsrDom> for Dom {
 impl Dom {
     fn init(
         rez: &Either<(), Arc<Executor<'static>>>,
-        id_string: &str,
-        node_id: usize,
         identity: ViewIdentity,
     ) -> anyhow::Result<Self> {
         Ok(match rez {
-            Either::Left(()) => Dom::from(js::init(&(), id_string, node_id, identity)?),
+            Either::Left(()) => Dom::from(js::init(&(), identity)?),
             Either::Right(executor) => {
-                Dom::from(ssr::init(executor, id_string, node_id, identity)?)
+                Dom::from(ssr::init(executor, identity)?)
             }
         })
     }
 
     fn add_event(
-        id_string: &str,
-        node_id: usize,
         dom: &Self,
         listener: Listener,
     ) -> anyhow::Result<FutureTask<()>> {
         match &dom.0 {
-            Either::Left(js) => js::add_event(id_string, node_id, js, listener),
-            Either::Right(ssr) => ssr::add_event(id_string, node_id, ssr, listener),
+            Either::Left(js) => js::add_event(js, listener),
+            Either::Right(ssr) => ssr::add_event(ssr, listener),
         }
     }
 

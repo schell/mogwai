@@ -22,12 +22,15 @@ impl Wake for DummyWaker {
     fn wake(self: std::sync::Arc<Self>) {}
 }
 
-/// A marker trait for domain-specific views.
+/// A trait for domain-specific views.
 ///
 /// A view is a smart pointer that can be cheaply cloned, where clones all refer
 /// to the same underlying user interface node.
-pub trait View: Any + Sized + Clone + Unpin + Send + Sync {}
-impl<T: Any + Sized + Clone + Unpin + Send + Sync> View for T {}
+pub trait View: Any + Sized + Clone + Unpin + Send + Sync {
+    fn name(&self) -> &str {
+        "unnamed"
+    }
+}
 
 /// A type erased view.
 ///

@@ -179,30 +179,29 @@ pub fn event_stream(
 /// Add an event listener of the given name to the given target. When the event happens, the
 /// event will be fed to the given sink. If the sink is closed, the listener will be removed.
 pub(crate) fn add_event(
-    id_string: &str,
-    node_id: usize,
+    name: &str,
     ev_name: &str,
     target: &web_sys::EventTarget,
     mut tx: Pin<Box<dyn Sink<JsDomEvent, Error = SinkError> + Send + 'static>>,
 ) -> FutureTask<()> {
     let mut stream = event_stream(ev_name, target);
+    let name = name.to_string();
     let ev_name = ev_name.to_string();
-    let target = JsDom::from_jscast(target);
     FutureTask {
-        name: format!("event_{}_{}_{}", id_string, node_id, ev_name),
+        name: format!("{}_event_{}", name, ev_name),
         fut: Box::pin(async move {
             loop {
                 match stream.next().await {
                     Some(event) => match tx.send(event).await {
                         Ok(()) => {}
-                        Err(SinkError::Full) => panic!("event sink is full"),
+                        Err(SinkError::Full) => panic!("{} {} event sink is full", name, ev_name),
                         Err(SinkError::Closed) => break,
                     },
                     None => {
                         log::trace!(
-                            "removing event '{}' from {:?}",
+                            "{} removing event {}",
+                            name,
                             ev_name,
-                            target.clone_as::<web_sys::Node>()
                         );
                         break;
                     }

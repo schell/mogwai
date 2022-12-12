@@ -2,14 +2,14 @@
 use anyhow::Context;
 use async_executor::Executor;
 use async_lock::RwLock;
-use futures::{Future, FutureExt, Sink, StreamExt};
+use futures::{Future, Sink, StreamExt};
 use std::{collections::HashMap, ops::DerefMut, pin::Pin, sync::Arc};
 
 use mogwai::{
     channel::SinkError,
     futures::{sink::Contravariant, SinkExt},
     patch::{HashPatch, ListPatch, ListPatchApply},
-    view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity},
+    view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity, View},
 };
 use serde_json::Value;
 
@@ -355,8 +355,6 @@ impl SsrDom {
 
 pub(crate) fn init(
     rez: &Arc<Executor<'static>>,
-    _id_string: &str,
-    _node_id: usize,
     identity: ViewIdentity,
 ) -> anyhow::Result<SsrDom> {
     let element = match identity {
@@ -426,9 +424,13 @@ impl ListPatchApply for SsrDom {
     }
 }
 
+impl mogwai::view::View for SsrDom {
+    fn name(&self) -> &str {
+        "todo! name ssr node"
+    }
+}
+
 pub(crate) fn add_event(
-    id_string: &str,
-    node_id: usize,
     ssr: &SsrDom,
     listener: Listener,
 ) -> anyhow::Result<FutureTask<()>> {
@@ -439,9 +441,10 @@ pub(crate) fn add_event(
     } = listener;
     let sink = Box::pin(sink.contra_map(AnyEvent::new));
     let mut lock = ssr.events.try_write().context("can't lock")?;
+    let name = format!("{}_event_{}", ssr.name(), event_name);
     let _ = lock.insert((event_target, event_name), sink);
     Ok(FutureTask {
-        name: format!("ssr_event_{}_{}", id_string, node_id),
+        name,
         fut: Box::pin(async { () }),
     })
 }
