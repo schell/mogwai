@@ -76,7 +76,7 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
                 JsDom::from_jscast(&doc.get_element_by_id(&id).unwrap())
             })
             .unwrap();
-        view.run_in_container(&parent)
+        view.run_in_container(parent)
     } else {
         view.run()
     }

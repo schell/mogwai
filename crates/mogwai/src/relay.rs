@@ -89,6 +89,14 @@ impl<T> Clone for Input<T> {
 }
 
 impl<T> Input<T> {
+    /// Create a new input with a value already set.
+    pub fn new(item: T) -> Self {
+        let mut input = Self::default();
+        // UNWRAP: safe because we know the channel has one slot
+        input.setter.try_send(item).unwrap();
+        input
+    }
+
     /// Set the value of this input.
     pub async fn set(&self, item: impl Into<T>) -> anyhow::Result<()> {
         let mut setter = self.setter.clone();
@@ -208,6 +216,11 @@ impl<T: Clone> Output<T> {
     /// This can be used by views to send events downstream.
     pub fn sink(&self) -> impl Sink<T, Error = SinkError> {
         self.chan.sender()
+    }
+
+    pub async fn send(&self, item: T) -> Result<(), SinkError> {
+        let mut tx = self.chan.sender();
+        tx.send(item).await
     }
 
     /// Return the next event occurrence.

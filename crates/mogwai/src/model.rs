@@ -2,8 +2,8 @@
 use std::{collections::HashMap, ops::DerefMut, sync::Arc};
 
 use async_broadcast::{broadcast, Receiver, Sender};
-use futures::Stream;
 use async_lock::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard};
+use futures::Stream;
 
 use crate::patch::{HashPatch, ListPatch};
 
@@ -46,7 +46,8 @@ pub struct Model<T> {
 
 impl<T> std::fmt::Debug for Model<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct(&format!("Model<{}>", std::any::type_name::<T>())).finish()
+        f.debug_struct(&format!("Model<{}>", std::any::type_name::<T>()))
+            .finish()
     }
 }
 
@@ -115,31 +116,35 @@ impl<T: Clone + PartialEq> Model<T> {
 
 /// Provides a patchable list of `T` and a stream of patch updates.
 ///
-/// [`ListPatchModel`] is great for synchronizing two isomorphorphic
-/// data structures - such as a list of strings and a list of DOM elements.
+/// [`ListPatchModel`] is great for synchronizing two or more list structures -
+/// such as a list of strings and a list of DOM elements.
 ///
 /// [`ListPatchModel::stream`] operates much the same as [`Model::stream`],
 /// but instead of sending new updated values of `T` downstream,
-/// [`ListPatchModel`] sends patches that can be applied to isomorphic structures.
+/// [`ListPatchModel`] sends patches downstream.
 ///
 /// Unlike [`Model`], downstream observers are guaranteed to receive a message of
-/// every patch applied to the model.
-///
-/// Unlike [`Model`], [`ListPatchModel`] is not meant to be shared by cloning.
+/// every patch applied to the model after subscription.
 #[derive(Clone)]
 pub struct ListPatchModel<T> {
     value: Arc<RwLock<Vec<T>>>,
     chan: (Arc<RwLock<Sender<ListPatch<T>>>>, Receiver<ListPatch<T>>),
 }
 
-impl<T: Clone> ListPatchModel<T> {
-    /// Create a new, empty ListPatchModel.
-    pub fn new() -> Self {
+impl<T> Default for ListPatchModel<T> {
+    fn default() -> Self {
         let (tx, rx) = broadcast::<ListPatch<T>>(4);
         ListPatchModel {
             value: Default::default(),
             chan: (Arc::new(RwLock::new(tx)), rx),
         }
+    }
+}
+
+impl<T: Clone> ListPatchModel<T> {
+    /// Create a new, empty ListPatchModel.
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Acquires a read lock.
@@ -150,6 +155,16 @@ impl<T: Clone> ListPatchModel<T> {
     /// concurrent attempts to acquire a write lock.
     pub async fn read<'a>(&'a self) -> RwLockReadGuard<'a, Vec<T>> {
         self.value.read().await
+    }
+
+    /// Applies the function to the inner value.
+    pub async fn visit<X>(&self, f: impl FnOnce(&Vec<T>) -> X) -> X {
+        f(self.read().await.as_ref())
+    }
+
+    /// Applies the function to the inner value, without waiting to acquire a lock, if possible.
+    pub fn try_visit<X>(&self, f: impl FnOnce(&Vec<T>) -> X) -> Option<X> {
+        Some(f(self.value.try_read()?.as_ref()))
     }
 
     /// Produce a stream of updates.
@@ -163,7 +178,9 @@ impl<T: Clone> ListPatchModel<T> {
         let tx = self.chan.0.upgradable_read().await;
         let len = tx.len();
         if tx.is_full() {
-            RwLockUpgradableReadGuard::upgrade(tx).await.set_capacity(1 + len);
+            RwLockUpgradableReadGuard::upgrade(tx)
+                .await
+                .set_capacity(1 + len);
         }
     }
 
@@ -178,6 +195,14 @@ impl<T: Clone> ListPatchModel<T> {
         let items = self.value.write().await.list_patch_apply(patch.clone());
         let _ = tx.try_broadcast(patch).unwrap();
         items
+    }
+
+    /// Force a refresh, sending a `ListPatch::Noop` downstream.
+    ///
+    /// This is useful when downstream structures share the same list-shape but
+    /// differ in details that may have changed.
+    pub async fn refresh(&self) {
+        let _ = self.patch(ListPatch::Noop).await;
     }
 }
 
@@ -199,7 +224,7 @@ impl<T: Clone> ListPatchApply for ListPatchModel<T> {
 ///
 /// Much like [`Model`] but instead of sending new updated
 /// values of `T` downstream, [`HashPatchModel`] sends patches
-/// that can be applied to isomorphic structures.
+/// that can be applied to downstream structures.
 ///
 /// Unlike [`Model`], downstream observers are guaranteed a
 /// message of every patch applied to the model.
@@ -219,14 +244,20 @@ pub struct HashPatchModel<K, V> {
     chan: (Sender<HashPatch<K, V>>, Receiver<HashPatch<K, V>>),
 }
 
-impl<K: Clone, V: Clone> HashPatchModel<K, V> {
-    /// Create a new HashPatchModel.
-    pub fn new() -> Self {
+impl<K, V> Default for HashPatchModel<K, V> {
+    fn default() -> Self {
         let chan = broadcast::<HashPatch<K, V>>(4);
         HashPatchModel {
             value: Default::default(),
             chan,
         }
+    }
+}
+
+impl<K: Clone, V: Clone> HashPatchModel<K, V> {
+    /// Create a new HashPatchModel.
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Acquires a read lock.
@@ -260,7 +291,11 @@ impl<K: Clone + std::hash::Hash + Eq, V: Clone> HashPatchApply for HashPatchMode
         &mut self,
         patch: HashPatch<Self::Key, Self::Value>,
     ) -> Option<Self::Value> {
-        let item = self.value.try_write().unwrap().hash_patch_apply(patch.clone());
+        let item = self
+            .value
+            .try_write()
+            .unwrap()
+            .hash_patch_apply(patch.clone());
         let tx = &mut self.chan.0;
         tx.set_capacity(1 + tx.len());
         let _ = tx.try_broadcast(patch).unwrap();

@@ -684,7 +684,7 @@ impl From<&str> for ViewBuilder {
 impl<S, St> From<(S, St)> for ViewBuilder
 where
     S: AsRef<str>,
-    St: Stream<Item = String> + Unpin + Send + Sync + 'static,
+    St: Stream<Item = String> + Send + Sync + 'static,
 {
     fn from((s, st): (S, St)) -> Self {
         let iter = stream::iter(std::iter::once(s.as_ref().to_string())).chain(st);

@@ -13,7 +13,7 @@ members = [
   #"examples/sandbox",
   #"examples/spa-routing",
   #"examples/svg",
-  #"examples/todomvc",
+  "examples/todomvc",
   "crates/xtask",
 ]
 

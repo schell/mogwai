@@ -32,6 +32,9 @@ pub enum ListPatch<T> {
 
     /// Remove the last item.
     Pop,
+
+    /// Do nothing.
+    Noop
 }
 
 impl<T> ListPatch<T> {
@@ -46,6 +49,7 @@ impl<T> ListPatch<T> {
             },
             ListPatch::Push(t) => ListPatch::Push(&t),
             ListPatch::Pop => ListPatch::Pop,
+            ListPatch::Noop => ListPatch::Noop
         }
     }
 
@@ -100,6 +104,7 @@ impl<T> ListPatch<T> {
             },
             ListPatch::Push(value) => ListPatch::Push(f(value)),
             ListPatch::Pop => ListPatch::Pop,
+            ListPatch::Noop => ListPatch::Noop,
         }
     }
 
@@ -125,6 +130,7 @@ impl<T> ListPatch<T> {
             },
             ListPatch::Push(value) => ListPatch::Push(f(value)?),
             ListPatch::Pop => ListPatch::Pop,
+            ListPatch::Noop => ListPatch::Noop,
         })
     }
 
@@ -145,6 +151,7 @@ impl<T> ListPatch<T> {
             },
             ListPatch::Push(value) => ListPatch::Push(f(value).await),
             ListPatch::Pop => ListPatch::Pop,
+            ListPatch::Noop => ListPatch::Noop,
         }
     }
 }
@@ -160,13 +167,13 @@ pub trait ListPatchApply {
     /// Insert the given item into the list at the given index, pushing all other items to the right.
     fn list_patch_insert(&mut self, index: usize, item: Self::Item) {
         let ts = self.list_patch_splice(index..index, vec![item]);
-        assert!(ts.is_empty());
+        debug_assert!(ts.is_empty());
     }
 
     /// Swap the item at the given index with the given item. Return the original item, if possible.
     fn list_patch_swap(&mut self, index: usize, item: Self::Item) -> Option<Self::Item> {
         let mut ts = self.list_patch_splice(index..=index, vec![item]);
-        assert!(ts.len() <= 1, "unexpected number of removed items");
+        debug_assert!(ts.len() <= 1, "unexpected number of removed items");
         match ts.len() {
             0 => None,
             1 => ts.pop(),
@@ -177,7 +184,7 @@ pub trait ListPatchApply {
     /// Remove the item at the give index. Return the original item, if possible.
     fn list_patch_remove(&mut self, index: usize) -> Option<Self::Item> {
         let mut ts = self.list_patch_splice(index..=index, vec![]);
-        assert!(ts.len() <= 1, "unexpected number of removed items");
+        debug_assert!(ts.len() <= 1, "unexpected number of removed items");
         match ts.len() {
             0 => None,
             1 => ts.pop(),
@@ -188,13 +195,13 @@ pub trait ListPatchApply {
     /// Pushes the item to the end of the list.
     fn list_patch_push(&mut self, item: Self::Item) {
         let ts = self.list_patch_apply(ListPatch::Push(item));
-        assert!(ts.is_empty());
+        debug_assert!(ts.is_empty());
     }
 
     /// Removes the last item and returns it, if possible.
     fn list_patch_pop(&mut self) -> Option<Self::Item> {
         let mut ts = self.list_patch_apply(ListPatch::Pop);
-        assert!(ts.len() <= 1);
+        debug_assert!(ts.len() <= 1);
         ts.pop()
     }
 
@@ -231,6 +238,7 @@ impl<T> ListPatchApply for Vec<T> {
                 vec![]
             }
             ListPatch::Pop => self.pop().map(|t| vec![t]).unwrap_or_else(|| vec![]),
+            ListPatch::Noop => vec![],
         }
     }
 }

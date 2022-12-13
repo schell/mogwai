@@ -10,7 +10,7 @@ use syn::{
 use syn_rsx::{Node, NodeType};
 
 fn under_to_dash(s: impl AsRef<str>) -> String {
-    s.as_ref().replace("_", "-")
+    s.as_ref().trim_matches('_').replace("_", "-")
 }
 
 #[derive(Clone, Debug)]

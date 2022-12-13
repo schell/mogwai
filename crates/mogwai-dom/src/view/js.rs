@@ -26,14 +26,14 @@ use super::FutureTask;
 
 static NODE_ID: AtomicUsize = AtomicUsize::new(0);
 
-pub struct JsTask<T> {
-    tx_cancel_task: async_channel::Sender<()>,
+pub struct JsTask<T: Send + 'static> {
+    tx_cancel_task: Option<async_channel::Sender<()>>,
     inner: Arc<RwLock<Option<T>>>,
     // TODO: remove this debugging string
     name: String,
 }
 
-impl<T> Clone for JsTask<T> {
+impl<T: Send + 'static> Clone for JsTask<T> {
     fn clone(&self) -> Self {
         Self {
             tx_cancel_task: self.tx_cancel_task.clone(),
@@ -43,9 +43,9 @@ impl<T> Clone for JsTask<T> {
     }
 }
 
-impl<T> Drop for JsTask<T> {
+impl<T: Send + 'static> Drop for JsTask<T> {
     fn drop(&mut self) {
-        let _ = self.tx_cancel_task.try_send(());
+        let _ = self.cancel();
         log::trace!("dropping JsTask '{}'", self.name);
     }
 }
@@ -68,10 +68,23 @@ impl<T: Send + 'static> JsTask<T> {
             Err(self)
         }
     }
+
+    /// Cancels the task, if possible. not yet finished.
+    pub fn cancel(&mut self) -> anyhow::Result<()> {
+        let cancel_tx = self.tx_cancel_task.take().context("already cancelled")?;
+        let _ = cancel_tx.try_send(());
+        log::trace!("cancelling JsTask '{}'", self.name);
+        Ok(())
+    }
+
+    /// Detaches the task, running it in Javascript without the ability to be canceled.
+    pub fn detach(mut self) {
+        self.tx_cancel_task = None;
+    }
 }
 
 /// Spawn an async task and return a `JsTask<T>`.
-pub fn spawn_local<T: 'static>(name: &str, future: impl Future<Output = T> + 'static) -> JsTask<T> {
+pub fn spawn_local<T: Send + 'static>(name: &str, future: impl Future<Output = T> + 'static) -> JsTask<T> {
     let inner = Arc::new(RwLock::new(None));
     let inner_spawned = inner.clone();
     let (tx_cancel_task, mut rx_cancel_task) = async_channel::bounded(1);
@@ -91,7 +104,7 @@ pub fn spawn_local<T: 'static>(name: &str, future: impl Future<Output = T> + 'st
         select_all(vec![task_done, task_cancelled]).next().await;
     });
     JsTask {
-        tx_cancel_task,
+        tx_cancel_task: Some(tx_cancel_task),
         inner,
         name: name.to_string(),
     }
@@ -591,6 +604,7 @@ pub(crate) fn list_patch_apply_node(
                 removed.push(child);
             }
         }
+        ListPatch::Noop => {}
     }
     removed
 }

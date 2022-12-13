@@ -273,8 +273,8 @@ pub mod broadcast {
     /// A [`Sender`] [`Receiver`] paired together in a struct.
     #[derive(Clone)]
     pub struct Channel<T> {
-        sender: async_broadcast::Sender<T>,
-        receiver: async_broadcast::InactiveReceiver<T>,
+        pub(crate) sender: async_broadcast::Sender<T>,
+        pub(crate) receiver: async_broadcast::InactiveReceiver<T>,
     }
 
     impl<T> Channel<T> {

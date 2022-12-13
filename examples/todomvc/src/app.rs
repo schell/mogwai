@@ -1,26 +1,14 @@
-use mogwai::{
-    futures::stream::{FuturesOrdered, FuturesUnordered},
-    prelude::*,
-};
-use std::iter::FromIterator;
+use std::sync::{atomic::AtomicUsize, Arc};
+
+use futures::{future, stream};
+use mogwai_dom::{core::model::ListPatchModel, prelude::*};
 use wasm_bindgen::JsCast;
-use web_sys::{HashChangeEvent, HtmlInputElement};
+use web_sys::HashChangeEvent;
 
-use crate::{store, store::Item, utils};
-
-pub mod item;
-use item::Todo;
-
-pub fn url_to_filter(url: String) -> Option<FilterShow> {
-    let ndx = url.find('#').unwrap_or(0);
-    let (_, hash) = url.split_at(ndx);
-    match hash {
-        "#/" => Some(FilterShow::All),
-        "#/active" => Some(FilterShow::Active),
-        "#/completed" => Some(FilterShow::Completed),
-        _ => None,
-    }
-}
+use crate::{
+    item::{TodoItem, TodoItemMsg},
+    utils,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum FilterShow {
@@ -29,417 +17,343 @@ pub enum FilterShow {
     Active,
 }
 
-/// Messages sent from the view or from the [`App`] facade.
-#[derive(Clone, Debug)]
-enum AppLogic {
-    SetFilter(FilterShow, Option<mpsc::Sender<()>>),
-    NewTodo(String, bool),
-    ChangedCompletion(usize, bool),
-    ToggleCompleteAll,
-    Remove(usize),
-    RemoveCompleted,
-}
-
-#[derive(Clone)]
-pub enum AppView {
-    ShouldShowTodoList(bool),
-    NumItems(usize),
-    ShouldShowCompleteButton(bool),
-    SelectedFilter(FilterShow),
-}
-
-/// App is a facade that communicates with the main logic loop by
-/// relaying external function calls using enum messages.
-pub struct App {
-    tx_logic: broadcast::Sender<AppLogic>,
-}
-
-impl App {
-    pub fn new() -> (App, ViewBuilder<JsDom>) {
-        let (tx_logic, rx_logic) = broadcast::bounded(16);
-        let (tx_view, rx_view) = broadcast::bounded(1);
-        let (tx_todo_input, rx_todo_input) = mpsc::bounded(1);
-        let (tx_toggle_input, rx_toggle_input) = mpsc::bounded(1);
-        let (tx_patch_items, rx_patch_items) = mpsc::bounded(1);
-
-        let component = view(
-            tx_todo_input,
-            tx_toggle_input,
-            tx_logic.clone(),
-            rx_view,
-            rx_patch_items,
-        )
-        .with_task(logic(
-            rx_logic,
-            rx_todo_input,
-            rx_toggle_input,
-            tx_view,
-            tx_patch_items,
-        ));
-        (App { tx_logic }, component)
-    }
-
-    pub async fn add_item(&self, item: Item) {
-        self.tx_logic
-            .broadcast(AppLogic::NewTodo(item.title, item.completed))
-            .await
-            .unwrap();
-    }
-
-    pub async fn filter(&self, fs: FilterShow) {
-        let (tx, mut rx) = mpsc::bounded(1);
-        self.tx_logic
-            .broadcast(AppLogic::SetFilter(fs, Some(tx)))
-            .await
-            .unwrap();
-        rx.next().await.unwrap();
-    }
-}
-
-fn filter_selected(msg: AppView, show: FilterShow) -> Option<String> {
-    match msg {
-        AppView::SelectedFilter(msg_show) => Some(if msg_show == show {
-            "selected".to_string()
-        } else {
-            "".to_string()
-        }),
-        _ => None,
-    }
-}
-
-async fn are_all_complete(todos: impl Iterator<Item = &item::Todo>) -> bool {
-    for todo in todos {
-        if todo.is_done().await {
-            continue;
-        }
-        return false;
-    }
-    true
-}
-
-async fn num_items_left(todos: impl Iterator<Item = &item::Todo>) -> usize {
-    FuturesUnordered::from_iter(todos.map(Todo::is_done))
-        .fold(0, |n, done| async move { n + if done { 1 } else { 0 } })
-        .await
-}
-
-async fn logic(
-    rx_logic: broadcast::Receiver<AppLogic>,
-    mut recv_todo_input: mpsc::Receiver<JsDom>,
-    mut recv_todo_toggle_input: mpsc::Receiver<JsDom>,
-    tx_view: broadcast::Sender<AppView>,
-    mut tx_item_patches: mpsc::Sender<ListPatch<ViewBuilder<JsDom>>>,
-) {
-    let todo_input = recv_todo_input.next().await.unwrap();
-    let _ = mogwai::time::wait_secs(1.0).await;
-    todo_input
-        .visit_as(
-            |i: &web_sys::HtmlElement| {
-                i.focus().unwrap();
-            },
-            |_| {},
-        )
-        .unwrap();
-
-    let todo_toggle_input = recv_todo_toggle_input.next().await.unwrap();
-
-    let mut items: Vec<item::Todo> = vec![];
-    let mut next_index = 0;
-    let mut all_logic_sources = mogwai::futures::stream::select_all(vec![rx_logic.mogwai_stream()]);
-
-    while let Some(msg) = all_logic_sources.next().await {
-        let mut needs_check_complete = false;
-        match msg {
-            AppLogic::NewTodo(name, complete) => {
-                let index = next_index;
-                next_index += 1;
-                // Create a new todo item and add it to our list of todos.
-                let (todo, view_builder) = item::Todo::new(index, name.to_string());
-                // Take the streams of updates from the todo and add them to our logic
-                // sources.
-                let was_removed = todo
-                    .was_removed()
-                    .map(move |_| AppLogic::Remove(index))
-                    .mogwai_stream();
-                all_logic_sources.push(was_removed);
-
-                let has_changed_completion = todo
-                    .has_changed_completion()
-                    .map(move |complete| AppLogic::ChangedCompletion(index, complete))
-                    .mogwai_stream();
-                all_logic_sources.push(has_changed_completion);
-
-                // Add the todo to communicate downstream later, and patch the view
-                tx_item_patches
-                    .send(ListPatch::push(view_builder))
-                    .await
-                    .unwrap();
-
-                if complete {
-                    todo.set_complete(true).await;
-                }
-
-                items.push(todo);
-
-                todo_input.visit_as(
-                    |i: &HtmlInputElement| i.set_value(""),
-                    |i| i.set_attrib("value", Some("")).unwrap(),
-                );
-
-                tx_view
-                    .broadcast(AppView::NumItems(items.len()))
-                    .await
-                    .unwrap();
-                tx_view
-                    .broadcast(AppView::ShouldShowTodoList(true))
-                    .await
-                    .unwrap();
-                needs_check_complete = true;
-            }
-            AppLogic::SetFilter(show, may_tx) => {
-                // Filter all the items, update the view, and then respond to the query.
-                let filter_ops = mogwai::futures::stream::FuturesUnordered::from_iter(
-                    items.iter().map(|todo| todo.filter(show.clone())),
-                );
-                let _ = filter_ops.collect::<Vec<_>>().await;
-
-                tx_view
-                    .broadcast(AppView::SelectedFilter(show.clone()))
-                    .await
-                    .unwrap();
-                if let Some(mut tx) = may_tx {
-                    tx.send(()).await.unwrap();
-                }
-            }
-            AppLogic::ChangedCompletion(_index, _is_complete) => {
-                let items_left = num_items_left(items.iter()).await;
-                todo_toggle_input.visit_as(
-                    |i: &HtmlInputElement| i.set_checked(items_left == 0),
-                    |_| {},
-                );
-                tx_view
-                    .broadcast(AppView::NumItems(items_left))
-                    .await
-                    .unwrap();
-                needs_check_complete = true;
-            }
-            AppLogic::ToggleCompleteAll => {
-                let should_complete = todo_toggle_input
-                    .clone_as::<HtmlInputElement>()
-                    .map(|el| el.checked())
-                    .unwrap_or(false);
-                for todo in items.iter() {
-                    todo.set_complete(should_complete).await;
-                }
-                needs_check_complete = true;
-            }
-            AppLogic::Remove(index) => {
-                let mut may_found_index = None;
-                'remove_todo: for (todo, i) in items.iter().zip(0..) {
-                    let todo_index = todo.index;
-                    if todo_index == index {
-                        // Send a patch to the view to remove the todo
-                        tx_item_patches
-                            .send(ListPatch::splice(i..=i, std::iter::empty()))
-                            .await
-                            .unwrap();
-                        may_found_index = Some(i);
-                        break 'remove_todo;
-                    }
-                }
-
-                if let Some(i) = may_found_index {
-                    let _ = items.remove(i);
-                }
-
-                if items.is_empty() {
-                    // Update the toggle input checked state by hand
-                    let checked = !are_all_complete(items.iter()).await;
-                    if let Some(input) = todo_toggle_input.clone_as::<HtmlInputElement>() {
-                        input.set_checked(checked);
-                    }
-                    tx_view
-                        .broadcast(AppView::ShouldShowTodoList(false))
-                        .await
-                        .unwrap();
-                }
-                tx_view
-                    .broadcast(AppView::NumItems(num_items_left(items.iter()).await))
-                    .await
-                    .unwrap();
-                needs_check_complete = true;
-            }
-            AppLogic::RemoveCompleted => {
-                let num_items_before = items.len();
-                let mut to_remove = vec![];
-                for (todo, i) in items.iter().zip(0..num_items_before).rev() {
-                    if todo.is_done().await {
-                        to_remove.push(i);
-                        tx_item_patches
-                            .send(ListPatch::splice(i..=i, std::iter::empty()))
-                            .await
-                            .unwrap();
-                    }
-                }
-                to_remove.into_iter().for_each(|i| {
-                    let _ = items.remove(i);
-                });
-                let checked = !are_all_complete(items.iter()).await;
-                if let Some(input) = todo_toggle_input.clone_as::<HtmlInputElement>() {
-                    input.set_checked(checked);
-                }
-                tx_view
-                    .broadcast(AppView::NumItems(num_items_left(items.iter()).await))
-                    .await
-                    .unwrap();
-                if items.is_empty() && num_items_before != 0 {
-                    tx_view
-                        .broadcast(AppView::ShouldShowTodoList(false))
-                        .await
-                        .unwrap();
-                }
-                needs_check_complete = true;
-            }
-        }
-
-        // In any case, serialize the current todo items.
-        let store_items = FuturesOrdered::from_iter(items.iter().map(Todo::as_item))
-            .collect::<Vec<_>>()
-            .await;
-        store::write_items(store_items).expect("Could not store todos");
-        // update the "clear completed" button if need be
-        if needs_check_complete {
-            let mut has_completed = false;
-            for facade in items.iter() {
-                if facade.is_done().await {
-                    has_completed = true;
-                    break;
-                }
-            }
-            tx_view
-                .broadcast(AppView::ShouldShowCompleteButton(has_completed))
-                .await
-                .unwrap();
-        }
-    }
-
-    log::error!("leaving app logic");
-}
-
-fn todo_list_display(rx: &broadcast::Receiver<AppView>) -> impl Stream<Item = String> {
-    rx.clone().filter_map(|msg| async move {
-        match msg {
-            AppView::ShouldShowTodoList(should) => {
-                Some(if should { "block" } else { "none" }.to_string())
-            }
+impl FilterShow {
+    fn maybe_from_url(url: String) -> Option<Self> {
+        let ndx = url.find('#').unwrap_or(0);
+        let (_, hash) = url.split_at(ndx);
+        match hash {
+            "#/" => Some(FilterShow::All),
+            "#/active" => Some(FilterShow::Active),
+            "#/completed" => Some(FilterShow::Completed),
             _ => None,
         }
-    })
+    }
+
+    fn should_show_item_with_completion(&self, completion: bool) -> bool {
+        match self {
+            FilterShow::All => true,
+            FilterShow::Completed => completion,
+            FilterShow::Active => !completion,
+        }
+    }
 }
 
-fn view(
-    send_todo_input: mpsc::Sender<JsDom>,
-    send_completion_toggle_input: mpsc::Sender<JsDom>,
-    tx: broadcast::Sender<AppLogic>,
-    rx: broadcast::Receiver<AppView>,
-    item_children: impl MogwaiStream<ListPatch<ViewBuilder<JsDom>>>,
-) -> ViewBuilder<JsDom> {
-    html! {
-        <section id="todo_main" class="todoapp">
-            <header class="header">
-                <h1>"todos"</h1>
-                <input
-                 class="new-todo" id="new-todo" placeholder="What needs to be done?"
-                 on:change = tx.clone().with_flat_map(|ev: JsDomEvent| {
-                     let todo_name =
-                         utils::event_input_value(ev).expect("event input value");
-                     if todo_name.is_empty() {
-                         Either::Left(stream::empty())
-                     } else {
-                         Either::Right(stream::once(async move {Ok(AppLogic::NewTodo(todo_name, false))}))
-                     }
-                 })
-                 capture:view=send_todo_input>
-                </input>
-            </header>
-            <section class="main" style:display=("none", todo_list_display(&rx))>
-                // This is the "check all as complete" toggle
-                <input
-                 id="toggle-all"
-                 type="checkbox"
-                 class="toggle-all"
-                 capture:view=send_completion_toggle_input
-                 on:click=tx.clone().contra_map(|_| AppLogic::ToggleCompleteAll)>
-                </input>
-                <label for="toggle-all">"Mark all as complete"</label>
-                <ul class="todo-list"
-                 style:display=("none", todo_list_display(&rx))
-                 patch:children=item_children>
-                </ul>
-            </section>
-            <footer class="footer" style:display=("none", todo_list_display(&rx))>
-                <span class="todo-count">
-                    <strong>
-                        {(
-                            "0 items left",
-                            rx.clone().filter_map(|msg| async move { match msg {
-                                AppView::NumItems(n) => {
-                                    let items = if n == 1 { "item" } else { "items" };
-                                    Some(format!("{} {} left", n, items))
-                                }
-                                _ => None,
-                            }})
-                        )}
-                    </strong>
-                </span>
-                <ul class="filters"
-                    window:hashchange=
-                        tx.clone().with_flat_map(|ev: JsDomEvent| {
-                            let ev: web_sys::Event = ev.browser_event().unwrap();
-                            let ev: HashChangeEvent =
-                                ev.dyn_into::<HashChangeEvent>().expect("not hash event");
-                            let url = ev.new_url();
-                            if let Some(filter) = url_to_filter(url) {
-                                Either::Left(stream::once(async move {Ok(AppLogic::SetFilter(filter, None))}))
-                            } else {
-                                Either::Right(stream::empty())
-                            }
-                        })>
-                    <li>
-                        <a href="#/"
-                         class=rx.clone().filter_map(|msg| async move {filter_selected(msg, FilterShow::All)})>
-                            "All"
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#/active"
-                         class=rx.clone().filter_map(|msg| async move {filter_selected(msg, FilterShow::Active)})>
-                            "Active"
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#/completed"
-                        class=rx.clone().filter_map(|msg| async move {filter_selected(msg, FilterShow::Completed)})>
-                            "Completed"
-                        </a>
-                    </li>
-                </ul>
-                <button
-                    class="clear-completed"
-                    style:display=
-                        (
-                            "none",
-                            rx.clone().filter_map(|msg| async move { match msg {
-                                AppView::ShouldShowCompleteButton(should) => {
-                                    Some(if should { "block" } else { "none" }.to_string())
-                                }
-                                _ => None,
-                            }})
-                        )
-                    on:click=tx.contra_map(|_: JsDomEvent| AppLogic::RemoveCompleted)>
-                    "Clear completed"
-                </button>
-            </footer>
-        </section>
+/// A wrapper over `ListPatchModel` that provides some convenience.
+#[derive(Clone, Default)]
+pub struct Items {
+    next_id: Arc<AtomicUsize>,
+    output_to_list: Output<TodoItemMsg>,
+    inner: ListPatchModel<TodoItem>,
+}
+
+impl Items {
+    /// Sends the number of items after every patch update.
+    fn stream_number_of_items(&self) -> impl Stream<Item = usize> {
+        let items = self.inner.clone();
+        self.inner.stream().then(move |_| {
+            let items = items.clone();
+            async move {
+                let read = items.read().await;
+                read.iter()
+                    .filter(|item| item.complete.current().map(|done| !done).unwrap_or(false))
+                    .count()
+            }
+        })
     }
+
+    /// Sends a patch of `ViewBuilder` after every patch update.
+    fn stream_of_viewbuilders(&self) -> impl Stream<Item = ListPatch<ViewBuilder>> {
+        self.inner
+            .stream()
+            .map(|patch| patch.map(TodoItem::viewbuilder))
+    }
+
+    /// Sends whether the todo list should be shown after every patch update.
+    fn stream_should_show_todo_list(&self) -> impl Stream<Item = bool> {
+        stream::iter(std::iter::once(false)).chain(self.inner.stream().scan(vec![], |vs, patch| {
+            vs.list_patch_apply(patch.map(|_| ()));
+            future::ready(Some(vs.len() > 0))
+        }))
+    }
+
+    /// Sends whether to show the "complete" button after every patch update.
+    fn stream_should_show_complete_button(&self) -> impl Stream<Item = bool> {
+        let items = self.inner.clone();
+        self.inner.stream().then(move |_| {
+            let items = items.clone();
+            async move {
+                let read = items.read().await;
+                read.iter()
+                    .any(|item| item.complete.current().expect("can't read item complete"))
+            }
+        })
+    }
+
+    async fn push_new_todo(&self, name: String, complete: bool) {
+        let id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let item = TodoItem::new(id, name, complete, self.output_to_list.clone());
+        let _ = self.inner.patch(ListPatch::push(item)).await;
+    }
+
+    /// Task that makes new todos.
+    async fn task_make_new_todos(self, output_todo_input_change: Output<JsDomEvent>) {
+        // make new todos
+        while let Some(ev) = output_todo_input_change.get().await {
+            let todo_name =
+                utils::event_input_value(ev.clone()).expect("new todo event input value");
+            if !todo_name.is_empty() {
+                self.push_new_todo(todo_name, false).await;
+                let input = utils::event_input(ev).unwrap();
+                input.set_value("");
+            }
+        }
+    }
+
+    /// Task toggles all the todo items on or off.
+    async fn task_toggle_all(self, output_toggle_all_clicked: Output<()>) {
+        while let Some(()) = output_toggle_all_clicked.get().await {
+            let items_read = self.inner.read().await;
+            // if any items are _not_ done, set the whole list to done
+            let done = items_read
+                .iter()
+                .any(|todo_item: &TodoItem| todo_item.complete.current() == Some(false));
+            for item in items_read.iter() {
+                item.set_complete(done).await;
+            }
+            drop(items_read);
+            self.inner.refresh().await;
+        }
+    }
+
+    /// Returns the index of the first completed todo in the list
+    async fn find_next_completed(&self) -> Option<usize> {
+        let items = self.inner.read().await;
+        for (i, item) in items.iter().enumerate() {
+            let completed: bool = *item.complete.read().await;
+            if completed {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    /// Task that clears completed todo items.
+    async fn task_clear_completed(self, output_clear_completed_clicked: Output<()>) {
+        while let Some(()) = output_clear_completed_clicked.get().await {
+            while let Some(index) = self.find_next_completed().await {
+                let _ = self.inner.patch(ListPatch::remove(index)).await;
+            }
+        }
+    }
+
+    /// Task that filters items.
+    async fn task_filter_items(
+        self,
+        input_filter_show: FanInput<FilterShow>,
+        output_window_onhashchange: Output<JsDomEvent>,
+    ) {
+        while let Some(ev) = output_window_onhashchange.get().await {
+            let url = {
+                let ev: web_sys::Event = ev.browser_event().unwrap();
+                let ev: HashChangeEvent = ev.dyn_into::<HashChangeEvent>().expect("not hash event");
+                ev.new_url()
+            };
+            if let Some(filter) = FilterShow::maybe_from_url(url) {
+                for item in self.inner.read().await.iter() {
+                    let completion: bool = *item.complete.read().await;
+                    let should_show = filter.should_show_item_with_completion(completion);
+                    item.set_visible(should_show).await;
+                }
+                input_filter_show
+                    .set(filter)
+                    .await
+                    .expect("could not set filter");
+            }
+        }
+    }
+
+    /// Task that updates the list in response to messages from individual items.
+    async fn task_update_from_todos(self) {
+        while let Some(ev) = self.output_to_list.get().await {
+            match ev {
+                TodoItemMsg::Remove(id) => {
+                    let patch = self
+                        .inner
+                        .visit(|items| {
+                            items.iter().enumerate().find_map(|(index, item)| {
+                                if item.id == id {
+                                    Some(ListPatch::remove(index) as ListPatch<TodoItem>)
+                                } else {
+                                    None
+                                }
+                            })
+                        })
+                        .await
+                        .expect("could not find item");
+                    let _ = self.inner.patch(patch).await;
+                }
+                TodoItemMsg::Completion => {
+                    self.inner.refresh().await;
+                }
+            }
+        }
+    }
+
+    /// Task that each time there is an update to items, serializes the items to storage.
+    async fn task_serialize(self) {
+        let mut any_update = self.inner.stream();
+
+        while let Some(_) = any_update.next().await {
+            let store_items: Vec<_> = self
+                .inner
+                .read()
+                .await
+                .iter()
+                .map(|item| crate::store::Item {
+                    title: item.name.current().expect("could not read name"),
+                    completed: item.complete.current().expect("could not read complete"),
+                })
+                .collect();
+            crate::store::write_items(&store_items).expect("could not serialize items");
+        }
+    }
+
+    /// Task that deserializes items from storage at startup and then creates a todo item for each
+    async fn task_deserialize(self) {
+        let items = crate::store::read_items().expect("could not deserialize items");
+        for item in items.into_iter() {
+            log::info!("read stored items: {:?}", item);
+            self.push_new_todo(item.title, item.completed).await;
+        }
+    }
+
+    pub fn viewbuilder(self) -> ViewBuilder {
+        let captured_todo_input = Captured::<JsDom>::default();
+        let captured_toggle_all_complete = Captured::<JsDom>::default();
+
+        let input_filter_show = FanInput::<FilterShow>::default();
+
+        let output_todo_input_change = Output::<JsDomEvent>::default();
+        let output_toggle_all_clicked = Output::<()>::default();
+        let output_clear_completed_clicked = Output::<()>::default();
+        let output_window_onhashchange = Output::<JsDomEvent>::default();
+
+        let builder = rsx! {
+            section(id="todo_main", class="todoapp") {
+                header(class = "header") {
+                    h1() { "todos" }
+                    input(
+                        class = "new-todo",
+                        id = "new-todo",
+                        placeholder = "What needs to be done?",
+                        on:change = output_todo_input_change.sink(),
+                        capture:view = captured_todo_input.sink()
+                    ) {}
+                }
+                section(
+                    class = "main",
+                    style:display = self
+                        .stream_should_show_todo_list()
+                        .map(should_show_bool_to_display_string)
+                ) {
+                    // This is the "check all as complete" toggle
+                    input(
+                        id = "toggle-all",
+                        type = "checkbox",
+                        class = "toggle-all",
+                        capture:view = captured_toggle_all_complete.sink(),
+                        on:click = output_toggle_all_clicked.sink().contra_map(|_:JsDomEvent| ())
+                    ) {}
+                    label(for_ = "toggle-all") { "Mark all as complete" }
+                    ul(
+                        class = "todo-list",
+                        style:display = self
+                            .stream_should_show_todo_list()
+                            .map(should_show_bool_to_display_string),
+                        patch:children = self.stream_of_viewbuilders()
+                    ) {}
+                }
+                footer(
+                    class = "footer",
+                    style:display = self
+                        .stream_should_show_todo_list()
+                        .map(should_show_bool_to_display_string),
+                ) {
+                    span(class="todo-count") {
+                        strong() {
+                            {("", self.stream_number_of_items().map(num_items_to_user_string))}
+                        }
+                    }
+                    ul(
+                        class="filters",
+                        window:hashchange = output_window_onhashchange.sink()
+                    ) {
+                        li() {
+                            a(
+                                href = "#/",
+                                class = input_filter_show
+                                    .stream()
+                                    .map(|filt| filter_selected(filt, FilterShow::All))
+                            ) { "All" }
+                        }
+                        li() {
+                            a(
+                                href = "#/active",
+                                class = input_filter_show
+                                    .stream()
+                                    .map(|filt| filter_selected(filt, FilterShow::Active))
+                            ) { "Active" }
+                        }
+                        li() {
+                            a(
+                                href = "#/completed",
+                                class = input_filter_show
+                                    .stream()
+                                    .map(|filt| filter_selected(filt, FilterShow::Completed))
+                            ) { "Completed" }
+                        }
+                    }
+                    button(
+                        class = "clear-completed",
+                        style:display = self
+                            .stream_should_show_complete_button()
+                            .map(should_show_bool_to_display_string),
+                        on:click = output_clear_completed_clicked.sink().contra_map(|_:JsDomEvent| ())
+                    ) { "Clear completed" }
+                }
+            }
+        };
+        builder
+            .with_task(self.clone().task_make_new_todos(output_todo_input_change))
+            .with_task(self.clone().task_toggle_all(output_toggle_all_clicked))
+            .with_task(
+                self.clone()
+                    .task_clear_completed(output_clear_completed_clicked),
+            )
+            .with_task(
+                self.clone()
+                    .task_filter_items(input_filter_show, output_window_onhashchange),
+            )
+            .with_task(self.clone().task_update_from_todos())
+            .with_task(self.clone().task_serialize())
+            .with_task(self.task_deserialize())
+    }
+}
+
+fn should_show_bool_to_display_string(should_show: bool) -> String {
+    if should_show { "block" } else { "none" }.to_string()
+}
+
+fn num_items_to_user_string(n: usize) -> String {
+    match n {
+        0 => "0 items left".to_string(),
+        1 => "1 item left".to_string(),
+        n => format!("{} items left", n),
+    }
+}
+
+fn filter_selected(a: FilterShow, b: FilterShow) -> String {
+    if a == b { "selected" } else { "" }.to_string()
 }

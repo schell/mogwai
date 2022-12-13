@@ -1,4 +1,4 @@
-use mogwai::dom::utils;
+use mogwai_dom::utils;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use wasm_bindgen::JsValue;
@@ -12,8 +12,8 @@ pub struct Item {
 
 const KEY: &str = "todomvc-mogwai";
 
-pub fn write_items(items: Vec<Item>) -> Result<(), JsValue> {
-    let str_value = serde_json::to_string(&items).expect("Could not serialize items");
+pub fn write_items(items: &Vec<Item>) -> Result<(), JsValue> {
+    let str_value = serde_json::to_string(items).expect("Could not serialize items");
     utils::window()
         .local_storage()?
         .into_iter()
