@@ -18,7 +18,7 @@ default = []
 
 [dependencies]
 anyhow = "^1.0"
-async-broadcast = "^0.3"
+async-broadcast = "^0.4"
 async-lock = "^2.4"
 console_log = "^0.1"
 futures = "^0.3"
