@@ -619,6 +619,56 @@ impl ViewBuilder {
         self
     }
 
+    /// Capture the view and update it using the given update function for each value
+    /// that comes from the given stream.
+    ///
+    /// The only parameter is a tuple to support being used from the [`rsx`] macro's
+    /// `capture:for_each` attribute, since the right hand side of such attributes must be
+    /// a singular Rust expression:
+    /// ```rust
+    /// use mogwai_dom::prelude::*;
+    /// let (_tx, rx) = mogwai_dom::core::channel::mpsc::bounded::<usize>(1);
+    /// rsx! {
+    ///     input(
+    ///         type = "text",
+    ///         capture:for_each = (
+    ///             rx.map(|n:usize| format!("{}", n)),
+    ///             JsDom::try_to(web_sys::HtmlInputElement::set_value)
+    ///         )
+    ///     ) {}
+    /// }
+    /// ```
+    ///
+    /// And the above RSX is equivalent to the following:
+    /// ```rust, ignore, no_run
+    /// let st = rx.map(|n:usize| format!("{}", n));
+    /// let f = JsDom::try_to(web_sys::HtmlInputElement::set_value);
+    /// let captured = crate::futures::Captured::default();
+    /// self.with_capture_view(captured.sink())
+    ///     .with_task(async move {
+    ///         let view = captured.get().await;
+    ///         while let Some(value) = st.next().await {
+    ///             f(&view, value);
+    ///         }
+    ///     })
+    /// ```
+    pub fn with_capture_for_each<T, V: View>(
+        self,
+        (mut st, f): (
+            impl Stream<Item = T> + Send + Unpin + 'static,
+            impl Fn(&V, T) + Send + 'static,
+        ),
+    ) -> Self {
+        let captured = crate::futures::Captured::<V>::default();
+        self.with_capture_view(captured.sink())
+            .with_task(async move {
+                let view = captured.get().await;
+                while let Some(value) = st.next().await {
+                    f(&view, value);
+                }
+            })
+    }
+
     /// Add a sink into which view events of the given name will be sent.
     ///
     /// ## Panics

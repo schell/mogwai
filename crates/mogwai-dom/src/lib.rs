@@ -473,6 +473,7 @@ mod wasm {
             time::*,
         },
         prelude::*,
+        view::js::Hydrator
     };
     use futures::stream;
     use wasm_bindgen::JsCast;
@@ -976,10 +977,99 @@ mod wasm {
         let dom = capture.get().await;
         assert_eq!(dom.html_string().await, r#"<div id="chappie"></div>"#);
     }
+
+    #[wasm_bindgen_test]
+    async fn can_hydrate_view() {
+        console_log::init_with_level(log::Level::Trace).unwrap();
+
+        let container = JsDom::try_from(html! {
+            <div id="hydrator1"></div>
+        })
+        .unwrap();
+        let container_el: HtmlElement = container.clone_as::<HtmlElement>().unwrap();
+        container.run().unwrap();
+        container_el.set_inner_html(r#"<div id="my_div"><p>inner text</p></div>"#);
+        assert_eq!(
+            container_el.inner_html().as_str(),
+            r#"<div id="my_div"><p>inner text</p></div>"#
+        );
+        log::info!("built");
+
+        let (mut tx_class, rx_class) = mpsc::bounded::<String>(1);
+        let (mut tx_text, rx_text) = mpsc::bounded::<String>(1);
+        let builder = html! {
+            <div id="my_div">
+                <p class=rx_class>{("", rx_text)}</p>
+            </div>
+        };
+        let hydrator = Hydrator::try_from(builder)
+            .map_err(|e| panic!("{:#?}", e))
+            .unwrap();
+        let _hydrated_view: JsDom = JsDom::from(hydrator);
+        log::info!("hydrated");
+
+        tx_class.send("new_class".to_string()).await.unwrap();
+        repeat_times(0.1, 10, || async {
+            container_el.inner_html().as_str()
+                == r#"<div id="my_div"><p class="new_class">inner text</p></div>"#
+        })
+        .await
+        .unwrap();
+        log::info!("updated class");
+
+        tx_text
+            .send("different inner text".to_string())
+            .await
+            .unwrap();
+        repeat_times(0.1, 10, || async {
+            container_el.inner_html().as_str()
+                == r#"<div id="my_div"><p class="new_class">different inner text</p></div>"#
+        })
+        .await
+        .unwrap();
+        log::info!("updated text");
+    }
+
+    #[wasm_bindgen_test]
+    async fn can_capture_for_each() {
+        let (mut tx, rx) = mpsc::bounded(1);
+        let (mut tx_done, mut rx_done) = mpsc::bounded(1);
+        let dom = JsDom::try_from(rsx! {
+            input(
+                type = "text",
+                capture:for_each = (
+                    rx.map(|n:usize| format!("{}", n)),
+                    JsDom::try_to(web_sys::HtmlInputElement::set_value)
+                )
+            ) {}
+        })
+        .expect("could not build dom");
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let mut n = 0;
+            while n < 3 {
+                tx.send(n).await.unwrap();
+                n += 1;
+            }
+            tx_done.send(()).await.unwrap();
+        });
+
+        dom.run_while(async move {
+            let _ = rx_done.next().await;
+        })
+        .await
+        .unwrap();
+
+        let value = dom
+            .visit_as(|input: &web_sys::HtmlInputElement| input.value())
+            .unwrap();
+        assert_eq!("2", value.as_str());
+    }
 }
 
 #[cfg(test)]
 mod test {
+
     use crate as mogwai_dom;
     use crate::prelude::*;
 
@@ -1030,9 +1120,12 @@ mod test {
 
         let thing: Dom = Dom::try_from(Thing::default().view()).unwrap();
         futures::executor::block_on(async move {
-            thing.run_while(async {
-                let _ = crate::core::time::wait_millis(10).await;
-            }).await.unwrap();
+            thing
+                .run_while(async {
+                    let _ = crate::core::time::wait_millis(10).await;
+                })
+                .await
+                .unwrap();
         });
     }
 
@@ -1051,5 +1144,20 @@ mod test {
                 })
                 .await;
         });
+    }
+
+    #[test]
+    fn how_to_set_properties() {
+        let mut stream_input_value = Input::<String>::default();
+        let _builder = rsx! {
+            input(
+                type = "text",
+                id = "my_text",
+                capture:for_each = (
+                    stream_input_value.stream().unwrap(),
+                    JsDom::try_to(web_sys::HtmlInputElement::set_value)
+                )
+            ){}
+        };
     }
 }

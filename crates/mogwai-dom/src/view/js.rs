@@ -3,10 +3,11 @@ use std::{
     collections::HashMap,
     future::Future,
     ops::{Bound, Deref, RangeBounds},
+    pin::Pin,
     sync::{
         atomic::{self, AtomicUsize},
         Arc,
-    }, pin::Pin,
+    },
 };
 
 use anyhow::Context;
@@ -84,7 +85,10 @@ impl<T: Send + 'static> JsTask<T> {
 }
 
 /// Spawn an async task and return a `JsTask<T>`.
-pub fn spawn_local<T: Send + 'static>(name: &str, future: impl Future<Output = T> + 'static) -> JsTask<T> {
+pub fn spawn_local<T: Send + 'static>(
+    name: &str,
+    future: impl Future<Output = T> + 'static,
+) -> JsTask<T> {
     let inner = Arc::new(RwLock::new(None));
     let inner_spawned = inner.clone();
     let (tx_cancel_task, mut rx_cancel_task) = async_channel::bounded(1);
@@ -355,6 +359,25 @@ impl JsDom {
     pub fn from_jscast<T: JsCast>(t: &T) -> Self {
         let val = JsValue::from(t);
         JsDom::from(val)
+    }
+
+    /// Given a setter function on a `JsCast` type, return another setter function
+    /// that takes `Self` and sets a value on it, if possible.
+    ///
+    /// If `Self` cannot be used as the given `JsCast` type, the returned setter function
+    /// will log an error.
+    ///
+    /// This is useful in conjunction with the `capture:for_each` [`rsx`] macro attribute.
+    /// See [`ViewBuilder::with_capture_for_each`] for more details.
+    pub fn try_to<E: JsCast, S: ?Sized, T: AsRef<S>>(
+        f: impl Fn(&E, &S) + Send + 'static,
+    ) -> Box<dyn Fn(&Self, T) + Send + 'static> {
+        Box::new(move |js: &JsDom, t: T| {
+            let res = js.visit_as::<E, ()>(|el| f(el, t.as_ref()));
+            if res.is_none() {
+                log::error!("could not use {} as {}", js, std::any::type_name::<E>());
+            }
+        })
     }
 
     /// Detaches the node from the DOM.

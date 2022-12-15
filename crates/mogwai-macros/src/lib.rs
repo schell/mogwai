@@ -6,7 +6,6 @@ use syn::Error;
 mod tokens;
 use tokens::{AttributeToken, ViewToken};
 
-mod relay;
 mod rsx;
 
 fn partition_unzip<S, T, F>(items: impl Iterator<Item = S>, f: F) -> (Vec<T>, Vec<Error>)

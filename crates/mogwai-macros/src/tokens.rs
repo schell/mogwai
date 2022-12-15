@@ -18,6 +18,7 @@ fn under_to_dash(s: impl AsRef<str>) -> String {
 pub enum AttributeToken {
     PostBuild(syn::Expr),
     CaptureView(syn::Expr),
+    CaptureForEach(syn::Expr),
     Xmlns(syn::Expr),
     Style(syn::Expr),
     StyleSingle(String, syn::Expr),
@@ -82,6 +83,7 @@ impl AttributeToken {
         match ks.as_slice() {
             ["post", "build"] => AttributeToken::PostBuild(expr),
             ["capture", "view"] => AttributeToken::CaptureView(expr),
+            ["capture", "for_each"] => AttributeToken::CaptureForEach(expr),
             ["xmlns"] => AttributeToken::Xmlns(expr),
             ["style"] => AttributeToken::Style(expr),
             ["style", name] => {
@@ -117,6 +119,9 @@ impl AttributeToken {
             }),
             CaptureView(expr) => Ok(quote! {
                 .with_capture_view(#expr)
+            }),
+            CaptureForEach(expr) => Ok(quote! {
+                .with_capture_for_each(#expr)
             }),
             Xmlns(_) => Ok(quote!{}),// handled by a preprocessor
             Style(expr) => Ok(quote! {
