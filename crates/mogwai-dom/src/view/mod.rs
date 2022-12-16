@@ -39,6 +39,7 @@ pub(crate) struct FutureTask<T> {
 pub(crate) fn build<V: View, R>(
     rez: R,
     builder: ViewBuilder,
+    mk_name: fn(&V) -> String,
     init: impl FnOnce(&R, ViewIdentity) -> anyhow::Result<V>,
     update_view: fn(&V, Update) -> anyhow::Result<()>,
     add_event: impl Fn(&V, Listener) -> anyhow::Result<FutureTask<()>>,
@@ -63,6 +64,7 @@ pub(crate) fn build<V: View, R>(
     )?;
     finalize_build(
         element,
+        mk_name,
         update_stream,
         post_build_ops,
         listeners,
@@ -92,6 +94,7 @@ pub(crate) fn initialize_build<V: View, R>(
 /// Finalize the DOM build by making the element reactive.
 pub(crate) fn finalize_build<V: View>(
     element: V,
+    mk_name: fn(&V) -> String,
     mut update_stream: SelectAll<MogwaiStream<Update>>,
     post_build_ops: Vec<PostBuild>,
     listeners: Vec<Listener>,
@@ -115,28 +118,28 @@ pub(crate) fn finalize_build<V: View>(
 
     let node = element.clone();
     to_spawn.push(FutureTask {
-        name: format!("{}_update", node.name()),
+        name: format!("{}_update", mk_name(&node)),
         fut: Box::pin(async move {
             while let Some(update) = update_stream.next().await {
                 update_view(&node, update).unwrap();
             }
-            log::trace!("update stream ended for {}", node.name());
+            log::trace!("update stream ended for {}", mk_name(&node));
         }),
     });
 
     for (i, task) in tasks.into_iter().enumerate() {
         to_spawn.push(FutureTask {
-            name: format!("{}_task#{}", element.name(), i),
+            name: format!("{}_task#{}", mk_name(&element), i),
             fut: task,
         });
     }
     let node: V = element.clone();
     to_spawn.push(FutureTask {
-        name: format!("{}_viewsink", node.name()),
+        name: format!("{}_viewsink", mk_name(&node)),
         fut: Box::pin(async move {
             for mut sink in view_sinks.into_iter() {
                 let any_view = AnyView::new(node.clone());
-                println!("sinking {} as {:?}", node.name(), any_view);
+                println!("sinking {} as {:?}", mk_name(&node), any_view);
                 let _ = sink.send(any_view).await;
             }
         }),
@@ -147,12 +150,6 @@ pub(crate) fn finalize_build<V: View>(
 
 #[derive(Clone)]
 pub struct Dom(Either<JsDom, SsrDom>);
-
-impl View for Dom {
-    fn name(&self) -> &str {
-        self.as_either_ref().map_either(View::name, View::name)
-    }
-}
 
 impl From<JsDom> for Dom {
     fn from(v: JsDom) -> Self {
@@ -179,6 +176,10 @@ impl Dom {
         })
     }
 
+    fn name(&self) -> String {
+        self.as_either_ref().map_either(JsDom::name, SsrDom::name)
+    }
+
     fn add_event(
         dom: &Self,
         listener: Listener,
@@ -199,6 +200,7 @@ impl Dom {
                 .map(Either::Right)
                 .unwrap_or_else(|| Either::Left(())),
             builder,
+            Dom::name,
             Dom::init,
             Dom::update,
             Dom::add_event,

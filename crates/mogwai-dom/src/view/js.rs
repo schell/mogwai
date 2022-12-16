@@ -347,14 +347,12 @@ pub(crate) fn update_js_dom(js_dom: &JsDom, update: Update) -> anyhow::Result<()
     Ok(())
 }
 
-impl mogwai::view::View for JsDom {
-    fn name(&self) -> &str {
-        &self.name
-    }
-}
-
 // TODO: Make errors returned by JsDom methods Box<dyn Error>
 impl JsDom {
+    pub fn name(&self) -> String {
+        self.name.to_string()
+    }
+
     /// Create a `JsDom` from anything that implements `JsCast`.
     pub fn from_jscast<T: JsCast>(t: &T) -> Self {
         let val = JsValue::from(t);
@@ -644,7 +642,7 @@ impl TryFrom<ViewBuilder> for JsDom {
     type Error = anyhow::Error;
 
     fn try_from(builder: ViewBuilder) -> Result<Self, Self::Error> {
-        let (js, to_spawn) = super::build((), builder, init, update_js_dom, add_event)?;
+        let (js, to_spawn) = super::build((), builder, |js| js.name.to_string(), init, update_js_dom, add_event)?;
         for future_task in to_spawn.into_iter() {
             log::trace!("spawning js task '{}'", future_task.name);
             let mut ts = js.tasks.try_write().unwrap();
@@ -817,6 +815,7 @@ impl Hydrator {
 
         let (dom, tasks) = super::finalize_build(
             dom,
+            |js| js.name.to_string(),
             update_stream,
             post_build_ops,
             listeners,

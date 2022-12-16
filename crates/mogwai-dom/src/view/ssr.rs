@@ -3,13 +3,13 @@ use anyhow::Context;
 use async_executor::Executor;
 use async_lock::RwLock;
 use futures::{Future, Sink, StreamExt};
-use std::{collections::HashMap, ops::DerefMut, pin::Pin, sync::Arc};
+use std::{collections::HashMap, ops::{Deref, DerefMut}, pin::Pin, sync::Arc};
 
 use mogwai::{
     channel::SinkError,
     futures::{sink::Contravariant, SinkExt},
     patch::{HashPatch, ListPatch, ListPatchApply},
-    view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity, View},
+    view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity},
 };
 use serde_json::Value;
 
@@ -177,12 +177,29 @@ impl TryFrom<ViewBuilder> for SsrDom {
 impl SsrDom {
     pub fn new(executor: Arc<Executor<'static>>, builder: ViewBuilder) -> anyhow::Result<Self> {
         let (ssr, to_spawn) =
-            super::build(executor.clone(), builder, init, update_ssr_dom, add_event)?;
+            super::build(executor.clone(), builder, SsrDom::name, init, update_ssr_dom, add_event)?;
         for future_task in to_spawn.into_iter() {
             log::trace!("spawning ssr task '{}'", future_task.name);
             executor.spawn(future_task.fut).detach();
         }
         Ok(ssr)
+    }
+
+    pub fn name(&self) -> String {
+        if let Some(read) = self.node.try_read() {
+            match read.deref() {
+                SsrNode::Text(s) => {
+                    let len = s.char_indices().count();
+                    let tenth_ndx = s.char_indices().take(10).fold(0, |_, (ndx, _)| ndx);
+                    let ext = if len > 10 { "..." } else { "" };
+                    let trunc = &s[..tenth_ndx];
+                    format!("{}{}", trunc, ext)
+                }
+                SsrNode::Container { name, .. } => name.clone(),
+            }
+        } else {
+            "unknown".to_string()
+        }
     }
 
     /// Creates a text node.
@@ -421,12 +438,6 @@ impl ListPatchApply for SsrDom {
         } else {
             panic!("not a container")
         }
-    }
-}
-
-impl mogwai::view::View for SsrDom {
-    fn name(&self) -> &str {
-        "todo! name ssr node"
     }
 }
 

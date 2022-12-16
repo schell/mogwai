@@ -26,11 +26,8 @@ impl Wake for DummyWaker {
 ///
 /// A view is a smart pointer that can be cheaply cloned, where clones all refer
 /// to the same underlying user interface node.
-pub trait View: Any + Sized + Clone + Unpin + Send + Sync {
-    fn name(&self) -> &str {
-        "unnamed"
-    }
-}
+pub trait View: Any + Sized + Clone + Unpin + Send + Sync {}
+impl<T: Any + Sized + Clone + Unpin + Send + Sync> View for T {}
 
 /// A type erased view.
 ///
