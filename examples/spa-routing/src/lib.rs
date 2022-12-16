@@ -1,8 +1,9 @@
 #![allow(unused_braces)]
 use log::{trace, Level};
-use mogwai::prelude::*;
-use std::{panic, convert::TryFrom};
-use wasm_bindgen::{JsCast, prelude::*};
+//use mogwai_dom::core::channel::{broadcast, mpsc};
+use mogwai_dom::prelude::*;
+use std::{convert::TryFrom, panic};
+use wasm_bindgen::{prelude::*, JsCast};
 use web_sys::HashChangeEvent;
 
 #[cfg(feature = "wee_alloc")]
@@ -91,7 +92,7 @@ impl From<Route> for String {
 /// This is just a suggestion for this specific example. The general idea is
 /// to use the route to inform your app that it needs to change the page. This
 /// is just one of many ways to accomplish that.
-impl From<&Route> for ViewBuilder<JsDom> {
+impl From<&Route> for ViewBuilder {
     fn from(route: &Route) -> Self {
         match route {
             Route::Home => html! {
@@ -150,86 +151,76 @@ impl Route {
     }
 }
 
-#[derive(Clone)]
-enum AppModel {
-    HashChange(String),
-}
+fn app(starting_route: Route) -> ViewBuilder {
+    let username: String = "Reasonable-Human".into();
 
-#[derive(Clone)]
-struct AppError(String);
+    let mut input_route = Input::<Route>::default();
+    let mut input_error_msg = Input::<String>::default();
 
-async fn logic(
-    mut route: Route,
-    mut rx_logic: broadcast::Receiver<AppModel>,
-    tx_view: broadcast::Sender<AppError>,
-    mut tx_route_patch: mpsc::Sender<ListPatch<ViewBuilder<JsDom>>>,
-) {
-    loop {
-        match rx_logic.next().await {
-            Some(AppModel::HashChange(hash)) => {
-                // When we get a hash change, attempt to convert it into one of our routes
-                match Route::try_from(hash.as_str()) {
-                    // If we can't, let's send an error message to the view
-                    Err(msg) => {
-                        tx_view.broadcast(AppError(msg)).await.unwrap();
+    let output_window_hashchange = Output::<JsDomEvent>::default();
+
+    let builder = rsx! {
+        slot(
+            //window:hashchange = tx_logic.contra_filter_map(|ev: JsDomEvent| {
+            //}),
+            window:hashchange = output_window_hashchange.sink(),
+            patch:children = input_route
+                .stream()
+                .unwrap()
+                .map(|r| ListPatch::replace(2, ViewBuilder::from(&r)))
+        ) {
+            nav() {
+                ul() {
+                    li(class = starting_route.nav_home_class()) {
+                        a(href = String::from(Route::Home)) { "Home" }
                     }
-                    // If we _can_, create a new view from the route and send a patch message to
-                    // the view
-                    Ok(new_route) => {
-                        trace!("got new route: {:?}", new_route);
-                        if new_route != route {
-                            let builder = ViewBuilder::from(&new_route);
-                            route = new_route;
-                            let patch = ListPatch::replace(2, builder);
-                            tx_route_patch.send(patch).await.unwrap();
+                    li(class = starting_route.nav_settings_class()) {
+                        a(href = String::from(Route::Settings)) { "Settings" }
+                    }
+                    li(class = starting_route.nav_settings_class()) {
+                        a(href = String::from(Route::Profile {
+                            username: username.clone(),
+                            is_favorites: true
+                        })) {
+                            {format!("{}'s Profile", username)}
                         }
-                        tx_view.broadcast(AppError("".to_string())).await.unwrap();
                     }
                 }
             }
-            None => break,
+            pre() { {("", input_error_msg.stream().unwrap())} }
+            {&starting_route}
         }
-    }
-}
-
-fn view(
-    route: &Route,
-    tx_logic: broadcast::Sender<AppModel>,
-    rx_view: broadcast::Receiver<AppError>,
-    rx_route_patch: mpsc::Receiver<ListPatch<ViewBuilder<JsDom>>>,
-) -> ViewBuilder<JsDom> {
-    let username: String = "Reasonable-Human".into();
-    html! {
-        <slot
-            window:hashchange=tx_logic.contra_filter_map(|ev: JsDomEvent| {
-                let ev = ev.browser_event()?;
+    };
+    builder.with_task(async move {
+        let mut route = starting_route;
+        while let Some(ev) = output_window_hashchange.get().await {
+            let hash = {
+                let ev = ev.browser_event().expect("not a browser event");
                 let hev = ev.dyn_ref::<HashChangeEvent>().unwrap().clone();
-                let hash = hev.new_url();
-                Some(AppModel::HashChange(hash))
-            })
-            patch:children=rx_route_patch>
-            <nav>
-                <ul>
-                    <li class=route.nav_home_class()>
-                        <a href=String::from(Route::Home)>"Home"</a>
-                    </li>
-                    <li class=route.nav_settings_class()>
-                        <a href=String::from(Route::Settings)>"Settings"</a>
-                    </li>
-                    <li class=route.nav_settings_class()>
-                        <a href=String::from(Route::Profile {
-                            username: username.clone(),
-                            is_favorites: true
-                        })>
-                            {format!("{}'s Profile", username)}
-                        </a>
-                    </li>
-                </ul>
-            </nav>
-            <pre>{("", rx_view.map(|AppError(msg)| msg))}</pre>
-            {route}
-        </slot>
-    }
+                hev.new_url()
+            };
+            // When we get a hash change, attempt to convert it into one of our routes
+            let msg = match Route::try_from(hash.as_str()) {
+                // If we can't, let's send an error message to the view
+                Err(msg) => msg,
+                // If we _can_, create a new view from the route and send a patch message to
+                // the view
+                Ok(new_route) => {
+                    trace!("got new route: {:?}", new_route);
+                    if new_route != route {
+                        route = new_route;
+                        input_route.set(route.clone()).await.expect("could not set route");
+                    }
+                    // ...and clear any existing error message
+                    String::new()
+                }
+            };
+            input_error_msg
+                .set(msg)
+                .await
+                .expect("could not set error msg");
+        }
+    })
 }
 
 #[wasm_bindgen]
@@ -237,25 +228,21 @@ pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    mogwai::spawn(async {
-        let route = Route::Home;
-        let (tx_logic, rx_logic) = broadcast::bounded(1);
-        let (tx_view, rx_view) = broadcast::bounded(1);
-        let (tx_route_patch, rx_route_patch) = mpsc::bounded(1);
-        let builder = view(&route, tx_logic, rx_view, rx_route_patch)
-            .with_task(logic(route, rx_logic, tx_view, tx_route_patch));
-        let view = builder.build().unwrap();
+    // TODO: instantiate the route from the window location
+    let route = Route::Home;
+    let view = JsDom::try_from(app(route)).unwrap();
 
-        if let Some(id) = parent_id {
-            let parent = mogwai::dom::utils::document()
-                .visit_js(|doc: web_sys::Document| doc.get_element_by_id(&id))
-                .map(Dom::wrap_js)
-                .unwrap();
-            view.run_in_container(&parent)
-        } else {
-            view.run()
-        }
-    });
+    if let Some(id) = parent_id {
+        let parent = mogwai_dom::utils::document()
+            .visit_as(|doc: &web_sys::Document| {
+                JsDom::from_jscast(&doc.get_element_by_id(&id).unwrap())
+            })
+            .unwrap();
+        view.run_in_container(parent)
+    } else {
+        view.run()
+    }
+    .unwrap();
 
     Ok(())
 }
