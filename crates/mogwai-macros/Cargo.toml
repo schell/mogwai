@@ -6,7 +6,7 @@ edition = "2018"
 readme = "README.md"
 description = "Declarative RSX macro for constructing mogwai ViewBuilder"
 license = "MIT"
-keywords = ["ui", "dom", "app", "reactive", "frontend", "gui"]
+keywords = ["ui", "dom", "reactive", "frontend", "gui"]
 categories = ["gui", "wasm", "web-programming"]
 documentation = "https://docs.rs/mogwai/"
 
