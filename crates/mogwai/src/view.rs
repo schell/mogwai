@@ -625,7 +625,7 @@ impl ViewBuilder {
     /// ```rust
     /// use mogwai_dom::prelude::*;
     /// let (_tx, rx) = mogwai_dom::core::channel::mpsc::bounded::<usize>(1);
-    /// rsx! {
+    /// let builder = rsx! {
     ///     input(
     ///         type = "text",
     ///         capture:for_each = (
@@ -633,7 +633,7 @@ impl ViewBuilder {
     ///             JsDom::try_to(web_sys::HtmlInputElement::set_value)
     ///         )
     ///     ) {}
-    /// }
+    /// };
     /// ```
     ///
     /// And the above RSX is equivalent to the following:
@@ -641,7 +641,8 @@ impl ViewBuilder {
     /// let st = rx.map(|n:usize| format!("{}", n));
     /// let f = JsDom::try_to(web_sys::HtmlInputElement::set_value);
     /// let captured = crate::futures::Captured::default();
-    /// self.with_capture_view(captured.sink())
+    /// let builder = ViewBuilder::default()
+    ///     .with_capture_view(captured.sink())
     ///     .with_task(async move {
     ///         let view = captured.get().await;
     ///         while let Some(value) = st.next().await {

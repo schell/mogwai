@@ -161,7 +161,7 @@ pub trait ListPatchApply {
     /// The underlying item type of the list being patched.
     type Item;
 
-    /// Apply the given patch, modifying the list and returning the removed items.
+    /// Asyncronously apply the given patch, modifying the list and returning the removed items.
     fn list_patch_apply(&mut self, patch: ListPatch<Self::Item>) -> Vec<Self::Item>;
 
     /// Insert the given item into the list at the given index, pushing all other items to the right.

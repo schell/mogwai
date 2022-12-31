@@ -21,7 +21,7 @@ fn expand_this_builder() {
 
 #[test]
 fn node_self_closing() {
-    smol::block_on(async {
+    futures::executor::block_on(async {
         // not all nodes are void nodes
         let div = SsrDom::try_from(html! {
             <a href="http://zyghost.com" />
@@ -39,111 +39,127 @@ fn node_self_closing() {
     });
 }
 
-#[smol_potat::test]
-async fn node_self_closing_gt_1_att() {
-    let decomp: ViewBuilder = html! {<a href="http://zyghost.com" class="blah"/>};
-    let (_, updates) = mogwai_dom::core::view::exhaust(futures::stream::select_all(decomp.updates));
-    match &updates[0] {
-        Update::Attribute(HashPatch::Insert(k, v)) => {
-            assert_eq!("href", k.as_str());
-            assert_eq!("http://zyghost.com", v.as_str());
+#[test]
+fn node_self_closing_gt_1_att() {
+    futures::executor::block_on(async {
+        let decomp: ViewBuilder = html! {<a href="http://zyghost.com" class="blah"/>};
+        let (_, updates) =
+            mogwai_dom::core::view::exhaust(futures::stream::select_all(decomp.updates));
+        match &updates[0] {
+            Update::Attribute(HashPatch::Insert(k, v)) => {
+                assert_eq!("href", k.as_str());
+                assert_eq!("http://zyghost.com", v.as_str());
+            }
+            att => panic!("unmatched attribute: {:?}", att),
         }
-        att => panic!("unmatched attribute: {:?}", att),
-    }
 
-    // not all nodes are void nodes
-    let div = SsrDom::try_from(html! {<a href="http://zyghost.com" class="blah"/>}).unwrap();
-    let div: String = div.html_string().await;
-    assert_eq!(&div, r#"<a href="http://zyghost.com" class="blah"></a>"#);
+        // not all nodes are void nodes
+        let div = SsrDom::try_from(html! {<a href="http://zyghost.com" class="blah"/>}).unwrap();
+        let div: String = div.html_string().await;
+        assert_eq!(&div, r#"<a href="http://zyghost.com" class="blah"></a>"#);
 
-    let div =
-        SsrDom::try_from(html! {<img src="http://zyghost.com/favicon.ico" class="blah"/>}).unwrap();
-    let div: String = div.html_string().await;
-    assert_eq!(
-        &div,
-        r#"<img src="http://zyghost.com/favicon.ico" class="blah" />"#
-    );
+        let div =
+            SsrDom::try_from(html! {<img src="http://zyghost.com/favicon.ico" class="blah"/>})
+                .unwrap();
+        let div: String = div.html_string().await;
+        assert_eq!(
+            &div,
+            r#"<img src="http://zyghost.com/favicon.ico" class="blah" />"#
+        );
+    });
 }
 
-#[smol_potat::test]
-async fn by_hand() {
-    let builder: ViewBuilder = ViewBuilder::element("a")
-        .with_single_attrib_stream("href", "http://zyghost.com")
-        .with_single_attrib_stream("class", "a_link")
-        .append(ViewBuilder::text("a text node"));
-    assert_eq!(
-        r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#,
-        SsrDom::try_from(builder).unwrap().html_string().await
-    );
+#[test]
+fn by_hand() {
+    futures::executor::block_on(async {
+        let builder: ViewBuilder = ViewBuilder::element("a")
+            .with_single_attrib_stream("href", "http://zyghost.com")
+            .with_single_attrib_stream("class", "a_link")
+            .append(ViewBuilder::text("a text node"));
+        assert_eq!(
+            r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#,
+            SsrDom::try_from(builder).unwrap().html_string().await
+        );
+    });
 }
 
-#[smol_potat::test]
-async fn node() {
-    let div: String = SsrDom::try_from(html! {
-        <a href="http://zyghost.com" class = "a_link">"a text node"</a>
-    })
-    .unwrap()
-    .html_string()
-    .await;
-    assert_eq!(
-        &div,
-        r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#
-    );
+#[test]
+fn node() {
+    futures::executor::block_on(async {
+        let div: String = SsrDom::try_from(html! {
+            <a href="http://zyghost.com" class = "a_link">"a text node"</a>
+        })
+        .unwrap()
+        .html_string()
+        .await;
+        assert_eq!(
+            &div,
+            r#"<a href="http://zyghost.com" class="a_link">a text node</a>"#
+        );
+    });
 }
 
-#[smol_potat::test]
-async fn block_in_text() {
-    let x: u32 = 66;
-    let s: String = SsrDom::try_from(html! {
-        <pre>"just a string with the number" {format!("{}", x)} "<- blah blah"</pre>
-    })
-    .unwrap()
-    .html_string()
-    .await;
+#[test]
+fn block_in_text() {
+    futures::executor::block_on(async {
+        let x: u32 = 66;
+        let s: String = SsrDom::try_from(html! {
+            <pre>"just a string with the number" {format!("{}", x)} "<- blah blah"</pre>
+        })
+        .unwrap()
+        .html_string()
+        .await;
 
-    assert_eq!(
-        s,
-        format!("<pre>just a string with the number 66 &lt;- blah blah</pre>")
-    );
+        assert_eq!(
+            s,
+            format!("<pre>just a string with the number 66 &lt;- blah blah</pre>")
+        );
+    });
 }
 
-#[smol_potat::test]
-async fn block_at_end_of_text() {
-    let x: u32 = 66;
-    let s: String = SsrDom::try_from(html! {
-        <pre>"just a string with the number" {format!("{}", x)}</pre>
-    })
-    .unwrap()
-    .html_string()
-    .await;
+#[test]
+fn block_at_end_of_text() {
+    futures::executor::block_on(async {
+        let x: u32 = 66;
+        let s: String = SsrDom::try_from(html! {
+            <pre>"just a string with the number" {format!("{}", x)}</pre>
+        })
+        .unwrap()
+        .html_string()
+        .await;
 
-    assert_eq!(&s, "<pre>just a string with the number 66</pre>");
+        assert_eq!(&s, "<pre>just a string with the number 66</pre>");
+    });
 }
 
-#[smol_potat::test]
-async fn lt_in_text() {
-    let s: String = SsrDom::try_from(html! {
-        <pre>"this is text <- text"</pre>
-    })
-    .unwrap()
-    .html_string()
-    .await;
+#[test]
+fn lt_in_text() {
+    futures::executor::block_on(async {
+        let s: String = SsrDom::try_from(html! {
+            <pre>"this is text <- text"</pre>
+        })
+        .unwrap()
+        .html_string()
+        .await;
 
-    assert_eq!(s, "<pre>this is text &lt;- text</pre>");
+        assert_eq!(s, "<pre>this is text &lt;- text</pre>");
+    });
 }
 
-#[smol_potat::test]
-async fn allow_attributes_on_next_line() {
-    let _: String = SsrDom::try_from(html! {
-        <div
-            id="my_div"
-            style="float: left;">
-            "A string"
-        </div>
-    })
-    .unwrap()
-    .html_string()
-    .await;
+#[test]
+fn allow_attributes_on_next_line() {
+    futures::executor::block_on(async {
+        let _: String = SsrDom::try_from(html! {
+            <div
+                id="my_div"
+                style="float: left;">
+                "A string"
+            </div>
+        })
+        .unwrap()
+        .html_string()
+        .await;
+    });
 }
 
 #[test]
@@ -263,19 +279,21 @@ pub fn function_style_rsx() {
     }
 }
 
-#[smol_potat::test]
-async fn rsx_same_as_html() {
-    let html = SsrDom::try_from(html! {
-        <p><div class="my_class">"Hello"</div></p>
-    })
-    .unwrap();
-    let html_string = html.html_string().await;
+#[test]
+fn rsx_same_as_html() {
+    futures::executor::block_on(async {
+        let html = SsrDom::try_from(html! {
+            <p><div class="my_class">"Hello"</div></p>
+        })
+        .unwrap();
+        let html_string = html.html_string().await;
 
-    let rsx = SsrDom::try_from(rsx! {
-        p{ div(class="my_class"){ "Hello" }}
-    })
-    .unwrap();
-    let rsx_string = rsx.html_string().await;
+        let rsx = SsrDom::try_from(rsx! {
+            p{ div(class="my_class"){ "Hello" }}
+        })
+        .unwrap();
+        let rsx_string = rsx.html_string().await;
 
-    assert_eq!(html_string, rsx_string, "rsx and html to not agree");
+        assert_eq!(html_string, rsx_string, "rsx and html to not agree");
+    });
 }

@@ -99,7 +99,7 @@ fn node_to_builder_token_stream(
 /// ## Deprecated since 0.6
 /// Use [`html!`] instead, or convert to [`rsx!`].
 ///
-/// ```rust
+/// ```rust, ignore
 /// let my_div = mogwai_dom::html! {
 ///     <div id="main">
 ///         <p>"Trolls are real"</p>
@@ -118,7 +118,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// the case, try converting to [`rsx!`], which editors tend to format
 /// well.
 ///
-/// ```rust
+/// ```rust, ignore
 /// let my_div = mogwai_dom::html! {
 ///     <div id="main">
 ///         <p>"Trolls are real"</p>
@@ -135,7 +135,7 @@ pub fn html(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// This is easier for editors to format than [`html!`], leading to more natural
 /// authoring.
 ///
-/// ```rust
+/// ```rust, ignore
 /// let my_div = mogwai_dom::rsx! {
 ///     div(id="main") {
 ///         p() {"Trolls are real"}
@@ -154,7 +154,7 @@ pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// Uses an html description to construct a `View`.
 ///
 /// This is the same as the following:
-/// ```rust
+/// ```rust, ignore
 /// use mogwai_dom::prelude::*;
 ///
 /// let my_view = SsrDom::try_from(html! {

@@ -1,6 +1,7 @@
 //! Values with streams of updates.
 use std::{collections::HashMap, ops::DerefMut, sync::Arc};
 
+use anyhow::Context;
 use async_broadcast::{broadcast, Receiver, Sender};
 use async_lock::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard};
 use futures::Stream;
@@ -184,18 +185,35 @@ impl<T: Clone> ListPatchModel<T> {
         }
     }
 
-    /// Apply the given patch to the `ListPatchModel`.
-    ///
-    /// ## Panics
-    /// Panics if the downstream channel is full, or the model is being read at the time
-    /// of application (which cannot happen in the browser).
-    pub async fn patch(&self, patch: ListPatch<T>) -> Vec<T> {
+    fn try_ensure_room(&self) -> anyhow::Result<()> {
+        let tx = self.chan.0.try_upgradable_read().context("cannot get upgradable read")?;
+        let len = tx.len();
+        if tx.is_full() {
+            RwLockUpgradableReadGuard::try_upgrade(tx).ok().context("cannot upgrade read")?
+                .set_capacity(1 + len);
+        }
+
+        Ok(())
+    }
+
+    /// Apply the given patch to the `ListPatchModel`, awaiting the acquisition of locks.
+    pub async fn patch(&self, patch: ListPatch<T>) -> anyhow::Result<Vec<T>> {
         self.ensure_room().await;
         let tx = self.chan.0.read().await;
         let items = self.value.write().await.list_patch_apply(patch.clone());
-        let _ = tx.try_broadcast(patch).unwrap();
-        items
+        let _ = tx.try_broadcast(patch).ok().context("cannot broadcast")?;
+        Ok(items)
     }
+
+    /// Apply the given patch to the `ListPatchModel`.
+    pub fn try_patch(&self, patch: ListPatch<T>) -> anyhow::Result<Vec<T>> {
+        self.try_ensure_room()?;
+        let tx = self.chan.0.try_read().context("cannot read")?;
+        let items = self.value.try_write().context("cannot write")?.list_patch_apply(patch.clone());
+        let _ = tx.try_broadcast(patch).ok().context("cannot broadcast")?;
+        Ok(items)
+    }
+
 
     /// Force a refresh, sending a `ListPatch::Noop` downstream.
     ///
@@ -215,7 +233,7 @@ impl<T: Clone> ListPatchApply for ListPatchModel<T> {
     /// Panics if the downstream channel is full, or the model is being read at the time
     /// of application (which cannot happen in the browser).
     fn list_patch_apply(&mut self, patch: ListPatch<Self::Item>) -> Vec<Self::Item> {
-        futures::executor::block_on(self.patch(patch))
+        self.try_patch(patch).unwrap()
     }
 }
 

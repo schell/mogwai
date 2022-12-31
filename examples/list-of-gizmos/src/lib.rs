@@ -113,7 +113,7 @@ fn list() -> ViewBuilder {
             let id = ItemId(next_id);
             next_id += 1;
             let patch = ListPatch::push(id);
-            items.patch(patch).await;
+            items.patch(patch).await.expect("could not patch");
         }
         log::info!("list 'add' loop is done - should never happen");
     }).with_task(async move {
@@ -128,7 +128,7 @@ fn list() -> ViewBuilder {
             drop(items_read);
             log::info!("removing item {} at index {}", remove_id.0, index);
             let patch = ListPatch::remove(index);
-            items_remove_loop.patch(patch).await;
+            items_remove_loop.patch(patch).await.expect("could not patch");
         }
         log::info!("list 'remove' loop is done - should never happen");
     })
