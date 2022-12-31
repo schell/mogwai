@@ -29,10 +29,6 @@ serde_json = "^1.0"
 wasm-bindgen = { version = "^0.2", features = ["serde-serialize"] }
 wasm-bindgen-futures = "^0.4"
 
-# Unfortunately there is still a problem with fastrand and this is needed
-# see https://github.com/smol-rs/fastrand/issues/27
-instant = {version="*", features=["wasm-bindgen"]}
-
 [dependencies.web-sys]
 version = "^0.3"
 features = [
