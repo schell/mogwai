@@ -9,7 +9,7 @@ documentation = "https://docs.rs/mogwai/"
 repository = "https://github.com/schell/mogwai"
 readme = "../../README.md"
 keywords = ["ui", "dom", "app", "reactive", "frontend"]
-categories = ["gui", "asynchronous", "widgets"]
+categories = ["gui", "asynchronous"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
