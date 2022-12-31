@@ -17,7 +17,7 @@
 //!
 //! ## Example
 //! ```rust
-//! use mogwai_dom::prelude::*;
+//! use mogwai::prelude::*;
 //!
 //! #[derive(Default)]
 //! struct ClickyDiv {
@@ -30,7 +30,7 @@
 //!
 //!     fn try_from(mut cd: ClickyDiv) -> anyhow::Result<ViewBuilder> {
 //!         Ok(rsx! {
-//!             div(on:click = cd.click.sink().contra_map(|_: DomEvent| ())) {
+//!             div(on:click = cd.click.sink().contra_map(|_: AnyEvent| ())) {
 //!                 {("Hi", cd.text.stream().ok_or_else(|| anyhow::anyhow!("already used text stream"))?)}
 //!             }
 //!         }.with_task(async move {
@@ -52,7 +52,6 @@
 //!
 //! let cd = ClickyDiv::default();
 //! let builder = ViewBuilder::try_from(cd).unwrap();
-//! let dom = Dom::try_from(builder).unwrap();
 //! ```
 use std::sync::{Arc, Mutex};
 

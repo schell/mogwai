@@ -34,9 +34,6 @@ wasm-bindgen-futures = "^0.4"
 version = "^0.3"
 features = ["Document", "MessageChannel", "MessagePort", "Performance", "Window"]
 
-[dev-dependencies]
-mogwai-dom = { path = "../mogwai-dom", version = "0.1.0-alpha" }
-
 [dev-dependencies.web-sys]
 version = "^0.3"
 features = ["Event"]

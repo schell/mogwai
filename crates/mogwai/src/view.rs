@@ -622,7 +622,7 @@ impl ViewBuilder {
     /// The only parameter is a tuple to support being used from the [`rsx`] macro's
     /// `capture:for_each` attribute, since the right hand side of such attributes must be
     /// a singular Rust expression:
-    /// ```rust
+    /// ```rust, ignore
     /// use mogwai_dom::prelude::*;
     /// let (_tx, rx) = mogwai_dom::core::channel::mpsc::bounded::<usize>(1);
     /// let builder = rsx! {
