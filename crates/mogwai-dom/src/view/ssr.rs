@@ -2,13 +2,18 @@
 use anyhow::Context;
 use async_executor::Executor;
 use async_lock::RwLock;
-use futures::{Future, Sink, StreamExt};
-use std::{collections::HashMap, ops::{Deref, DerefMut}, pin::Pin, sync::Arc};
+use std::{
+    collections::HashMap,
+    future::Future,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+    sync::Arc,
+};
 
 use mogwai::{
-    channel::SinkError,
-    futures::{sink::Contravariant, SinkExt},
     patch::{HashPatch, ListPatch, ListPatchApply},
+    sink::{SendError, Sink, SinkExt},
+    stream::StreamExt,
     view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity},
 };
 use serde_json::Value;
@@ -155,14 +160,8 @@ pub struct SsrDom {
     /// The underlying node.
     pub node: Arc<RwLock<SsrNode>>,
     /// A map of events registered with this element.
-    pub events: Arc<
-        RwLock<
-            HashMap<
-                (String, String),
-                Pin<Box<dyn Sink<Value, Error = SinkError> + Send + Sync + 'static>>,
-            >,
-        >,
-    >,
+    pub events:
+        Arc<RwLock<HashMap<(String, String), Pin<Box<dyn Sink<Value> + Send + Sync + 'static>>>>>,
 }
 
 impl TryFrom<ViewBuilder> for SsrDom {
@@ -176,8 +175,14 @@ impl TryFrom<ViewBuilder> for SsrDom {
 
 impl SsrDom {
     pub fn new(executor: Arc<Executor<'static>>, builder: ViewBuilder) -> anyhow::Result<Self> {
-        let (ssr, to_spawn) =
-            super::build(executor.clone(), builder, SsrDom::name, init, update_ssr_dom, add_event)?;
+        let (ssr, to_spawn) = super::build(
+            executor.clone(),
+            builder,
+            SsrDom::name,
+            init,
+            update_ssr_dom,
+            add_event,
+        )?;
         for future_task in to_spawn.into_iter() {
             log::trace!("spawning ssr task '{}'", future_task.name);
             executor.spawn(future_task.fut).detach();
@@ -336,7 +341,7 @@ impl SsrDom {
         type_is: String,
         name: String,
         event: Value,
-    ) -> Result<(), futures::future::Either<(), SinkError>> {
+    ) -> Result<(), futures::future::Either<(), SendError>> {
         use futures::future::Either;
         let mut events = self.events.write().await;
         let sink = events
@@ -370,10 +375,7 @@ impl SsrDom {
     }
 }
 
-pub(crate) fn init(
-    rez: &Arc<Executor<'static>>,
-    identity: ViewIdentity,
-) -> anyhow::Result<SsrDom> {
+pub(crate) fn init(rez: &Arc<Executor<'static>>, identity: ViewIdentity) -> anyhow::Result<SsrDom> {
     let element = match identity {
         ViewIdentity::Branch(tag) => SsrDom::element(rez.clone(), &tag),
         ViewIdentity::NamespacedBranch(tag, ns) => {
@@ -441,10 +443,7 @@ impl ListPatchApply for SsrDom {
     }
 }
 
-pub(crate) fn add_event(
-    ssr: &SsrDom,
-    listener: Listener,
-) -> anyhow::Result<FutureTask<()>> {
+pub(crate) fn add_event(ssr: &SsrDom, listener: Listener) -> anyhow::Result<FutureTask<()>> {
     let Listener {
         event_name,
         event_target,

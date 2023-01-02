@@ -42,7 +42,7 @@
 //!
 //! ## Constructing views
 //!
-//! This library can be used to construct many types of domain-specific views,
+//! Mogwai can be used to construct many types of domain-specific views,
 //! but for the remainder of the introduction we will be talking about web browser-based
 //! DOM views.
 //!
@@ -68,7 +68,8 @@
 //! ```
 //!
 //! [`ViewBuilder`] can be converted into a domain specific view.
-//! Here we're creating `mogwai_dom::view::JsDom` for use in the browser:
+//! Here we're creating `mogwai_dom::view::Dom` for use in the either the browser
+//! or server-side rendering:
 //!
 //! ```rust
 //! use::mogwai_dom::prelude::*;
@@ -98,10 +99,8 @@
 //! </div>
 //! ```
 //!
-//! A view is a domain-specific view type. In this case that's
-//! [`mogwai_dom::view::JsDom`]. The view is responsible for taking the `ViewBuilder`'s
-//! various streams of updates and mutating in response, but those are implementation
-//! details we don't need to talk about here.
+//! [`Dom`] is responsible for taking the `ViewBuilder`'s various streams of updates and
+//! mutating in response, but those are implementation details we don't need to talk about here.
 //!
 //! In `mogwai-dom` there are three view types.
 //! * [`JsDom`] represents a Javascript-owned browser DOM element. This is the type to
@@ -129,8 +128,8 @@
 //! dom.run().unwrap();
 //! ```
 //!
-//! [`JsDom::run`], [`SsrDom::run`] and [`Dom::run`] consume the view, attaching it to
-//! the `document.body` (where appropriate) and *never dropping the node*.
+//! The `run` function consumes the view, attaching it to
+//! the `document.body` and *never dropping the node*.
 //!
 //! ### Detaching [`Dom`]
 //!

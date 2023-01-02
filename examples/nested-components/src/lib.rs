@@ -1,5 +1,5 @@
 use log::Level;
-use mogwai_dom::core::futures::stream;
+use mogwai_dom::core::future::stream;
 use mogwai_dom::prelude::*;
 use std::panic;
 use wasm_bindgen::prelude::*;

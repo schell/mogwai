@@ -56,21 +56,24 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
-use futures::{Sink, SinkExt, Stream, StreamExt};
 
-use crate::channel::{broadcast, SinkError};
+use crate::{
+    channel::broadcast,
+    sink::{SendError, Sink, TrySendError},
+    stream::{Stream, StreamExt},
+};
 
 /// An input to a view.
 ///
-/// An input has at most one consumer in the destination view.
+/// `Input` has at most one consumer in the destination view.
 pub struct Input<T> {
-    setter: futures::channel::mpsc::Sender<T>,
-    rx: Arc<Mutex<Option<futures::channel::mpsc::Receiver<T>>>>,
+    setter: crate::channel::mpsc::Sender<T>,
+    rx: Arc<Mutex<Option<crate::channel::mpsc::Receiver<T>>>>,
 }
 
 impl<T> Default for Input<T> {
     fn default() -> Self {
-        let (setter, getter) = futures::channel::mpsc::channel(1);
+        let (setter, getter) = crate::channel::mpsc::bounded(1);
         Self {
             setter,
             rx: Arc::new(Mutex::new(Some(getter))),
@@ -87,22 +90,42 @@ impl<T> Clone for Input<T> {
     }
 }
 
-impl<T> Input<T> {
+impl<T: Send> Sink<T> for Input<T> {
+    fn send(
+        &self,
+        item: T,
+    ) -> std::pin::Pin<Box<dyn futures_lite::Future<Output = Result<(), SendError>> + Send + '_>>
+    {
+        let item = item.into();
+        Box::pin(async move { self.setter.send(item).await.map_err(|_| SendError::Closed) })
+    }
+
+    fn try_send(&self, item: T) -> Result<(), crate::prelude::TrySendError> {
+        self.setter.try_send(item.into()).map_err(|e| match e {
+            async_channel::TrySendError::Closed(_) => TrySendError::Closed,
+            async_channel::TrySendError::Full(_) => TrySendError::Full,
+        })
+    }
+}
+
+impl<T: Send> Input<T> {
     /// Create a new input with a value already set.
     pub fn new(item: T) -> Self {
-        let mut input = Self::default();
-        // UNWRAP: safe because we know the channel has one slot
+        let input = Self::default();
+        // UNWRAP: safe because we know the channel has one empty slot
         input.setter.try_send(item).unwrap();
         input
     }
 
     /// Set the value of this input.
     pub async fn set(&self, item: impl Into<T>) -> anyhow::Result<()> {
-        let mut setter = self.setter.clone();
-        setter
-            .send(item.into())
-            .await
-            .with_context(|| format!("could not set input of {}", std::any::type_name::<T>()))
+        self.send(item.into()).await.map_err(|e| {
+            anyhow::anyhow!(
+                "could not set input of {}: {}",
+                std::any::type_name::<T>(),
+                e
+            )
+        })
     }
 
     /// Attempt to set the value of this input syncronously.
@@ -110,15 +133,14 @@ impl<T> Input<T> {
     /// When this fails it is because the input has an existing value
     /// set that has not been consumed.
     pub fn try_set(&mut self, item: impl Into<T>) -> anyhow::Result<()> {
-        self.setter
-            .try_send(item.into())
+        self.try_send(item.into())
             .ok()
             .with_context(|| format!("could not try_set input of {}", std::any::type_name::<T>()))
     }
 
     /// Attempt to acquire a stream of updates to this input.
     ///
-    /// An `Input` can have at most **one** consumer in the destination view.
+    /// An `Input` can have at most **one** consumer.
     /// For this reason this function returns `Some` the first time it is called,
     /// and `None` each subsequent call.
     ///
@@ -157,24 +179,42 @@ impl<T: Clone> Clone for FanInput<T> {
     }
 }
 
-impl<T: Clone> FanInput<T> {
+impl<T: Clone + Send + Sync> Sink<T> for FanInput<T> {
+    fn send(
+        &self,
+        item: T,
+    ) -> std::pin::Pin<Box<dyn futures_lite::Future<Output = Result<(), SendError>> + Send + '_>>
+    {
+        let item = item.into();
+        let sender = self.chan.sender();
+        Box::pin(async move { sender.send(item).await })
+    }
+
+    fn try_send(&self, item: T) -> Result<(), crate::prelude::TrySendError> {
+        self.chan.sender().try_send(item.into())
+    }
+}
+
+impl<T: Clone + Send + Sync> FanInput<T> {
     /// Set the value of this input.
-    pub async fn set(&self, item: impl Into<T>) -> Result<(), ()> {
-        let mut setter = self.chan.sender();
-        setter.send(item.into()).await.map_err(|_| ())
+    pub async fn set(&self, item: impl Into<T>) -> anyhow::Result<()> {
+        self.send(item.into()).await.map_err(|e| {
+            anyhow::anyhow!(
+                "could not set fan input of {}: {}",
+                std::any::type_name::<T>(),
+                e
+            )
+        })
     }
 
     /// Attempt to set the value of this input syncronously.
     ///
     /// When this fails it is because the input has no destination and
     /// the underlying channel is closed.
-    pub fn try_set(&mut self, item: impl Into<T>) -> Result<(), ()> {
-        let setter = self.chan.sender();
-        setter
-            .inner
-            .try_broadcast(item.into())
-            .map_err(|_| ())
-            .map(|_| ())
+    pub fn try_set(&mut self, item: impl Into<T>) -> anyhow::Result<()> {
+        self.try_send(item.into())
+            .ok()
+            .with_context(|| format!("could not try_set input of {}", std::any::type_name::<T>()))
     }
 
     /// Attempt to acquire a stream of updates to this input.
@@ -200,26 +240,28 @@ impl<T> Default for Output<T> {
     }
 }
 
-impl<T: Clone> Output<T> {
-    /// Attempt to send an event through the output syncronously.
-    ///
-    /// This can be used by views to send events downstream.
-    pub fn try_send(&self, item: impl Into<T>) -> Result<(), ()> {
-        let item = item.into();
-        let tx = self.chan.sender();
-        tx.inner.try_broadcast(item).map(|_| ()).map_err(|_| ())
+impl<T: Clone + Send + Sync> Sink<T> for Output<T> {
+    fn send(
+        &self,
+        item: T,
+    ) -> std::pin::Pin<Box<dyn futures_lite::Future<Output = Result<(), SendError>> + Send + '_>>
+    {
+        let sender = self.chan.sender();
+        Box::pin(async move { sender.send(item).await })
     }
 
+    fn try_send(&self, item: T) -> Result<(), TrySendError> {
+        let sender = self.chan.sender();
+        sender.try_send(item)
+    }
+}
+
+impl<T: Clone + Send + Sync> Output<T> {
     /// Returns a sink used to send events through the output.
     ///
     /// This can be used by views to send events downstream.
-    pub fn sink(&self) -> impl Sink<T, Error = SinkError> {
+    pub fn sink(&self) -> impl Sink<T> {
         self.chan.sender()
-    }
-
-    pub async fn send(&self, item: T) -> Result<(), SinkError> {
-        let mut tx = self.chan.sender();
-        tx.send(item).await
     }
 
     /// Return the next event occurrence.

@@ -104,7 +104,7 @@ mod nonwasm {
 
         futures::executor::block_on(async {
             println!("using channels");
-            let (tx, mut rx) = broadcast::bounded::<Dom>(1);
+            let (tx, mut rx) = broadcast::bounded::<Dom>(1.try_into().unwrap());
 
             let builder = html! {
                 <div><button capture:view = tx>"Click"</button></div>
@@ -148,7 +148,7 @@ mod nonwasm {
     #[test]
     fn capture_view() {
         futures::executor::block_on(async move {
-            let (tx, mut rx) = broadcast::bounded::<SsrDom>(1);
+            let (tx, mut rx) = broadcast::bounded::<SsrDom>(1.try_into().unwrap());
             let view = SsrDom::try_from(html! {
                 <div>
                     <pre
@@ -194,7 +194,7 @@ mod nonwasm {
 
     #[test]
     fn append_works() {
-        let (tx, rx) = broadcast::bounded::<()>(1);
+        let (tx, rx) = broadcast::bounded::<()>(1.try_into().unwrap());
         let _ = rsx! {
             div( window:load=tx.contra_map(|_:DomEvent| ()) ) {
                 {("", rx.map(|()| "Loaded!".to_string()))}
@@ -234,7 +234,7 @@ mod nonwasm {
 
     #[test]
     fn post_build_manual() {
-        let (tx, _rx) = broadcast::bounded::<()>(1);
+        let (tx, _rx) = broadcast::bounded::<()>(1.try_into().unwrap());
 
         let _div = ViewBuilder::element("div")
             .with_single_attrib_stream("id", "hello")
@@ -248,7 +248,7 @@ mod nonwasm {
     #[test]
     fn post_build_rsx() {
         futures::executor::block_on(async {
-            let (tx, mut rx) = broadcast::bounded::<()>(1);
+            let (tx, mut rx) = broadcast::bounded::<()>(1.try_into().unwrap());
 
             let _div = SsrDom::try_from(rsx! {
                 div(id="hello", post:build=move |_: &mut SsrDom| {
@@ -265,7 +265,7 @@ mod nonwasm {
     #[test]
     fn can_construct_text_builder_from_tuple() {
         futures::executor::block_on(async {
-            let (_tx, rx) = broadcast::bounded::<String>(1);
+            let (_tx, rx) = broadcast::bounded::<String>(1.try_into().unwrap());
             let _div = SsrDom::try_from(html! {
                 <div>{("initial", rx)}</div>
             })
@@ -315,9 +315,9 @@ mod nonwasm {
     #[test]
     pub fn can_alter_ssr_views() {
         futures::executor::block_on(async {
-            let (tx_text, rx_text) = broadcast::bounded::<String>(1);
-            let (tx_style, rx_style) = broadcast::bounded::<String>(1);
-            let (tx_class, rx_class) = broadcast::bounded::<String>(1);
+            let (tx_text, rx_text) = broadcast::bounded::<String>(1.try_into().unwrap());
+            let (tx_style, rx_style) = broadcast::bounded::<String>(1.try_into().unwrap());
+            let (tx_class, rx_class) = broadcast::bounded::<String>(1.try_into().unwrap());
 
             let view = SsrDom ::try_from(html! {
                 <div style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
@@ -383,8 +383,8 @@ mod nonwasm {
     fn test_use_tx_in_logic_loop() {
         futures::executor::block_on(async {
             let executor = Arc::new(Executor::default());
-            let (tx, mut rx) = broadcast::bounded::<()>(1);
-            let (tx_end, mut rx_end) = broadcast::bounded::<()>(1);
+            let (tx, mut rx) = broadcast::bounded::<()>(1.try_into().unwrap());
+            let (tx_end, mut rx_end) = broadcast::bounded::<()>(1.try_into().unwrap());
             let tx_logic = tx.clone();
             executor
                 .spawn(async move {
@@ -422,7 +422,7 @@ mod nonwasm {
     fn patch_children_rsx_md() {
         futures::executor::block_on(async {
             // ANCHOR: patch_children_rsx
-            let (mut tx, rx) = mpsc::bounded(1);
+            let (tx, rx) = mpsc::bounded(1);
             let my_view = SsrDom::try_from(html! {
                 <div id="main" patch:children=rx>"Waiting for a patch message..."</div>
             })

@@ -3,7 +3,6 @@
 //! Events in Mogwai are registered and sent down a stream to be
 //! consumed by logic loops. When an event stream
 //! is dropped, its resources are cleaned up automatically.
-use futures::{Sink, SinkExt, Stream, StreamExt};
 use send_wrapper::SendWrapper;
 use std::{
     pin::Pin,
@@ -11,8 +10,7 @@ use std::{
     task::Waker,
 };
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
-use mogwai::channel::SinkError;
-
+use mogwai::{stream::{Stream, StreamExt}, sink::{Sink, SendError}};
 use crate::prelude::{FutureTask, JsDom};
 
 /// A wrapper for [`web_sys::Event`].
@@ -182,7 +180,7 @@ pub(crate) fn add_event(
     name: &str,
     ev_name: &str,
     target: &web_sys::EventTarget,
-    mut tx: Pin<Box<dyn Sink<JsDomEvent, Error = SinkError> + Send + 'static>>,
+    tx: Pin<Box<dyn Sink<JsDomEvent> + Send + Sync + 'static>>,
 ) -> FutureTask<()> {
     let mut stream = event_stream(ev_name, target);
     let name = name.to_string();
@@ -194,8 +192,8 @@ pub(crate) fn add_event(
                 match stream.next().await {
                     Some(event) => match tx.send(event).await {
                         Ok(()) => {}
-                        Err(SinkError::Full) => panic!("{} {} event sink is full", name, ev_name),
-                        Err(SinkError::Closed) => break,
+                        Err(SendError::Full) => panic!("{} {} event sink is full", name, ev_name),
+                        Err(SendError::Closed) => break,
                     },
                     None => {
                         log::trace!(

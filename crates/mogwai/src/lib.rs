@@ -42,20 +42,24 @@
 //! | mostly      |           | gui         | work   |               |              |
 //!
 pub mod channel;
-pub mod futures;
+pub mod either;
+pub mod future;
+pub mod sink;
+pub mod stream;
 pub mod model;
 pub mod patch;
 pub mod relay;
 pub mod time;
 pub mod view;
-pub use mogwai_macros::{rsx, html, builder};
+pub use mogwai_macros::{builder, html, rsx};
 
 pub mod prelude {
     //! Re-exports for convenience
-    pub use super::view::*;
-    pub use super::{rsx, html, builder};
-    pub use super::futures::{Stream, StreamExt, Sink, SinkExt, sink::Contravariant, Captured};
+    pub use super::future::Captured;
+    pub use super::sink::{SendError, Sink, SinkExt, TrySendError};
+    pub use super::stream::{Stream, StreamExt};
     pub use super::patch::{HashPatch, HashPatchApply, ListPatch, ListPatchApply};
     pub use super::relay::*;
-    pub use super::channel::SinkError;
+    pub use super::view::*;
+    pub use super::{builder, html, rsx};
 }

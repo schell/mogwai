@@ -12,9 +12,11 @@ use std::{
 
 use anyhow::Context;
 use async_lock::{RwLock, RwLockUpgradableReadGuard};
-use futures::{channel::mpsc, stream::select_all, FutureExt, SinkExt, StreamExt};
+use futures::{stream::select_all, FutureExt};
 use mogwai::{
-    futures::sink::Contravariant,
+    channel::mpsc,
+    sink::SinkExt,
+    stream::StreamExt,
     patch::{HashPatch, HashPatchApply, ListPatch, ListPatchApply},
     view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity},
 };
@@ -559,7 +561,7 @@ impl JsDom {
         &self,
         fut: impl Future<Output = T> + 'static,
     ) -> anyhow::Result<T> {
-        let (mut tx, mut rx) = mpsc::channel(1);
+        let (tx, mut rx) = mpsc::bounded(1);
         wasm_bindgen_futures::spawn_local(async move {
             let t = fut.await;
             let _ = tx.send(t).await.unwrap();

@@ -1,17 +1,20 @@
 //! Wait or sleep or delay future.
-use futures::{Future, FutureExt, Stream, StreamExt};
 #[cfg(target_arch = "wasm32")]
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
 };
 use std::{
+    future::Future,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll, Waker},
 };
+use futures_lite::{Stream, StreamExt, FutureExt};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue, UnwrapThrowExt};
+
+use crate::either::Either;
 
 #[cfg(not(target_arch = "wasm32"))]
 lazy_static::lazy_static! {
@@ -201,15 +204,17 @@ where
 pub async fn wait_one_frame() {
     #[cfg(target_arch = "wasm32")]
     {
-        let (tx, rx) = futures::channel::oneshot::channel::<()>();
+        let (tx, rx) = async_channel::bounded::<()>(1);
         set_immediate(move || {
-            tx.send(()).ok().unwrap();
+            tx.try_send(()).ok().unwrap();
         });
-        rx.await.unwrap();
+        // UNWRAP: safe because we control both sides of the channel and we know
+        // the closure above sends a value.
+        rx.recv().await.unwrap();
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        futures::future::lazy(|_| ()).await;
+        futures_lite::future::yield_now().await;
     }
 }
 
@@ -236,7 +241,7 @@ pub async fn wait_for<'a, T: 'a>(
             return Ok(Found {
                 found: t,
                 elapsed_seconds,
-            })
+            });
         } else {
             wait_one_frame().await;
         }
@@ -254,7 +259,7 @@ pub async fn wait_while<'a>(
 /// Wait until the given async-producing-function returns a value.
 pub async fn wait_for_async<'a, T, A: Future<Output = Option<T>>>(
     timeout_seconds: f64,
-    mut f: impl FnMut() -> A + 'a
+    mut f: impl FnMut() -> A + 'a,
 ) -> Result<Found<T>, f64> {
     let start = now();
 
@@ -269,7 +274,7 @@ pub async fn wait_for_async<'a, T, A: Future<Output = Option<T>>>(
             return Ok(Found {
                 found: t,
                 elapsed_seconds,
-            })
+            });
         } else {
             wait_one_frame().await;
         }
@@ -281,7 +286,7 @@ pub async fn wait_for_async<'a, T, A: Future<Output = Option<T>>>(
 pub async fn repeat_times<'a, A: Future<Output = bool>>(
     timeout_seconds: f64,
     mut n_times: usize,
-    mut f: impl FnMut() -> A + 'a
+    mut f: impl FnMut() -> A + 'a,
 ) -> Result<Found<()>, f64> {
     let start = now();
 
@@ -292,7 +297,7 @@ pub async fn repeat_times<'a, A: Future<Output = bool>>(
             return Ok(Found {
                 found: (),
                 elapsed_seconds: (now() - start) / 1000.0,
-            })
+            });
         } else {
             let _ = wait_secs(timeout_seconds).await;
         }
@@ -307,28 +312,27 @@ pub async fn wait_until_next_for<T>(
 ) -> Result<Found<T>, f64> {
     let start = now();
 
-    let mut stream = futures::StreamExt::fuse(stream);
-    let mut timeout = wait_secs(timeout_seconds).fuse();
-
-    crate::futures::select! {
-        may_t = stream.next() => {
+    let mut stream = stream.fuse().map(Either::Left);
+    let stream_next = stream.next();
+    let timeout = async {
+        let elapsed_millis = wait_secs(timeout_seconds).await;
+        Some(Either::Right(elapsed_millis / 1000.0))
+    };
+    match stream_next.or(timeout).await {
+        Some(Either::Left(found)) => {
             let now = now();
 
             let elapsed_seconds = (now - start) / 1000.0;
 
-            if let Some(t) = may_t {
-                Ok(Found {
-                    found: t,
-                    elapsed_seconds
-                })
-            } else {
-                Err(elapsed_seconds)
-            }
-
+            Ok(Found {
+                found,
+                elapsed_seconds
+            })
         }
-        elapsed_millis = timeout => {
+        Some(Either::Right(elapsed_millis)) => {
             Err(elapsed_millis / 1000.0)
         }
+        _ => Err(0.0)
     }
 }
 

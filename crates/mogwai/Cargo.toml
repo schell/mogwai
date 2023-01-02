@@ -19,9 +19,10 @@ default = []
 [dependencies]
 anyhow = "^1.0"
 async-broadcast = "^0.4"
+async-channel = "1.8.0"
 async-lock = "^2.4"
 console_log = "^0.1"
-futures = "^0.3"
+futures-lite = { version = "1.12.0", default-features = false }
 lazy_static = "^1.4"
 log = "^0.4"
 mogwai-macros = { path = "../mogwai-macros", version = "0.1.0-alpha" }

@@ -1,15 +1,8 @@
 //! Wrapped views.
-use std::{
-    future::Future,
-    pin::Pin,
-    sync::{
-        Arc,
-    },
-};
+use std::{future::Future, pin::Pin, sync::Arc};
 
 use anyhow::Context;
 use async_executor::Executor;
-use futures::{stream, stream::SelectAll, SinkExt, StreamExt};
 use mogwai::{
     patch::{ListPatch, ListPatchApply},
     view::{exhaust, AnyView, Listener, Update, View, ViewBuilder, ViewIdentity},
@@ -25,8 +18,7 @@ mod ssr;
 pub use serde_json::Value;
 pub use ssr::SsrDom;
 
-pub use futures::future::Either;
-pub use mogwai::futures::EitherExt;
+pub use mogwai::{either::Either, sink::Sink, stream::StreamExt};
 use wasm_bindgen::JsCast;
 
 pub(crate) struct FutureTask<T> {
@@ -53,15 +45,9 @@ pub(crate) fn build<V: View, R>(
         view_sinks,
     } = builder;
 
-    let updates = stream::select_all(updates);
+    let updates = futures::stream::select_all(updates);
     let (update_stream, initial_values) = exhaust(updates);
-    let element: V = initialize_build(
-        &rez,
-        init,
-        update_view,
-        identity,
-        initial_values,
-    )?;
+    let element: V = initialize_build(&rez, init, update_view, identity, initial_values)?;
     finalize_build(
         element,
         mk_name,
@@ -95,7 +81,7 @@ pub(crate) fn initialize_build<V: View, R>(
 pub(crate) fn finalize_build<V: View>(
     element: V,
     mk_name: fn(&V) -> String,
-    mut update_stream: SelectAll<MogwaiStream<Update>>,
+    mut update_stream: futures::stream::SelectAll<MogwaiStream<Update>>,
     post_build_ops: Vec<PostBuild>,
     listeners: Vec<Listener>,
     tasks: Vec<MogwaiFuture<()>>,
@@ -137,7 +123,7 @@ pub(crate) fn finalize_build<V: View>(
     to_spawn.push(FutureTask {
         name: format!("{}_viewsink", mk_name(&node)),
         fut: Box::pin(async move {
-            for mut sink in view_sinks.into_iter() {
+            for sink in view_sinks.into_iter() {
                 let any_view = AnyView::new(node.clone());
                 println!("sinking {} as {:?}", mk_name(&node), any_view);
                 let _ = sink.send(any_view).await;
@@ -170,20 +156,15 @@ impl Dom {
     ) -> anyhow::Result<Self> {
         Ok(match rez {
             Either::Left(()) => Dom::from(js::init(&(), identity)?),
-            Either::Right(executor) => {
-                Dom::from(ssr::init(executor, identity)?)
-            }
+            Either::Right(executor) => Dom::from(ssr::init(executor, identity)?),
         })
     }
 
     fn name(&self) -> String {
-        self.as_either_ref().map_either(JsDom::name, SsrDom::name)
+        self.as_either_ref().either(JsDom::name, SsrDom::name)
     }
 
-    fn add_event(
-        dom: &Self,
-        listener: Listener,
-    ) -> anyhow::Result<FutureTask<()>> {
+    fn add_event(dom: &Self, listener: Listener) -> anyhow::Result<FutureTask<()>> {
         match &dom.0 {
             Either::Left(js) => js::add_event(js, listener),
             Either::Right(ssr) => ssr::add_event(ssr, listener),

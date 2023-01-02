@@ -4,10 +4,8 @@ use std::{collections::HashMap, ops::DerefMut, sync::Arc};
 use anyhow::Context;
 use async_broadcast::{broadcast, Receiver, Sender};
 use async_lock::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard};
-use futures::Stream;
 
-use crate::patch::{HashPatch, ListPatch};
-
+use crate::{stream::Stream, patch::{HashPatch, ListPatch}};
 pub use crate::patch::{HashPatchApply, ListPatchApply};
 
 /// Wraps a value `T` and provides a stream of the latest value.
@@ -324,13 +322,12 @@ impl<K: Clone + std::hash::Hash + Eq, V: Clone> HashPatchApply for HashPatchMode
 #[cfg(test)]
 mod test {
     use super::*;
-    use futures::StreamExt;
 
     #[test]
     fn model_sanity() {
         let model = Model::new("hello".to_string());
         let stream = model.stream();
-        futures::executor::block_on(async move {
+        futures_lite::future::block_on(async move {
             model.visit_mut(|t| *t = "hi".to_string()).await;
             model.visit_mut(|t| *t = "goodbye".to_string()).await;
             drop(model);
@@ -346,7 +343,7 @@ mod test {
     fn list_patch_model_sanity() {
         let mut model: ListPatchModel<String> = ListPatchModel::new();
         let stream = model.stream();
-        futures::executor::block_on(async move {
+        futures_lite::future::block_on(async move {
             model.list_patch_push("hello".to_string());
             model.list_patch_push("hi".to_string());
             model.list_patch_push("goodbye".to_string());
@@ -368,7 +365,7 @@ mod test {
     fn hash_patch_model_sanity() {
         let mut model: HashPatchModel<String, usize> = HashPatchModel::new();
         let stream = model.stream();
-        futures::executor::block_on(async move {
+        futures_lite::future::block_on(async move {
             model.hash_patch_insert("zero".to_string(), 0);
             model.hash_patch_insert("two".to_string(), 2);
             model.hash_patch_insert("one".to_string(), 1);

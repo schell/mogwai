@@ -1,7 +1,7 @@
 //! Types and extention traits for [`Sink`]s.
 //!
 //! Re-exports some of the futures crate, along with extensions and helper types.
-use std::{future::Future, marker::PhantomData, pin::Pin};
+use std::{future::Future, marker::PhantomData, pin::Pin, fmt::Display};
 
 #[derive(Debug, Clone, Copy)]
 pub enum TrySendError {
@@ -13,6 +13,18 @@ pub enum TrySendError {
     Busy,
 }
 
+impl Display for TrySendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            TrySendError::Closed => "sender is closed",
+            TrySendError::Full => "sender is full",
+            TrySendError::Busy => "sender is busy",
+        })
+    }
+}
+
+impl std::error::Error for TrySendError {}
+
 #[derive(Debug, Clone, Copy)]
 pub enum SendError {
     // The sink is closed
@@ -20,6 +32,17 @@ pub enum SendError {
     // The sink is full
     Full,
 }
+
+impl Display for SendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            SendError::Closed => "sender is closed",
+            SendError::Full => "sender is full",
+        })
+    }
+}
+
+impl std::error::Error for SendError {}
 
 pub trait Sink<Item> {
     fn send(
@@ -66,7 +89,20 @@ pub trait SinkExt<Item>: Sink<Item> {
     }
 }
 
-impl<Item, T: Sink<Item>> SinkExt<Item> for T {}
+impl<S: ?Sized + Sink<Item>, Item> Sink<Item> for Box<S> {
+    fn send(
+        &self,
+        item: Item,
+    ) -> Pin<Box<dyn Future<Output = Result<(), SendError>> + Send + '_>> {
+        (**self).send(item)
+    }
+
+    fn try_send(&self, item: Item) -> Result<(), TrySendError> {
+        (**self).try_send(item)
+    }
+}
+
+impl<Item, T: Sink<Item> + ?Sized> SinkExt<Item> for T {}
 
 /// Type for supporting contravariant mapped sinks.
 pub struct ContraMap<S, X, Y, F>
@@ -139,42 +175,6 @@ where
 }
 
 /// Contravariant functor extensions for types that implement [`Sink`].
-pub trait Contravariant<T>: Sink<T> + Sized {
-    /// Extend this sink using a map function.
-    ///
-    /// This composes the map function _in front of the sink_, much like [`SinkExt::with`]
-    /// but without async and without the option of failure.
-    fn contra_map<S, F>(self, f: F) -> ContraMap<Self, S, T, F>
-    where
-        F: Fn(S) -> T,
-    {
-        ContraMap {
-            map: f,
-            sink: self,
-            _x: PhantomData,
-            _y: PhantomData,
-        }
-    }
-
-    /// Extend this sink using a filtering map function.
-    ///
-    /// This composes the map function _in front of the sink_, much like [`SinkExt::with_flat_map`]
-    /// but without async and without the option of failure.
-    fn contra_filter_map<S, F>(self, f: F) -> ContraFilterMap<Self, S, T, F>
-    where
-        F: Fn(S) -> Option<T>,
-    {
-        ContraFilterMap {
-            map: f,
-            sink: self,
-            _x: PhantomData,
-            _y: PhantomData,
-        }
-    }
-}
-
-impl<S: Sized, T> Contravariant<T> for S where S: Sink<T> {}
-
 #[cfg(all(not(target_arch = "wasm32"), test))]
 mod test {
 

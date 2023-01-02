@@ -164,7 +164,7 @@ fn allow_attributes_on_next_line() {
 
 #[test]
 fn rsx_cookbook() {
-    let (_tx, rx) = broadcast::bounded::<String>(1);
+    let (_tx, rx) = broadcast::bounded::<String>(1.try_into().unwrap());
     let _ = signed_in_view_builder(
         &User {
             username: "oona".to_string(),

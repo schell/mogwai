@@ -1,5 +1,6 @@
 //! Domain agnostic view doclaration.
 use std::{
+    future::Future,
     any::Any,
     pin::Pin,
     sync::Arc,
@@ -7,13 +8,12 @@ use std::{
 };
 
 use crate::{
-    channel::SinkError,
+    sink::{Sink, SinkExt},
+    stream::{Stream, StreamExt},
     patch::{HashPatch, ListPatch},
-    prelude::Contravariant,
 };
 use anyhow::Context;
 pub use anyhow::Error;
-use futures::{stream, Future, Sink, Stream, StreamExt};
 
 /// A struct with a no-op implementation of Waker
 pub struct DummyWaker;
@@ -177,7 +177,7 @@ where
     let waker = unsafe { Waker::from_raw(raw_waker) };
     let mut cx = std::task::Context::from_waker(&waker);
     let mut items = vec![];
-    while let std::task::Poll::Ready(Some(t)) = stream.poll_next_unpin(&mut cx) {
+    while let std::task::Poll::Ready(Some(t)) = stream.poll_next(&mut cx) {
         items.push(t);
     }
     (*Pin::into_inner(stream), items)
@@ -185,7 +185,7 @@ where
 
 /// Try to get an available `T` from the given stream by polling it.
 ///
-/// This proxies to [`futures::stream::StreamExt::poll_next_unpin`].
+/// This proxies to [`futures_lite::stream::StreamExt::poll_next_unpin`].
 pub fn try_next<T, V: View, St: Stream<Item = T> + Unpin>(
     stream: &mut St,
 ) -> std::task::Poll<Option<T>> {
@@ -193,33 +193,42 @@ pub fn try_next<T, V: View, St: Stream<Item = T> + Unpin>(
     let waker = unsafe { Waker::from_raw(raw_waker) };
     let mut cx = std::task::Context::from_waker(&waker);
 
-    stream.poll_next_unpin(&mut cx)
+    stream.poll_next(&mut cx)
 }
 
 #[cfg(test)]
 mod exhaust {
+    use std::pin::Pin;
+
     use crate::view::exhaust;
-    use futures::StreamExt;
+    use futures_lite::{StreamExt, Stream};
 
     #[test]
     fn exhaust_items() {
-        let stream = Box::pin(
-            futures::stream::iter(vec![0, 1, 2])
-                .chain(futures::stream::once(async { 3 }))
-                .chain(futures::stream::once(async { 4 }))
-                .chain(futures::stream::once(async {
+        let stream: Pin<Box<dyn Stream<Item = usize> + Send + Sync>> = Box::pin(
+            futures_lite::stream::iter(vec![0, 1, 2])
+                .chain(futures_lite::stream::once(3))
+                .chain(futures_lite::stream::once(4))
+                .chain(futures_lite::stream::unfold(Some(()), |mut seed| async move {
+                    seed.take()?;
                     let _ = crate::time::wait_millis(2).await;
-                    5
-                })),
+                    Some((5, None))
+                }))
+                .chain(futures_lite::stream::once(6))
+                .chain(futures_lite::stream::once(7))
+                .chain(futures_lite::stream::once(8)),
         );
 
-        let (stream, items) = exhaust(stream);
+        let (stream, items): (_, Vec<usize>) = exhaust(stream);
         assert_eq!(items, vec![0, 1, 2, 3, 4]);
 
-        futures::executor::block_on(async move {
-            let n = stream.ready_chunks(100).next().await.unwrap();
-            assert_eq!(n, vec![5]);
+        futures_lite::future::block_on(async move {
+            let n = stream.next().await.unwrap();
+            assert_eq!(5, n);
         });
+
+        let (stream, items): (_, Vec<usize>) = exhaust(stream);
+        assert_eq!(items, vec![6, 7, 8]);
     }
 }
 
@@ -292,10 +301,10 @@ impl<S: 'static, St: Stream<Item = S> + 'static> From<MogwaiValue<S, St>>
 {
     fn from(v: MogwaiValue<S, St>) -> Self {
         match v {
-            MogwaiValue::Owned(s) => Box::pin(futures::stream::iter(std::iter::once(s))),
+            MogwaiValue::Owned(s) => Box::pin(futures_lite::stream::iter(std::iter::once(s))),
             MogwaiValue::Stream(s) => Box::pin(s),
             MogwaiValue::OwnedAndStream(s, st) => {
-                Box::pin(futures::stream::iter(std::iter::once(s)).chain(st))
+                Box::pin(futures_lite::stream::iter(std::iter::once(s)).chain(st))
             }
         }
     }
@@ -306,10 +315,10 @@ impl<S: Send + 'static, St: Stream<Item = S> + Send + 'static> From<MogwaiValue<
 {
     fn from(v: MogwaiValue<S, St>) -> Self {
         match v {
-            MogwaiValue::Owned(s) => Box::pin(futures::stream::iter(std::iter::once(s))),
+            MogwaiValue::Owned(s) => Box::pin(futures_lite::stream::iter(std::iter::once(s))),
             MogwaiValue::Stream(s) => Box::pin(s),
             MogwaiValue::OwnedAndStream(s, st) => {
-                Box::pin(futures::stream::iter(std::iter::once(s)).chain(st))
+                Box::pin(futures_lite::stream::iter(std::iter::once(s)).chain(st))
             }
         }
     }
@@ -325,7 +334,7 @@ pub enum ViewIdentity {
 
 pub type MogwaiFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 pub type MogwaiStream<T> = Pin<Box<dyn Stream<Item = T> + Send + 'static>>;
-pub type MogwaiSink<T> = Box<dyn Sink<T, Error = SinkError> + Send + Sync + Unpin + 'static>;
+pub type MogwaiSink<T> = Box<dyn Sink<T> + Send + Sync + Unpin + 'static>;
 pub type PostBuild = Box<dyn FnOnce(&mut AnyView) -> anyhow::Result<()> + Send + Sync + 'static>;
 
 /// All the updates that a view can undergo.
@@ -541,7 +550,7 @@ impl ViewBuilder {
                     )))
                 })
                 .collect::<Vec<_>>();
-            stream::iter(kvs)
+            futures_lite::stream::iter(kvs)
         });
         self.updates.push(Box::pin(st));
         self
@@ -578,7 +587,7 @@ impl ViewBuilder {
             AppendArg::Single(bldr) => vec![bldr],
             AppendArg::Iter(bldrs) => bldrs,
         };
-        let stream = Box::pin(futures::stream::iter(
+        let stream = Box::pin(futures_lite::stream::iter(
             bldrs.into_iter().map(|b| ListPatch::push(b)),
         ));
         self.with_child_stream(stream)
@@ -608,7 +617,7 @@ impl ViewBuilder {
     /// Panics if the `AnyView` cannot be downcast back into `V`.
     pub fn with_capture_view<V: View>(
         mut self,
-        sink: impl Sink<V, Error = SinkError> + Unpin + Send + Sync + 'static,
+        sink: impl Sink<V> + Unpin + Send + Sync + 'static,
     ) -> Self {
         let sink: MogwaiSink<AnyView> =
             Box::new(sink.contra_map(|any_view: AnyView| any_view.downcast::<V>().unwrap()));
@@ -640,7 +649,7 @@ impl ViewBuilder {
     /// ```rust, ignore, no_run
     /// let st = rx.map(|n:usize| format!("{}", n));
     /// let f = JsDom::try_to(web_sys::HtmlInputElement::set_value);
-    /// let captured = crate::futures::Captured::default();
+    /// let captured = crate::futures_lite::Captured::default();
     /// let builder = ViewBuilder::default()
     ///     .with_capture_view(captured.sink())
     ///     .with_task(async move {
@@ -657,7 +666,7 @@ impl ViewBuilder {
             impl Fn(&V, T) + Send + 'static,
         ),
     ) -> Self {
-        let captured = crate::futures::Captured::<V>::default();
+        let captured = crate::future::Captured::<V>::default();
         self.with_capture_view(captured.sink())
             .with_task(async move {
                 let view = captured.get().await;
@@ -676,7 +685,7 @@ impl ViewBuilder {
         mut self,
         name: impl Into<String>,
         target: impl Into<String>,
-        si: impl Sink<Event, Error = SinkError> + Send + Sync + Unpin + 'static,
+        si: impl Sink<Event> + Send + Sync + Unpin + 'static,
     ) -> Self {
         let sink = Box::new(si.contra_map(|any: AnyEvent| {
             let event: Event = any.downcast::<Event>().unwrap();
@@ -713,19 +722,19 @@ where
 
 impl From<&String> for ViewBuilder {
     fn from(s: &String) -> Self {
-        ViewBuilder::text(stream::iter(std::iter::once(s.clone())))
+        ViewBuilder::text(futures_lite::stream::iter(std::iter::once(s.clone())))
     }
 }
 
 impl From<String> for ViewBuilder {
     fn from(s: String) -> Self {
-        ViewBuilder::text(stream::iter(std::iter::once(s)))
+        ViewBuilder::text(futures_lite::stream::iter(std::iter::once(s)))
     }
 }
 
 impl From<&str> for ViewBuilder {
     fn from(s: &str) -> Self {
-        ViewBuilder::text(stream::iter(std::iter::once(s.to_string())))
+        ViewBuilder::text(futures_lite::stream::iter(std::iter::once(s.to_string())))
     }
 }
 
@@ -735,7 +744,7 @@ where
     St: Stream<Item = String> + Send + Sync + 'static,
 {
     fn from((s, st): (S, St)) -> Self {
-        let iter = stream::iter(std::iter::once(s.as_ref().to_string())).chain(st);
+        let iter = futures_lite::stream::iter(std::iter::once(s.as_ref().to_string())).chain(st);
         ViewBuilder::text(iter)
     }
 }
