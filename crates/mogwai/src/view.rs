@@ -200,8 +200,7 @@ pub fn try_next<T, V: View, St: Stream<Item = T> + Unpin>(
 mod exhaust {
     use std::pin::Pin;
 
-    use crate::view::exhaust;
-    use futures_lite::{StreamExt, Stream};
+    use crate::{stream::{Stream, StreamExt}, view::exhaust};
 
     #[test]
     fn exhaust_items() {
@@ -219,15 +218,15 @@ mod exhaust {
                 .chain(futures_lite::stream::once(8)),
         );
 
-        let (stream, items): (_, Vec<usize>) = exhaust(stream);
+        let (mut stream, items): (_, Vec<usize>) = exhaust(stream);
         assert_eq!(items, vec![0, 1, 2, 3, 4]);
 
-        futures_lite::future::block_on(async move {
+        futures_lite::future::block_on(async {
             let n = stream.next().await.unwrap();
             assert_eq!(5, n);
         });
 
-        let (stream, items): (_, Vec<usize>) = exhaust(stream);
+        let (_stream, items): (_, Vec<usize>) = exhaust(stream);
         assert_eq!(items, vec![6, 7, 8]);
     }
 }

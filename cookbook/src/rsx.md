@@ -80,9 +80,9 @@ for more details about types that can be turned into streams.
   [Contravariant][traitcontravariant] in this position to map the type of the `Sender`.
   ```rust
   use mogwai_dom::prelude::*;
-  use mogwai_dom::core::channel::broadcast;
+  use mogwai_dom::core::channel::{broadcast, ONE};
 
-  let (tx, _rx) = broadcast::bounded::<()>(1);
+  let (tx, _rx) = broadcast::bounded::<()>(ONE);
   let _ = html! {
       <div on:click=tx.contra_map(|_:DomEvent| ())>"Click me!"</div>
   };
@@ -93,10 +93,10 @@ for more details about types that can be turned into streams.
   Declares that the windows's matching events should be sent on the given sender.
   ```rust
   use mogwai_dom::prelude::*;
-  use mogwai_dom::core::channel::broadcast;
+  use mogwai_dom::core::channel::{broadcast, ONE};
 
   # use mogwai_dom::prelude::*;
-  let (tx, rx) = broadcast::bounded::<()>(1);
+  let (tx, rx) = broadcast::bounded::<()>(ONE);
   let _ = html! {
       <div window:load=tx.contra_map(|_:DomEvent| ())>{("", rx.map(|()| "Loaded!".to_string()))}</div>
   };
@@ -107,9 +107,9 @@ for more details about types that can be turned into streams.
   Declares that the document's matching events should be sent on the given transmitter.
   ```rust,no_run
   use mogwai_dom::prelude::*;
-  use mogwai_dom::core::channel::broadcast;
+  use mogwai_dom::core::channel::{broadcast, ONE};
 
-  let (tx, rx) = broadcast::bounded::<String>(1);
+  let (tx, rx) = broadcast::bounded::<String>(ONE);
   let _ = html! {
       <div document:keyup=tx.contra_map(|ev: DomEvent| format!("{:#?}", ev))>{("waiting for first event", rx)}</div>
   };

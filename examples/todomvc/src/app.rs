@@ -1,7 +1,6 @@
 use std::sync::{atomic::AtomicUsize, Arc};
 
-use futures::{future, stream};
-use mogwai_dom::{core::model::ListPatchModel, prelude::*};
+use mogwai_dom::{core::{stream, model::ListPatchModel}, prelude::*};
 use wasm_bindgen::JsCast;
 use web_sys::HashChangeEvent;
 
@@ -72,7 +71,7 @@ impl Items {
     fn stream_should_show_todo_list(&self) -> impl Stream<Item = bool> {
         stream::iter(std::iter::once(false)).chain(self.inner.stream().scan(vec![], |vs, patch| {
             vs.list_patch_apply(patch.map(|_| ()));
-            future::ready(Some(vs.len() > 0))
+            Some(vs.len() > 0)
         }))
     }
 

@@ -29,24 +29,26 @@
 //!     type Error = anyhow::Error;
 //!
 //!     fn try_from(mut cd: ClickyDiv) -> anyhow::Result<ViewBuilder> {
-//!         Ok(rsx! {
-//!             div(on:click = cd.click.sink().contra_map(|_: AnyEvent| ())) {
-//!                 {("Hi", cd.text.stream().ok_or_else(|| anyhow::anyhow!("already used text stream"))?)}
-//!             }
-//!         }.with_task(async move {
-//!             let mut clicks = 0;
-//!             while let Some(()) = cd.click.get().await {
-//!                 clicks += 1;
-//!                 cd.text
-//!                     .set(if clicks == 1 {
-//!                         "1 click.".to_string()
-//!                     } else {
-//!                         format!("{} clicks.", clicks)
-//!                     })
-//!                     .await
-//!                     .unwrap()
-//!             }
-//!         }))
+//!         Ok(ViewBuilder::element("div")
+//!             .with_event("click", "myself", cd.click.sink().contra_map(|_: AnyEvent| ()))
+//!             .append(
+//!                 ("Hi", cd.text.stream().ok_or_else(|| anyhow::anyhow!("already used text stream"))?)
+//!             )
+//!             .with_task(async move {
+//!                 let mut clicks = 0;
+//!                 while let Some(()) = cd.click.get().await {
+//!                     clicks += 1;
+//!                     cd.text
+//!                         .set(if clicks == 1 {
+//!                             "1 click.".to_string()
+//!                         } else {
+//!                             format!("{} clicks.", clicks)
+//!                         })
+//!                         .await
+//!                         .unwrap()
+//!                 }
+//!             })
+//!         )
 //!     }
 //! }
 //!

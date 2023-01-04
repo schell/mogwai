@@ -146,7 +146,7 @@
 //! use mogwai_dom::core::channel::broadcast;
 //!
 //! futures::executor::block_on(async {
-//!     let (mut tx, rx) = broadcast::bounded(1);
+//!     let (mut tx, rx) = broadcast::bounded(1.try_into().unwrap());
 //!
 //!     let my_view = SsrDom::try_from(rsx!{
 //!         div(class="my-div") {
@@ -168,7 +168,7 @@
 //! use::mogwai_dom::prelude::*;
 //! use::mogwai_dom::core::channel::broadcast;
 //!
-//! let (tx, rx) = broadcast::bounded(1);
+//! let (tx, rx) = broadcast::bounded(1.try_into().unwrap());
 //!
 //! let my_view = Dom::try_from(rsx!{
 //!     div(class="my-div") {
@@ -195,7 +195,7 @@
 //! use mogwai_dom::core::channel::broadcast;
 //!
 //! futures::executor::block_on(async {
-//!     let (mut tx, rx) = broadcast::bounded(1);
+//!     let (mut tx, rx) = broadcast::bounded(1.try_into().unwrap());
 //!
 //!     let my_view = Dom::try_from(rsx!{
 //!         div(class="my-div") {

@@ -1,5 +1,4 @@
 use log::Level;
-use mogwai_dom::core::future::stream;
 use mogwai_dom::prelude::*;
 use std::panic;
 use wasm_bindgen::prelude::*;
@@ -30,7 +29,7 @@ fn counter(recv_parent_msg: impl Stream<Item = CounterMsg> + Send + 'static) -> 
         }
     )
     .with_task(async move {
-        let mut msg = stream::select_all(vec![click_stream.boxed(), recv_parent_msg.boxed()]);
+        let mut msg = click_stream.boxed().or(recv_parent_msg.boxed());
         let mut clicks: u32 = 0;
         loop {
             match msg.next().await {

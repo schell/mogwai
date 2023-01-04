@@ -1,4 +1,10 @@
 //! Async mpmc and broadcast channels, plus extensions.
+use std::num::NonZeroUsize;
+
+/// A NonZeroUsize of one.
+///
+/// Use this for convenience when creating bounded channels that take a `NonZeroUsize`.
+pub const ONE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(1) };
 
 pub mod mpsc {
     //! A multi-producer, single consumer queue.
@@ -180,15 +186,13 @@ pub mod broadcast {
 
     #[cfg(all(test, not(target_arch = "wasm32")))]
     mod test {
-        use std::num::NonZeroUsize;
-
         use super::*;
-        use crate::sink::StreamExt;
+        use crate::stream::StreamExt;
 
         #[test]
         fn can_sink_stream() {
             futures_lite::future::block_on(async {
-                let (mut tx, mut rx) = bounded::<String>(1.try_into().unwrap());
+                let (tx, mut rx) = bounded::<String>(1.try_into().unwrap());
                 tx.send("hello".into()).await.unwrap();
                 let _ = rx.next().await.unwrap();
             })
@@ -199,7 +203,7 @@ pub mod broadcast {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use super::*;
-    use crate::{stream::StreamExt, sink::SinkExt};
+    use crate::stream::StreamExt;
 
     #[test]
     fn channel_sinks_and_streams() {

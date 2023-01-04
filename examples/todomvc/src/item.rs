@@ -1,5 +1,7 @@
-use futures::stream;
-use mogwai_dom::{core::model::Model, prelude::*};
+use mogwai_dom::{
+    core::{model::Model, stream},
+    prelude::*,
+};
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlInputElement, KeyboardEvent};
 
@@ -63,7 +65,12 @@ pub struct TodoItem {
 }
 
 impl TodoItem {
-    pub fn new(id: usize, name: impl Into<String>, complete: bool, output_to_list: Output<TodoItemMsg>) -> Self {
+    pub fn new(
+        id: usize,
+        name: impl Into<String>,
+        complete: bool,
+        output_to_list: Output<TodoItemMsg>,
+    ) -> Self {
         let input_to_item = FanInput::default();
         TodoItem {
             name: Model::new(name.into()),
@@ -90,13 +97,11 @@ impl TodoItem {
 
     fn stream_of_is_visible_display(&self) -> impl Stream<Item = String> {
         stream::iter(std::iter::once("block".to_string())).chain(
-            self.input_to_item.stream().filter_map(|msg| {
-                futures::future::ready(match msg {
-                    ListItemMsg::SetVisible(is_visible) => {
-                        Some(if is_visible { "block" } else { "none" }.to_string())
-                    }
-                    _ => None,
-                })
+            self.input_to_item.stream().filter_map(|msg| match msg {
+                ListItemMsg::SetVisible(is_visible) => {
+                    Some(if is_visible { "block" } else { "none" }.to_string())
+                }
+                _ => None,
             }),
         )
     }
@@ -133,7 +138,7 @@ impl TodoItem {
         let edit_input = captured_edit_input.get().await;
         let on_keyup = output_edit_onkeyup.get_stream().map(Either::Left);
         let on_blur = output_edit_onblur.get_stream().map(Either::Right);
-        let mut events = stream::select_all(vec![on_keyup.boxed(), on_blur.boxed()]);
+        let mut events = on_keyup.boxed().or(on_blur.boxed());
         while let Some(e) = events.next().await {
             log::info!("stop editing event");
             let may_edit_event = match e {
@@ -197,13 +202,12 @@ impl TodoItem {
         let done = *self.complete.read().await;
         toggle_input_element.visit_as(|el: &HtmlInputElement| el.set_checked(done));
 
-        let mut events = stream::select_all(vec![
-            self.input_to_item.stream().map(Either::Left).boxed(),
+        let mut events = self.input_to_item.stream().map(Either::Left).boxed().or(
             output_complete_toggle_clicked
                 .get_stream()
                 .map(Either::Right)
                 .boxed(),
-        ]);
+        );
         while let Some(ev) = events.next().await {
             match ev {
                 Either::Left(ListItemMsg::SetComplete(done)) => {
@@ -249,10 +253,11 @@ impl TodoItem {
             li(
                 class = (
                     ItemClass::is_done(self.complete.current().expect("could not read complete")).to_string(),
-                    stream::select_all(vec![
-                        input_item_class.stream().unwrap().map(ItemClass::to_string).boxed(),
-                        self.complete.stream().map(|done| ItemClass::is_done(done).to_string()).boxed()
-                    ])
+                    input_item_class.stream().unwrap()
+                        .map(ItemClass::to_string).boxed()
+                        .or(
+                            self.complete.stream().map(|done| ItemClass::is_done(done).to_string()).boxed()
+                        )
                 ),
                 style:display = self.stream_of_is_visible_display()
             ) {

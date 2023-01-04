@@ -469,7 +469,7 @@ mod wasm {
     use crate as mogwai_dom;
     use crate::{
         core::{
-            channel::{broadcast, mpsc},
+            channel::{broadcast, ONE, mpsc},
             time::*,
         },
         prelude::*,
@@ -551,7 +551,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn can_use_rsx_to_make_builder() {
-        let (tx, _) = broadcast::bounded::<AnyEvent>(1);
+        let (tx, _) = broadcast::bounded::<AnyEvent>(ONE);
 
         let rsx = html! {
             <div id="view_zero" style:background_color="red">
@@ -691,7 +691,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn rx_attribute_jsx() {
-        let (tx, rx) = broadcast::bounded::<String>(1);
+        let (tx, rx) = broadcast::bounded::<String>(ONE);
         let div: JsDom = html! {
             <div class=("now", rx) />
         }
@@ -708,7 +708,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn rx_style_jsx() {
-        let (tx, rx) = broadcast::bounded::<String>(1);
+        let (tx, rx) = broadcast::bounded::<String>(ONE);
         let div: JsDom = html! { <div style:display=("block", rx) /> }
             .try_into()
             .unwrap();
@@ -726,7 +726,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn capture_view_and_contra_map() {
-        let (tx, mut rx) = broadcast::bounded::<()>(1);
+        let (tx, mut rx) = broadcast::bounded::<()>(ONE);
         let _div: JsDom = html! {
             <div id="hello" capture:view=tx.contra_map(|_: JsDom| ())>
                 "Hello there"
@@ -740,7 +740,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     pub async fn rx_text() {
-        let (tx, rx) = broadcast::bounded::<String>(1);
+        let (tx, rx) = broadcast::bounded::<String>(ONE);
 
         let div: JsDom = html! {
             <div>{("initial", rx)}</div>
@@ -759,18 +759,17 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn tx_on_click() {
-        let (tx, rx) = broadcast::bounded(1);
+        let (tx, rx) = broadcast::bounded(ONE);
 
         log::info!("test!");
         let rx = rx.scan(0, |n: &mut i32, _: JsDomEvent| {
             log::info!("event!");
             *n += 1;
-            let r = Some(if *n == 1 {
+            Some(if *n == 1 {
                 "Clicked 1 time".to_string()
             } else {
                 format!("Clicked {} times", *n)
-            });
-            futures::future::ready(r)
+            })
         });
 
         let button: JsDom = html! {
@@ -797,7 +796,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn can_patch_children() {
-        let (mut tx, rx) = mpsc::bounded::<ListPatch<ViewBuilder>>(1);
+        let (tx, rx) = mpsc::bounded::<ListPatch<ViewBuilder>>(1);
         let view: JsDom = html! {
             <ol id="main" patch:children=rx>
                 <li>"Zero"</li>
@@ -905,7 +904,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn can_patch_children_into() {
-        let (mut tx, rx) = mpsc::bounded::<ListPatch<String>>(1);
+        let (tx, rx) = mpsc::bounded::<ListPatch<String>>(1);
         let view: JsDom = html! {
             <p id="main" patch:children=rx.map(|p| p.map(|s| ViewBuilder::text(s)))>
                 "Zero ""One"
@@ -995,8 +994,8 @@ mod wasm {
         );
         log::info!("built");
 
-        let (mut tx_class, rx_class) = mpsc::bounded::<String>(1);
-        let (mut tx_text, rx_text) = mpsc::bounded::<String>(1);
+        let (tx_class, rx_class) = mpsc::bounded::<String>(1);
+        let (tx_text, rx_text) = mpsc::bounded::<String>(1);
         let builder = html! {
             <div id="my_div">
                 <p class=rx_class>{("", rx_text)}</p>
@@ -1032,8 +1031,8 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn can_capture_for_each() {
-        let (mut tx, rx) = mpsc::bounded(1);
-        let (mut tx_done, mut rx_done) = mpsc::bounded(1);
+        let (tx, rx) = mpsc::bounded(1);
+        let (tx_done, mut rx_done) = mpsc::bounded(1);
         let dom = JsDom::try_from(rsx! {
             input(
                 type = "text",

@@ -21,7 +21,7 @@ pub use crate::patch::{HashPatchApply, ListPatchApply};
 /// use mogwai::prelude::*;
 /// use mogwai::model::Model;
 ///
-/// futures::executor::block_on(async {
+/// mogwai::future::block_on(async {
 ///     let model_a = Model::new("hello".to_string());
 ///     let updates = model_a.stream();
 ///     model_a.visit_mut(|t| *t = "hi".to_string()).await;
@@ -248,7 +248,7 @@ impl<T: Clone> ListPatchApply for ListPatchModel<T> {
 /// ```rust
 /// use mogwai::prelude::*;
 /// use mogwai::model::HashPatchModel;
-/// futures::executor::block_on(async {
+/// mogwai::future::block_on(async {
 ///     let mut model: HashPatchModel<String, usize> = HashPatchModel::new();
 ///     model.hash_patch_insert("hello".to_string(), 666);
 ///     assert_eq!(model.read().await.get("hello"), Some(&666));
@@ -322,6 +322,7 @@ impl<K: Clone + std::hash::Hash + Eq, V: Clone> HashPatchApply for HashPatchMode
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::stream::StreamExt;
 
     #[test]
     fn model_sanity() {

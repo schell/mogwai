@@ -177,17 +177,18 @@ where
 /// Contravariant functor extensions for types that implement [`Sink`].
 #[cfg(all(not(target_arch = "wasm32"), test))]
 mod test {
+    use crate::sink::{Sink, SinkExt};
 
     #[test]
     fn can_contra_map() {
-        futures::executor::block_on(async {
-            let (tx, mut rx) = crate::channel::broadcast::bounded::<String>(1);
+        futures_lite::future::block_on(async {
+            let (tx, mut rx) = crate::channel::broadcast::bounded::<String>(1.try_into().unwrap());
 
             // sanity
             tx.broadcast("blah".to_string()).await.unwrap();
             let _ = rx.recv().await.unwrap();
 
-            let mut tx = tx.clone().contra_map(|n: u32| format!("{}", n));
+            let tx = tx.contra_map(|n: u32| format!("{}", n));
             tx.send(42).await.unwrap();
             let s = rx.recv().await.unwrap();
             assert_eq!(s.as_str(), "42");
