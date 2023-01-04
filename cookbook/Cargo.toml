@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 doc-comment = "^0.3"
 futures = "^0.3"
-mogwai-dom = { path = "../crates/mogwai-dom", version = "^0.1.1-alpha" }
+mogwai-dom = { path = "../crates/mogwai-dom", version = "^0.1.0-alpha.1" }
 
 [dependencies.web-sys]
 version = "^0.3"
