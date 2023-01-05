@@ -1,6 +1,7 @@
-name: "on pull request"
+name: "test"
 
-on: pull_request
+on:
+  push
 
 jobs:
   test-and-build-mogwai:
