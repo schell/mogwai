@@ -1,34 +1,30 @@
 # Components
-The [Component][structcomponent] struct is used to compose logic and views together
-into a user inteface. A `Component` without logic can be created from a
-[ViewBuilder][structviewbuilder]:
+A "component", "widget", "gizmo" in `mogwai` is a view and zero or more async tasks that modify
+that view. To create a view we use a [ViewBuilder][structviewbuilder]:
+
+Components may have asynchronous tasks appended to them. When the view is built its tasks will
+be spawned until they are complete, or when the view implementation decides to drop and cancel
+them.
+
+A view talks to its task loops using [sinks][traitsinkext] and [streams][traitstreamext].
+This is the mode of `mogwai`.
+
+Here is an example of a click counter:
 
 ```rust, ignore
-{{#include ../../examples/nested-components/src/lib.rs:19:23}}
+{{#include ../../examples/nested-components/src/lib.rs:cookbook_components_counter}}
 ```
 
-More complicated `Component`s have asynchronous logic appended to them. The view
-talks to the logic loop using one or more channels. This is the mode of Mogwai.
-
-Here we create a channel to send messages to the view from our logic loop:
+We can nest the counter component in another component:
 
 ```rust, ignore
-{{#include ../../examples/nested-components/src/lib.rs:28:38}}
+{{#include ../../examples/nested-components/src/lib.rs:cookbook_components_app}}
 ```
 
-Then we can build the component, turning it into a [View][structview] and simultaneously
-spawning its logic:
+And then build it all into one view:
 
 ```rust, ignore
-{{#include ../../examples/nested-components/src/lib.rs:39:41}}
+{{#include ../../examples/nested-components/src/lib.rs:cookbook_components_app_build}}
 ```
-
-### But wait, there's more!
-
-For simple components with only two way communication between logic and view, there is
-[ElmComponent][structelmcomponent] and an accompanying [IsElmComponent][traitiselmcomponent] trait.
-
-Additionally, all components can be converted into `ViewBuilder`s to be used in patches. For more, read
-[ViewBuilder][structviewbuilder]'s `From` instances.
 
 {{#include reflinks.md}}

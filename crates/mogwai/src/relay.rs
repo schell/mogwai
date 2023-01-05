@@ -11,7 +11,7 @@
 //! to and from a view. Instead of having to know the intricacies
 //! of a number of different channels and their operating behavior,
 //! the library user creates a struct that defines inputs and outputs
-//! and uses those to construct a [`ViewBuilder`](crate::builder::ViewBuilder).
+//! and uses those to construct a [`ViewBuilder`](crate::view::ViewBuilder).
 //! Updates to the view are then made by interacting with the relay struct
 //! asyncronously from within a logic loop.
 //!
@@ -149,7 +149,7 @@ impl<T: Send> Input<T> {
     /// If you need more than one consumer for this stream, use [`FanInput`] instead.
     ///
     /// It is suggested you use `input.stream().unwrap()` (or similar) when constructing
-    /// a [`ViewBuilder`](crate::builder::ViewBuilder) from an `Input` so that
+    /// a [`ViewBuilder`](crate::view::ViewBuilder) from an `Input` so that
     /// the program fails if this function is called more than once on the same input.
     pub fn stream(&mut self) -> Option<impl Stream<Item = T>> {
         let mut lock = self.rx.lock().unwrap();

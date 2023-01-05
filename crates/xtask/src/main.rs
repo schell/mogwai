@@ -1,7 +1,7 @@
 //! Tasks related to configuring, building and testing mogwai.
 //!
 //! Run `cargo xtask help` for more info.
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
@@ -29,12 +29,17 @@ struct Cli {
 enum Artifact {
     /// One or all of the examples
     Example {
-        /// The name of the example to comple. If ommitted, all examples will be compiled
+        /// The name of the example to comple. If ommitted, all examples will be
+        /// compiled
         name: Option<String>,
     },
 
     /// The cookbook
-    Cookbook,
+    Cookbook {
+        /// Skip building the examples.
+        #[clap(long)]
+        skip_examples: bool,
+    },
 }
 
 impl Artifact {
@@ -59,8 +64,12 @@ impl Artifact {
             let example_path = entry.path();
             let example_name = example_path
                 .file_name()
-                .context("could not get example name")?;
-            if example_name == "multipage" {
+                .context("could not get example name")?
+                .to_str()
+                .context("could not make str")?;
+            if [".DS_Store", "multipage", "sandbox", "focus-follower", "svg"]
+                .contains(&example_name)
+            {
                 continue;
             }
             if let Some(name) = name.as_ref() {
@@ -127,7 +136,8 @@ impl Artifact {
             .context("could not build cookbook")?;
 
         duct::cmd!(
-            "mv",
+            "cp",
+            "-R",
             &root.join("book_examples"),
             "cookbook/book/html/examples"
         )
@@ -140,21 +150,16 @@ impl Artifact {
     fn build(self) -> anyhow::Result<()> {
         match self {
             Artifact::Example { name } => Self::build_example(name),
-            Artifact::Cookbook => {
-                Self::build_example(None)?;
+            Artifact::Cookbook { skip_examples } => {
+                if !skip_examples {
+                    Self::build_example(None)?;
+                } else {
+                    tracing::info!("skipping building examples");
+                }
                 Self::build_cookbook()
             }
         }
     }
-}
-
-#[derive(Subcommand)]
-enum Command {
-    /// Build an artifact
-    #[clap(subcommand)]
-    Build(Artifact),
-    ///// Test everything
-    //Test(Test),
 }
 
 fn get_root_prefix() -> anyhow::Result<String> {
@@ -192,16 +197,17 @@ fn install_deps() -> anyhow::Result<()> {
     anyhow::ensure!(have_program("rustup")?, "missing rustup");
     duct::cmd!("rustup", "toolchain", "install", RUSTUP_TOOLCHAIN)
         .run()
-        .context("could not install 1.56")?;
+        .context("could not install toolchain")?;
     duct::cmd!("rustup", "default", RUSTUP_TOOLCHAIN)
         .run()
-        .context("could not default to 1.56")?;
+        .context("could not default toolchain")?;
 
     let cargo_deps = vec![
         "wasm-pack",
         "mdbook",
         "mdbook-linkcheck",
         "mdbook-variables",
+        "cargo-generate",
     ];
     for dep in cargo_deps.iter() {
         if !have_program(dep)? {
@@ -213,6 +219,89 @@ fn install_deps() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[derive(Parser)]
+struct Test {
+    #[clap(long)]
+    skip_cargo_test: bool,
+    #[clap(long)]
+    skip_cargo_doc: bool,
+    #[clap(long)]
+    skip_wasm_pack_mogwai_dom_test: bool,
+    #[clap(long)]
+    skip_mogwai_template: bool,
+}
+
+impl Test {
+    fn run(self) -> anyhow::Result<()> {
+        if !self.skip_cargo_test {
+            tracing::info!("running cargo tests");
+            duct::cmd!("cargo", "test").run()?;
+        }
+        if !self.skip_cargo_doc {
+            tracing::info!("running cargo doc");
+            duct::cmd!("cargo", "doc").run()?;
+        }
+        if !self.skip_wasm_pack_mogwai_dom_test {
+            tracing::info!("testing mogwai-dom in wasm");
+            duct::cmd!(
+                "wasm-pack",
+                "test",
+                "--firefox",
+                "--headless",
+                "crates/mogwai-dom"
+            )
+            .run()?;
+        }
+
+        if !self.skip_mogwai_template {
+            tracing::info!("testing mogwai-template");
+            if Path::new("gentest").exists() {
+                tracing::warn!(
+                    "gentest (mogwai-template test dir) already exists, will remove first"
+                );
+                std::fs::remove_dir_all(Path::new("gentest"))?;
+            }
+
+            duct::cmd!(
+                "cargo",
+                "generate",
+                "--git",
+                "https://github.com/schell/mogwai-template.git",
+                "-n",
+                "gentest",
+                "-d",
+                "authors=test"
+            )
+            .run()?;
+            anyhow::ensure!(Path::new("gentest").exists(), "gentest does not exist");
+
+            tracing::info!("building gentest");
+            duct::cmd!(
+                "wasm-pack",
+                "build",
+                "--target",
+                "web"
+            )
+            .dir("gentest")
+            .run()?;
+
+            tracing::info!("cleaning up gentest (mogwai-template test dir)");
+            std::fs::remove_dir_all(Path::new("gentest"))?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Build an artifact
+    #[clap(subcommand)]
+    Build(Artifact),
+    /// Test everything
+    Test(Test),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -236,6 +325,7 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Command::Build(artifact) => artifact.build()?,
+        Command::Test(test) => test.run()?,
     }
 
     Ok(())

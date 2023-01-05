@@ -2,9 +2,18 @@
 First you'll need a new(ish) version of the rust toolchain. For that you can visit
 https://rustup.rs/ and follow the installation instructions.
 
-Then you'll need [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/).
+## Browser apps
 
-The easiest way to get hacking is to use the wonderful `cargo-generate`, which
+In most cases this cookbook assumes you'll be using [`mogwai-dom`][mogwai_dom] to build browser
+applications.
+
+For that you'll need [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) or
+[trunk](https://trunkrs.dev/).
+
+If you haven't set up a WASM project before it is recommended you read up on [Rust and
+WebAssembly](https://rustwasm.github.io/docs/book/).
+
+If you just want to quickly get hacking you may use the wonderful `cargo-generate`, which
 can be installed using `cargo install cargo-generate`.
 
 Then run
@@ -21,3 +30,5 @@ favorite alternative to serve your app:
 ```shell
 basic-http-server -a 127.0.0.1:8888
 ```
+
+{{#include reflinks.md}}

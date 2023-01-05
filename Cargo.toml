@@ -17,6 +17,10 @@ members = [
   "crates/xtask",
 ]
 
+exclude = [
+  "gentest"
+]
+
 resolver = "2"
 
 

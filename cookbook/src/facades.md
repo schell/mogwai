@@ -1,65 +1,67 @@
-# 🏢 Facades
+# 🏢 Facades and Relays 📞
 
 Components talk within themselves from the view to the logic and vice versa, but there
 are often stakeholders outside the component that would like to make queries, inject state,
 or otherwise communicate with the internals of the component.
 
-Because of this, a common pattern emerges where a helper struct type will contain a `Sender<LogicMsg>`
-(where `LogicMsg` is the component's logic message type) and the helper struct will provide an async
-API to its owner.
+Because of this it is often convenient to provide a wrapper around view inputs and outputs
+that have a nice API that breaks down requests from outside the component into its internal
+messages. These wrappers can be called facades, or relays and they might be a bit familiar
+if you've worked with MVC frameworks - but don't worry if you haven't! Mogwai is not a
+framework or a philosophy and "whatever works is good".
+
+## Inputs and Outputs instead of channels
+
+To be a successful programmer of message passing systems, you have to know details about
+the channels you're using to pass messages. You should know how much capacity they have
+and what happens when you send messages above its capacity, if they clone, how they clone
+as well as any other idiosyncracies of the channel. It can be quite a lot to wrangle!
+
+To make this easier mogwai provides some channel wrappers in the [relay][modulerelay] module. These
+wrappers provide a simplified API that makes working with a view's inputs and outputs easier.
+
+* [Input][structinput] - an input to a view that has at most one consumer.
+* [FanInput][structfaninput] - an input to a view that may have many consumers.
+* [Output][structoutput] - an output from a view.
+
+## Access to the raw view
+
+You can access built, raw views by using [Captured][structcaptured]. Read more about this in
+[Capturing parts of the view](view_capture.md).
+
+## Model, ListPatchModel and HashPatchModel
+
+You can share data between multiple components and react to streams of updates using the types in
+the [model][modulemodel] module.
+
+* [Model][structmodel] - wraps a shared `T` and provides a stream of the latest value to observers.
+* [ListPatchModel][structlistpatchmodel] - wraps a vector of `T` and provides a stream of
+  [ListPatch][enumlistpatch] to observers.
+* [HashPatchModel][structhashpatchmodel] - wraps a hashmap of `K` keys and `V` values, providing a stream of
+  [HashPatch][enumhashpatch] to observers.
+
+## Helper struct
+
+With these tools we can create a helper struct that can create our [`ViewBuilder`][structviewbuilder] and
+then be used to control it through the API of our choosing, hiding the input/output implementation details.
+
+A detailed example of this the
+[`TodoItem`](https://github.com/schell/mogwai/blob/master/examples/todomvc/src/item.rs) from the todomvc
+example project:
 
 ```rust, ignore
-{{#include ../../examples/todomvc/src/app/item.rs:todo_struct}}
+{{#include ../../examples/todomvc/src/item.rs}}
 ```
 
-Above you can see a helper struct that contains a private field `tx_logic`. Below you'll see how
-the `tx_logic` channel is used to send a query with a response `Sender` to the component that it's
-helping.
+And here is the implementation, including the public API we will expose:
 
 ```rust, ignore
-{{#include ../../examples/todomvc/src/app/item.rs:use_tx_logic}}
+{{#include ../../examples/todomvc/src/item.rs:cookbook_facades_todoitem_impl}}
 ```
 
-This is called a "facade" - an age old pattern from the MVC days. Under the hood the facade
-object sends messages to the logic loop that may contain a query and a response channel.
-It awaits a response from the logic loop and then relays the message back as the result
-of its own async function.
+Notice above in `TodoItem::viewbuilder` that we have many more captured views, inputs and outputs than we
+keep in `TodoItem`. This is because they are only needed for specific async tasks and are never accessed
+from outside the `TodoItem`. These could have been included in `TodoItem` without harm and the choice of how to
+structure your application is up to you.
 
-```rust, ignore
-{{#include ../../examples/todomvc/src/app/item.rs:facade_logic_loop}}
-```
-
-Whoever owns the facade has a way to communicate directly with the logic loop, without having
-to expose the entire logic message type to the public. It's also possible to share data between
-the logic loop and a facade with the use of various reference counters, locks and mutexes.
-
-## Not just for logic loops
-Facades are not just for logic loops. We can also use them for our views as a
-layer that hides the use of channels to communicate with the DOM. In fact, the `struct_view` macro is a nifty tool available in `mogwai >= 0.6` that can be used to generate a view facade for you:
-
-```rust, no_run
-# use mogwai::prelude::*;
-
-struct_view! {
-    <MyView>
-        <div
-         on:click = get_click >
-             {set_text}
-        </div>
-    </MyView>
-}
-```
-
-This generates a struct `MyView<T: Eventable>` with a number of methods for interacting with
-the view:
-
-- `pub async fn get_click(&self) -> T::Event`
-- `pub fn get_click_stream(&self) -> impl Stream<Item = T::Event>`
-
-- `pub async fn set_text(&self)`
-- `pub fn set_text_with_stream(&self, stream: impl Stream<Item = String>)`
-
-- `pub fn new() -> (MyView<T>, ViewBuilder<T>)`
-- `pub async fn get_inner(&self) -> T`
-
-The generated `MyView<T>` is `Clone`. It can be used inside a logic loop to send updates to the DOM.
+{{#include reflinks.md}}

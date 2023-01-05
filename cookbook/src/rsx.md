@@ -77,7 +77,7 @@ for more details about types that can be turned into streams.
 
   Declares that the events of a certain type (`event`) occurring on the element should
   be sent on the given sender. You will often see the use of
-  [Contravariant][traitcontravariant] in this position to map the type of the `Sender`.
+  [SinkExt::contra_map][traitsinkext] in this position to "prefix map" the type of the `Sender`.
   ```rust
   use mogwai_dom::prelude::*;
   use mogwai_dom::core::channel::{broadcast, ONE};
@@ -133,9 +133,9 @@ for more details about types that can be turned into streams.
   channels to send patches, because a broadcast channel requires its messages to be `Clone`. Instead use
   `mogwai::channel::mpsc::{Sender, Receiver}` channels, which have no such requirement. Just remember that even though
   the `Receiver` can be cloned, if a `mpsc::Sender` has more than one `mpsc::Receiver`
-  listening, only one will receive the message and the winning `Receiver` seems to alternate in round-robin style.
+  listening, only one will receive the message and the winning `Receiver` alternates in round-robin style.
   ```rust, ignore
-  {{#include ../../mogwai-dom/lib.rs:patch_children_rsx}}
+  {{#include ../../crates/mogwai-dom/src/lib.rs:patch_children_rsx}}
   ```
 
 - **post:build** = `FnOnce(&mut T)`
@@ -160,7 +160,7 @@ for more details about types that can be turned into streams.
 
 ## Expressions
 Rust expressions can be used as the values of attributes and as child nodes.
-```rust, no_run
+```rust
 # use mogwai_dom::prelude::*;
 let is_cool = true;
 let _ = html! {
@@ -186,7 +186,7 @@ an empty node is created.
 Below we display a user's image if they have one:
 
 ```rust, ignore, no_run
-{{#include ../../crates/mogwai-macros/tests/integration_test.rs:113:162}}
+{{#include ../../crates/mogwai-dom/tests/integration.rs:rsx_conditional_dom}}
 ```
 
 ## Including fragments

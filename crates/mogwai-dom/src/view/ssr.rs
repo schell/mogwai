@@ -333,7 +333,7 @@ impl SsrDom {
         Ok(())
     }
 
-    /// Fires an event downstream to any listening [`Stream`][mogwai_core::futures::Stream]s.
+    /// Fires an event downstream to any listening [`Stream`](crate::core::stream::Stream)s.
     ///
     /// Fails if no such event exists or if sending to the sink encounters an error.
     pub async fn fire_event(

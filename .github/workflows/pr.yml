@@ -21,8 +21,11 @@ jobs:
           ${{ runner.os }}-cargo-all-refs/heads/master
           ${{ runner.os }}-cargo-all-
 
+    - name: bootstrap
+      run: scripts/bootstrap.sh
+
     - name: test
-      run: scripts/test.sh
+      run: cargo xtask -vv test
 
     - name: build
-      run: scripts/build.sh
+      run: cargo xtask -vv build cookbook

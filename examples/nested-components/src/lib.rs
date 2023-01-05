@@ -15,6 +15,7 @@ enum CounterMsg {
     Reset,
 }
 
+// ANCHOR: cookbook_components_counter
 fn counter(recv_parent_msg: impl Stream<Item = CounterMsg> + Send + 'static) -> ViewBuilder {
     let clicked = Output::<CounterMsg>::default();
     let mut num_clicks = Input::<u32>::default();
@@ -46,7 +47,9 @@ fn counter(recv_parent_msg: impl Stream<Item = CounterMsg> + Send + 'static) -> 
         }
     })
 }
+// ANCHOR_END: cookbook_components_counter
 
+// ANCHOR: cookbook_components_app
 fn app() -> ViewBuilder {
     let reset_clicked = Output::<CounterMsg>::default();
 
@@ -61,13 +64,16 @@ fn app() -> ViewBuilder {
         }
     }
 }
+// ANCHOR_END: cookbook_components_app
 
 #[wasm_bindgen]
 pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
+    // ANCHOR: cookbook_components_app_build
     let view = JsDom::try_from(app()).unwrap();
+    // ANCHOR_END: cookbook_components_app_build
 
     if let Some(id) = parent_id {
         let parent = mogwai_dom::utils::document()

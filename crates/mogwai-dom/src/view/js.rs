@@ -15,9 +15,9 @@ use async_lock::{RwLock, RwLockUpgradableReadGuard};
 use futures::{stream::select_all, FutureExt};
 use mogwai::{
     channel::mpsc,
+    patch::{HashPatch, HashPatchApply, ListPatch, ListPatchApply},
     sink::SinkExt,
     stream::StreamExt,
-    patch::{HashPatch, HashPatchApply, ListPatch, ListPatchApply},
     view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity},
 };
 use send_wrapper::SendWrapper;
@@ -80,7 +80,8 @@ impl<T: Send + 'static> JsTask<T> {
         Ok(())
     }
 
-    /// Detaches the task, running it in Javascript without the ability to be canceled.
+    /// Detaches the task, running it in Javascript without the ability to be
+    /// canceled.
     pub fn detach(mut self) {
         self.tx_cancel_task = None;
     }
@@ -361,13 +362,14 @@ impl JsDom {
         JsDom::from(val)
     }
 
-    /// Given a setter function on a `JsCast` type, return another setter function
-    /// that takes `Self` and sets a value on it, if possible.
+    /// Given a setter function on a `JsCast` type, return another setter
+    /// function that takes `Self` and sets a value on it, if possible.
     ///
-    /// If `Self` cannot be used as the given `JsCast` type, the returned setter function
-    /// will log an error.
+    /// If `Self` cannot be used as the given `JsCast` type, the returned setter
+    /// function will log an error.
     ///
-    /// This is useful in conjunction with the `capture:for_each` [`rsx`] macro attribute.
+    /// This is useful in conjunction with the `capture:for_each`
+    /// [`rsx`](crate::rsx) macro attribute.
     /// See [`ViewBuilder::with_capture_for_each`] for more details.
     pub fn try_to<E: JsCast, S: ?Sized, T: AsRef<S>>(
         f: impl Fn(&E, &S) + Send + 'static,
@@ -451,7 +453,8 @@ impl JsDom {
         self.inner.dyn_ref::<T>().cloned()
     }
 
-    /// Visits the inner node with a function, if the node can be cast correctly.
+    /// Visits the inner node with a function, if the node can be cast
+    /// correctly.
     pub fn visit_as<T: JsCast, A>(&self, f: impl FnOnce(&T) -> A) -> Option<A> {
         let el: &T = self.inner.dyn_ref::<T>()?;
         Some(f(el))
@@ -644,7 +647,14 @@ impl TryFrom<ViewBuilder> for JsDom {
     type Error = anyhow::Error;
 
     fn try_from(builder: ViewBuilder) -> Result<Self, Self::Error> {
-        let (js, to_spawn) = super::build((), builder, |js| js.name.to_string(), init, update_js_dom, add_event)?;
+        let (js, to_spawn) = super::build(
+            (),
+            builder,
+            |js| js.name.to_string(),
+            init,
+            update_js_dom,
+            add_event,
+        )?;
         for future_task in to_spawn.into_iter() {
             log::trace!("spawning js task '{}'", future_task.name);
             let mut ts = js.tasks.try_write().unwrap();
@@ -682,7 +692,11 @@ impl HydrationKey {
             });
         }
 
-        anyhow::bail!("Missing any hydration option for node '{}' - must be the child of a node or have an id", tag)
+        anyhow::bail!(
+            "Missing any hydration option for node '{}' - must be the child of a node or have an \
+             id",
+            tag
+        )
     }
 
     pub fn hydrate(self) -> anyhow::Result<JsDom> {
@@ -761,7 +775,8 @@ impl HydrationKey {
 
 /// Used to "hydrate" a `JsDom` from a ViewBuilder and pre-built DOM.
 ///
-/// We use this when creating `JsDom` from DOM that was pre-rendered server-side.
+/// We use this when creating `JsDom` from DOM that was pre-rendered
+/// server-side.
 pub struct Hydrator {
     inner: JsDom,
 }

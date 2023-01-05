@@ -1,3 +1,5 @@
+//! Provides a todo line-item that can be edited by double clicking,
+//! marked as complete or removed.
 use mogwai_dom::{
     core::{model::Model, stream},
     prelude::*,
@@ -50,7 +52,7 @@ pub enum TodoItemMsg {
 /// Messages that come from the list into the todo item via
 /// pub async functions exposed on [`TodoItem`].
 #[derive(Clone, PartialEq)]
-pub enum ListItemMsg {
+enum ListItemMsg {
     SetComplete(bool),
     SetVisible(bool),
 }

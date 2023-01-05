@@ -73,8 +73,8 @@ pub trait SinkExt<Item>: Sink<Item> {
 
     /// Extend this sink using a filtering map function.
     ///
-    /// This composes the map function _in front of the sink_, much like [`SinkExt::with_flat_map`]
-    /// but without async and without the option of failure.
+    /// This composes the filter map function _in front of the sink_, consuming a sink that takes
+    /// `S` and returning a sink that takes `Item`.
     fn contra_filter_map<S, F>(self, f: F) -> ContraFilterMap<Self, S, Item, F>
     where
         Self: Sized,

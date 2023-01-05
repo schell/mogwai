@@ -185,7 +185,7 @@ where
 
 /// Try to get an available `T` from the given stream by polling it.
 ///
-/// This proxies to [`futures_lite::stream::StreamExt::poll_next_unpin`].
+/// This proxies to [`futures_lite::stream::StreamExt::poll_next`].
 pub fn try_next<T, V: View, St: Stream<Item = T> + Unpin>(
     stream: &mut St,
 ) -> std::task::Poll<Option<T>> {
@@ -627,7 +627,7 @@ impl ViewBuilder {
     /// Capture the view and update it using the given update function for each value
     /// that comes from the given stream.
     ///
-    /// The only parameter is a tuple to support being used from the [`rsx`] macro's
+    /// The only parameter is a tuple to support being used from the [`rsx`](crate::rsx) macro's
     /// `capture:for_each` attribute, since the right hand side of such attributes must be
     /// a singular Rust expression:
     /// ```rust, ignore

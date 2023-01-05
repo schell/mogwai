@@ -237,6 +237,7 @@ pub fn function_style_rsx() {
         settings_class: impl Stream<Item = String> + Send + 'static,
         profile_class: impl Stream<Item = String> + Send + 'static,
     ) -> ViewBuilder {
+        // ANCHOR: rsx_conditional_dom
         let o_image: Option<ViewBuilder> = user
             .o_image
             .as_ref()
@@ -276,6 +277,7 @@ pub fn function_style_rsx() {
                 }
             }
         }
+        // ANCHOR_END: rsx_conditional_dom
     }
 }
 
