@@ -171,10 +171,14 @@ fn get_root_prefix() -> anyhow::Result<String> {
         .to_string())
 }
 
-fn have_program(bin: &str) -> anyhow::Result<bool> {
-    let have_it = duct::cmd!("hash", bin).run()
-    .context(format!("could not determine if '{}' is available", bin))?;
-    Ok(have_it.status.success())
+fn have_program(bin: &str) -> bool {
+    let have_it = duct::cmd!("hash", bin).run().is_ok();
+    if have_it {
+        tracing::debug!("have {}", bin);
+    } else {
+        tracing::error!("missing {}", bin);
+    }
+    have_it
 }
 
 fn ensure_paths() -> anyhow::Result<()> {
@@ -199,7 +203,7 @@ fn install_deps() -> anyhow::Result<()> {
         "cargo-generate",
     ];
     for dep in cargo_deps.iter() {
-        if !have_program(dep)? {
+        if !have_program(dep) {
             tracing::info!("installing {}", dep);
             duct::cmd!("cargo", "install", dep)
                 .run()
