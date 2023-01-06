@@ -1,6 +1,6 @@
 [package]
 name = "mogwai"
-version = "0.6.0-alpha.1"
+version = "0.6.0"
 edition = "2021"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 license = "MIT"
@@ -25,7 +25,7 @@ console_log = "^0.1"
 futures-lite = { version = "1.12.0", default-features = false }
 lazy_static = "^1.4"
 log = "^0.4"
-mogwai-macros = { path = "../mogwai-macros", version = "0.1.0-alpha" }
+mogwai-macros = { path = "../mogwai-macros", version = "0.1.0" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "^0.2"

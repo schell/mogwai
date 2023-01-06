@@ -6,8 +6,8 @@ src = "src"
 title = "Cooking with Mogwai"
 
 [preprocessor.variables.variables]
-mogwai_docs_version = "0.6.0-alpha.1"
-mogwai_dom_docs_version = "0.1.0-alpha.1"
+mogwai_docs_version = "0.6.0"
+mogwai_dom_docs_version = "0.1.0"
 cookbookroot = ""
 
 [output.html]

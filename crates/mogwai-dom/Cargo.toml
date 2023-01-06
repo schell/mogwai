@@ -1,6 +1,6 @@
 [package]
 name = "mogwai-dom"
-version = "0.1.0-alpha.1"
+version = "0.1.0"
 edition = "2021"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 license = "MIT"
@@ -21,8 +21,8 @@ async-executor = "1.5.0"
 async-lock = "2.6.0"
 futures = "^0.3"
 log = "^0.4"
-mogwai = { version = "0.6.0-alpha.1", path = "../mogwai" }
-mogwai-macros = { version = "0.1.0-alpha", path = "../mogwai-macros", features = ["dom"] }
+mogwai = { version = "0.6.0", path = "../mogwai" }
+mogwai-macros = { version = "0.1.0", path = "../mogwai-macros", features = ["dom"] }
 send_wrapper = "^0.6"
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
