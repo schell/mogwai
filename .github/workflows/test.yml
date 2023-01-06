@@ -6,6 +6,9 @@ on:
 jobs:
   test-and-build-mogwai:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     steps:
     - uses: actions/checkout@v1
 
