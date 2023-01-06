@@ -8,8 +8,6 @@ use clap::{Parser, Subcommand};
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
-const RUSTUP_TOOLCHAIN: &'static str = "nightly";
-
 #[derive(Parser)]
 #[clap(author, version, about, subcommand_required = true)]
 struct Cli {
@@ -194,14 +192,6 @@ fn ensure_paths() -> anyhow::Result<()> {
 }
 
 fn install_deps() -> anyhow::Result<()> {
-    anyhow::ensure!(have_program("rustup")?, "missing rustup");
-    duct::cmd!("rustup", "toolchain", "install", RUSTUP_TOOLCHAIN)
-        .run()
-        .context("could not install toolchain")?;
-    duct::cmd!("rustup", "default", RUSTUP_TOOLCHAIN)
-        .run()
-        .context("could not default toolchain")?;
-
     let cargo_deps = vec![
         "wasm-pack",
         "mdbook",
