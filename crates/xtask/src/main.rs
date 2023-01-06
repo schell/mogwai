@@ -136,7 +136,7 @@ struct Cookbook {
     /// Skip building the examples.
     #[clap(long)]
     skip_examples: bool,
-    /// Set the root path of the cookbook
+    /// Set the root path of the cookbook, eg "/guides/mogwai-cookbook"
     #[clap(long)]
     root_path: Option<PathBuf>,
 }
@@ -342,11 +342,15 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::Build(artifact) => artifact.build()?,
         Command::Test(test) => test.run()?,
-        Command::PushCookbook { s3_path, cookbook } => {
+        Command::PushCookbook { s3_path, mut cookbook } => {
             if !have_program("aws") {
                 anyhow::bail!("missing 'aws' - please install 'aws' cli tool");
             }
 
+            if cookbook.root_path.is_none() {
+                tracing::warn!("root-path is None - setting to '/guides/mogwai-cookbook'");
+                cookbook.root_path = Some(PathBuf::from("/guides/mogwai-cookbook"));
+            }
             cookbook.build()?;
 
             duct::cmd!(
