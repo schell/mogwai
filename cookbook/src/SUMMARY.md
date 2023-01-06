@@ -4,7 +4,6 @@
 - [Starting a new project](new_project.md)
 - [RSX](rsx.md)
 - [Components](component.md)
-  - [Communication between logic and view](logic_view_comms.md)
   - [Capturing parts of the view](view_capture.md)
   - [Facades](facades.md)
   - [Nesting components](nest_component.md)

@@ -1,3 +1,4 @@
+// ANCHOR: cookbook_list_full
 #![allow(unused_braces)]
 use log::Level;
 use mogwai_dom::core::{
@@ -14,12 +15,12 @@ use wasm_bindgen::prelude::*;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-// ANCHOR: item
+// ANCHOR: cookbook_list_item
 /// An id to keep track of item nodes
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ItemId(usize);
 
-/// Creats an individual item.
+/// Creates an individual item.
 ///
 /// Takes the id of the item (which will be unique) and an `Output` to send
 /// "remove item" click events (so the item itself can inform the parent when
@@ -27,6 +28,7 @@ struct ItemId(usize);
 fn item(id: ItemId, remove_item_clicked: Output<ItemId>) -> ViewBuilder {
     let increment_item_clicked = Output::<()>::default();
     let num_clicks = Model::new(0u32);
+    // ANCHOR: cookbook_list_item_view
     rsx! {
         li() {
             button(
@@ -53,6 +55,7 @@ fn item(id: ItemId, remove_item_clicked: Output<ItemId>) -> ViewBuilder {
             }
         }
     }
+    // ANCHOR_END: cookbook_list_item_view
     .with_task(async move {
         while let Some(_) = increment_item_clicked.get().await {
             num_clicks.visit_mut(|n| *n += 1).await;
@@ -60,8 +63,10 @@ fn item(id: ItemId, remove_item_clicked: Output<ItemId>) -> ViewBuilder {
         log::info!("item {} loop is done", id.0);
     })
 }
-// ANCHOR_END: item
+// ANCHOR_END: cookbook_list_item
 
+// ANCHOR: cookbook_list
+// Maps a patch of ItemId into a patch of ViewBuilder
 fn map_item_patch(
     patch: ListPatch<ItemId>,
     remove_item_clicked: Output<ItemId>,
@@ -69,7 +74,6 @@ fn map_item_patch(
     patch.map(|id| item(id, remove_item_clicked.clone()))
 }
 
-// ANCHOR: list
 /// Our list of items.
 ///
 /// Set up our communication from items to this logic loop by
@@ -86,6 +90,7 @@ fn list() -> ViewBuilder {
     let items: ListPatchModel<ItemId> = ListPatchModel::new();
     let items_remove_loop = items.clone();
 
+    // ANCHOR: cookbook_list_view
     rsx! {
         fieldset() {
             legend(){ "A List of Gizmos" }
@@ -105,6 +110,7 @@ fn list() -> ViewBuilder {
             }
         }
     }
+    // ANCHOR_END: cookbook_list_view
     .with_task(async move {
         // add new items
         let mut next_id = 0;
@@ -133,7 +139,7 @@ fn list() -> ViewBuilder {
         log::info!("list 'remove' loop is done - should never happen");
     })
 }
-// ANCHOR_END: list
+// ANCHOR_END: cookbook_list
 
 #[wasm_bindgen]
 pub fn main(parent_id: Option<String>) {
@@ -158,3 +164,4 @@ pub fn main(parent_id: Option<String>) {
 
     log::info!("done!");
 }
+// ANCHOR_END: cookbook_list_full

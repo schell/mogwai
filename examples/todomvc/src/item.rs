@@ -266,7 +266,7 @@ impl TodoItem {
                 div(class="view") {
                     input(
                         class = "toggle",
-                        type = "checkbox",
+                        type_ = "checkbox",
                         style:cursor = "pointer",
                         capture:view = captured_complete_toggle_dom.sink(),
                         on:click = output_complete_toggle_clicked.sink().contra_map(|_:JsDomEvent| ())

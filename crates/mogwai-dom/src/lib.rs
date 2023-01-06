@@ -106,8 +106,10 @@ mod nonwasm {
             println!("using channels");
             let (tx, mut rx) = broadcast::bounded::<Dom>(1.try_into().unwrap());
 
-            let builder = html! {
-                <div><button capture:view = tx>"Click"</button></div>
+            let builder = rsx! {
+                div(){
+                    button(capture:view = tx) { "Click" }
+                }
             };
 
             let div = Dom::try_from(builder).unwrap();

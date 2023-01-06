@@ -1,7 +1,7 @@
 # 🕸️  Capturing parts of the View
 
 Views often contain nodes that are required in the logic loop. When a view node is needed in a
-logic loop we can capture it using a channel.
+logic loop we can capture it using a sink, or better yet, [`Captured`][structcaptured].
 
 ## Using the `capture:view` attribute
 

@@ -1,6 +1,6 @@
 # A List of Components
 A list of components is a common interface pattern. In `mogwai` we can express this using two component
-definitions. In this example we'll use a `List` component and an `Item` component.
+definitions. In this example we'll use a `list` component and an `item` component.
 
 ### Contents
 - [Explanation](#explanation)
@@ -10,57 +10,66 @@ definitions. In this example we'll use a `List` component and an `Item` componen
 
 ## Explanation
 
-The `List` defines its view to include a `button` to create new items and an `ol` to hold each item. Logic messages will be sent into a channel and child items are patched in using the `patch:children` RSX attribute, which we can fill in with anything that implements `Stream<Item = ListPatch<ViewBuilder<JsDom>>`.
+### Views
+The `list` defines its view to include a `button` to create new items and an `ol` to hold them.
+Messages will flow from the view into two async tasks, which will patch the items using the `patch:children`
+RSX attribute (which we can be set to anything that implements `Stream<Item = ListPatch<ViewBuilder<JsDom>>`).
 
 ```rust, ignore
-{{#include ../../examples/list-of-gizmos/src/lib.rs:list_view}}
+{{#include ../../examples/list-of-gizmos/src/lib.rs:cookbook_list_view}}
 ```
 
-Each item will have a unique `id` that will help us determine which items to remove. This `id` isn't
-strictly neccessary but it my experience it's a foolproof way to maintain a list of items with frequent splices.
+Each item has a unique `id` that helps us determine which items to remove.
 
-Each item contains a button to remove the item from the list as well as a button to increment a counter. Click events on these buttons will be sent on a channel.
+Each item contains a button to remove the item from the list as well as a button to increment a counter.
+Click events on these buttons will be as an output into an async task that determines what to do next.
 
 The view receives a count of the current number of clicks from a stream and uses that to display a nice message to the user.
 
 ```rust, ignore
-{{#include ../../examples/list-of-gizmos/src/lib.rs:item_view}}
+{{#include ../../examples/list-of-gizmos/src/lib.rs:cookbook_list_item_view}}
 ```
 
-Just like most other componens both `List` and `Item` have their own logic loops with enum messages -
-`ListMsg` and `ItemMsg` respectively, respectively. These messages encode all the interaction between
-the user/operator, the `List` and each `Item`.
+### Logic and Communication
+Just like most other components, both `list` and `item` have their own async tasks that loop over incoming messages.
+These messages encode all the events that occur in our views.
 
-The real difference between this list of items and other less complex widgets is the way items communicate
+The difference between this list of items and other less complex widgets is the way items communicate
 up to the parent list and how view updates are made to the parent list.
 
-Upstream communication from items to the list is set up in the list's logic loop, along with a patching mechanism for
-keeping the list in sync with its view:
+As you can see below, `item` takes the item ID _and a `remove_item_clicked: Output<ItemId>`, which it plugs into
+the "remove" button's `on:click` attribute.
+This sends any click events straight to the the caller of `item`.
+
+It is this output that `list` uses to receiver remove events from its items.
+
+Also notice that we're using [`Model`][structmodel] to keep the state of the number of clicks.
+[`Model`][structmodel] is convenient here because it tracks the state and automatically streams any
+updates to downstream observers.
 
 ```rust, ignore
-{{#include ../../examples/list-of-gizmos/src/lib.rs:list_logic_coms}}
+{{#include ../../examples/list-of-gizmos/src/lib.rs:cookbook_list_item}}
 ```
 
-Above we use [`ListPatchModel`][structlistpatchmodel] to maintain our list if items. [`ListPatchModel`][structlistpatchmodel]
-is special in that every time it is patched it sends a clone of that patch to downstream listeners. This makes it easy to
-map the patch from `Item` to `ViewBuilder<JsDom>` and use the resulting stream to patch the list's view.
+The `list` uses [`ListPatchModel`][structlistpatchmodel] to maintain our list if items.
+[`ListPatchModel`][structlistpatchmodel] is much like `Model` but is special in that every time itself is patched
+it sends a clone of that patch to downstream listeners.
+So while `Model` sends a clone of the full updated inner value, `ListPatchModel` sends the diff.
+This makes it easy to map the patch from `ItemId` to `ViewBuilder` and use the resulting stream to patch the list's view:
+
+```rust, ignore
+{{#include ../../examples/list-of-gizmos/src/lib.rs:cookbook_list}}
+```
 
 This is a good example of how `mogwai` separates component state from component views. The list logic doesn't own the
-view and doesn't maintain the list of DOM nodes. Instead, the list logic sets up a patching mechanism and then
-maintains a collection of `Item`s that it patches locally - triggering downstream patches to the view automatically.
-
-The rest of the logic loop is business as usual with the exception of where we get our logic messages. The special bit here
-is that we are waiting for messages on both a receiver from the logic's view _and_ all receivers given to the items:
-
-```rust, ignore
-{{#include ../../examples/list-of-gizmos/src/lib.rs:list_logic_loop}}
-```
+view and doesn't maintain the list of DOM nodes. Instead, the view has a patching mechanism that is set with a stream and then the logic maintains a collection of `ItemId`s that it patches locally - triggering downstream patches to the view automatically.
 
 ## Notes
 
 In this example you can see that unlike other vdom based libraries, mogwai's state is completely separate from its views.
-Indeed they even require separate handling to "keep them in sync". This is by design. In general a mogwai app tends to be
-more explicit and less magical than its vdom counterparts.
+Indeed they even require separate handling to "keep them in sync".
+This is by design.
+In general a mogwai app tends to be more explicit and less magical than its vdom counterparts.
 
 ## Code
 

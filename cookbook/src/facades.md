@@ -53,15 +53,11 @@ example project:
 {{#include ../../examples/todomvc/src/item.rs}}
 ```
 
-And here is the implementation, including the public API we will expose:
-
-```rust, ignore
-{{#include ../../examples/todomvc/src/item.rs:cookbook_facades_todoitem_impl}}
-```
-
 Notice above in `TodoItem::viewbuilder` that we have many more captured views, inputs and outputs than we
 keep in `TodoItem`. This is because they are only needed for specific async tasks and are never accessed
 from outside the `TodoItem`. These could have been included in `TodoItem` without harm and the choice of how to
 structure your application is up to you.
+
+<a href="{{cookbookroot}}/examples/todomvc/">Here is the result</a>.
 
 {{#include reflinks.md}}

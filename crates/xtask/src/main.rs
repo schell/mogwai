@@ -37,6 +37,9 @@ enum Artifact {
         /// Skip building the examples.
         #[clap(long)]
         skip_examples: bool,
+        /// Set the root path of the cookbook
+        #[clap(long)]
+        root_path: Option<PathBuf>,
     },
 }
 
@@ -65,9 +68,8 @@ impl Artifact {
                 .context("could not get example name")?
                 .to_str()
                 .context("could not make str")?;
-            if [".DS_Store", "multipage", "sandbox", "focus-follower", "svg"]
-                .contains(&example_name)
-            {
+            let excludes = [".DS_Store", "multipage", "sandbox", "focus-follower"];
+            if excludes.contains(&example_name) {
                 continue;
             }
             if let Some(name) = name.as_ref() {
@@ -121,15 +123,22 @@ impl Artifact {
         Ok(())
     }
 
-    fn build_cookbook() -> anyhow::Result<()> {
+    fn build_cookbook(cookbook_root_path: Option<PathBuf>) -> anyhow::Result<()> {
         let root = PathBuf::from(get_root_prefix()?);
         std::env::set_current_dir(&root).context("could not cd to root")?;
 
-        duct::cmd!("mdbook", "build", "cookbook")
-            .env(
-                "MDBOOK_preprocessor__variables__variables__cookbookroot",
-                "/guides/mogwai-cookbook",
-            )
+        let build_cookbook_cmd = duct::cmd!("mdbook", "build", "cookbook");
+        let build_cookbook_cmd = if let Some(path) = cookbook_root_path {
+            tracing::info!("building cookbook with root path '{}'", path.display());
+            build_cookbook_cmd
+                .env(
+                    "MDBOOK_preprocessor__variables__variables__cookbookroot",
+                    &format!("{}", path.display()),
+                )
+        } else {
+            build_cookbook_cmd
+        };
+        build_cookbook_cmd
             .run()
             .context("could not build cookbook")?;
 
@@ -148,13 +157,13 @@ impl Artifact {
     fn build(self) -> anyhow::Result<()> {
         match self {
             Artifact::Example { name } => Self::build_example(name),
-            Artifact::Cookbook { skip_examples } => {
+            Artifact::Cookbook { skip_examples, root_path } => {
                 if !skip_examples {
                     Self::build_example(None)?;
                 } else {
                     tracing::info!("skipping building examples");
                 }
-                Self::build_cookbook()
+                Self::build_cookbook(root_path)
             }
         }
     }
