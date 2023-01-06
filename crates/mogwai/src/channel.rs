@@ -1,10 +1,4 @@
 //! Async mpmc and broadcast channels, plus extensions.
-use std::num::NonZeroUsize;
-
-/// A NonZeroUsize of one.
-///
-/// Use this for convenience when creating bounded channels that take a `NonZeroUsize`.
-pub const ONE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(1) };
 
 pub mod mpsc {
     //! A multi-producer, single consumer queue.
@@ -129,8 +123,8 @@ pub mod broadcast {
     }
 
     /// Create an asynchronous multi-producer, multi-consumer broadcast channel.
-    pub fn bounded<T: Clone>(cap: std::num::NonZeroUsize) -> (Sender<T>, Receiver<T>) {
-        let (tx, rx) = async_broadcast::broadcast::<T>(cap.into());
+    pub fn bounded<T: Clone>(cap: usize) -> (Sender<T>, Receiver<T>) {
+        let (tx, rx) = async_broadcast::broadcast::<T>(cap);
         (Sender { inner: tx }, Receiver { inner: rx })
     }
 

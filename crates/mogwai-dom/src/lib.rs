@@ -471,7 +471,7 @@ mod wasm {
     use crate as mogwai_dom;
     use crate::{
         core::{
-            channel::{broadcast, ONE, mpsc},
+            channel::{broadcast, mpsc},
             time::*,
         },
         prelude::*,
@@ -553,7 +553,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn can_use_rsx_to_make_builder() {
-        let (tx, _) = broadcast::bounded::<AnyEvent>(ONE);
+        let (tx, _) = broadcast::bounded::<AnyEvent>(1);
 
         let rsx = html! {
             <div id="view_zero" style:background_color="red">
@@ -693,7 +693,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn rx_attribute_jsx() {
-        let (tx, rx) = broadcast::bounded::<String>(ONE);
+        let (tx, rx) = broadcast::bounded::<String>(1);
         let div: JsDom = html! {
             <div class=("now", rx) />
         }
@@ -710,7 +710,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn rx_style_jsx() {
-        let (tx, rx) = broadcast::bounded::<String>(ONE);
+        let (tx, rx) = broadcast::bounded::<String>(1);
         let div: JsDom = html! { <div style:display=("block", rx) /> }
             .try_into()
             .unwrap();
@@ -728,7 +728,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn capture_view_and_contra_map() {
-        let (tx, mut rx) = broadcast::bounded::<()>(ONE);
+        let (tx, mut rx) = broadcast::bounded::<()>(1);
         let _div: JsDom = html! {
             <div id="hello" capture:view=tx.contra_map(|_: JsDom| ())>
                 "Hello there"
@@ -742,7 +742,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     pub async fn rx_text() {
-        let (tx, rx) = broadcast::bounded::<String>(ONE);
+        let (tx, rx) = broadcast::bounded::<String>(1);
 
         let div: JsDom = html! {
             <div>{("initial", rx)}</div>
@@ -761,7 +761,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn tx_on_click() {
-        let (tx, rx) = broadcast::bounded(ONE);
+        let (tx, rx) = broadcast::bounded(1);
 
         log::info!("test!");
         let rx = rx.scan(0, |n: &mut i32, _: JsDomEvent| {
