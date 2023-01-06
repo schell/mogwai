@@ -171,11 +171,10 @@ fn get_root_prefix() -> anyhow::Result<String> {
         .to_string())
 }
 
-fn have_program(program: &str) -> anyhow::Result<bool> {
-    let output = duct::cmd!("hash", program, "2>/dev/null;")
-        .run()
-        .context(format!("could not determine if '{}' is available", program))?;
-    Ok(output.status.success())
+fn have_program(bin: &str) -> anyhow::Result<bool> {
+    let have_it = duct::cmd!("hash", bin).run()
+    .context(format!("could not determine if '{}' is available", bin))?;
+    Ok(have_it.status.success())
 }
 
 fn ensure_paths() -> anyhow::Result<()> {
