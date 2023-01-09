@@ -52,14 +52,19 @@ impl<T> ListPatch<T> {
     }
 
     /// Construct a ListPatch that splices the given range with the given replacements.
-    pub fn splice(range: impl RangeBounds<usize>, replace_with: impl Iterator<Item = T>) -> Self {
+    pub fn splice(range: impl RangeBounds<usize>, replace_with: impl IntoIterator<Item = T>) -> Self {
         ListPatch::Splice {
             range: (
                 clone_bound(range.start_bound()),
                 clone_bound(range.end_bound()),
             ),
-            replace_with: replace_with.collect(),
+            replace_with: replace_with.into_iter().collect(),
         }
+    }
+
+    /// Construct a ListPatch that inserts the item at the given index.
+    pub fn insert(index: usize, item: T) -> Self {
+        Self::splice(index..index, vec![item])
     }
 
     /// Construct a ListPatch that removes the item at the given index.
@@ -236,6 +241,13 @@ mod list {
     fn range_sanity() {
         let range = 0..0;
         assert!(!range.contains(&0));
+    }
+
+    #[test]
+    fn insert_sanity() {
+        let mut vs = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        vs.list_patch_apply(ListPatch::insert(8, 666));
+        assert_eq!(vec![0, 1, 2, 3, 4, 5, 6, 7, 666, 8, 9], vs);
     }
 
     #[test]

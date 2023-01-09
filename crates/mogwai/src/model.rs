@@ -1,12 +1,19 @@
 //! Values with streams of updates.
-use std::{collections::HashMap, ops::DerefMut, sync::Arc};
+use std::{
+    collections::HashMap,
+    ops::{DerefMut, RangeBounds},
+    sync::Arc,
+};
 
 use anyhow::Context;
 use async_broadcast::{broadcast, Receiver, Sender};
 use async_lock::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard};
 
-use crate::{stream::Stream, patch::{HashPatch, ListPatch}};
 pub use crate::patch::{HashPatchApply, ListPatchApply};
+use crate::{
+    patch::{HashPatch, ListPatch},
+    stream::Stream,
+};
 
 /// Wraps a value `T` and provides a stream of the latest value.
 ///
@@ -18,8 +25,7 @@ pub use crate::patch::{HashPatchApply, ListPatchApply};
 /// latest, unique values will be sent to downstream observers.
 ///
 /// ```rust
-/// use mogwai::prelude::*;
-/// use mogwai::model::Model;
+/// use mogwai::{model::Model, prelude::*};
 ///
 /// mogwai::future::block_on(async {
 ///     let model_a = Model::new("hello".to_string());
@@ -35,7 +41,10 @@ pub use crate::patch::{HashPatchApply, ListPatchApply};
 ///
 ///     drop(model_a);
 ///
-///     assert_eq!(updates.collect::<Vec<_>>().await, vec!["goodbye".to_string()]);
+///     assert_eq!(
+///         updates.collect::<Vec<_>>().await,
+///         vec!["goodbye".to_string()]
+///     );
 /// });
 /// ```
 pub struct Model<T> {
@@ -122,8 +131,8 @@ impl<T: Clone + PartialEq> Model<T> {
 /// but instead of sending new updated values of `T` downstream,
 /// [`ListPatchModel`] sends patches downstream.
 ///
-/// Unlike [`Model`], downstream observers are guaranteed to receive a message of
-/// every patch applied to the model after subscription.
+/// Unlike [`Model`], downstream observers are guaranteed to receive a message
+/// of every patch applied to the model after subscription.
 #[derive(Clone)]
 pub struct ListPatchModel<T> {
     value: Arc<RwLock<Vec<T>>>,
@@ -161,7 +170,8 @@ impl<T: Clone> ListPatchModel<T> {
         f(self.read().await.as_ref())
     }
 
-    /// Applies the function to the inner value, without waiting to acquire a lock, if possible.
+    /// Applies the function to the inner value, without waiting to acquire a
+    /// lock, if possible.
     pub fn try_visit<X>(&self, f: impl FnOnce(&Vec<T>) -> X) -> Option<X> {
         Some(f(self.value.try_read()?.as_ref()))
     }
@@ -184,17 +194,24 @@ impl<T: Clone> ListPatchModel<T> {
     }
 
     fn try_ensure_room(&self) -> anyhow::Result<()> {
-        let tx = self.chan.0.try_upgradable_read().context("cannot get upgradable read")?;
+        let tx = self
+            .chan
+            .0
+            .try_upgradable_read()
+            .context("cannot get upgradable read")?;
         let len = tx.len();
         if tx.is_full() {
-            RwLockUpgradableReadGuard::try_upgrade(tx).ok().context("cannot upgrade read")?
+            RwLockUpgradableReadGuard::try_upgrade(tx)
+                .ok()
+                .context("cannot upgrade read")?
                 .set_capacity(1 + len);
         }
 
         Ok(())
     }
 
-    /// Apply the given patch to the `ListPatchModel`, awaiting the acquisition of locks.
+    /// Apply the given patch to the `ListPatchModel`, awaiting the acquisition
+    /// of locks.
     pub async fn patch(&self, patch: ListPatch<T>) -> anyhow::Result<Vec<T>> {
         self.ensure_room().await;
         let tx = self.chan.0.read().await;
@@ -207,11 +224,14 @@ impl<T: Clone> ListPatchModel<T> {
     pub fn try_patch(&self, patch: ListPatch<T>) -> anyhow::Result<Vec<T>> {
         self.try_ensure_room()?;
         let tx = self.chan.0.try_read().context("cannot read")?;
-        let items = self.value.try_write().context("cannot write")?.list_patch_apply(patch.clone());
+        let items = self
+            .value
+            .try_write()
+            .context("cannot write")?
+            .list_patch_apply(patch.clone());
         let _ = tx.try_broadcast(patch).ok().context("cannot broadcast")?;
         Ok(items)
     }
-
 
     /// Force a refresh, sending a `ListPatch::Noop` downstream.
     ///
@@ -219,6 +239,59 @@ impl<T: Clone> ListPatchModel<T> {
     /// differ in details that may have changed.
     pub async fn refresh(&self) {
         let _ = self.patch(ListPatch::Noop).await;
+    }
+
+    /// Splices the given range with the given replacements.
+    ///
+    /// Returns any removed items.
+    pub async fn splice(
+        &self,
+        range: impl RangeBounds<usize>,
+        replace_with: impl IntoIterator<Item = T>,
+    ) -> anyhow::Result<Vec<T>> {
+        self.patch(ListPatch::splice(range, replace_with)).await
+    }
+
+    /// Inserts the item at the given index.
+    pub async fn insert(&self, index: usize, item: T) -> anyhow::Result<()> {
+        let _ = self
+            .patch(ListPatch::splice(index..=index, vec![item]))
+            .await?;
+        Ok(())
+    }
+
+    /// Removes the item at the given index, returning it if possible.
+    pub async fn remove(&self, index: usize) -> anyhow::Result<T> {
+        let mut removed = self.patch(ListPatch::remove(index)).await?;
+        removed
+            .pop()
+            .with_context(|| format!("item at index {} was not found", index))
+    }
+
+    /// Replaces the given index with the given item.
+    ///
+    /// Returns the item replaced, if possible.
+    pub async fn replace(&self, index: usize, item: T) -> anyhow::Result<T> {
+        let mut removed = self.patch(ListPatch::replace(index, item)).await?;
+        removed
+            .pop()
+            .with_context(|| format!("item at index {} was not found", index))
+    }
+
+    /// Pushes the given item onto the end of the list.
+    pub async fn push(&self, item: T) -> anyhow::Result<()> {
+        self.patch(ListPatch::Push(item)).await.map(|_| ())
+    }
+
+    /// Pops the last item off the list, if possible.
+    pub async fn pop(&self) -> anyhow::Result<Option<T>> {
+        let mut removed = self.patch(ListPatch::Pop).await?;
+        Ok(removed.pop())
+    }
+
+    /// Drains/removes the entire list.
+    pub async fn drain(&self) -> anyhow::Result<Vec<T>> {
+        self.patch(ListPatch::drain()).await
     }
 }
 
@@ -228,8 +301,8 @@ impl<T: Clone> ListPatchApply for ListPatchModel<T> {
     /// Apply the given patch to the `ListPatchModel`.
     ///
     /// ## Panics
-    /// Panics if the downstream channel is full, or the model is being read at the time
-    /// of application (which cannot happen in the browser).
+    /// Panics if the downstream channel is full, or the model is being read at
+    /// the time of application (which cannot happen in the browser).
     fn list_patch_apply(&mut self, patch: ListPatch<Self::Item>) -> Vec<Self::Item> {
         self.try_patch(patch).unwrap()
     }
@@ -246,8 +319,7 @@ impl<T: Clone> ListPatchApply for ListPatchModel<T> {
 /// message of every patch applied to the model.
 ///
 /// ```rust
-/// use mogwai::prelude::*;
-/// use mogwai::model::HashPatchModel;
+/// use mogwai::{model::HashPatchModel, prelude::*};
 /// mogwai::future::block_on(async {
 ///     let mut model: HashPatchModel<String, usize> = HashPatchModel::new();
 ///     model.hash_patch_insert("hello".to_string(), 666);
@@ -301,8 +373,8 @@ impl<K: Clone + std::hash::Hash + Eq, V: Clone> HashPatchApply for HashPatchMode
     /// Apply the given patch to the `HashPatchModel`.
     ///
     /// ## Panics
-    /// Panics if the downstream channel is full, or the model is being read at the time
-    /// of application (which cannot happen in the browser).
+    /// Panics if the downstream channel is full, or the model is being read at
+    /// the time of application (which cannot happen in the browser).
     fn hash_patch_apply(
         &mut self,
         patch: HashPatch<Self::Key, Self::Value>,
