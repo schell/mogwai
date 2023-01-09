@@ -8,9 +8,7 @@
 
 > **m**inimal, **o**bvious, **g**raphical **w**eb **a**pplication **i**nterface
 
-release: [![Crates.io][ci]][cl] ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=release)
-
-master: ![cicd](https://github.com/schell/mogwai/workflows/cicd/badge.svg?branch=master)
+[![Crates.io][ci]][cl] ![cicd](https://github.com/schell/mogwai/workflows/test/badge.svg?branch=main)
 
 [ci]: https://img.shields.io/crates/v/mogwai.svg
 [cl]: https://crates.io/crates/mogwai/
@@ -39,16 +37,19 @@ to do rendering. It is an alternative to React, Backbone, Ember, Elm, Purescript
 ## concepts
 The main concepts behind `mogwai` are
 
-* **sinks and streams instead of callbacks** - view events like click, mouseover, etc are sent
-  through streams instead of invoking a callback. Streams can be branched and may have their
-  output messages mapped, filtered and folded.
+* **sinks and streams instead of callbacks** 
 
-* **views are dumb** - a view is just a struct that mutates the UI tree after
-  receiving a message from a stream.
+  View events like click, mouseover, etc are sent through streams instead of invoking a callback. 
+  Streams can be mapped, filtered and folded.
+
+* **widget views are dumb** 
+
+  A view is just a struct that mutates the UI tree after receiving a message from a stream.
   Views are constructed and nested using plain Rust functions or an RSX macro.
 
-* **widget logic is a loop over event messages** - widgets are
-  asynchronous loops that receive events from the view and send updates
+* **widget logic is one or more async tasks that loop over event messages** 
+
+  Widgets use asynchronous task loops that receive events from the view and send updates
   to the view in response.
 
 ## example
@@ -107,14 +108,13 @@ wasm_bindgen_futures::spawn_local(async move {
 
 ## introduction
 If you're interested in learning more - please read the [introduction and
-documentation](https://docs.rs/mogwai/).
+documentation](https://docs.rs/mogwai-dom/0.1.0/mogwai_dom/an_introduction/index.html).
 
 ## why
-* No vdom diffing keeps updates snappy
+* No vdom diffing keeps updates snappy and the implementation minimal
 * Async logic by default
 * Explicit mutation
-* Views' inner type is variable to allow running on multiple platforms
-  (web, ios, android, desktop, etc)
+* `ViewBuilder` allows running on multiple platforms (web, ios, android, desktop, etc)
 
 `mogwai` uses streams, sinks, a declarative view builder and async
 logic to define components and how they change over time.
