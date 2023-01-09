@@ -255,7 +255,7 @@ impl<T: Clone> ListPatchModel<T> {
     /// Inserts the item at the given index.
     pub async fn insert(&self, index: usize, item: T) -> anyhow::Result<()> {
         let _ = self
-            .patch(ListPatch::splice(index..=index, vec![item]))
+            .patch(ListPatch::splice(index..index, vec![item]))
             .await?;
         Ok(())
     }
