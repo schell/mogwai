@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>Mogwai • Benchmarks</title>
+        <style>
+            .change-red {
+                font-weight: bold;
+                color: red;
+            }
+            .change-green {
+                font-weight: bold;
+                color: green;
+            }
+        </style>
+    </head>
+    <body>
+        <script type=module>
+        import init from './pkg/mogwai_benches.js';
+            window.addEventListener('load', async () => {
+                await init();
+            });
+        </script>
+    </body>
+</html>

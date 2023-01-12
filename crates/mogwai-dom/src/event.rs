@@ -3,15 +3,19 @@
 //! Events in Mogwai are registered and sent down a stream to be
 //! consumed by logic loops. When an event stream
 //! is dropped, its resources are cleaned up automatically.
+use mogwai::{
+    channel::broadcast,
+    sink::{Sink, TrySendError},
+    stream::{Stream, StreamExt},
+};
 use send_wrapper::SendWrapper;
 use std::{
     pin::Pin,
-    sync::{Arc, Mutex},
-    task::Waker,
+    sync::Arc,
 };
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
-use mogwai::{stream::{Stream, StreamExt}, sink::{Sink, SendError}};
-use crate::prelude::{FutureTask, JsDom};
+
+use crate::view::js::JsDom;
 
 /// A wrapper for [`web_sys::Event`].
 #[derive(Clone, Debug)]
@@ -40,27 +44,14 @@ impl From<web_sys::Event> for JsDomEvent {
     }
 }
 
+impl From<&web_sys::Event> for JsDomEvent {
+    fn from(ev: &web_sys::Event) -> Self {
+        let inner = SendWrapper::new(Arc::new(JsValue::from(ev)));
+        JsDomEvent { inner }
+    }
+}
+
 impl JsDomEvent {
-    ///// Return the inner event as `JsValue` on wasm32 or `serde_json::Value` on
-    ///// other targets.
-    //pub fn clone_inner(&self) -> Either<JsValue, serde_json::Value> {
-    //    Either::Left(self.inner.clone())
-    //}
-    //#[cfg(not(target_arch = "wasm32"))]
-    ///// Return the inner event as `JsValue` on wasm32 or `serde_json::Value` on
-    ///// other targets.
-    //pub fn clone_inner(&self) -> Either<JsValue, serde_json::Value> {
-    //    Either::Right(self.inner.clone())
-    //}
-
-    ///// Use `T`'s `DeserializeOwned` implementation to convert into `T`.
-    //pub fn try_deserialize<T: DeserializeOwned>(&self) -> serde_json::Result<T> {
-    //    //match self.clone_inner() {
-    //    self.inner.clone().into_serde()
-    //    //    Either::Right(value) => serde_json::from_value(value),
-    //    //}
-    //}
-
     /// Attempt to convert into a `web_sys::Event`. This only works when running on wasm32.
     pub fn browser_event(self) -> Option<web_sys::Event> {
         self.inner.dyn_ref::<web_sys::Event>().cloned()
@@ -71,12 +62,10 @@ impl JsDomEvent {
     }
 }
 
-struct WebCallback {
+pub(crate) struct WebCallback {
     target: JsDom,
     name: String,
     closure: Option<SendWrapper<Closure<dyn FnMut(JsValue)>>>,
-    waker: Arc<Mutex<Option<Waker>>>,
-    event: Arc<Mutex<Option<JsDomEvent>>>,
 }
 
 impl Drop for WebCallback {
@@ -89,47 +78,29 @@ impl Drop for WebCallback {
                     closure.as_ref().unchecked_ref(),
                 )
                 .unwrap();
-            log::trace!("dropping event {}", self.name);
         }
     }
 }
 
-impl Stream for WebCallback {
-    type Item = JsDomEvent;
-
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        let data = self.get_mut();
-        *data.waker.lock().unwrap() = Some(cx.waker().clone());
-
-        if let Some(event) = data.event.lock().unwrap().take() {
-            std::task::Poll::Ready(Some(JsDomEvent::from(event)))
-        } else {
-            std::task::Poll::Pending
-        }
-    }
-}
-
-/// Listen for events of the given name on the given target.
-/// All events will be sent downstream until the stream is
-/// dropped.
-pub fn event_stream(
+/// Add an event listener of the given name to the given target. When the event happens, the
+/// event will be fed to the given sink. If the sink is closed, the listener will be removed.
+pub(crate) fn add_event(
     ev_name: &str,
     target: &web_sys::EventTarget,
-) -> impl Stream<Item = JsDomEvent> + Send {
-    let waker: Arc<Mutex<Option<Waker>>> = Default::default();
-    let waker_here = waker.clone();
-
-    let event: Arc<Mutex<Option<JsDomEvent>>> = Default::default();
-    let event_here = event.clone();
-
+    tx: Pin<Box<dyn Sink<JsDomEvent> + Send + Sync + 'static>>,
+) -> WebCallback {
     let closure = Closure::wrap(Box::new(move |val: JsValue| {
         let ev: web_sys::Event = val.unchecked_into();
-        *event.lock().unwrap() = Some(JsDomEvent::from(ev));
-        if let Some(waker) = waker.lock().unwrap().take() {
-            waker.wake()
+        let js_dom_event = JsDomEvent::from(&ev);
+        match tx.try_send(js_dom_event) {
+            Ok(()) => {}
+            Err(TrySendError::Busy) => {
+                log::error!("channel for event {:?} is busy", ev);
+            }
+            Err(TrySendError::Closed) => {}
+            Err(TrySendError::Full) => {
+                log::error!("channel for event {:?} is full", ev);
+            }
         }
     }) as Box<dyn FnMut(JsValue)>);
 
@@ -141,70 +112,35 @@ pub fn event_stream(
         target: JsDom::from_jscast(target),
         name: ev_name.to_string(),
         closure: Some(SendWrapper::new(closure)),
-        event: event_here,
-        waker: waker_here,
     }
 }
 
-///// Listen for events of the given name on the given target.
-///// Run the event through the given function and send the result on the given sink.
-/////
-///// This can be used to get a `Sendable` stream of events from a `web_sys::EventTarget`.
-//pub fn event_stream_with<T, V>(
-//    ev_name: &str,
-//    target: &web_sys::EventTarget,
-//    mut f: impl FnMut(web_sys::Event) -> T + 'static,
-//) -> impl Stream<Item = T> + Send + Sync + 'static
-//where
-//    T: Send + Sync + 'static,
-//    V: View,
-//{
-//    let (mut tx, rx) = futures::channel::mpsc::unbounded();
-//    let mut stream = event_stream(ev_name, target);
-//    wasm_bindgen_futures::spawn_local(async move {
-//        while let Some(msg) = stream.next().await {
-//            let t = f(msg);
-//            match tx.send(t).await.ok() {
-//                Some(()) => {}
-//                None => break,
-//            }
-//        }
-//    });
-//
-//    rx
-//}
-
-/// Add an event listener of the given name to the given target. When the event happens, the
-/// event will be fed to the given sink. If the sink is closed, the listener will be removed.
-pub(crate) fn add_event(
-    name: &str,
+/// Listen for events of the given name on the given target.
+/// All events will be sent downstream until the stream is
+/// dropped.
+pub fn event_stream(
     ev_name: &str,
     target: &web_sys::EventTarget,
-    tx: Pin<Box<dyn Sink<JsDomEvent> + Send + Sync + 'static>>,
-) -> FutureTask<()> {
-    let mut stream = event_stream(ev_name, target);
-    let name = name.to_string();
-    let ev_name = ev_name.to_string();
-    FutureTask {
-        name: format!("{}_event_{}", name, ev_name),
-        fut: Box::pin(async move {
-            loop {
-                match stream.next().await {
-                    Some(event) => match tx.send(event).await {
-                        Ok(()) => {}
-                        Err(SendError::Full) => panic!("{} {} event sink is full", name, ev_name),
-                        Err(SendError::Closed) => break,
-                    },
-                    None => {
-                        log::trace!(
-                            "{} removing event {}",
-                            name,
-                            ev_name,
-                        );
-                        break;
-                    }
-                }
-            }
-        }),
+) -> impl Stream<Item = JsDomEvent> + Send {
+    let (tx, rx) = broadcast::bounded(1);
+    let callback = add_event(ev_name, target, Box::pin(tx));
+
+    #[allow(dead_code)]
+    struct EventStream {
+        callback: WebCallback,
+        rx: broadcast::Receiver<JsDomEvent>,
     }
+
+    impl Stream for EventStream {
+        type Item = JsDomEvent;
+
+        fn poll_next(
+            self: Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            self.get_mut().rx.poll_next(cx)
+        }
+    }
+
+    EventStream { callback, rx }
 }

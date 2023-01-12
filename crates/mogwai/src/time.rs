@@ -206,11 +206,9 @@ pub async fn wait_one_frame() {
     {
         let (tx, rx) = async_channel::bounded::<()>(1);
         set_immediate(move || {
-            tx.try_send(()).ok().unwrap();
+            let _ = tx.try_send(());
         });
-        // UNWRAP: safe because we control both sides of the channel and we know
-        // the closure above sends a value.
-        rx.recv().await.unwrap();
+        let _ = rx.recv().await;
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
