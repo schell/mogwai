@@ -5,8 +5,11 @@ use anyhow::Context;
 use async_executor::Executor;
 use mogwai::{
     patch::{ListPatch, ListPatchApply},
-    view::{exhaust, AnyView, Listener, Update, View, ViewBuilder, ViewIdentity},
-    view::{MogwaiFuture, MogwaiSink, MogwaiStream, PostBuild},
+    sink::SinkExt,
+    view::{
+        exhaust, AnyEvent, AnyView, Listener, MogwaiFuture, MogwaiSink, MogwaiStream, PostBuild,
+        Update, View, ViewBuilder, ViewIdentity,
+    },
 };
 
 pub use crate::event::JsDomEvent;
@@ -21,20 +24,16 @@ pub use ssr::SsrDom;
 pub use mogwai::{either::Either, sink::Sink, stream::StreamExt};
 use wasm_bindgen::JsCast;
 
-pub(crate) struct FutureTask<T> {
-    pub(crate) name: String,
-    pub(crate) fut: Pin<Box<dyn Future<Output = T> + Send>>,
-}
+pub(crate) struct FutureTask<T>(pub(crate) Pin<Box<dyn Future<Output = T> + Send>>);
 
 /// Build the `ViewBuilder` in a way that can be used by the browser and server-side
 /// and both.
 pub(crate) fn build<V: View, R>(
     rez: R,
     builder: ViewBuilder,
-    mk_name: fn(&V) -> String,
     init: impl FnOnce(&R, ViewIdentity) -> anyhow::Result<V>,
     update_view: fn(&V, Update) -> anyhow::Result<()>,
-    add_event: impl Fn(&V, Listener) -> anyhow::Result<FutureTask<()>>,
+    add_event: impl Fn(&V, Listener) -> anyhow::Result<()>,
 ) -> anyhow::Result<(V, Vec<FutureTask<()>>)> {
     let ViewBuilder {
         identity,
@@ -50,7 +49,6 @@ pub(crate) fn build<V: View, R>(
     let element: V = initialize_build(&rez, init, update_view, identity, initial_values)?;
     finalize_build(
         element,
-        mk_name,
         update_stream,
         post_build_ops,
         listeners,
@@ -80,20 +78,18 @@ pub(crate) fn initialize_build<V: View, R>(
 /// Finalize the DOM build by making the element reactive.
 pub(crate) fn finalize_build<V: View>(
     element: V,
-    mk_name: fn(&V) -> String,
     mut update_stream: futures::stream::SelectAll<MogwaiStream<Update>>,
     post_build_ops: Vec<PostBuild>,
     listeners: Vec<Listener>,
     tasks: Vec<MogwaiFuture<()>>,
     view_sinks: Vec<MogwaiSink<AnyView>>,
-    add_event: impl Fn(&V, Listener) -> anyhow::Result<FutureTask<()>>,
+    add_event: impl Fn(&V, Listener) -> anyhow::Result<()>,
     update_view: impl Fn(&V, Update) -> anyhow::Result<()> + Send + 'static,
 ) -> anyhow::Result<(V, Vec<FutureTask<()>>)> {
     let mut to_spawn: Vec<FutureTask<()>> = vec![];
 
     for listener in listeners.into_iter() {
-        let fut_task = (add_event)(&element, listener)?;
-        to_spawn.push(fut_task);
+        (add_event)(&element, listener)?;
     }
 
     let mut any_view = AnyView::new(element);
@@ -103,33 +99,22 @@ pub(crate) fn finalize_build<V: View>(
     let element = any_view.downcast::<V>()?;
 
     let node = element.clone();
-    to_spawn.push(FutureTask {
-        name: format!("{}_update", mk_name(&node)),
-        fut: Box::pin(async move {
-            while let Some(update) = update_stream.next().await {
-                update_view(&node, update).unwrap();
-            }
-            log::trace!("update stream ended for {}", mk_name(&node));
-        }),
-    });
+    to_spawn.push(FutureTask(Box::pin(async move {
+        while let Some(update) = update_stream.next().await {
+            update_view(&node, update).unwrap();
+        }
+    })));
 
-    for (i, task) in tasks.into_iter().enumerate() {
-        to_spawn.push(FutureTask {
-            name: format!("{}_task#{}", mk_name(&element), i),
-            fut: task,
-        });
+    for task in tasks.into_iter() {
+        to_spawn.push(FutureTask(task));
     }
     let node: V = element.clone();
-    to_spawn.push(FutureTask {
-        name: format!("{}_viewsink", mk_name(&node)),
-        fut: Box::pin(async move {
-            for sink in view_sinks.into_iter() {
-                let any_view = AnyView::new(node.clone());
-                println!("sinking {} as {:?}", mk_name(&node), any_view);
-                let _ = sink.send(any_view).await;
-            }
-        }),
-    });
+    to_spawn.push(FutureTask(Box::pin(async move {
+        for sink in view_sinks.into_iter() {
+            let any_view = AnyView::new(node.clone());
+            let _ = sink.send(any_view).await;
+        }
+    })));
 
     Ok((element, to_spawn))
 }
@@ -160,13 +145,45 @@ impl Dom {
         })
     }
 
-    fn name(&self) -> String {
-        self.as_either_ref().either(JsDom::name, SsrDom::name)
-    }
-
-    fn add_event(dom: &Self, listener: Listener) -> anyhow::Result<FutureTask<()>> {
+    fn add_event(dom: &Self, listener: Listener) -> anyhow::Result<()> {
         match &dom.0 {
-            Either::Left(js) => js::add_event(js, listener),
+            Either::Left(js) => {
+                let ref this = js;
+                let Listener {
+                    event_name,
+                    event_target,
+                    sink,
+                } = listener;
+                let tx = sink.contra_map(|event: JsDomEvent| AnyEvent::new(event));
+                let callback = match event_target.as_str() {
+                    "myself" => crate::event::add_event(
+                        &event_name,
+                        this.inner
+                            .dyn_ref::<web_sys::EventTarget>()
+                            .ok_or_else(|| "not an event target".to_string())
+                            .unwrap(),
+                        Box::pin(tx),
+                    ),
+                    "window" => crate::event::add_event(
+                        &event_name,
+                        &web_sys::window().unwrap(),
+                        Box::pin(tx),
+                    ),
+                    "document" => crate::event::add_event(
+                        &event_name,
+                        &web_sys::window().unwrap().document().unwrap(),
+                        Box::pin(tx),
+                    ),
+                    _ => anyhow::bail!("unsupported event target {}", event_target),
+                };
+                let mut write = this
+                    .listener_callbacks
+                    .try_write()
+                    .context("cannot acquire write")?;
+                write.push(callback);
+
+                Ok(())
+            }
             Either::Right(ssr) => ssr::add_event(ssr, listener),
         }
     }
@@ -181,20 +198,19 @@ impl Dom {
                 .map(Either::Right)
                 .unwrap_or_else(|| Either::Left(())),
             builder,
-            Dom::name,
             Dom::init,
             Dom::update,
             Dom::add_event,
         )?;
         if let Some(executor) = executor {
             for fut_task in to_spawn.into_iter() {
-                executor.spawn(fut_task.fut).detach();
+                executor.spawn(fut_task.0).detach();
             }
         } else {
             for fut_task in to_spawn.into_iter() {
                 let js = dom.as_either_ref().left().context("impossible")?;
                 let mut ts = js.tasks.try_write().context("can't write tasks")?;
-                ts.push(js::spawn_local(&fut_task.name, fut_task.fut));
+                ts.push(js::spawn_local(fut_task.0));
             }
         }
         Ok(dom)

@@ -18,7 +18,6 @@ use mogwai::{
 };
 use serde_json::Value;
 
-use super::FutureTask;
 
 // Only certain nodes can be "void" - which means written as <tag /> when
 // the node contains no children. Writing non-void nodes in void notation
@@ -178,14 +177,12 @@ impl SsrDom {
         let (ssr, to_spawn) = super::build(
             executor.clone(),
             builder,
-            SsrDom::name,
             init,
             update_ssr_dom,
             add_event,
         )?;
         for future_task in to_spawn.into_iter() {
-            log::trace!("spawning ssr task '{}'", future_task.name);
-            executor.spawn(future_task.fut).detach();
+            executor.spawn(future_task.0).detach();
         }
         Ok(ssr)
     }
@@ -413,7 +410,6 @@ pub(crate) fn update_ssr_dom(ssr_dom: &SsrDom, update: Update) -> anyhow::Result
             HashPatch::Remove(k) => ssr_dom.remove_style(&k)?,
         },
         Update::Child(patch) => {
-            log::trace!("got child patch: {:?}", patch);
             let patch = patch.try_map(|builder: ViewBuilder| {
                 let ssr = SsrDom::new(ssr_dom.executor.clone(), builder)?;
                 anyhow::Ok(ssr)
@@ -443,7 +439,7 @@ impl ListPatchApply for SsrDom {
     }
 }
 
-pub(crate) fn add_event(ssr: &SsrDom, listener: Listener) -> anyhow::Result<FutureTask<()>> {
+pub(crate) fn add_event(ssr: &SsrDom, listener: Listener) -> anyhow::Result<()> {
     let Listener {
         event_name,
         event_target,
@@ -451,12 +447,8 @@ pub(crate) fn add_event(ssr: &SsrDom, listener: Listener) -> anyhow::Result<Futu
     } = listener;
     let sink = Box::pin(sink.contra_map(AnyEvent::new));
     let mut lock = ssr.events.try_write().context("can't lock")?;
-    let name = format!("{}_event_{}", ssr.name(), event_name);
     let _ = lock.insert((event_target, event_name), sink);
-    Ok(FutureTask {
-        name,
-        fut: Box::pin(async { () }),
-    })
+    Ok(())
 }
 
 #[cfg(test)]
