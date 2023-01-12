@@ -163,24 +163,25 @@ impl AnyEvent {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref WAKER: Waker = unsafe { Waker::from_raw(RawWaker::from(Arc::new(DummyWaker)))};
+}
+
 /// Exhaust a stream until polling returns pending or ends.
 ///
 /// Returns the stream and the gathered items.
 ///
 /// Useful for getting the starting values of a view.
-pub fn exhaust<T, St>(stream: St) -> (St, Vec<T>)
+pub fn exhaust<T, St>(mut stream: St) -> (St, Vec<T>)
 where
     St: Stream<Item = T> + Send + Unpin + 'static,
 {
-    let mut stream = Box::pin(stream);
-    let raw_waker = RawWaker::from(Arc::new(DummyWaker));
-    let waker = unsafe { Waker::from_raw(raw_waker) };
-    let mut cx = std::task::Context::from_waker(&waker);
     let mut items = vec![];
+    let mut cx = std::task::Context::from_waker(&WAKER);
     while let std::task::Poll::Ready(Some(t)) = stream.poll_next(&mut cx) {
         items.push(t);
     }
-    (*Pin::into_inner(stream), items)
+    (stream, items)
 }
 
 /// Try to get an available `T` from the given stream by polling it.
