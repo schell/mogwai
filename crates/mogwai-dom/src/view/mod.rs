@@ -200,7 +200,7 @@ impl Dom {
                     sink,
                 } = listener;
                 let tx = sink.contra_map(|event: JsDomEvent| AnyEvent::new(event));
-                let callback = match event_target.as_str() {
+                let callback = match event_target {
                     "myself" => crate::event::add_event(
                         &event_name,
                         this.inner

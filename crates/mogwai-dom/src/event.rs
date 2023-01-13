@@ -64,7 +64,7 @@ impl JsDomEvent {
 
 pub(crate) struct WebCallback {
     target: JsDom,
-    name: String,
+    name: &'static str,
     closure: Option<SendWrapper<Closure<dyn FnMut(JsValue)>>>,
 }
 
@@ -74,7 +74,7 @@ impl Drop for WebCallback {
             let target = self.target.clone_as::<web_sys::EventTarget>().unwrap();
             target
                 .remove_event_listener_with_callback(
-                    self.name.as_str(),
+                    self.name,
                     closure.as_ref().unchecked_ref(),
                 )
                 .unwrap();
@@ -85,7 +85,7 @@ impl Drop for WebCallback {
 /// Add an event listener of the given name to the given target. When the event happens, the
 /// event will be fed to the given sink. If the sink is closed, the listener will be removed.
 pub(crate) fn add_event(
-    ev_name: &str,
+    ev_name: &'static str,
     target: &web_sys::EventTarget,
     tx: Pin<Box<dyn Sink<JsDomEvent> + Send + Sync + 'static>>,
 ) -> WebCallback {
@@ -110,7 +110,7 @@ pub(crate) fn add_event(
 
     WebCallback {
         target: JsDom::from_jscast(target),
-        name: ev_name.to_string(),
+        name: ev_name,
         closure: Some(SendWrapper::new(closure)),
     }
 }
@@ -119,7 +119,7 @@ pub(crate) fn add_event(
 /// All events will be sent downstream until the stream is
 /// dropped.
 pub fn event_stream(
-    ev_name: &str,
+    ev_name: &'static str,
     target: &web_sys::EventTarget,
 ) -> impl Stream<Item = JsDomEvent> + Send {
     let (tx, rx) = broadcast::bounded(1);

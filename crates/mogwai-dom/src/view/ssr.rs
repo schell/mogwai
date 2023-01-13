@@ -5,15 +5,15 @@ use async_lock::RwLock;
 use std::{
     collections::HashMap,
     future::Future,
-    ops::{Deref, DerefMut},
+    ops::DerefMut,
     pin::Pin,
     sync::Arc,
 };
 
 use mogwai::{
+    either::Either,
     patch::{HashPatch, ListPatch, ListPatchApply},
     sink::{SendError, Sink, SinkExt},
-    stream::StreamExt,
     view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity},
 };
 use serde_json::Value;
@@ -42,7 +42,7 @@ use serde_json::Value;
 //     command - represents a command users can invoke [obsolete]
 //     keygen - facilitates public key generation for web certificates [deprecated]
 //     source - specifies media sources for picture, audio, and video elements
-fn tag_is_voidable(tag: &str) -> bool {
+fn tag_is_voidable(tag: &'static str) -> bool {
     tag == "area"
         || tag == "base"
         || tag == "br"
@@ -65,7 +65,7 @@ pub enum SsrNode {
     /// Parent node.
     Container {
         /// Tag name.
-        name: String,
+        name: &'static str,
         /// Tag attributes.
         attributes: Vec<(String, Option<String>)>,
         /// Styles
@@ -122,7 +122,7 @@ impl SsrNode {
 
                 if children.is_empty() {
                     if attributes.is_empty() {
-                        if tag_is_voidable(&name) {
+                        if tag_is_voidable(name) {
                             format!("<{} />", name)
                         } else {
                             format!("<{}></{}>", name, name)
@@ -135,12 +135,11 @@ impl SsrNode {
                         }
                     }
                 } else {
-                    let kids: String = futures::stream::iter(children.into_iter())
-                        .flat_map(|kid| futures::stream::once(kid.html_string()))
-                        .map(|s: String| s.trim().to_string())
-                        .collect::<Vec<String>>()
-                        .await
-                        .join(" ");
+                    let mut kids = vec![];
+                    for kid in children.iter() {
+                        kids.push(kid.html_string().await);
+                    }
+                    let kids: String = kids.join(" ");
                     if attributes.is_empty() {
                         format!("<{}>{}</{}>", name, kids, name)
                     } else {
@@ -160,7 +159,7 @@ pub struct SsrDom {
     pub node: Arc<RwLock<SsrNode>>,
     /// A map of events registered with this element.
     pub events:
-        Arc<RwLock<HashMap<(String, String), Pin<Box<dyn Sink<Value> + Send + Sync + 'static>>>>>,
+        Arc<RwLock<HashMap<(&'static str, &'static str), Pin<Box<dyn Sink<Value> + Send + Sync + 'static>>>>>,
 }
 
 impl TryFrom<ViewBuilder> for SsrDom {
@@ -187,23 +186,6 @@ impl SsrDom {
         Ok(ssr)
     }
 
-    pub fn name(&self) -> String {
-        if let Some(read) = self.node.try_read() {
-            match read.deref() {
-                SsrNode::Text(s) => {
-                    let len = s.char_indices().count();
-                    let tenth_ndx = s.char_indices().take(10).fold(0, |_, (ndx, _)| ndx);
-                    let ext = if len > 10 { "..." } else { "" };
-                    let trunc = &s[..tenth_ndx];
-                    format!("{}{}", trunc, ext)
-                }
-                SsrNode::Container { name, .. } => name.clone(),
-            }
-        } else {
-            "unknown".to_string()
-        }
-    }
-
     /// Creates a text node.
     pub fn text(executor: Arc<Executor<'static>>, s: &str) -> Self {
         SsrDom {
@@ -219,11 +201,11 @@ impl SsrDom {
     }
 
     /// Creates a container node that may contain child nodes.
-    pub fn element(executor: Arc<Executor<'static>>, tag: &str) -> Self {
+    pub fn element(executor: Arc<Executor<'static>>, tag: &'static str) -> Self {
         SsrDom {
             executor,
             node: Arc::new(RwLock::new(SsrNode::Container {
-                name: tag.into(),
+                name: tag,
                 attributes: vec![],
                 styles: vec![],
                 children: vec![],
@@ -335,11 +317,10 @@ impl SsrDom {
     /// Fails if no such event exists or if sending to the sink encounters an error.
     pub async fn fire_event(
         &self,
-        type_is: String,
-        name: String,
+        type_is: &'static str,
+        name: &'static str,
         event: Value,
-    ) -> Result<(), futures::future::Either<(), SendError>> {
-        use futures::future::Either;
+    ) -> Result<(), Either<(), SendError>> {
         let mut events = self.events.write().await;
         let sink = events
             .deref_mut()
@@ -349,9 +330,9 @@ impl SsrDom {
     }
 
     /// Removes an event.
-    pub fn remove_event(&self, type_is: &str, name: &str) {
+    pub fn remove_event(&self, type_is: &'static str, name: &'static str) {
         let mut lock = self.events.try_write().unwrap();
-        let _ = lock.remove(&(type_is.to_string(), name.to_string()));
+        let _ = lock.remove(&(type_is, name));
     }
 
     /// String value

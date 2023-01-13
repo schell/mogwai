@@ -4,12 +4,14 @@ use std::{
     future::Future,
     ops::{Bound, Deref, RangeBounds},
     pin::Pin,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use anyhow::Context;
-use async_lock::{RwLock, RwLockUpgradableReadGuard};
-use futures::{stream::select_all, FutureExt};
+use async_lock::RwLock;
 use mogwai::{
     channel::mpsc,
     patch::{HashPatch, HashPatchApply, ListPatch, ListPatchApply},
@@ -20,51 +22,29 @@ use mogwai::{
 use send_wrapper::SendWrapper;
 use wasm_bindgen::{JsCast, JsValue};
 
-use crate::event::{WebCallback, JsDomEvent};
+use crate::{
+    event::{JsDomEvent, WebCallback},
+    prelude::{DOCUMENT, WINDOW},
+};
 
 
-pub struct JsTask<T: Send + 'static> {
-    tx_cancel_task: Option<async_channel::Sender<()>>,
-    inner: Arc<RwLock<Option<T>>>,
-}
+#[derive(Clone)]
+pub struct JsTask(Arc<AtomicBool>, Option<async_channel::Sender<()>>);
 
-impl<T: Send + 'static> Clone for JsTask<T> {
-    fn clone(&self) -> Self {
-        Self {
-            tx_cancel_task: self.tx_cancel_task.clone(),
-            inner: self.inner.clone(),
-        }
-    }
-}
-
-impl<T: Send + 'static> Drop for JsTask<T> {
+impl Drop for JsTask {
     fn drop(&mut self) {
         let _ = self.cancel();
     }
 }
 
-impl<T: Send + 'static> JsTask<T> {
+impl JsTask {
     pub fn is_finished(&self) -> bool {
-        self.inner
-            .try_read()
-            .map(|r| r.is_some())
-            .unwrap_or_default()
-    }
-
-    pub async fn try_into_inner(self) -> Result<T, JsTask<T>> {
-        let r = self.inner.upgradable_read().await;
-        if r.is_some() {
-            let mut w = RwLockUpgradableReadGuard::upgrade(r).await;
-            Ok(w.take().unwrap())
-        } else {
-            drop(r);
-            Err(self)
-        }
+        self.0.load(Ordering::Relaxed)
     }
 
     /// Cancels the task, if possible. not yet finished.
     pub fn cancel(&mut self) -> anyhow::Result<()> {
-        let cancel_tx = self.tx_cancel_task.take().context("already cancelled")?;
+        let cancel_tx = self.1.take().context("already cancelled")?;
         let _ = cancel_tx.try_send(());
         Ok(())
     }
@@ -72,36 +52,25 @@ impl<T: Send + 'static> JsTask<T> {
     /// Detaches the task, running it in Javascript without the ability to be
     /// canceled.
     pub fn detach(mut self) {
-        self.tx_cancel_task = None;
+        self.1 = None;
     }
 }
 
 /// Spawn an async task and return a `JsTask<T>`.
-pub fn spawn_local<T: Send + 'static>(
-    future: impl Future<Output = T> + 'static,
-) -> JsTask<T> {
-    let inner = Arc::new(RwLock::new(None));
-    let inner_spawned = inner.clone();
+pub fn spawn_local(future: impl Future<Output = ()> + 'static) -> JsTask {
+    let finished: Arc<AtomicBool> = Default::default();
+    let finished_spawned = finished.clone();
     let (tx_cancel_task, mut rx_cancel_task) = async_channel::bounded(1);
     wasm_bindgen_futures::spawn_local(async move {
-        let task_done = async move {
-            let t = future.await;
-            let mut w = inner_spawned.write().await;
-            *w = Some(t);
-        }
-        .into_stream()
-        .boxed_local();
+        use mogwai::future::FutureExt;
+
         let task_cancelled = async move {
             rx_cancel_task.next().await;
-        }
-        .into_stream()
-        .boxed_local();
-        select_all(vec![task_done, task_cancelled]).next().await;
+        };
+        future.or(task_cancelled).await;
+        finished_spawned.store(true, Ordering::Relaxed)
     });
-    JsTask {
-        tx_cancel_task: Some(tx_cancel_task),
-        inner,
-    }
+    JsTask(finished, Some(tx_cancel_task))
 }
 
 pub(crate) fn init(_: &(), identity: ViewIdentity) -> anyhow::Result<JsDom> {
@@ -119,9 +88,10 @@ pub(crate) fn init(_: &(), identity: ViewIdentity) -> anyhow::Result<JsDom> {
 #[derive(Clone)]
 pub struct JsDom {
     pub(crate) inner: SendWrapper<JsValue>,
-    pub(crate) tasks: Arc<RwLock<Vec<JsTask<()>>>>,
+    pub(crate) tasks: Arc<RwLock<Vec<JsTask>>>,
     pub(crate) listener_callbacks: Arc<RwLock<Vec<WebCallback>>>,
     pub(crate) children: Arc<RwLock<Vec<JsDom>>>,
+    // a list of this element's parent's children, so that this element may remove itself
     pub(crate) parents_children: Option<Arc<RwLock<Vec<JsDom>>>>,
 }
 
@@ -323,17 +293,16 @@ impl JsDom {
     pub fn element(tag: &str, namespace: Option<&str>) -> anyhow::Result<Self> {
         let inner = SendWrapper::new(
             if namespace.is_some() {
-                crate::utils::document()
-                    .clone_as::<web_sys::Document>()
-                    .context("not document")?
-                    .create_element_ns(namespace, tag)
-                    .map_err(|v| anyhow::anyhow!("could not create namespaced element: {:?}", v))
+                DOCUMENT.with(|d| {
+                    d.create_element_ns(namespace, tag).map_err(|v| {
+                        anyhow::anyhow!("could not create namespaced element: {:?}", v)
+                    })
+                })
             } else {
-                crate::utils::document()
-                    .clone_as::<web_sys::Document>()
-                    .context("not document")?
-                    .create_element(tag)
-                    .map_err(|e| anyhow::anyhow!("could not create {} element: {:#?}", tag, e))
+                DOCUMENT.with(|d| {
+                    d.create_element(tag)
+                        .map_err(|e| anyhow::anyhow!("could not create {} element: {:#?}", tag, e))
+                })
             }?
             .into(),
         );
@@ -497,7 +466,7 @@ impl JsDom {
         }: Listener,
     ) -> anyhow::Result<()> {
         let tx = sink.contra_map(|event: JsDomEvent| AnyEvent::new(event));
-        let callback = match event_target.as_str() {
+        let callback = match event_target {
             "myself" => crate::event::add_event(
                 &event_name,
                 self.inner
@@ -506,19 +475,18 @@ impl JsDom {
                     .unwrap(),
                 Box::pin(tx),
             ),
-            "window" => crate::event::add_event(
-                &event_name,
-                &web_sys::window().unwrap(),
-                Box::pin(tx),
-            ),
-            "document" => crate::event::add_event(
-                &event_name,
-                &web_sys::window().unwrap().document().unwrap(),
-                Box::pin(tx),
-            ),
+            "window" => {
+                crate::event::add_event(&event_name, &WINDOW.with(|w| w.clone()), Box::pin(tx))
+            }
+            "document" => {
+                crate::event::add_event(&event_name, &DOCUMENT.with(|d| d.clone()), Box::pin(tx))
+            }
             _ => anyhow::bail!("unsupported event target {}", event_target),
         };
-        let mut write = self.listener_callbacks.try_write().context("cannot acquire write")?;
+        let mut write = self
+            .listener_callbacks
+            .try_write()
+            .context("cannot acquire write")?;
         write.push(callback);
 
         Ok(())
@@ -598,13 +566,7 @@ impl TryFrom<ViewBuilder> for JsDom {
     type Error = anyhow::Error;
 
     fn try_from(builder: ViewBuilder) -> Result<Self, Self::Error> {
-        let (js, to_spawn) = super::build(
-            (),
-            builder,
-            init,
-            update_js_dom,
-            JsDom::add_listener,
-        )?;
+        let (js, to_spawn) = super::build((), builder, init, update_js_dom, JsDom::add_listener)?;
         for future_task in to_spawn.into_iter() {
             let mut ts = js.tasks.try_write().unwrap();
             ts.push(spawn_local(future_task.0));
@@ -751,8 +713,8 @@ impl Hydrator {
             tasks,
         } = builder;
         let construct_with = match identity {
-            ViewIdentity::Branch(s) => s,
-            ViewIdentity::NamespacedBranch(s, _) => s,
+            ViewIdentity::Branch(s) => s.to_owned(),
+            ViewIdentity::NamespacedBranch(s, _) => s.to_owned(),
             ViewIdentity::Leaf(s) => s,
         };
 

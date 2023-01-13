@@ -327,8 +327,8 @@ impl<S: Send + 'static, St: Stream<Item = S> + Send + 'static> From<MogwaiValue<
 /// The starting identity of a view.
 #[derive(Debug)]
 pub enum ViewIdentity {
-    Branch(String),
-    NamespacedBranch(String, String),
+    Branch(&'static str),
+    NamespacedBranch(&'static str, &'static str),
     Leaf(String),
 }
 
@@ -365,8 +365,8 @@ pub enum Update {
 /// to subscribe to them. In other domains (like those in languages with sum types)
 /// the name doesn't matter, and you may simply filter based on the enum's variant.
 pub struct Listener {
-    pub event_name: String,
-    pub event_target: String,
+    pub event_name: &'static str,
+    pub event_target: &'static str,
     pub sink: MogwaiSink<AnyEvent>,
 }
 
@@ -427,9 +427,9 @@ impl ViewBuilder {
     }
 
     /// Create a new container element builder.
-    pub fn element(tag: impl Into<String>) -> Self {
+    pub fn element(tag: &'static str) -> Self {
         ViewBuilder {
-            identity: ViewIdentity::Branch(tag.into()),
+            identity: ViewIdentity::Branch(tag),
             updates: Default::default(),
             post_build_ops: vec![],
             view_sinks: vec![],
@@ -439,9 +439,9 @@ impl ViewBuilder {
     }
 
     /// Create a new namespaced container element builder.
-    pub fn element_ns(tag: impl Into<String>, ns: impl Into<String>) -> Self {
+    pub fn element_ns(tag: &'static str, ns: &'static str) -> Self {
         ViewBuilder {
-            identity: ViewIdentity::NamespacedBranch(tag.into(), ns.into()),
+            identity: ViewIdentity::NamespacedBranch(tag, ns),
             updates: Default::default(),
             post_build_ops: vec![],
             view_sinks: vec![],
@@ -683,8 +683,8 @@ impl ViewBuilder {
     /// the boxed view is sent into the sink.
     pub fn with_event<Event: Any + Send + Sync + Unpin + Clone>(
         mut self,
-        name: impl Into<String>,
-        target: impl Into<String>,
+        name: &'static str,
+        target: &'static str,
         si: impl Sink<Event> + Send + Sync + Unpin + 'static,
     ) -> Self {
         let sink = Box::new(si.contra_map(|any: AnyEvent| {
@@ -693,7 +693,7 @@ impl ViewBuilder {
         }));
 
         let listener = Listener {
-            event_name: name.into(),
+            event_name: name,
             event_target: target.into(),
             sink,
         };

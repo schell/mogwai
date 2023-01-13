@@ -1,5 +1,5 @@
 use anyhow::Context;
-use mogwai_dom::utils;
+use mogwai_dom::utils::WINDOW;
 use serde::{Deserialize, Serialize};
 use web_sys::Storage;
 
@@ -15,10 +15,11 @@ impl StoredBench {
     }
 
     pub fn try_load(name: impl ToString) -> anyhow::Result<Option<Self>> {
-        let storage = utils::window()
-            .local_storage()
-            .map_err(|jsv| anyhow::anyhow!("could not get local storage: {:#?}", jsv))?
-            .context("no storage")?;
+        let storage = WINDOW.with(|w| {
+            w.local_storage()
+                .map_err(|jsv| anyhow::anyhow!("could not get local storage: {:#?}", jsv))?
+                .context("no storage")
+        })?;
         let key = name.to_string();
         if let Some(s) = storage.get_item(&key).ok().context("storage problem")? {
             let stored_bench: StoredBench = serde_json::from_str(&s)?;
@@ -31,9 +32,11 @@ impl StoredBench {
     pub fn try_write(&self) -> anyhow::Result<()> {
         let str_value = serde_json::to_string(&self)?;
         let key = self.key();
-        utils::window()
-            .local_storage()
-            .map_err(|jsv| anyhow::anyhow!("could not get local storage: {:#?}", jsv))?
+        WINDOW
+            .with(|w| {
+                w.local_storage()
+                    .map_err(|jsv| anyhow::anyhow!("could not get local storage: {:#?}", jsv))
+            })?
             .into_iter()
             .for_each(|storage: Storage| {
                 storage
