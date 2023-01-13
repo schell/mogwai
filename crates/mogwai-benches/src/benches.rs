@@ -175,12 +175,36 @@ impl Mdl {
         }
     }
 
+    pub fn row_viewbuilder(row: &Row, selected: Model<Option<usize>>, identity: Option<JsDom>) -> ViewBuilder {
+        let is_selected = selected.stream().map(move |selected| selected == Some(row.id));
+        let select_class = ("", is_selected.map(|is_selected| if is_selected{ "danger"} else { "" }.to_string()));
+        let mut builder = rsx!(
+            tr(key=row.id.to_string(), class = select_class) {
+                td(class="col-md-1"){{ row.id.to_string() }}
+                td(class="col-md-4"){
+                    a() {{ ("", row.label.stream()) }}
+                }
+                td(class="col-md-1"){
+                    a() {
+                        span(class="glyphicon glyphicon-remove", aria_hidden="true") {}
+                    }
+                }
+                td(class="col-md-6"){ }
+            }
+        );
+        if let Some(dom) = identity {
+            builder.identity = ViewIdentity::Hydrate(AnyView::new(dom));
+        }
+        builder
+    }
+
     // ------ ------
     //     View
     // ------ ------
     pub fn viewbuilder(self) -> ViewBuilder {
         let main_click = Output::<JsDomEvent>::default();
         let selected = self.selected.clone();
+        let row_node = row_viewbuilder()
         let builder = rsx! (
             div(id="main", on:click = main_click.sink()) {
                 div(class="container") {
@@ -205,25 +229,7 @@ impl Mdl {
                         tbody(patch:children = self.rows
                             .stream()
                             .map(move |patch|{
-                                patch.map(|row| {
-                                    let is_selected = selected.stream().map(move |selected| selected == Some(row.id));
-                                    let select_class = ("", is_selected.map(|is_selected| if is_selected{ "danger"} else { "" }.to_string()));
-
-                                    rsx!(
-                                        tr(key=row.id.to_string(), class = select_class) {
-                                            td(class="col-md-1"){{ row.id.to_string() }}
-                                            td(class="col-md-4"){
-                                                a() {{ ("", row.label.stream()) }}
-                                            }
-                                            td(class="col-md-1"){
-                                                a() {
-                                                    span(class="glyphicon glyphicon-remove", aria_hidden="true") {}
-                                                }
-                                            }
-                                            td(class="col-md-6"){ }
-                                        }
-                                    )
-                                })
+                                patch.map(|row| {})
                             })
                         ) {}
                     }

@@ -17,15 +17,17 @@ use mogwai::{
     patch::{HashPatch, HashPatchApply, ListPatch, ListPatchApply},
     sink::SinkExt,
     stream::StreamExt,
-    view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity},
+    view::{AnyEvent, AnyView, Listener, Update, ViewBuilder, ViewIdentity},
 };
 use send_wrapper::SendWrapper;
-use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 
 use crate::{
     event::{JsDomEvent, WebCallback},
     prelude::{DOCUMENT, WINDOW},
 };
+
+use super::FutureTask;
 
 
 #[derive(Clone)]
@@ -71,15 +73,6 @@ pub fn spawn_local(future: impl Future<Output = ()> + 'static) -> JsTask {
         finished_spawned.store(true, Ordering::Relaxed)
     });
     JsTask(finished, Some(tx_cancel_task))
-}
-
-pub(crate) fn init(_: &(), identity: ViewIdentity) -> anyhow::Result<JsDom> {
-    let element = match identity {
-        ViewIdentity::Branch(tag) => JsDom::element(&tag, None),
-        ViewIdentity::NamespacedBranch(tag, ns) => JsDom::element(&tag, Some(&ns)),
-        ViewIdentity::Leaf(text) => JsDom::text(&text),
-    }?;
-    Ok(element)
 }
 
 /// A Javascript/browser DOM node.
@@ -134,123 +127,6 @@ impl From<JsValue> for JsDom {
     }
 }
 
-pub(crate) fn update_js_dom(js_dom: &JsDom, update: Update) -> anyhow::Result<()> {
-    match update {
-        Update::Text(s) => {
-            js_dom
-                .inner
-                .dyn_ref::<web_sys::Text>()
-                .context("not a text node")?
-                .set_data(&s);
-        }
-        Update::Attribute(patch) => match patch {
-            HashPatch::Insert(k, v) => {
-                js_dom
-                    .inner
-                    .dyn_ref::<web_sys::Element>()
-                    .with_context(|| {
-                        format!(
-                            "could not set attribute {}={} on {:?}: not an element",
-                            k, v, js_dom.inner
-                        )
-                    })?
-                    .set_attribute(&k, &v)
-                    .map_err(|_| anyhow::anyhow!("could not set attrib"))?;
-            }
-            HashPatch::Remove(k) => {
-                js_dom
-                    .inner
-                    .dyn_ref::<web_sys::Element>()
-                    .with_context(|| {
-                        format!(
-                            "could remove attribute {} on {:?}: not an element",
-                            k, js_dom.inner
-                        )
-                    })?
-                    .remove_attribute(&k)
-                    .map_err(|_| anyhow::anyhow!("could remove attrib"))?;
-            }
-        },
-        Update::BooleanAttribute(patch) => match patch {
-            HashPatch::Insert(k, v) => {
-                if v {
-                    js_dom
-                        .inner
-                        .dyn_ref::<web_sys::Element>()
-                        .with_context(|| {
-                            format!(
-                                "could not set boolean attribute {}={} on {:?}: not an element",
-                                k, v, js_dom.inner
-                            )
-                        })?
-                        .set_attribute(&k, "")
-                        .map_err(|_| anyhow::anyhow!("could not set boolean attrib"))?;
-                } else {
-                    js_dom
-                        .inner
-                        .dyn_ref::<web_sys::Element>()
-                        .with_context(|| {
-                            format!(
-                                "could not remove boolean attribute {}={} on {:?}: not an element",
-                                k, v, js_dom.inner
-                            )
-                        })?
-                        .remove_attribute(&k)
-                        .map_err(|_| anyhow::anyhow!("could not remove boolean attrib"))?;
-                }
-            }
-            HashPatch::Remove(k) => {
-                js_dom
-                    .inner
-                    .dyn_ref::<web_sys::Element>()
-                    .with_context(|| {
-                        format!(
-                            "could not remove boolean attribute {} on {:?}: not an element",
-                            k, js_dom.inner
-                        )
-                    })?
-                    .remove_attribute(&k)
-                    .map_err(|_| anyhow::anyhow!("could not remove boolean attrib".to_string()))?;
-            }
-        },
-        Update::Style(patch) => {
-            let style = js_dom
-                .inner
-                .dyn_ref::<web_sys::HtmlElement>()
-                .map(|el| el.style())
-                .or_else(|| {
-                    js_dom
-                        .inner
-                        .dyn_ref::<web_sys::SvgElement>()
-                        .map(|el| el.style())
-                })
-                .with_context(|| {
-                    format!(
-                        "could not patch style on {:?}: not an element",
-                        js_dom.inner
-                    )
-                })?;
-            match patch {
-                HashPatch::Insert(k, v) => {
-                    style
-                        .set_property(&k, &v)
-                        .map_err(|_| anyhow::anyhow!("could not set style"))?;
-                }
-                HashPatch::Remove(k) => {
-                    style
-                        .remove_property(&k)
-                        .map_err(|_| anyhow::anyhow!("could not remove style"))?;
-                }
-            }
-        }
-        Update::Child(patch) => {
-            let patch: ListPatch<JsDom> = patch.try_map(JsDom::try_from)?;
-            let _ = js_dom.patch(patch);
-        }
-    }
-
-    Ok(())
-}
 
 // TODO: Make errors returned by JsDom methods Box<dyn Error>
 impl JsDom {
@@ -278,6 +154,117 @@ impl JsDom {
                 log::error!("could not use {:?} as {}", js, std::any::type_name::<E>());
             }
         })
+    }
+
+    pub fn update(&self, update: Update) -> anyhow::Result<()> {
+        match update {
+            Update::Text(s) => {
+                self.inner
+                    .dyn_ref::<web_sys::Text>()
+                    .context("not a text node")?
+                    .set_data(&s);
+            }
+            Update::Attribute(patch) => match patch {
+                HashPatch::Insert(k, v) => {
+                    self.inner
+                        .dyn_ref::<web_sys::Element>()
+                        .with_context(|| {
+                            format!(
+                                "could not set attribute {}={} on {:?}: not an element",
+                                k, v, self.inner
+                            )
+                        })?
+                        .set_attribute(&k, &v)
+                        .map_err(|_| anyhow::anyhow!("could not set attrib"))?;
+                }
+                HashPatch::Remove(k) => {
+                    self.inner
+                        .dyn_ref::<web_sys::Element>()
+                        .with_context(|| {
+                            format!(
+                                "could remove attribute {} on {:?}: not an element",
+                                k, self.inner
+                            )
+                        })?
+                        .remove_attribute(&k)
+                        .map_err(|_| anyhow::anyhow!("could remove attrib"))?;
+                }
+            },
+            Update::BooleanAttribute(patch) => match patch {
+                HashPatch::Insert(k, v) => {
+                    if v {
+                        self.inner
+                            .dyn_ref::<web_sys::Element>()
+                            .with_context(|| {
+                                format!(
+                                    "could not set boolean attribute {}={} on {:?}: not an element",
+                                    k, v, self.inner
+                                )
+                            })?
+                            .set_attribute(&k, "")
+                            .map_err(|_| anyhow::anyhow!("could not set boolean attrib"))?;
+                    } else {
+                        self.inner
+                            .dyn_ref::<web_sys::Element>()
+                            .with_context(|| {
+                                format!(
+                                    "could not remove boolean attribute {}={} on {:?}: not an \
+                                     element",
+                                    k, v, self.inner
+                                )
+                            })?
+                            .remove_attribute(&k)
+                            .map_err(|_| anyhow::anyhow!("could not remove boolean attrib"))?;
+                    }
+                }
+                HashPatch::Remove(k) => {
+                    self.inner
+                        .dyn_ref::<web_sys::Element>()
+                        .with_context(|| {
+                            format!(
+                                "could not remove boolean attribute {} on {:?}: not an element",
+                                k, self.inner
+                            )
+                        })?
+                        .remove_attribute(&k)
+                        .map_err(|_| {
+                            anyhow::anyhow!("could not remove boolean attrib".to_string())
+                        })?;
+                }
+            },
+            Update::Style(patch) => {
+                let style = self
+                    .inner
+                    .dyn_ref::<web_sys::HtmlElement>()
+                    .map(|el| el.style())
+                    .or_else(|| {
+                        self.inner
+                            .dyn_ref::<web_sys::SvgElement>()
+                            .map(|el| el.style())
+                    })
+                    .with_context(|| {
+                        format!("could not patch style on {:?}: not an element", self.inner)
+                    })?;
+                match patch {
+                    HashPatch::Insert(k, v) => {
+                        style
+                            .set_property(&k, &v)
+                            .map_err(|_| anyhow::anyhow!("could not set style"))?;
+                    }
+                    HashPatch::Remove(k) => {
+                        style
+                            .remove_property(&k)
+                            .map_err(|_| anyhow::anyhow!("could not remove style"))?;
+                    }
+                }
+            }
+            Update::Child(patch) => {
+                let patch: ListPatch<JsDom> = patch.try_map(JsDom::try_from)?;
+                let _ = self.patch(patch);
+            }
+        }
+
+        Ok(())
     }
 
     /// Detaches the node from the DOM.
@@ -491,6 +478,17 @@ impl JsDom {
 
         Ok(())
     }
+
+    pub fn ossify(self) -> JsDom {
+        let element: JsValue = (*self.inner).clone();
+        JsDom::from(element)
+    }
+
+    //pub fn hydrate(node: JsDom, mut builder: ViewBuilder) ->
+    // anyhow::Result<JsDom> {    builder.identity =
+    // ViewIdentity::Hydrate(AnyView::new(node));
+    //    Hydrator::try_hydrate(builder, None).map(|h| h.inner)
+    //}
 }
 
 // Helper function for defining `ListPatchApply for JsDom`.
@@ -562,16 +560,132 @@ impl ListPatchApply for JsDom {
     }
 }
 
+pub(crate) fn build(
+    builder: ViewBuilder,
+    may_parent: Option<(usize, &web_sys::Node)>,
+) -> anyhow::Result<JsDom> {
+    let ViewBuilder {
+        identity,
+        updates,
+        post_build_ops,
+        listeners,
+        tasks,
+        view_sinks,
+        hydration_root,
+    } = builder;
+
+    let (update_stream, initial_values) = if let Some(updates) = super::my_select_all(updates) {
+        let (stream, vals) = super::exhaust(updates);
+        (Some(stream), vals)
+    } else {
+        (None, vec![])
+    };
+
+    let hydrating_root = hydration_root.is_some();
+    let hydrating_child = may_parent.is_some();
+
+    // intialize it
+    let dom = if hydrating_child {
+        let attribs = initial_values
+            .iter()
+            .filter_map(|update| {
+                match update {
+                    Update::Attribute(patch) => Some(patch.clone()),
+                    _ => None
+                }
+            });
+        let key = match identity {
+            ViewIdentity::Branch(t) => HydrationKey::try_new(t, attribs, may_parent),
+            ViewIdentity::NamespacedBranch(t, _) => HydrationKey::try_new(t, attribs, may_parent),
+            ViewIdentity::Leaf(t) => HydrationKey::try_new(t, attribs, may_parent),
+        }?;
+        key.hydrate()?
+    } else {
+        if let Some(root) = hydration_root {
+            root.downcast()?
+        } else {
+            match identity {
+                ViewIdentity::Branch(tag) => JsDom::element(&tag, None),
+                ViewIdentity::NamespacedBranch(tag, ns) => JsDom::element(&tag, Some(&ns)),
+                ViewIdentity::Leaf(text) => JsDom::text(&text),
+            }?
+        }
+    };
+
+    if hydrating_root || hydrating_child {
+        let child_patches = initial_values
+            .into_iter()
+            .filter_map(|update| match update {
+                Update::Child(patch) => Some(patch),
+                _ => None,
+            });
+        let mut child_builders: Vec<ViewBuilder> = vec![];
+        for patch in child_patches.into_iter() {
+            let _ = child_builders.list_patch_apply(patch);
+        }
+
+        let node = dom
+            .clone_as::<web_sys::Node>()
+            .context("element is not a node")?;
+        let mut children = dom.children.try_write().context("can't write children")?;
+        for (i, bldr) in child_builders.into_iter().enumerate() {
+            children.push(build(bldr, Some((i, &node)))?);
+        }
+    } else {
+        for update in initial_values.into_iter() {
+            dom.update(update)?;
+        }
+    }
+
+    // add listeners
+    for listener in listeners.into_iter() {
+        dom.add_listener(listener)?;
+    }
+
+    // post build
+    let mut any_view = AnyView::new(dom);
+    for op in post_build_ops.into_iter() {
+        (op)(&mut any_view)?;
+    }
+    let dom = any_view.downcast::<JsDom>()?;
+
+    // make spawn update loop
+    let mut to_spawn = vec![];
+    if let Some(mut update_stream) = update_stream {
+        let node = dom.clone();
+        to_spawn.push(FutureTask(Box::pin(async move {
+            while let Some(update) = update_stream.next().await {
+                node.update(update).unwrap_throw();
+            }
+        })));
+    }
+
+    // make spawn logic tasks
+    for task in tasks.into_iter() {
+        to_spawn.push(FutureTask(task));
+    }
+
+    // spawn them
+    let mut ts = dom.tasks.try_write().unwrap();
+    for future_task in to_spawn.into_iter() {
+        ts.push(spawn_local(future_task.0));
+    }
+    drop(ts);
+
+    // send view sinks
+    for sink in view_sinks.into_iter() {
+        let any_view = AnyView::new(dom.clone());
+        let _ = sink.try_send(any_view);
+    }
+
+    Ok(dom)
+}
+
 impl TryFrom<ViewBuilder> for JsDom {
     type Error = anyhow::Error;
 
     fn try_from(builder: ViewBuilder) -> Result<Self, Self::Error> {
-        let (js, to_spawn) = super::build((), builder, init, update_js_dom, JsDom::add_listener)?;
-        for future_task in to_spawn.into_iter() {
-            let mut ts = js.tasks.try_write().unwrap();
-            ts.push(spawn_local(future_task.0));
-        }
-        Ok(js)
+        build(builder, None)
     }
 }
 
@@ -583,8 +697,8 @@ pub enum HydrationKey {
 
 impl HydrationKey {
     pub fn try_new(
-        tag: String,
-        attribs: Vec<HashPatch<String, String>>,
+        tag: impl AsRef<str>,
+        attribs: impl Iterator<Item = HashPatch<String, String>>,
         may_parent: Option<(usize, &web_sys::Node)>,
     ) -> anyhow::Result<Self> {
         let mut attributes = HashMap::new();
@@ -606,7 +720,7 @@ impl HydrationKey {
         anyhow::bail!(
             "Missing any hydration option for node '{}' - must be the child of a node or have an \
              id",
-            tag
+            tag.as_ref()
         )
     }
 
@@ -746,7 +860,7 @@ impl Hydrator {
             tasks,
             view_sinks,
             JsDom::add_listener,
-            update_js_dom,
+            JsDom::update,
         )?;
 
         let node = dom

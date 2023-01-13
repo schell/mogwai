@@ -1,4 +1,4 @@
-use mogwai_dom::utils;
+use mogwai_dom::utils::WINDOW;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use wasm_bindgen::JsValue;
@@ -14,8 +14,8 @@ const KEY: &str = "todomvc-mogwai";
 
 pub fn write_items(items: &Vec<Item>) -> Result<(), JsValue> {
     let str_value = serde_json::to_string(items).expect("Could not serialize items");
-    utils::window()
-        .local_storage()?
+    WINDOW
+        .with(|w| w.local_storage())?
         .into_iter()
         .for_each(|storage: Storage| {
             storage
@@ -26,9 +26,8 @@ pub fn write_items(items: &Vec<Item>) -> Result<(), JsValue> {
 }
 
 pub fn read_items() -> Result<Vec<Item>, String> {
-    let storage = utils::window()
-        .local_storage()
-        .map_err(|jsv| format!("{:#?}", jsv))?
+    let storage = WINDOW
+        .with(|w| w.local_storage().map_err(|jsv| format!("{:#?}", jsv)))?
         .expect("Could not get local storage");
 
     let may_item_str: Option<String> = storage.get_item(KEY).expect("Error using storage get_item");

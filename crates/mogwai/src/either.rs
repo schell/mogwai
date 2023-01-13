@@ -48,14 +48,14 @@ impl<A, B> Either<A, B> {
         }
     }
 
-    pub fn bimap<F, G>(self, mut f: impl FnMut(A) -> F, mut g: impl FnMut(B) -> G) -> Either<F, G> {
+    pub fn bimap<F, G>(self, f: impl FnOnce(A) -> F, g: impl FnOnce(B) -> G) -> Either<F, G> {
         match self {
             Either::Left(l) => Either::Left(f(l)),
             Either::Right(r) => Either::Right(g(r)),
         }
     }
 
-    pub fn either<T>(self, f: impl FnMut(A) -> T, g: impl FnMut(B) -> T) -> T {
+    pub fn either<T>(self, f: impl FnOnce(A) -> T, g: impl FnOnce(B) -> T) -> T {
         self.bimap(f, g).into_inner()
     }
 }

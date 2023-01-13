@@ -185,7 +185,13 @@ impl Dom {
         identity: ViewIdentity,
     ) -> anyhow::Result<Self> {
         Ok(match rez {
-            Either::Left(()) => Dom::from(js::init(&(), identity)?),
+            Either::Left(()) => Dom::from({
+                match identity {
+                    ViewIdentity::Branch(tag) => JsDom::element(&tag, None),
+                    ViewIdentity::NamespacedBranch(tag, ns) => JsDom::element(&tag, Some(&ns)),
+                    ViewIdentity::Leaf(text) => JsDom::text(&text),
+                }
+            }?),
             Either::Right(executor) => Dom::from(ssr::init(executor, identity)?),
         })
     }
@@ -351,7 +357,7 @@ impl Dom {
                 }
             }
             update => match self.as_either_ref() {
-                Either::Left(js) => js::update_js_dom(js, update),
+                Either::Left(js) => js.update(update),
                 Either::Right(ssr) => ssr::update_ssr_dom(ssr, update),
             },
         }

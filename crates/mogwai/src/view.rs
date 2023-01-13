@@ -403,6 +403,10 @@ pub struct ViewBuilder {
     pub listeners: Vec<Listener>,
     /// Asynchronous tasks that run after the view has been initialized.
     pub tasks: Vec<MogwaiFuture<()>>,
+    /// A pre-built view node to use as the root.
+    ///
+    /// This is good for hydrating pre-rendered nodes and for optimizations.
+    pub hydration_root: Option<AnyView>
 }
 
 impl std::fmt::Debug for ViewBuilder {
@@ -435,6 +439,7 @@ impl ViewBuilder {
             view_sinks: vec![],
             listeners: vec![],
             tasks: vec![],
+            hydration_root: None,
         }
     }
 
@@ -447,6 +452,7 @@ impl ViewBuilder {
             view_sinks: vec![],
             listeners: vec![],
             tasks: vec![],
+            hydration_root: None,
         }
     }
 
@@ -468,6 +474,7 @@ impl ViewBuilder {
             tasks: vec![],
             listeners: vec![],
             view_sinks: vec![],
+            hydration_root: None,
         }
     }
 
@@ -699,6 +706,14 @@ impl ViewBuilder {
         };
 
         self.listeners.push(listener);
+        self
+    }
+
+    /// Use the given view node instead of creating a new node from scratch.
+    ///
+    /// This is used for hydrating reactivity from a pre-rendered or "ossified" node.
+    pub fn with_hydration_root<V: View>(mut self, view: V) -> Self {
+        self.hydration_root = Some(AnyView::new(view));
         self
     }
 }
