@@ -1,30 +1,50 @@
 use mogwai_dom::prelude::*;
-use std::{future::Future, marker::PhantomData, panic};
+use std::{future::Future, panic, pin::Pin};
 use wasm_bindgen::prelude::*;
 
 mod benches;
 mod store;
 
-struct Bench<F, Fut> {
+pub struct Bench<'a> {
     name: &'static str,
     // seconds
     samples: Vec<f64>,
-    routine: F,
-    _phantom: PhantomData<Fut>,
+    routine: Box<dyn FnMut() -> Pin<Box<dyn Future<Output = ()> + 'a>> + 'a>,
 }
 
-impl<F, Fut> Bench<F, Fut>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = ()>,
-{
-    pub fn new(name: &'static str, routine: F) -> Self {
-        Bench {
-            name,
-            samples: vec![],
-            routine,
-            _phantom: PhantomData,
+impl<'a> Default for Bench<'a> {
+    fn default() -> Self {
+        Self {
+            name: "unknown",
+            samples: Default::default(),
+            routine: Box::new(|| Box::pin(async {})),
         }
+    }
+}
+
+impl<'a> Bench<'a> {
+    pub fn new<F, Fut>(name: &'static str, f: F) -> Self
+    where
+        F: FnMut() -> Fut + 'a,
+        Fut: Future<Output = ()> + 'a,
+    {
+        Bench::default()
+            .with_name(name)
+            .with_routine(f)
+    }
+
+    pub fn with_routine<F, Fut>(mut self, mut f: F) -> Self
+    where
+        F: FnMut() -> Fut + 'a,
+        Fut: Future<Output = ()> + 'a,
+    {
+        self.routine = Box::new(move || Box::pin(f()));
+        self
+    }
+
+    pub fn with_name(mut self, name: &'static str) -> Self {
+        self.name = name;
+        self
     }
 
     pub async fn run(&mut self, mut warmups: usize, num_samples: usize) {
@@ -99,8 +119,44 @@ where
     }
 }
 
+#[derive(Default)]
+pub struct BenchSet<'a> {
+    benches: Vec<Bench<'a>>,
+}
+
+impl<'a> BenchSet<'a> {
+    pub fn with_bench(mut self, bench: Bench<'a>) -> Self {
+        self.benches.push(bench);
+        self
+    }
+
+    pub async fn run(&mut self, warmups: usize, iters: usize) {
+        for bench in self.benches.iter_mut() {
+            bench.run(warmups, iters).await;
+        }
+    }
+
+    pub fn viewbuilder(&self) -> ViewBuilder {
+        rsx! {
+            fieldset(id = "results") {
+                legend() { "Results" }
+                {
+                    self.benches.iter().map(Bench::viewbuilder).collect::<Vec<_>>()
+                }
+            }
+        }
+    }
+
+    pub fn save(&self) -> anyhow::Result<()> {
+        for bench in self.benches.iter() {
+            bench.save()?;
+        }
+        Ok(())
+    }
+}
+
 #[wasm_bindgen(start)]
-pub fn main() -> Result<(), JsValue> {
+pub fn main() {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(log::Level::Trace).expect("could not init console_log");
 
@@ -113,30 +169,24 @@ pub fn main() -> Result<(), JsValue> {
         log::info!("creating and running benchmarks");
 
         let doc = mogwai_dom::utils::document();
-        let mut create_1000 = Bench::new("create_1000", || async {
-            benches::create(&mdl, &doc, 1000).await;
-        });
-        let mut create_10_000 = Bench::new("create_10_000", || async {
-            benches::create(&mdl, &doc, 10_000).await;
-        });
+        let mut set = BenchSet::default()
+            .with_bench(
+                Bench::new("create_1000", || async {
+                    benches::create(&mdl, &doc, 1000).await;
+                })
+            )
+            .with_bench(
+                Bench::new("create_10_000", || async {
+                    benches::create(&mdl, &doc, 10_000).await;
+                })
+            );
+        set.run(3, 7).await;
 
-        create_1000.run(3, 7).await;
-        create_10_000.run(1, 2).await;
-
-        let stats = JsDom::try_from(rsx! {
-            fieldset(id = "results") {
-                legend() { "Results" }
-                {create_1000.viewbuilder()}
-                {create_10_000.viewbuilder()}
-            }
-        })
-        .expect("could not build stats");
+        let stats = JsDom::try_from(set.viewbuilder())
+            .expect("could not build stats");
         stats.run().unwrap();
-        create_1000.save().expect("could not save result");
-        create_10_000.save().expect("could not save result");
+        set.save().expect("could not save");
 
         log::info!("done!");
     });
-
-    Ok(())
 }

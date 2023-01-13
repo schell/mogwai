@@ -118,7 +118,7 @@ pub(crate) fn init(_: &(), identity: ViewIdentity) -> anyhow::Result<JsDom> {
 /// Represents DOM nodes when a view is built on a WASM target.
 #[derive(Clone)]
 pub struct JsDom {
-    pub(crate) inner: SendWrapper<std::sync::Arc<JsValue>>,
+    pub(crate) inner: SendWrapper<JsValue>,
     pub(crate) tasks: Arc<RwLock<Vec<JsTask<()>>>>,
     pub(crate) listener_callbacks: Arc<RwLock<Vec<WebCallback>>>,
     pub(crate) children: Arc<RwLock<Vec<JsDom>>>,
@@ -155,7 +155,7 @@ impl Deref for JsDom {
 impl From<JsValue> for JsDom {
     fn from(value: JsValue) -> Self {
         JsDom {
-            inner: SendWrapper::new(std::sync::Arc::new(value)),
+            inner: SendWrapper::new(value),
             tasks: Default::default(),
             listener_callbacks: Default::default(),
             children: Default::default(),
@@ -321,7 +321,7 @@ impl JsDom {
 
     /// Create an element.
     pub fn element(tag: &str, namespace: Option<&str>) -> anyhow::Result<Self> {
-        let inner = SendWrapper::new(std::sync::Arc::new(
+        let inner = SendWrapper::new(
             if namespace.is_some() {
                 crate::utils::document()
                     .clone_as::<web_sys::Document>()
@@ -336,7 +336,7 @@ impl JsDom {
                     .map_err(|e| anyhow::anyhow!("could not create {} element: {:#?}", tag, e))
             }?
             .into(),
-        ));
+        );
         Ok(JsDom {
             inner,
             tasks: Default::default(),
@@ -352,7 +352,7 @@ impl JsDom {
             .map_err(|e| anyhow::anyhow!("could not create wasm text: {:?}", e))?;
         text.set_data(s);
         let node: JsValue = text.into();
-        let inner = SendWrapper::new(std::sync::Arc::new(node));
+        let inner = SendWrapper::new(node);
         Ok(JsDom {
             inner,
             tasks: Default::default(),
@@ -756,7 +756,12 @@ impl Hydrator {
             ViewIdentity::Leaf(s) => s,
         };
 
-        let (update_stream, updates) = crate::core::view::exhaust(select_all(updates));
+        let (update_stream, updates) = if let Some(updates) = super::my_select_all(updates) {
+            let (stream, vals) = mogwai::view::exhaust(updates);
+            (Some(stream), vals)
+        } else {
+            (None, vec![])
+        };
         let (updates, attribs) =
             updates
                 .into_iter()

@@ -9,7 +9,7 @@ use mogwai::{
     view::{
         exhaust, AnyEvent, AnyView, Listener, MogwaiFuture, MogwaiSink, MogwaiStream, PostBuild,
         Update, View, ViewBuilder, ViewIdentity,
-    },
+    }
 };
 
 pub use crate::event::JsDomEvent;
@@ -21,13 +21,52 @@ mod ssr;
 pub use serde_json::Value;
 pub use ssr::SsrDom;
 
-pub use mogwai::{either::Either, sink::Sink, stream::StreamExt};
+pub use mogwai::{
+    either::Either,
+    sink::Sink,
+    stream::{Stream, StreamExt},
+};
 use wasm_bindgen::JsCast;
 
 pub(crate) struct FutureTask<T>(pub(crate) Pin<Box<dyn Future<Output = T> + Send>>);
 
-/// Build the `ViewBuilder` in a way that can be used by the browser and server-side
-/// and both.
+pub(crate) enum MySelectAll<T, St: Stream<Item = T> + Send + Unpin + 'static> {
+    One(St),
+    Many(Pin<Box<dyn Stream<Item = T> + Send + Unpin + 'static>>),
+}
+
+pub(crate) fn my_select_all<T: 'static, St: Stream<Item = T> + Send + Unpin + 'static>(
+    mut streams: Vec<St>,
+) -> Option<MySelectAll<T, St>> {
+    let one = streams.pop()?;
+    Some(
+        if streams.is_empty() {
+            MySelectAll::One(one)
+        } else {
+            let mut stream: Pin<Box<dyn Stream<Item = T> + Send + Unpin + 'static>> = Box::pin(one);
+            while let Some(next) = streams.pop() {
+                stream = Box::pin(next.or(stream));
+            }
+            MySelectAll::Many(stream)
+        },
+    )
+}
+impl<T: 'static, St: Stream<Item = T> + Send + Unpin + 'static> Stream for MySelectAll<T, St> {
+    type Item = T;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        match self.get_mut() {
+            MySelectAll::One(st) => st.poll_next(cx),
+            MySelectAll::Many(st) => st.poll_next(cx),
+        }
+    }
+}
+
+/// Build the `ViewBuilder` in a way that can be used by the browser and
+/// server-side and both.
 pub(crate) fn build<V: View, R>(
     rez: R,
     builder: ViewBuilder,
@@ -44,8 +83,12 @@ pub(crate) fn build<V: View, R>(
         view_sinks,
     } = builder;
 
-    let updates = futures::stream::select_all(updates);
-    let (update_stream, initial_values) = exhaust(updates);
+    let (update_stream, initial_values) = if let Some(updates) = my_select_all(updates) {
+        let (stream, vals) = exhaust(updates);
+        (Some(stream), vals)
+    } else {
+        (None, vec![])
+    };
     let element: V = initialize_build(&rez, init, update_view, identity, initial_values)?;
     finalize_build(
         element,
@@ -78,7 +121,7 @@ pub(crate) fn initialize_build<V: View, R>(
 /// Finalize the DOM build by making the element reactive.
 pub(crate) fn finalize_build<V: View>(
     element: V,
-    mut update_stream: futures::stream::SelectAll<MogwaiStream<Update>>,
+    update_stream: Option<MySelectAll<Update, MogwaiStream<Update>>>,
     post_build_ops: Vec<PostBuild>,
     listeners: Vec<Listener>,
     tasks: Vec<MogwaiFuture<()>>,
@@ -98,12 +141,14 @@ pub(crate) fn finalize_build<V: View>(
     }
     let element = any_view.downcast::<V>()?;
 
-    let node = element.clone();
-    to_spawn.push(FutureTask(Box::pin(async move {
-        while let Some(update) = update_stream.next().await {
-            update_view(&node, update).unwrap();
-        }
-    })));
+    if let Some(mut update_stream) = update_stream {
+        let node = element.clone();
+        to_spawn.push(FutureTask(Box::pin(async move {
+            while let Some(update) = update_stream.next().await {
+                update_view(&node, update).unwrap();
+            }
+        })));
+    }
 
     for task in tasks.into_iter() {
         to_spawn.push(FutureTask(task));
@@ -268,9 +313,10 @@ impl Dom {
     /// Run this element forever.
     ///
     /// ## Note
-    /// * On WASM this hands ownership over to Javascript (in the browser window)
-    /// * On other targets this loops forever, running the server-side rendered node's
-    ///   async tasks.
+    /// * On WASM this hands ownership over to Javascript (in the browser
+    ///   window)
+    /// * On other targets this loops forever, running the server-side rendered
+    ///   node's async tasks.
     pub fn run(self) -> anyhow::Result<()> {
         match self.0 {
             Either::Left(js) => js.run(),

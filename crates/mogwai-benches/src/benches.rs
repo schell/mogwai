@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{Ordering, AtomicUsize};
 
 use mogwai_dom::{core::model::*, prelude::*};
 use rand::prelude::*;
@@ -43,6 +43,8 @@ static NOUNS: &[&str] = &[
     "pizza", "mouse", "keyboard",
 ];
 
+static ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
+
 type Id = usize;
 type Count = usize;
 type Step = usize;
@@ -53,14 +55,15 @@ struct Row {
     label: Model<String>,
 }
 
-fn build_data(count: usize, next_id: usize) -> Vec<Row> {
+fn build_data(count: usize) -> Vec<Row> {
     let mut thread_rng = thread_rng();
 
     let mut data = Vec::new();
     data.reserve_exact(count);
 
-    for inc in 0..count {
-        let id = next_id + inc;
+    let next_id = ID_COUNTER.fetch_add(count, Ordering::Relaxed);
+
+    for id in next_id..next_id + count {
         let adjective = ADJECTIVES.choose(&mut thread_rng).unwrap();
         let colour = COLOURS.choose(&mut thread_rng).unwrap();
         let noun = NOUNS.choose(&mut thread_rng).unwrap();
@@ -93,7 +96,6 @@ enum Msg {
 
 #[derive(Clone)]
 pub struct Mdl {
-    next_id: Arc<Mutex<usize>>,
     selected: Model<Option<Id>>,
     rows: ListPatchModel<Row>,
 }
@@ -102,11 +104,9 @@ impl Default for Mdl {
     fn default() -> Self {
         let selected: Model<Option<Id>> = Model::new(None);
         let rows: ListPatchModel<Row> = ListPatchModel::default();
-        let next_id = Arc::new(Mutex::new(1));
         Self {
             rows,
             selected,
-            next_id,
         }
     }
 }
@@ -119,12 +119,7 @@ impl Mdl {
         match msg {
             Msg::Create(cnt) => {
                 self.selected.visit_mut(|s| *s = None).await;
-                let new_rows = {
-                    let mut next_id = self.next_id.lock().unwrap();
-                    let rows = build_data(cnt, *next_id);
-                    *next_id += cnt;
-                    rows
-                };
+                let new_rows = build_data(cnt);
                 for row in new_rows.into_iter() {
                     self.rows.push(row).await.expect("could not create rows");
                 }
@@ -132,12 +127,7 @@ impl Mdl {
                 // rows");
             }
             Msg::Append(cnt) => {
-                let new_rows = {
-                    let mut next_id = self.next_id.lock().unwrap();
-                    let rows = build_data(cnt, *next_id);
-                    *next_id += cnt;
-                    rows
-                };
+                let new_rows = build_data(cnt);
                 let num_rows = self.rows.visit(Vec::len).await;
                 self.rows
                     .splice(num_rows.., new_rows)
