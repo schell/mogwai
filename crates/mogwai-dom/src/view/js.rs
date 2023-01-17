@@ -5,7 +5,7 @@ use std::{
     future::Future,
     ops::{Bound, Deref, RangeBounds},
     pin::Pin,
-    rc::Rc,
+    rc::{Rc, Weak, self},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -31,7 +31,7 @@ use crate::{
     prelude::{DOCUMENT, WINDOW},
 };
 
-use super::{FutureTask, atomic::AtomicOption};
+use super::{atomic::AtomicOption, FutureTask};
 
 struct CancelStream<St> {
     st: St,
@@ -162,17 +162,55 @@ pub fn spawn_local(future: impl Future<Output = ()> + Send + Unpin + 'static) {
     wasm_bindgen_futures::spawn_local(future)
 }
 
+#[derive(Debug)]
+pub(crate) struct Shared<T>(SendWrapper<Rc<T>>);
+
+impl<T: Default> Default for Shared<T> {
+    fn default() -> Self {
+        Self(SendWrapper::new(Default::default()))
+    }
+}
+
+impl<T> Clone for Shared<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T> Deref for Shared<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<T> Shared<T> {
+    pub(crate) fn downgrade(&self) -> WeakShared<T> {
+        WeakShared(SendWrapper::new(Rc::downgrade(&self.0)))
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct WeakShared<T>(SendWrapper<Weak<T>>);
+
+impl<T> Clone for WeakShared<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
 /// A Javascript/browser DOM node.
 ///
 /// Represents DOM nodes when a view is built on a WASM target.
 #[derive(Clone)]
 pub struct JsDom {
     pub(crate) inner: SendWrapper<JsValue>,
-    pub(crate) handles: SendWrapper<Rc<Mutex<Vec<StreamHandle>>>>,
-    pub(crate) listener_callbacks: Arc<RwLock<Vec<WebCallback>>>,
-    pub(crate) children: Arc<RwLock<Vec<JsDom>>>,
+    pub(crate) handles: Shared<Mutex<Vec<StreamHandle>>>,
+    pub(crate) listener_callbacks: Shared<RwLock<Vec<WebCallback>>>,
+    pub(crate) children: Shared<RwLock<Vec<JsDom>>>,
     // a list of this element's parent's children, so that this element may remove itself
-    pub(crate) parents_children: Option<Arc<RwLock<Vec<JsDom>>>>,
+    pub(crate) parents_children: Option<WeakShared<RwLock<Vec<JsDom>>>>,
 }
 
 impl Downcast<JsDom> for AnyView {
@@ -212,7 +250,7 @@ impl From<JsValue> for JsDom {
     fn from(value: JsValue) -> Self {
         JsDom {
             inner: SendWrapper::new(value),
-            handles: SendWrapper::new(Default::default()),
+            handles: Default::default(),
             listener_callbacks: Default::default(),
             children: Default::default(),
             parents_children: None,
@@ -378,18 +416,16 @@ impl JsDom {
                     })
                 })
             } else {
-                web_sys::window()
-                    .unwrap_throw()
-                    .document()
-                    .unwrap_throw()
-                    .create_element(tag)
-                    .map_err(|e| anyhow::anyhow!("could not create {} element: {:#?}", tag, e))
+                DOCUMENT.with(|d| {
+                    d.create_element(tag)
+                        .map_err(|e| anyhow::anyhow!("could not create {} element: {:#?}", tag, e))
+                })
             }?
             .into(),
         );
         Ok(JsDom {
             inner,
-            handles: SendWrapper::new(Default::default()),
+            handles: Default::default(),
             listener_callbacks: Default::default(),
             children: Default::default(),
             parents_children: None,
@@ -405,7 +441,7 @@ impl JsDom {
         let inner = SendWrapper::new(node);
         Ok(JsDom {
             inner,
-            handles: SendWrapper::new(Default::default()),
+            handles: Default::default(),
             listener_callbacks: Default::default(),
             children: Default::default(),
             parents_children: None,
@@ -479,9 +515,10 @@ impl JsDom {
         let mut parent = self.inner.dyn_ref::<web_sys::Node>().unwrap().clone();
         list_patch_apply_node(&mut parent, node_patch);
 
+        let weakly_shared_children = Some(self.children.downgrade());
         let mut w = self.children.try_write().unwrap();
         let mut removed = w.list_patch_apply(patch.map(|mut js_dom| {
-            js_dom.parents_children = Some(self.children.clone());
+            js_dom.parents_children = weakly_shared_children.clone();
             js_dom
         }));
         for removed_child in removed.iter_mut() {
