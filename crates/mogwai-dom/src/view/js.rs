@@ -8,7 +8,7 @@ use std::{
     rc::{Rc, Weak, self},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, Weak as ArcWeak
     },
     task::{RawWaker, Wake, Waker},
 };
@@ -163,11 +163,11 @@ pub fn spawn_local(future: impl Future<Output = ()> + Send + Unpin + 'static) {
 }
 
 #[derive(Debug)]
-pub(crate) struct Shared<T>(SendWrapper<Rc<T>>);
+pub(crate) struct Shared<T>(Arc<T>);
 
 impl<T: Default> Default for Shared<T> {
     fn default() -> Self {
-        Self(SendWrapper::new(Default::default()))
+        Self(Default::default())
     }
 }
 
@@ -187,12 +187,12 @@ impl<T> Deref for Shared<T> {
 
 impl<T> Shared<T> {
     pub(crate) fn downgrade(&self) -> WeakShared<T> {
-        WeakShared(SendWrapper::new(Rc::downgrade(&self.0)))
+        WeakShared(Arc::downgrade(&self.0))
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct WeakShared<T>(SendWrapper<Weak<T>>);
+pub(crate) struct WeakShared<T>(ArcWeak<T>);
 
 impl<T> Clone for WeakShared<T> {
     fn clone(&self) -> Self {
