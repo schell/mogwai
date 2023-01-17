@@ -31,12 +31,12 @@ use crate::{
     prelude::{DOCUMENT, WINDOW},
 };
 
-use super::FutureTask;
+use super::{FutureTask, atomic::AtomicOption};
 
 struct CancelStream<St> {
     st: St,
     cancelled: SendWrapper<Rc<AtomicBool>>,
-    waker: SendWrapper<Rc<Mutex<Option<Waker>>>>,
+    waker: SendWrapper<Rc<AtomicOption<Waker>>>,
 }
 
 impl<St: Stream + Unpin> Stream for CancelStream<St> {
@@ -49,7 +49,7 @@ impl<St: Stream + Unpin> Stream for CancelStream<St> {
         if self.cancelled.load(Ordering::Relaxed) {
             std::task::Poll::Ready(None)
         } else {
-            *self.waker.lock().unwrap_throw() = Some(cx.waker().clone());
+            self.waker.swap(Some(cx.waker().clone()));
             self.get_mut().st.poll_next(cx)
         }
     }
@@ -57,13 +57,13 @@ impl<St: Stream + Unpin> Stream for CancelStream<St> {
 
 pub(crate) struct StreamHandle {
     cancelled: SendWrapper<Rc<AtomicBool>>,
-    waker: SendWrapper<Rc<Mutex<Option<Waker>>>>,
+    waker: SendWrapper<Rc<AtomicOption<Waker>>>,
 }
 
 impl Drop for StreamHandle {
     fn drop(&mut self) {
         self.cancelled.store(true, Ordering::Relaxed);
-        if let Some(waker) = self.waker.lock().unwrap_throw().take() {
+        if let Some(waker) = self.waker.as_ref().take() {
             waker.wake();
         }
     }
@@ -71,7 +71,7 @@ impl Drop for StreamHandle {
 
 fn stream_and_handle<St>(st: St) -> (CancelStream<St>, StreamHandle) {
     let cancelled = SendWrapper::new(Rc::new(AtomicBool::new(false)));
-    let waker = SendWrapper::new(Rc::new(Mutex::new(None)));
+    let waker = SendWrapper::new(Rc::new(AtomicOption::new(None)));
     (
         CancelStream {
             cancelled: cancelled.clone(),

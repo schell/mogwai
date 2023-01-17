@@ -15,6 +15,8 @@ use wasm_bindgen::JsCast;
 
 pub use crate::event::JsDomEvent;
 
+pub(crate) mod atomic;
+
 pub mod js;
 pub use js::JsDom;
 
