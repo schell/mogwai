@@ -1,16 +1,19 @@
 //! # Mogwai
 //!
-//! Mogwai is library for multi-domain user interface development using sinks and streams.
+//! Mogwai is library for multi-domain user interface development using sinks
+//! and streams.
 //!
 //! Its goals are simple:
-//! * provide a declarative approach to creating and managing interface nodes, without
-//!   a bias towards a specific UI domain (ie web, games, desktop applications, mobile)
+//! * provide a declarative approach to creating and managing interface nodes,
+//!   without a bias towards a specific UI domain (ie web, games, desktop
+//!   applications, mobile)
 //! * encapsulate component state and compose components easily
 //! * explicate mutations and updates
 //! * feel snappy
 //!
 //! ## Javascript/Browser DOM
-//! This library is specific to writing mogwai apps to run in the browser via WASM.
+//! This library is specific to writing mogwai apps to run in the browser via
+//! WASM.
 //!
 //! ## Learn more
 //! Please check out the [introduction module](an_introduction).
@@ -19,19 +22,22 @@
 //! If you're wondering what the acronym "mogwai" stands for, here is a table of
 //! options that work well, depending on the domain. It's fun to mix and match.
 //!
-//! | M           | O         | G           | W      | A             | I            |
+//! | M           | O         | G           | W      | A             | I
+//! |
 //! |-------------|-----------|-------------|--------|---------------|--------------|
-//! | minimal     | obvious   | graphical   | web    | application   | interface    |
-//! | modular     | operable  | graphable   | widget |               |              |
-//! | mostly      |           | gui         | work   |               |              |
+//! | minimal     | obvious   | graphical   | web    | application   | interface
+//! | | modular     | operable  | graphable   | widget |               |
+//! | | mostly      |           | gui         | work   |               |
+//! |
 //!
 //! ## JavaScript interoperability
 //! This library is a thin layer on top of the [web-sys](https://crates.io/crates/web-sys)
 //! crate which provides raw bindings to _tons_ of browser web APIs.
 //! Many of the DOM specific structs, enums and traits come from `web-sys`.
-//! It is important to understand the [`JsCast`](../prelude/trait.JsCast.html) trait
-//! for writing web apps in Rust. Specifically its `dyn_into` and `dyn_ref` functions
-//! are the primary way to cast JavaScript values as specific Javascript types.
+//! It is important to understand the [`JsCast`](../prelude/trait.JsCast.html)
+//! trait for writing web apps in Rust. Specifically its `dyn_into` and
+//! `dyn_ref` functions are the primary way to cast JavaScript values as
+//! specific Javascript types.
 pub mod an_introduction;
 pub mod event;
 pub mod utils;
@@ -45,9 +51,7 @@ pub mod core {
 
 pub mod prelude {
     //! Re-exports for convenience.
-    pub use super::event::*;
-    pub use super::utils::*;
-    pub use super::view::*;
+    pub use super::{event::*, utils::*, view::*};
     pub use mogwai::prelude::*;
     pub use std::convert::TryFrom;
 }
@@ -99,8 +103,7 @@ mod nonwasm {
     #[test]
     fn capture_view_channel_md() {
         // ANCHOR: capture_view_channel_md
-        use mogwai_dom::core::channel::broadcast;
-        use mogwai_dom::prelude::*;
+        use mogwai_dom::{core::channel::broadcast, prelude::*};
 
         futures::executor::block_on(async {
             println!("using channels");
@@ -314,52 +317,135 @@ mod nonwasm {
         });
     }
 
+    async fn wait_eq(
+        t: &str,
+        secs: f64,
+        view: &SsrDom,
+    ) {
+        let start = mogwai::time::now() / 1000.0;
+        let timeout = secs;
+        loop {
+            let s = view.html_string().await;
+            let now = mogwai::time::now();
+            if (now - start) >= timeout {
+                panic!("timeout {}s: {:?} != {:?} ", timeout, t, s);
+            } else if t.trim() == s.trim() {
+                return;
+            }
+            mogwai_dom::core::time::wait_one_frame().await;
+        }
+    }
+
+    #[test]
+    pub fn ssr_simple_update() {
+        futures_lite::future::block_on(async {
+            let mut text = Input::<String>::default();
+
+            let view = SsrDom::try_from(ViewBuilder::text(("hello", text.stream().unwrap()))).unwrap();
+            let v = view.clone();
+            view.run_while(async move {
+                wait_eq(r#"hello"#, 1.0, &v).await;
+                text.set("goodbye").await.unwrap();
+                wait_eq(r#"goodbye"#, 1.0, &v).await;
+            }).await.unwrap();
+        });
+    }
+
+    #[test]
+    pub fn ssr_simple_nested_update() {
+        futures_lite::future::block_on(async {
+            let mut text = Input::<String>::default();
+
+            let view = SsrDom::try_from(rsx!(
+                p() {
+                    {("hello", text.stream().unwrap())}
+                }
+            )).unwrap();
+            let v = view.clone();
+            view.run_while(async move {
+                wait_eq(r#"<p>hello</p>"#, 1.0, &v).await;
+
+                text.set("goodbye").await.unwrap();
+                wait_eq(r#"<p>goodbye</p>"#, 1.0, &v).await;
+
+                text.set("kia ora").await.unwrap();
+                wait_eq(r#"<p>kia ora</p>"#, 1.0, &v).await;
+            }).await.unwrap();
+        });
+    }
+
+    #[test]
+    pub fn ssr_simple_nested_with_two_inputs_update() {
+        futures_lite::future::block_on(async {
+            let mut text = Input::<String>::default();
+            let mut class = Input::<String>::default();
+
+            let view = SsrDom::try_from(rsx!(
+                p(class=("p_class", class.stream().unwrap())) {
+                    {("hello", text.stream().unwrap())}
+                }
+            )).unwrap();
+            let v = view.clone();
+            view.run_while(async move {
+                wait_eq(r#"<p class="p_class">hello</p>"#, 1.0, &v).await;
+
+                text.set("goodbye").await.unwrap();
+                wait_eq(r#"<p class="p_class">goodbye</p>"#, 1.0, &v).await;
+
+                class.set("my_p_class").await.unwrap();
+                wait_eq(r#"<p class="my_p_class">goodbye</p>"#, 1.0, &v).await;
+            }).await.unwrap();
+        });
+    }
+
     #[test]
     pub fn can_alter_ssr_views() {
-        futures::executor::block_on(async {
-            let (tx_text, rx_text) = broadcast::bounded::<String>(1.try_into().unwrap());
-            let (tx_style, rx_style) = broadcast::bounded::<String>(1.try_into().unwrap());
-            let (tx_class, rx_class) = broadcast::bounded::<String>(1.try_into().unwrap());
+        use mogwai::relay::*;
+        futures_lite::future::block_on(async {
+            let mut text = Input::<String>::default();
+            let mut style = Input::<String>::default();
+            let mut class = Input::<String>::default();
 
-            let view = SsrDom ::try_from(html! {
-                <div style:float=("left", rx_style)><p class=("p_class", rx_class)>{("here", rx_text)}</p></div>
-            }).unwrap();
+            let view = SsrDom::try_from(rsx! {
+                div(style:float=("left", style.stream().unwrap())) {
+                    p(class=("p_class", class.stream().unwrap())) {
+                        {("here", text.stream().unwrap())}
+                    }
+                }
+            })
+            .unwrap();
 
-            view.executor
-                .run(async {
-                    assert_eq!(
-                        view.html_string().await,
-                        r#"<div style="float: left;"><p class="p_class">here</p></div>"#
-                    );
+            let v = view.clone();
+            view.run_while(async move {
+                    wait_eq(
+                        r#"<div style="float: left;"><p class="p_class">here</p></div>"#,
+                        1.0,
+                        &v,
+                    )
+                    .await;
 
-                    let _ = tx_text.inner.try_broadcast("there".to_string()).unwrap();
-                    tx_text.until_empty().await;
+                    let _ = text.try_send("there".to_string()).unwrap();
+                    wait_eq(
+                        r#"<div style="float: left;"><p class="p_class">there</p></div>"#,
+                        1.0,
+                        &v
+                    ).await;
 
-                    assert_eq!(
-                        view.html_string().await,
-                        r#"<div style="float: left;"><p class="p_class">there</p></div>"#
-                    );
+                    let _ = style.try_send("right".to_string()).unwrap();
+                    wait_eq(
+                        r#"<div style="float: right;"><p class="p_class">there</p></div>"#,
+                        1.0,
+                        &v
+                    ).await;
 
-                    let _ = tx_style.inner.try_broadcast("right".to_string()).unwrap();
-                    tx_style.until_empty().await;
-
-                    assert_eq!(
-                        view.html_string().await,
-                        r#"<div style="float: right;"><p class="p_class">there</p></div>"#
-                    );
-
-                    let _ = tx_class
-                        .inner
-                        .try_broadcast("my_p_class".to_string())
-                        .unwrap();
-                    tx_class.until_empty().await;
-
-                    assert_eq!(
-                        view.html_string().await,
-                        r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#
-                    );
+                    let _ = class.try_send("my_p_class".to_string()).unwrap();
+                    wait_eq(
+                        r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#,
+                        1.0,
+                        &v
+                    ).await;
                 })
-                .await;
+                .await.unwrap();
         });
     }
 
@@ -475,7 +561,7 @@ mod wasm {
             time::*,
         },
         prelude::*,
-        view::js::Hydrator
+        view::js::Hydrator,
     };
     use futures::stream;
     use wasm_bindgen::JsCast;
@@ -767,11 +853,13 @@ mod wasm {
         let rx = rx.scan(0, |n: &mut i32, _: JsDomEvent| {
             log::info!("event!");
             *n += 1;
-            Some(if *n == 1 {
-                "Clicked 1 time".to_string()
-            } else {
-                format!("Clicked {} times", *n)
-            })
+            Some(
+                if *n == 1 {
+                    "Clicked 1 time".to_string()
+                } else {
+                    format!("Clicked {} times", *n)
+                },
+            )
         });
 
         let button: JsDom = html! {
@@ -1107,11 +1195,13 @@ mod test {
                     while let Some(()) = self.click.get().await {
                         clicks += 1;
                         self.text
-                            .set(if clicks == 1 {
-                                "1 click.".to_string()
-                            } else {
-                                format!("{} clicks.", clicks)
-                            })
+                            .set(
+                                if clicks == 1 {
+                                    "1 click.".to_string()
+                                } else {
+                                    format!("{} clicks.", clicks)
+                                },
+                            )
                             .await
                             .unwrap_or_else(|_| panic!("could not set text"));
                     }

@@ -2,22 +2,41 @@
 use anyhow::Context;
 use async_executor::Executor;
 use async_lock::RwLock;
-use std::{
-    collections::HashMap,
-    future::Future,
-    ops::DerefMut,
-    pin::Pin,
-    sync::Arc,
-};
+use std::{collections::HashMap, future::Future, ops::DerefMut, pin::Pin, sync::Arc};
 
 use mogwai::{
     either::Either,
     patch::{HashPatch, ListPatch, ListPatchApply},
     sink::{SendError, Sink, SinkExt},
-    view::{AnyEvent, Listener, Update, ViewBuilder, ViewIdentity},
+    stream::{select_all, SelectAll, Stream, StreamExt},
+    view::{
+        AnyEvent, AnyView, Downcast, Listener, MogwaiFuture, MogwaiSink, PostBuild, Update,
+        ViewBuilder, ViewIdentity,
+    },
 };
 use serde_json::Value;
 
+use super::FutureTask;
+
+#[derive(Clone, Debug)]
+pub struct SsrDomEvent(pub Value);
+
+impl Downcast<SsrDomEvent> for AnyEvent {
+    fn downcast(self) -> anyhow::Result<SsrDomEvent> {
+        #[cfg(debug_assertions)]
+        let type_name = self.inner_type_name;
+        #[cfg(not(debug_assertions))]
+        let type_name = "unknown";
+
+        let v: Box<SsrDomEvent> = self.inner.downcast().ok().with_context(|| {
+            format!(
+                "could not downcast AnyEvent{{{type_name}}} to '{}'",
+                std::any::type_name::<SsrDomEvent>()
+            )
+        })?;
+        Ok(*v)
+    }
+}
 
 // Only certain nodes can be "void" - which means written as <tag /> when
 // the node contains no children. Writing non-void nodes in void notation
@@ -37,11 +56,13 @@ use serde_json::Value;
 //     meta - provides information about the document
 //     param - defines parameters for plugins
 //
-//     HTML 5 standards include all non-deprecated tags from the previous list and
+//     HTML 5 standards include all non-deprecated tags from the previous list
+// and
 //
 //     command - represents a command users can invoke [obsolete]
-//     keygen - facilitates public key generation for web certificates [deprecated]
-//     source - specifies media sources for picture, audio, and video elements
+//     keygen - facilitates public key generation for web certificates
+// [deprecated]     source - specifies media sources for picture, audio, and
+// video elements
 fn tag_is_voidable(tag: &'static str) -> bool {
     tag == "area"
         || tag == "base"
@@ -158,8 +179,30 @@ pub struct SsrDom {
     /// The underlying node.
     pub node: Arc<RwLock<SsrNode>>,
     /// A map of events registered with this element.
-    pub events:
-        Arc<RwLock<HashMap<(&'static str, &'static str), Pin<Box<dyn Sink<Value> + Send + Sync + 'static>>>>>,
+    pub events: Arc<
+        RwLock<
+            HashMap<
+                (&'static str, &'static str),
+                Pin<Box<dyn Sink<SsrDomEvent> + Send + Sync + 'static>>,
+            >,
+        >,
+    >,
+}
+
+impl Downcast<SsrDom> for AnyView {
+    fn downcast(self) -> anyhow::Result<SsrDom> {
+        #[cfg(debug_assertions)]
+        let type_name = self.inner_type_name;
+        #[cfg(not(debug_assertions))]
+        let type_name = "unknown";
+
+        let v: Box<SsrDom> = self
+            .inner
+            .downcast()
+            .ok()
+            .with_context(|| format!("could not downcast AnyView{{{type_name}}} to SsrDom",))?;
+        Ok(*v)
+    }
 }
 
 impl TryFrom<ViewBuilder> for SsrDom {
@@ -173,17 +216,7 @@ impl TryFrom<ViewBuilder> for SsrDom {
 
 impl SsrDom {
     pub fn new(executor: Arc<Executor<'static>>, builder: ViewBuilder) -> anyhow::Result<Self> {
-        let (ssr, to_spawn) = super::build(
-            executor.clone(),
-            builder,
-            init,
-            update_ssr_dom,
-            add_event,
-        )?;
-        for future_task in to_spawn.into_iter() {
-            executor.spawn(future_task.0).detach();
-        }
-        Ok(ssr)
+        build(&executor, builder)
     }
 
     /// Creates a text node.
@@ -312,14 +345,16 @@ impl SsrDom {
         Ok(())
     }
 
-    /// Fires an event downstream to any listening [`Stream`](crate::core::stream::Stream)s.
+    /// Fires an event downstream to any listening
+    /// [`Stream`](crate::core::stream::Stream)s.
     ///
-    /// Fails if no such event exists or if sending to the sink encounters an error.
+    /// Fails if no such event exists or if sending to the sink encounters an
+    /// error.
     pub async fn fire_event(
         &self,
         type_is: &'static str,
         name: &'static str,
-        event: Value,
+        event: SsrDomEvent,
     ) -> Result<(), Either<(), SendError>> {
         let mut events = self.events.write().await;
         let sink = events
@@ -351,60 +386,128 @@ impl SsrDom {
         let t = self.executor.run(fut).await;
         Ok(t)
     }
+
+    pub fn update(&self, update: Update) -> anyhow::Result<()> {
+        match update {
+            Update::Text(s) => {
+                self.set_text(&s)?;
+            }
+            Update::Attribute(patch) => match patch {
+                HashPatch::Insert(k, v) => self.set_attrib(&k, Some(&v))?,
+                HashPatch::Remove(k) => self.remove_attrib(&k)?,
+            },
+            Update::BooleanAttribute(patch) => match patch {
+                HashPatch::Insert(k, v) => {
+                    if v {
+                        self.set_attrib(&k, None)?
+                    } else {
+                        self.remove_attrib(&k)?
+                    }
+                }
+                HashPatch::Remove(k) => self.remove_attrib(&k)?,
+            },
+            Update::Style(patch) => match patch {
+                HashPatch::Insert(k, v) => self.set_style(&k, &v)?,
+                HashPatch::Remove(k) => self.remove_style(&k)?,
+            },
+            Update::Child(patch) => {
+                let patch = patch.try_map(|builder: ViewBuilder| {
+                    let ssr = SsrDom::new(self.executor.clone(), builder)?;
+                    anyhow::Ok(ssr)
+                })?;
+                let mut lock = self.node.try_write().context("can't lock")?;
+                if let SsrNode::Container { children, .. } = lock.deref_mut() {
+                    let _ = children.list_patch_apply(patch);
+                } else {
+                    anyhow::bail!("not a container")
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn add_listener(&self, listener: Listener) -> anyhow::Result<()> {
+        let Listener {
+            event_name,
+            event_target,
+            sink,
+        } = listener;
+        let sink = Box::pin(sink.contra_map(AnyEvent::new));
+        let mut lock = self.events.try_write().context("can't lock")?;
+        let _ = lock.insert((event_target, event_name), sink);
+        Ok(())
+    }
 }
 
-pub(crate) fn init(rez: &Arc<Executor<'static>>, identity: ViewIdentity) -> anyhow::Result<SsrDom> {
-    let element = match identity {
-        ViewIdentity::Branch(tag) => SsrDom::element(rez.clone(), &tag),
+pub(crate) fn build(
+    executor: &Arc<Executor<'static>>,
+    builder: ViewBuilder,
+) -> anyhow::Result<SsrDom> {
+    let ViewBuilder {
+        identity,
+        initial_values,
+        updates,
+        post_build_ops,
+        view_sinks,
+        listeners,
+        tasks,
+        hydration_root,
+    } = builder;
+    // intialize it
+    let dom = match identity {
+        ViewIdentity::Branch(tag) => SsrDom::element(executor.clone(), &tag),
         ViewIdentity::NamespacedBranch(tag, ns) => {
-            let el = SsrDom::element(rez.clone(), &tag);
+            let el = SsrDom::element(executor.clone(), &tag);
             el.set_attrib("xmlns", Some(&ns))?;
             el
         }
-        ViewIdentity::Leaf(text) => SsrDom::text(rez.clone(), &text),
+        ViewIdentity::Leaf(text) => SsrDom::text(executor.clone(), &text),
     };
 
-    Ok(element)
-}
-
-pub(crate) fn update_ssr_dom(ssr_dom: &SsrDom, update: Update) -> anyhow::Result<()> {
-    match update {
-        Update::Text(s) => {
-            ssr_dom.set_text(&s)?;
-        }
-        Update::Attribute(patch) => match patch {
-            HashPatch::Insert(k, v) => ssr_dom.set_attrib(&k, Some(&v))?,
-            HashPatch::Remove(k) => ssr_dom.remove_attrib(&k)?,
-        },
-        Update::BooleanAttribute(patch) => match patch {
-            HashPatch::Insert(k, v) => {
-                if v {
-                    ssr_dom.set_attrib(&k, None)?
-                } else {
-                    ssr_dom.remove_attrib(&k)?
-                }
-            }
-            HashPatch::Remove(k) => ssr_dom.remove_attrib(&k)?,
-        },
-        Update::Style(patch) => match patch {
-            HashPatch::Insert(k, v) => ssr_dom.set_style(&k, &v)?,
-            HashPatch::Remove(k) => ssr_dom.remove_style(&k)?,
-        },
-        Update::Child(patch) => {
-            let patch = patch.try_map(|builder: ViewBuilder| {
-                let ssr = SsrDom::new(ssr_dom.executor.clone(), builder)?;
-                anyhow::Ok(ssr)
-            })?;
-            let mut lock = ssr_dom.node.try_write().context("can't lock")?;
-            if let SsrNode::Container { children, .. } = lock.deref_mut() {
-                let _ = children.list_patch_apply(patch);
-            } else {
-                anyhow::bail!("not a container")
-            }
-        }
+    for update in initial_values.into_iter() {
+        dom.update(update)?;
     }
 
-    Ok(())
+    // add listeners
+    for listener in listeners.into_iter() {
+        dom.add_listener(listener)?;
+    }
+
+    // post build
+    for op in post_build_ops.into_iter() {
+        let mut any_view = AnyView::new(dom.clone());
+        (op)(&mut any_view)?;
+    }
+
+    // make spawn update loop
+    let mut to_spawn = vec![];
+    if let Some(mut update_stream) = select_all(updates) {
+        let node = dom.clone();
+        to_spawn.push(FutureTask(Box::pin(async move {
+            while let Some(update) = update_stream.next().await {
+                node.update(update).unwrap();
+            }
+        })));
+    }
+
+    // make spawn logic tasks
+    for task in tasks.into_iter() {
+        to_spawn.push(FutureTask(task));
+    }
+
+    // spawn them
+    for future_task in to_spawn.into_iter() {
+        executor.spawn(future_task.0).detach();
+    }
+
+    // send view sinks
+    for sink in view_sinks.into_iter() {
+        let any_view = AnyView::new(dom.clone());
+        let _ = sink.try_send(any_view);
+    }
+
+    Ok(dom)
 }
 
 impl ListPatchApply for SsrDom {
@@ -420,23 +523,26 @@ impl ListPatchApply for SsrDom {
     }
 }
 
-pub(crate) fn add_event(ssr: &SsrDom, listener: Listener) -> anyhow::Result<()> {
-    let Listener {
-        event_name,
-        event_target,
-        sink,
-    } = listener;
-    let sink = Box::pin(sink.contra_map(AnyEvent::new));
-    let mut lock = ssr.events.try_write().context("can't lock")?;
-    let _ = lock.insert((event_target, event_name), sink);
-    Ok(())
-}
-
 #[cfg(test)]
 mod ssr {
+    use crate as mogwai_dom;
+    use crate::prelude::*;
+
     #[test]
     fn ssrelement_sendable() {
         fn sendable<T: Send + Sync + 'static>() {}
         sendable::<super::SsrDom>()
+    }
+
+    #[test]
+    fn ssr_any_view_downcast() {
+        let ssr = SsrDom::try_from(rsx! {
+            div(id = "ssr"){p(){ "Hello" }}
+        })
+        .unwrap();
+        let mut any_view = AnyView::new(ssr);
+        assert!((any_view.downcast_ref() as Option<&SsrDom>).is_some());
+        assert!((any_view.downcast_mut() as Option<&mut SsrDom>).is_some());
+        let _ssr: SsrDom = any_view.downcast().unwrap();
     }
 }

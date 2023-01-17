@@ -1,7 +1,7 @@
 //! Provides a todo line-item that can be edited by double clicking,
 //! marked as complete or removed.
 use mogwai_dom::{
-    core::{model::Model, stream},
+    core::{model::Model, stream, either::Either},
     prelude::*,
 };
 use wasm_bindgen::JsCast;

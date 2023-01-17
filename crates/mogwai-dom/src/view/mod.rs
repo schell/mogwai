@@ -1,171 +1,57 @@
 //! Wrapped views.
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{collections::VecDeque, future::Future, pin::Pin, sync::Arc};
 
 use anyhow::Context;
 use async_executor::Executor;
 use mogwai::{
+    either::Either,
     patch::{ListPatch, ListPatchApply},
-    sink::SinkExt,
-    view::{
-        exhaust, AnyEvent, AnyView, Listener, MogwaiFuture, MogwaiSink, MogwaiStream, PostBuild,
-        Update, View, ViewBuilder, ViewIdentity,
-    }
+    stream::{select_all, SelectAll, Stream, StreamExt},
+    view::{exhaust, AnyEvent, AnyView, Downcast, Listener, Update, ViewBuilder},
 };
+pub use serde_json::Value;
+pub use ssr::SsrDom;
+use wasm_bindgen::JsCast;
 
 pub use crate::event::JsDomEvent;
 
 pub mod js;
 pub use js::JsDom;
 
-mod ssr;
-pub use serde_json::Value;
-pub use ssr::SsrDom;
+use self::ssr::SsrDomEvent;
 
-pub use mogwai::{
-    either::Either,
-    sink::Sink,
-    stream::{Stream, StreamExt},
-};
-use wasm_bindgen::JsCast;
+mod ssr;
 
 pub(crate) struct FutureTask<T>(pub(crate) Pin<Box<dyn Future<Output = T> + Send>>);
 
-pub(crate) enum MySelectAll<T, St: Stream<Item = T> + Send + Unpin + 'static> {
-    One(St),
-    Many(Pin<Box<dyn Stream<Item = T> + Send + Unpin + 'static>>),
-}
-
-pub(crate) fn my_select_all<T: 'static, St: Stream<Item = T> + Send + Unpin + 'static>(
-    mut streams: Vec<St>,
-) -> Option<MySelectAll<T, St>> {
-    let one = streams.pop()?;
-    Some(
-        if streams.is_empty() {
-            MySelectAll::One(one)
-        } else {
-            let mut stream: Pin<Box<dyn Stream<Item = T> + Send + Unpin + 'static>> = Box::pin(one);
-            while let Some(next) = streams.pop() {
-                stream = Box::pin(next.or(stream));
-            }
-            MySelectAll::Many(stream)
-        },
-    )
-}
-impl<T: 'static, St: Stream<Item = T> + Send + Unpin + 'static> Stream for MySelectAll<T, St> {
-    type Item = T;
-
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        match self.get_mut() {
-            MySelectAll::One(st) => st.poll_next(cx),
-            MySelectAll::Many(st) => st.poll_next(cx),
-        }
-    }
-}
-
-/// Build the `ViewBuilder` in a way that can be used by the browser and
-/// server-side and both.
-pub(crate) fn build<V: View, R>(
-    rez: R,
-    builder: ViewBuilder,
-    init: impl FnOnce(&R, ViewIdentity) -> anyhow::Result<V>,
-    update_view: fn(&V, Update) -> anyhow::Result<()>,
-    add_event: impl Fn(&V, Listener) -> anyhow::Result<()>,
-) -> anyhow::Result<(V, Vec<FutureTask<()>>)> {
-    let ViewBuilder {
-        identity,
-        updates,
-        post_build_ops,
-        listeners,
-        tasks,
-        view_sinks,
-    } = builder;
-
-    let (update_stream, initial_values) = if let Some(updates) = my_select_all(updates) {
+pub(crate) fn separate_now_and_later(
+    updates: Vec<Pin<Box<dyn Stream<Item = Update> + Send>>>,
+) -> (
+    Option<SelectAll<Pin<Box<dyn Stream<Item = Update> + Send>>>>,
+    Vec<Update>,
+) {
+    if let Some(updates) = select_all(updates) {
         let (stream, vals) = exhaust(updates);
         (Some(stream), vals)
     } else {
         (None, vec![])
-    };
-    let element: V = initialize_build(&rez, init, update_view, identity, initial_values)?;
-    finalize_build(
-        element,
-        update_stream,
-        post_build_ops,
-        listeners,
-        tasks,
-        view_sinks,
-        add_event,
-        update_view,
-    )
-}
-
-/// Initialize the DOM build by creating the element and applying any
-/// updates that are ready and waiting.
-pub(crate) fn initialize_build<V: View, R>(
-    rez: &R,
-    init: impl FnOnce(&R, ViewIdentity) -> anyhow::Result<V>,
-    update_view: impl Fn(&V, Update) -> anyhow::Result<()> + Send + 'static,
-    identity: ViewIdentity,
-    initial_values: Vec<Update>,
-) -> anyhow::Result<V> {
-    let view = init(&rez, identity)?;
-    for update in initial_values.into_iter() {
-        update_view(&view, update)?;
     }
-    Ok(view)
-}
-
-/// Finalize the DOM build by making the element reactive.
-pub(crate) fn finalize_build<V: View>(
-    element: V,
-    update_stream: Option<MySelectAll<Update, MogwaiStream<Update>>>,
-    post_build_ops: Vec<PostBuild>,
-    listeners: Vec<Listener>,
-    tasks: Vec<MogwaiFuture<()>>,
-    view_sinks: Vec<MogwaiSink<AnyView>>,
-    add_event: impl Fn(&V, Listener) -> anyhow::Result<()>,
-    update_view: impl Fn(&V, Update) -> anyhow::Result<()> + Send + 'static,
-) -> anyhow::Result<(V, Vec<FutureTask<()>>)> {
-    let mut to_spawn: Vec<FutureTask<()>> = vec![];
-
-    for listener in listeners.into_iter() {
-        (add_event)(&element, listener)?;
-    }
-
-    let mut any_view = AnyView::new(element);
-    for op in post_build_ops.into_iter() {
-        (op)(&mut any_view)?;
-    }
-    let element = any_view.downcast::<V>()?;
-
-    if let Some(mut update_stream) = update_stream {
-        let node = element.clone();
-        to_spawn.push(FutureTask(Box::pin(async move {
-            while let Some(update) = update_stream.next().await {
-                update_view(&node, update).unwrap();
-            }
-        })));
-    }
-
-    for task in tasks.into_iter() {
-        to_spawn.push(FutureTask(task));
-    }
-    let node: V = element.clone();
-    to_spawn.push(FutureTask(Box::pin(async move {
-        for sink in view_sinks.into_iter() {
-            let any_view = AnyView::new(node.clone());
-            let _ = sink.send(any_view).await;
-        }
-    })));
-
-    Ok((element, to_spawn))
 }
 
 #[derive(Clone)]
 pub struct Dom(Either<JsDom, SsrDom>);
+
+impl Downcast<Dom> for AnyView {
+    fn downcast(self) -> anyhow::Result<Dom> {
+        if cfg!(target = "wasm32") {
+            let js: JsDom = self.downcast()?;
+            Ok(Dom(Either::Left(js)))
+        } else {
+            let ssr: SsrDom = self.downcast()?;
+            Ok(Dom(Either::Right(ssr)))
+        }
+    }
+}
 
 impl From<JsDom> for Dom {
     fn from(v: JsDom) -> Self {
@@ -180,62 +66,10 @@ impl From<SsrDom> for Dom {
 }
 
 impl Dom {
-    fn init(
-        rez: &Either<(), Arc<Executor<'static>>>,
-        identity: ViewIdentity,
-    ) -> anyhow::Result<Self> {
-        Ok(match rez {
-            Either::Left(()) => Dom::from({
-                match identity {
-                    ViewIdentity::Branch(tag) => JsDom::element(&tag, None),
-                    ViewIdentity::NamespacedBranch(tag, ns) => JsDom::element(&tag, Some(&ns)),
-                    ViewIdentity::Leaf(text) => JsDom::text(&text),
-                }
-            }?),
-            Either::Right(executor) => Dom::from(ssr::init(executor, identity)?),
-        })
-    }
-
-    fn add_event(dom: &Self, listener: Listener) -> anyhow::Result<()> {
+    pub fn add_listener(dom: &Self, listener: Listener) -> anyhow::Result<()> {
         match &dom.0 {
-            Either::Left(js) => {
-                let ref this = js;
-                let Listener {
-                    event_name,
-                    event_target,
-                    sink,
-                } = listener;
-                let tx = sink.contra_map(|event: JsDomEvent| AnyEvent::new(event));
-                let callback = match event_target {
-                    "myself" => crate::event::add_event(
-                        &event_name,
-                        this.inner
-                            .dyn_ref::<web_sys::EventTarget>()
-                            .ok_or_else(|| "not an event target".to_string())
-                            .unwrap(),
-                        Box::pin(tx),
-                    ),
-                    "window" => crate::event::add_event(
-                        &event_name,
-                        &web_sys::window().unwrap(),
-                        Box::pin(tx),
-                    ),
-                    "document" => crate::event::add_event(
-                        &event_name,
-                        &web_sys::window().unwrap().document().unwrap(),
-                        Box::pin(tx),
-                    ),
-                    _ => anyhow::bail!("unsupported event target {}", event_target),
-                };
-                let mut write = this
-                    .listener_callbacks
-                    .try_write()
-                    .context("cannot acquire write")?;
-                write.push(callback);
-
-                Ok(())
-            }
-            Either::Right(ssr) => ssr::add_event(ssr, listener),
+            Either::Left(js) => js.add_listener(listener),
+            Either::Right(ssr) => ssr.add_listener(listener),
         }
     }
 
@@ -243,28 +77,11 @@ impl Dom {
         executor: Option<Arc<Executor<'static>>>,
         builder: ViewBuilder,
     ) -> anyhow::Result<Self> {
-        let (dom, to_spawn) = build(
-            executor
-                .clone()
-                .map(Either::Right)
-                .unwrap_or_else(|| Either::Left(())),
-            builder,
-            Dom::init,
-            Dom::update,
-            Dom::add_event,
-        )?;
-        if let Some(executor) = executor {
-            for fut_task in to_spawn.into_iter() {
-                executor.spawn(fut_task.0).detach();
-            }
+        Ok(Dom(if let Some(executor) = executor {
+            Either::Right(ssr::build(&executor, builder)?)
         } else {
-            for fut_task in to_spawn.into_iter() {
-                let js = dom.as_either_ref().left().context("impossible")?;
-                let mut ts = js.tasks.try_write().context("can't write tasks")?;
-                ts.push(js::spawn_local(fut_task.0));
-            }
-        }
-        Ok(dom)
+            Either::Left(js::build(builder, None)?)
+        }))
     }
 
     pub fn executor(&self) -> Option<&Arc<Executor<'static>>> {
@@ -332,7 +149,7 @@ impl Dom {
         }
     }
 
-    fn update(&self, update: Update) -> anyhow::Result<()> {
+    pub fn update(&self, update: Update) -> anyhow::Result<()> {
         match update {
             Update::Child(patch) => {
                 let patch: ListPatch<Dom> =
@@ -358,7 +175,7 @@ impl Dom {
             }
             update => match self.as_either_ref() {
                 Either::Left(js) => js.update(update),
-                Either::Right(ssr) => ssr::update_ssr_dom(ssr, update),
+                Either::Right(ssr) => ssr.update(update),
             },
         }
     }
@@ -378,10 +195,22 @@ impl TryFrom<ViewBuilder> for Dom {
 }
 
 #[derive(Clone)]
-pub struct DomEvent(Either<JsDomEvent, Value>);
+pub struct DomEvent(Either<JsDomEvent, SsrDomEvent>);
+
+impl Downcast<DomEvent> for AnyEvent {
+    fn downcast(self) -> anyhow::Result<DomEvent> {
+        if cfg!(target = "wasm32") {
+            let js: JsDomEvent = self.downcast()?;
+            Ok(DomEvent(Either::Left(js)))
+        } else {
+            let ssr: SsrDomEvent = self.downcast()?;
+            Ok(DomEvent(Either::Right(ssr)))
+        }
+    }
+}
 
 impl DomEvent {
-    pub fn as_either_ref(&self) -> Either<&JsDomEvent, &Value> {
+    pub fn as_either_ref(&self) -> Either<&JsDomEvent, &SsrDomEvent> {
         match &self.0 {
             Either::Left(js) => Either::Left(js),
             Either::Right(val) => Either::Right(val),
@@ -395,5 +224,47 @@ impl std::fmt::Debug for DomEvent {
             Either::Left(js) => f.debug_tuple("DomEvent").field(js).finish(),
             Either::Right(val) => f.debug_tuple("DomEvent").field(val).finish(),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn can_stream_my_select_all() {
+        let usizes = futures_lite::stream::iter(vec![0usize, 1, 2, 3]);
+        let floats = futures_lite::stream::iter(vec![0f32, 1.0, 2.0, 3.0]);
+        let chars = futures_lite::stream::iter(vec!['a', 'b', 'c', 'd']);
+        #[derive(Debug, PartialEq)]
+        enum X {
+            A(usize),
+            B(f32),
+            C(char),
+        }
+        let stream = select_all(vec![
+            usizes.map(X::A).boxed(),
+            floats.map(X::B).boxed(),
+            chars.map(X::C).boxed(),
+        ])
+        .unwrap();
+        let vals = futures_lite::future::block_on(stream.collect::<Vec<_>>());
+        assert_eq!(
+            vec![
+                X::A(0),
+                X::B(0.0),
+                X::C('a'),
+                X::A(1),
+                X::B(1.0),
+                X::C('b'),
+                X::A(2),
+                X::B(2.0),
+                X::C('c'),
+                X::A(3),
+                X::B(3.0),
+                X::C('d'),
+            ],
+            vals
+        );
     }
 }

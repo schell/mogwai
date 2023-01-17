@@ -1,16 +1,16 @@
 //! Domain agnostic view doclaration.
 use std::{
-    future::Future,
     any::Any,
+    future::Future,
     pin::Pin,
     sync::Arc,
     task::{RawWaker, Wake, Waker},
 };
 
 use crate::{
+    patch::{HashPatch, ListPatch},
     sink::{Sink, SinkExt},
     stream::{Stream, StreamExt},
-    patch::{HashPatch, ListPatch},
 };
 use anyhow::Context;
 pub use anyhow::Error;
@@ -29,25 +29,31 @@ impl Wake for DummyWaker {
 pub trait View: Any + Sized + Clone + Unpin + Send + Sync {}
 impl<T: Any + Sized + Clone + Unpin + Send + Sync> View for T {}
 
+/// Downcasts various generic view types into specific view types.
+pub trait Downcast<V> {
+    fn downcast(self) -> anyhow::Result<V>;
+}
+
+impl<T> Downcast<T> for T {
+    fn downcast(self) -> anyhow::Result<T> {
+        Ok(self)
+    }
+}
+
 /// A type erased view.
 ///
 /// Used to write view builders in a domain-agnostic way.
 pub struct AnyView {
-    inner: Box<dyn Any + Send + Sync>,
+    pub inner: Box<dyn Any + Send + Sync>,
     clone_fn: fn(&AnyView) -> AnyView,
     #[cfg(debug_assertions)]
-    inner_type_name: &'static str,
+    pub inner_type_name: &'static str,
 }
 
 impl std::fmt::Debug for AnyView {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        #[cfg(not(debug_assertions))]
-        let type_name = "unknown w/o debug_assertions";
-        #[cfg(debug_assertions)]
-        let type_name = self.inner_type_name;
-
         f.debug_struct("AnyView")
-            .field("inner_type", &format!("{}", type_name))
+            .field("inner_type", &format!("{}", self.inner_type_name()))
             .finish()
     }
 }
@@ -64,7 +70,10 @@ impl Clone for AnyView {
     }
 }
 
-fn any_view_clone<V: View>(any_view: &AnyView) -> AnyView {
+fn any_view_clone<V: View>(any_view: &AnyView) -> AnyView
+where
+    AnyView: Downcast<V>,
+{
     let v: &V = any_view.downcast_ref().unwrap();
     AnyView {
         inner: Box::new(v.clone()) as Box<dyn Any + Send + Sync>,
@@ -75,7 +84,11 @@ fn any_view_clone<V: View>(any_view: &AnyView) -> AnyView {
 }
 
 impl AnyView {
-    pub fn new<V: View>(inner: V) -> Self {
+    pub fn new<V>(inner: V) -> Self
+    where
+        V: View,
+        AnyView: Downcast<V>,
+    {
         AnyView {
             inner: Box::new(inner),
             clone_fn: any_view_clone::<V>,
@@ -84,31 +97,29 @@ impl AnyView {
         }
     }
 
-    pub fn downcast_ref<V: View>(&self) -> Option<&V> {
-        self.inner.downcast_ref()
+    pub fn inner_type_name(&self) -> &'static str {
+        #[cfg(not(debug_assertions))]
+        let type_name = "unknown w/o debug_assertions";
+        #[cfg(debug_assertions)]
+        let type_name = self.inner_type_name;
+
+        type_name
     }
 
-    pub fn downcast_mut<V: View>(&mut self) -> Option<&mut V> {
-        self.inner.downcast_mut()
+    pub fn downcast_ref<T: View>(&self) -> Option<&T> {
+        self.inner.downcast_ref::<T>()
     }
 
-    pub fn downcast<V: View>(self) -> anyhow::Result<V> {
-        let v: Box<V> = self.inner.downcast().ok().with_context(|| {
-            #[cfg(not(debug_assertions))]
-            let type_name = "unknown";
-            #[cfg(debug_assertions)]
-            let type_name = self.inner_type_name;
-            format!(
-                "could not downcast AnyView {{{type_name}}} to '{}'",
-                std::any::type_name::<V>()
-            )
-        })?;
-        Ok(*v)
+    pub fn downcast_mut<T: View>(&mut self) -> Option<&mut T> {
+        self.inner.downcast_mut::<T>()
     }
 }
 
-fn any_event_clone<T: Any + Send + Sync + Clone>(any_event: &AnyEvent) -> AnyEvent {
-    let ev: &T = any_event.inner.downcast_ref::<T>().unwrap();
+fn any_event_clone<T: Any + Clone + Send + Sync>(any_event: &AnyEvent) -> AnyEvent
+where
+    AnyEvent: Downcast<T>,
+{
+    let ev: &T = any_event.downcast_ref().unwrap();
     AnyEvent {
         inner: Box::new(ev.clone()),
         clone_fn: any_event_clone::<T>,
@@ -121,10 +132,10 @@ fn any_event_clone<T: Any + Send + Sync + Clone>(any_event: &AnyEvent) -> AnyEve
 ///
 /// Used to write view builders in a domain-agnostic way.
 pub struct AnyEvent {
-    inner: Box<dyn Any + Send + Sync>,
+    pub inner: Box<dyn Any + Send + Sync>,
     clone_fn: fn(&AnyEvent) -> AnyEvent,
     #[cfg(debug_assertions)]
-    inner_type_name: &'static str,
+    pub inner_type_name: &'static str,
 }
 
 impl Clone for AnyEvent {
@@ -134,7 +145,11 @@ impl Clone for AnyEvent {
 }
 
 impl AnyEvent {
-    pub fn new<T: Any + Send + Sync + Clone>(inner: T) -> Self {
+    pub fn new<T>(inner: T) -> Self
+    where
+        T: Any + Send + Sync + Clone,
+        AnyEvent: Downcast<T>,
+    {
         AnyEvent {
             inner: Box::new(inner),
             clone_fn: any_event_clone::<T>,
@@ -143,23 +158,12 @@ impl AnyEvent {
         }
     }
 
-    pub fn downcast<Ev: Any + Send + Sync + Clone>(self) -> anyhow::Result<Ev> {
-        #[cfg(debug_assertions)]
-        let type_name = self.inner_type_name;
-        #[cfg(not(debug_assertions))]
-        let type_name = "unknown";
-
-        let v: Box<Ev> = self.inner.downcast().ok().with_context(|| {
-            format!(
-                "could not downcast AnyEvent{{{type_name}}} to '{}'",
-                std::any::type_name::<Ev>()
-            )
-        })?;
-        Ok(*v)
+    pub fn downcast_ref<T: Any + Send + Sync + Clone>(&self) -> Option<&T> {
+        self.inner.downcast_ref::<T>()
     }
 
-    pub fn downcast_ref<Ev: Any + Send + Sync + Clone>(&self) -> Option<&Ev> {
-        self.inner.downcast_ref::<Ev>()
+    pub fn downcast_mut<T: Any + Send + Sync + Clone>(&mut self) -> Option<&mut T> {
+        self.inner.downcast_mut::<T>()
     }
 }
 
@@ -201,7 +205,10 @@ pub fn try_next<T, V: View, St: Stream<Item = T> + Unpin>(
 mod exhaust {
     use std::pin::Pin;
 
-    use crate::{stream::{Stream, StreamExt}, view::exhaust};
+    use crate::{
+        stream::{Stream, StreamExt},
+        view::exhaust,
+    };
 
     #[test]
     fn exhaust_items() {
@@ -209,11 +216,14 @@ mod exhaust {
             futures_lite::stream::iter(vec![0, 1, 2])
                 .chain(futures_lite::stream::once(3))
                 .chain(futures_lite::stream::once(4))
-                .chain(futures_lite::stream::unfold(Some(()), |mut seed| async move {
-                    seed.take()?;
-                    let _ = crate::time::wait_millis(2).await;
-                    Some((5, None))
-                }))
+                .chain(futures_lite::stream::unfold(
+                    Some(()),
+                    |mut seed| async move {
+                        seed.take()?;
+                        let _ = crate::time::wait_millis(2).await;
+                        Some((5, None))
+                    },
+                ))
                 .chain(futures_lite::stream::once(6))
                 .chain(futures_lite::stream::once(7))
                 .chain(futures_lite::stream::once(8)),
@@ -240,6 +250,39 @@ pub enum MogwaiValue<S, St> {
     Stream(St),
     /// An owned value and a stream of values.
     OwnedAndStream(S, St),
+}
+
+impl<T, St: Stream<Item = T> + Send + 'static> MogwaiValue<T, St> {
+    pub fn pinned(self) -> MogwaiValue<T, PinBoxStream<T>> {
+        match self {
+            MogwaiValue::Owned(s) => MogwaiValue::Owned(s),
+            MogwaiValue::Stream(st) => MogwaiValue::Stream(Box::pin(st)),
+            MogwaiValue::OwnedAndStream(s, st) => MogwaiValue::OwnedAndStream(s, Box::pin(st)),
+        }
+    }
+
+    pub fn map<S>(self, f: impl Fn(T) -> S + Send + 'static) -> MogwaiValue<S, PinBoxStream<S>> {
+        match self {
+            MogwaiValue::Owned(s) => MogwaiValue::Owned(f(s)),
+            MogwaiValue::Stream(st) => MogwaiValue::Stream(Box::pin(st.map(f))),
+            MogwaiValue::OwnedAndStream(s, st) => {
+                MogwaiValue::OwnedAndStream(f(s), Box::pin(st.map(f)))
+            }
+        }
+    }
+
+    /// Split into a possible current value and future values.
+    ///
+    /// If there is no current value the first element will be `None`.
+    ///
+    /// If there is _only_ a current value the second element will be `None`.
+    pub fn split(mut self) -> (Option<T>, Option<St>) {
+        match self {
+            MogwaiValue::Owned(s) => (Some(s), None),
+            MogwaiValue::Stream(st) => (None, Some(st)),
+            MogwaiValue::OwnedAndStream(s, st) => (Some(s), Some(st)),
+        }
+    }
 }
 
 pub type PinBoxStream<T> = Pin<Box<dyn Stream<Item = T> + Send + 'static>>;
@@ -351,19 +394,21 @@ pub enum Update {
 //    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 //        match self {
 //            Self::Text(arg0) => f.debug_tuple("Text").field(arg0).finish(),
-//            Self::Attribute(arg0) => f.debug_tuple("Attribute").field(arg0).finish(),
-//            Self::BooleanAttribute(arg0) => f.debug_tuple("BooleanAttribute").field(arg0).finish(),
-//            Self::Style(arg0) => f.debug_tuple("Style").field(arg0).finish(),
-//            Self::Child(arg0) => f.debug_tuple("Child").field(arg0).finish(),
-//        }
+//            Self::Attribute(arg0) =>
+// f.debug_tuple("Attribute").field(arg0).finish(),
+// Self::BooleanAttribute(arg0) =>
+// f.debug_tuple("BooleanAttribute").field(arg0).finish(),
+// Self::Style(arg0) => f.debug_tuple("Style").field(arg0).finish(),
+// Self::Child(arg0) => f.debug_tuple("Child").field(arg0).finish(),        }
 //    }
 //}
 
 /// A listener (sink) of certain events.
 ///
 /// In some domains like the web, events have string names that can be used
-/// to subscribe to them. In other domains (like those in languages with sum types)
-/// the name doesn't matter, and you may simply filter based on the enum's variant.
+/// to subscribe to them. In other domains (like those in languages with sum
+/// types) the name doesn't matter, and you may simply filter based on the
+/// enum's variant.
 pub struct Listener {
     pub event_name: &'static str,
     pub event_target: &'static str,
@@ -387,15 +432,19 @@ impl std::fmt::Debug for Listener {
 
 /// An un-built mogwai view.
 /// A ViewBuilder is a generic view representation.
-/// It is the the blueprint of a view - everything needed to create or hydrate the view.
+/// It is the the blueprint of a view - everything needed to create or hydrate
+/// the view.
 pub struct ViewBuilder {
     /// The identity of the view.
     ///
     /// Either a name or a tuple of a name and a namespace.
     pub identity: ViewIdentity,
+    /// All initial values this view has at build time.
+    pub initial_values: Vec<Update>,
     /// All declarative updates this view will undergo.
     pub updates: Vec<MogwaiStream<Update>>,
-    /// Post build operations/computations that run and mutate the view after initialization.
+    /// Post build operations/computations that run and mutate the view after
+    /// initialization.
     pub post_build_ops: Vec<PostBuild>,
     /// Sinks that want a clone of the view once it is initialized.
     pub view_sinks: Vec<MogwaiSink<AnyView>>,
@@ -406,7 +455,7 @@ pub struct ViewBuilder {
     /// A pre-built view node to use as the root.
     ///
     /// This is good for hydrating pre-rendered nodes and for optimizations.
-    pub hydration_root: Option<AnyView>
+    pub hydration_root: Option<AnyView>,
 }
 
 impl std::fmt::Debug for ViewBuilder {
@@ -425,7 +474,8 @@ impl std::fmt::Debug for ViewBuilder {
 }
 
 impl ViewBuilder {
-    /// Returns whether this builder is a leaf element, ie _not_ a container element.
+    /// Returns whether this builder is a leaf element, ie _not_ a container
+    /// element.
     pub fn is_leaf(&self) -> bool {
         matches!(self.identity, ViewIdentity::Leaf(_))
     }
@@ -434,6 +484,7 @@ impl ViewBuilder {
     pub fn element(tag: &'static str) -> Self {
         ViewBuilder {
             identity: ViewIdentity::Branch(tag),
+            initial_values: Default::default(),
             updates: Default::default(),
             post_build_ops: vec![],
             view_sinks: vec![],
@@ -447,6 +498,7 @@ impl ViewBuilder {
     pub fn element_ns(tag: &'static str, ns: &'static str) -> Self {
         ViewBuilder {
             identity: ViewIdentity::NamespacedBranch(tag, ns),
+            initial_values: Default::default(),
             updates: Default::default(),
             post_build_ops: vec![],
             view_sinks: vec![],
@@ -460,15 +512,16 @@ impl ViewBuilder {
     pub fn text<St: Stream<Item = String> + Send + 'static>(
         st: impl Into<MogwaiValue<String, St>>,
     ) -> Self {
-        let (st, texts) = exhaust(PinBoxStream::from(st.into()));
-        let identity = texts
-            .into_iter()
-            .fold(None, |_, text| Some(text))
-            .unwrap_or_else(|| String::new());
-        let updates = vec![Box::pin(st.map(Update::Text)) as MogwaiStream<_>];
+        let (may_s, may_st) = st.into().split();
+        let identity = may_s.unwrap_or_default();
+        let mut updates: Vec<PinBoxStream<Update>> = vec![];
+        if let Some(st) = may_st {
+            updates.push(Box::pin(st.map(Update::Text)));
+        }
 
         ViewBuilder {
             identity: ViewIdentity::Leaf(identity),
+            initial_values: vec![],
             updates,
             post_build_ops: vec![],
             tasks: vec![],
@@ -489,9 +542,13 @@ impl ViewBuilder {
         mut self,
         st: impl Into<MogwaiValue<String, St>>,
     ) -> Self {
-        let mv = st.into();
-        let st = PinBoxStream::<String>::from(mv);
-        self.updates.push(Box::pin(st.map(Update::Text)));
+        let (may_text, may_st) = st.into().split();
+        if let Some(text) = may_text {
+            self.identity = ViewIdentity::Leaf(text);
+        }
+        if let Some(st) = may_st {
+            self.updates.push(Box::pin(st.map(Update::Text)));
+        }
         self
     }
 
@@ -500,9 +557,13 @@ impl ViewBuilder {
         mut self,
         st: impl Into<MogwaiValue<HashPatch<String, String>, St>>,
     ) -> Self {
-        self.updates.push(Box::pin(
-            PinBoxStream::from(st.into()).map(Update::Attribute),
-        ));
+        let (may_patch, may_st) = st.into().split();
+        if let Some(patch) = may_patch {
+            self.initial_values.push(Update::Attribute(patch));
+        }
+        if let Some(st) = may_st {
+            self.updates.push(Box::pin(st.map(Update::Attribute)));
+        }
         self
     }
 
@@ -513,8 +574,16 @@ impl ViewBuilder {
         st: impl Into<MogwaiValue<String, St>>,
     ) -> Self {
         let key = k.into();
-        let st = PinBoxStream::from(st.into()).map(move |v| HashPatch::Insert(key.clone(), v));
-        self.updates.push(Box::pin(st.map(Update::Attribute)));
+        let (may_val, may_st) = st.into().split();
+        if let Some(val) = may_val {
+            self.initial_values
+                .push(Update::Attribute(HashPatch::Insert(key.clone(), val)));
+        }
+        if let Some(st) = may_st {
+            self.updates.push(Box::pin(
+                st.map(move |v| Update::Attribute(HashPatch::Insert(key.clone(), v))),
+            ));
+        }
         self
     }
 
@@ -523,9 +592,15 @@ impl ViewBuilder {
         mut self,
         st: impl Into<MogwaiValue<HashPatch<String, bool>, St>>,
     ) -> Self {
-        self.updates.push(Box::pin(
-            PinBoxStream::from(st.into()).map(Update::BooleanAttribute),
-        ));
+        let (may_patch, may_st) = st.into().split();
+        if let Some(patch) = may_patch {
+            self.initial_values.push(Update::BooleanAttribute(patch));
+        }
+        if let Some(st) = may_st {
+            self.updates
+                .push(Box::pin(st.map(Update::BooleanAttribute)));
+        }
+
         self
     }
 
@@ -536,9 +611,20 @@ impl ViewBuilder {
         st: impl Into<MogwaiValue<bool, St>>,
     ) -> Self {
         let key = k.into();
-        let st = PinBoxStream::from(st.into())
-            .map(move |b| Update::BooleanAttribute(HashPatch::Insert(key.clone(), b)));
-        self.updates.push(Box::pin(st));
+        let (may_val, may_st) = st.into().split();
+        if let Some(val) = may_val {
+            self.initial_values
+                .push(Update::BooleanAttribute(HashPatch::Insert(
+                    key.clone(),
+                    val,
+                )));
+        }
+        if let Some(st) = may_st {
+            self.updates.push(Box::pin(st.map(move |v| {
+                Update::BooleanAttribute(HashPatch::Insert(key.clone(), v))
+            })));
+        }
+
         self
     }
 
@@ -547,19 +633,27 @@ impl ViewBuilder {
         mut self,
         st: impl Into<MogwaiValue<String, St>>,
     ) -> Self {
-        let st = PinBoxStream::from(st.into()).flat_map(|v: String| {
-            let kvs = str::split(&v, ';')
-                .filter_map(|style| {
-                    let (k, v) = style.split_once(':')?;
-                    Some(Update::Style(HashPatch::Insert(
-                        k.trim().to_string(),
-                        v.trim().to_string(),
-                    )))
-                })
-                .collect::<Vec<_>>();
-            futures_lite::stream::iter(kvs)
-        });
-        self.updates.push(Box::pin(st));
+        fn split_style(
+            s: &String,
+        ) -> std::iter::FilterMap<std::str::Split<'_, char>, fn(&str) -> Option<Update>> {
+            str::split(s, ';').filter_map(|style| {
+                let (k, v) = style.split_once(':')?;
+                Some(Update::Style(HashPatch::Insert(
+                    k.trim().to_string(),
+                    v.trim().to_string(),
+                )))
+            })
+        }
+
+        let (may_style, may_st) = st.into().split();
+        if let Some(style) = may_style {
+            self.initial_values.extend(split_style(&style));
+        }
+        if let Some(st) = may_st {
+            self.updates.push(Box::pin(st.flat_map(|s| {
+                futures_lite::stream::iter(split_style(&s).collect::<Vec<_>>())
+            })));
+        }
         self
     }
 
@@ -570,9 +664,13 @@ impl ViewBuilder {
         st: impl Into<MogwaiValue<String, St>>,
     ) -> Self {
         let key = k.into();
-        let st = PinBoxStream::from(st.into());
-        let st = st.map(move |v| Update::Style(HashPatch::Insert(key.clone(), v)));
-        self.updates.push(Box::pin(st));
+        let (may_style, may_st) = st.into().split();
+        if let Some(style) = may_style {
+            self.initial_values.push(Update::Style(HashPatch::Insert(key.clone(), style)));
+        }
+        if let Some(st) = may_st {
+            self.updates.push(Box::pin(st.map(move |v| Update::Style(HashPatch::Insert(key.clone(), v)))));
+        }
         self
     }
 
@@ -581,8 +679,13 @@ impl ViewBuilder {
         mut self,
         st: impl Into<MogwaiValue<ListPatch<ViewBuilder>, St>>,
     ) -> Self {
-        self.updates
-            .push(Box::pin(PinBoxStream::from(st.into()).map(Update::Child)));
+        let (may_patch, may_st) = st.into().split();
+        if let Some(patch) = may_patch {
+            self.initial_values.push(Update::Child(patch));
+        }
+        if let Some(st) = may_st {
+            self.updates.push(Box::pin(st.map(Update::Child)));
+        }
         self
     }
 
@@ -604,12 +707,18 @@ impl ViewBuilder {
     pub fn with_post_build<V, F>(mut self, f: F) -> Self
     where
         V: View,
+        AnyView: Downcast<V>,
         F: FnOnce(&mut V) -> anyhow::Result<()> + Send + Sync + 'static,
     {
         let g = |any_view: &mut AnyView| {
-            let v: &mut V = any_view
-                .downcast_mut::<V>()
-                .context("cannot downcast_mut this AnyView")?;
+            let type_name = any_view.inner_type_name();
+            let v: &mut V = any_view.downcast_mut().with_context(|| {
+                format!(
+                    "cannot downcast_mut this AnyView{{{}}} to {}",
+                    type_name,
+                    std::any::type_name::<V>()
+                )
+            })?;
             f(v)
         };
         self.post_build_ops.push(Box::new(g) as PostBuild);
@@ -625,19 +734,23 @@ impl ViewBuilder {
     pub fn with_capture_view<V: View>(
         mut self,
         sink: impl Sink<V> + Unpin + Send + Sync + 'static,
-    ) -> Self {
+    ) -> Self
+    where
+        AnyView: Downcast<V>,
+    {
         let sink: MogwaiSink<AnyView> =
-            Box::new(sink.contra_map(|any_view: AnyView| any_view.downcast::<V>().unwrap()));
+            Box::new(sink.contra_map(|any_view: AnyView| any_view.downcast().unwrap()));
         self.view_sinks.push(sink);
         self
     }
 
-    /// Capture the view and update it using the given update function for each value
-    /// that comes from the given stream.
+    /// Capture the view and update it using the given update function for each
+    /// value that comes from the given stream.
     ///
-    /// The only parameter is a tuple to support being used from the [`rsx`](crate::rsx) macro's
-    /// `capture:for_each` attribute, since the right hand side of such attributes must be
-    /// a singular Rust expression:
+    /// The only parameter is a tuple to support being used from the
+    /// [`rsx`](crate::rsx) macro's `capture:for_each` attribute, since the
+    /// right hand side of such attributes must be a singular Rust
+    /// expression:
     /// ```rust, ignore
     /// use mogwai_dom::prelude::*;
     /// let (_tx, rx) = mogwai_dom::core::channel::mpsc::bounded::<usize>(1);
@@ -672,7 +785,10 @@ impl ViewBuilder {
             impl Stream<Item = T> + Send + Unpin + 'static,
             impl Fn(&V, T) + Send + 'static,
         ),
-    ) -> Self {
+    ) -> Self
+    where
+        AnyView: Downcast<V>,
+    {
         let captured = crate::future::Captured::<V>::default();
         self.with_capture_view(captured.sink())
             .with_task(async move {
@@ -693,9 +809,12 @@ impl ViewBuilder {
         name: &'static str,
         target: &'static str,
         si: impl Sink<Event> + Send + Sync + Unpin + 'static,
-    ) -> Self {
+    ) -> Self
+    where
+        AnyEvent: Downcast<Event>,
+    {
         let sink = Box::new(si.contra_map(|any: AnyEvent| {
-            let event: Event = any.downcast::<Event>().unwrap();
+            let event: Event = any.downcast().unwrap();
             event
         }));
 
@@ -711,8 +830,12 @@ impl ViewBuilder {
 
     /// Use the given view node instead of creating a new node from scratch.
     ///
-    /// This is used for hydrating reactivity from a pre-rendered or "ossified" node.
-    pub fn with_hydration_root<V: View>(mut self, view: V) -> Self {
+    /// This is used for hydrating reactivity from a pre-rendered or "ossified"
+    /// node.
+    pub fn with_hydration_root<V: View>(mut self, view: V) -> Self
+    where
+        AnyView: Downcast<V>,
+    {
         self.hydration_root = Some(AnyView::new(view));
         self
     }

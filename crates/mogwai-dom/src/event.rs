@@ -3,16 +3,15 @@
 //! Events in Mogwai are registered and sent down a stream to be
 //! consumed by logic loops. When an event stream
 //! is dropped, its resources are cleaned up automatically.
+use anyhow::Context;
 use mogwai::{
     channel::broadcast,
     sink::{Sink, TrySendError},
     stream::{Stream, StreamExt},
+    view::{AnyEvent, Downcast},
 };
 use send_wrapper::SendWrapper;
-use std::{
-    pin::Pin,
-    sync::Arc,
-};
+use std::{pin::Pin, sync::Arc};
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 
 use crate::view::js::JsDom;
@@ -23,19 +22,22 @@ pub struct JsDomEvent {
     inner: SendWrapper<Arc<JsValue>>,
 }
 
-//impl TryFrom<serde_json::Value> for JsDomEvent {
-//    type Error = serde_json::Error;
-//
-//    #[cfg(target_arch = "wasm32")]
-//    fn try_from(value: serde_json::Value) -> serde_json::Result<Self> {
-//        let inner: JsValue = JsValue::from_serde(&value)?;
-//        Ok(JsDomEvent { inner })
-//    }
-//    #[cfg(not(target_arch = "wasm32"))]
-//    fn try_from(value: serde_json::Value) -> serde_json::Result<Self> {
-//        Ok(JsDomEvent { inner: value })
-//    }
-//}
+impl Downcast<JsDomEvent> for AnyEvent {
+    fn downcast(self) -> anyhow::Result<JsDomEvent> {
+        #[cfg(debug_assertions)]
+        let type_name = self.inner_type_name;
+        #[cfg(not(debug_assertions))]
+        let type_name = "unknown";
+
+        let v: Box<JsDomEvent> = self.inner.downcast().ok().with_context(|| {
+            format!(
+                "could not downcast AnyEvent{{{type_name}}} to '{}'",
+                std::any::type_name::<JsDomEvent>()
+            )
+        })?;
+        Ok(*v)
+    }
+}
 
 impl From<web_sys::Event> for JsDomEvent {
     fn from(ev: web_sys::Event) -> Self {
@@ -52,7 +54,8 @@ impl From<&web_sys::Event> for JsDomEvent {
 }
 
 impl JsDomEvent {
-    /// Attempt to convert into a `web_sys::Event`. This only works when running on wasm32.
+    /// Attempt to convert into a `web_sys::Event`. This only works when running
+    /// on wasm32.
     pub fn browser_event(self) -> Option<web_sys::Event> {
         self.inner.dyn_ref::<web_sys::Event>().cloned()
     }
@@ -73,17 +76,15 @@ impl Drop for WebCallback {
         if let Some(closure) = self.closure.take() {
             let target = self.target.clone_as::<web_sys::EventTarget>().unwrap();
             target
-                .remove_event_listener_with_callback(
-                    self.name,
-                    closure.as_ref().unchecked_ref(),
-                )
+                .remove_event_listener_with_callback(self.name, closure.as_ref().unchecked_ref())
                 .unwrap();
         }
     }
 }
 
-/// Add an event listener of the given name to the given target. When the event happens, the
-/// event will be fed to the given sink. If the sink is closed, the listener will be removed.
+/// Add an event listener of the given name to the given target. When the event
+/// happens, the event will be fed to the given sink. If the sink is closed, the
+/// listener will be removed.
 pub(crate) fn add_event(
     ev_name: &'static str,
     target: &web_sys::EventTarget,

@@ -1,8 +1,8 @@
-use std::sync::atomic::{Ordering, AtomicUsize};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use mogwai_dom::{core::model::*, prelude::*};
 use rand::prelude::*;
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, UnwrapThrowExt};
 use web_sys::Element;
 
 static ADJECTIVES: &[&str] = &[
@@ -104,10 +104,7 @@ impl Default for Mdl {
     fn default() -> Self {
         let selected: Model<Option<Id>> = Model::new(None);
         let rows: ListPatchModel<Row> = ListPatchModel::default();
-        Self {
-            rows,
-            selected,
-        }
+        Self { rows, selected }
     }
 }
 
@@ -175,11 +172,19 @@ impl Mdl {
         }
     }
 
-    pub fn row_viewbuilder(row: &Row, selected: Model<Option<usize>>, identity: Option<JsDom>) -> ViewBuilder {
-        let is_selected = selected.stream().map(move |selected| selected == Some(row.id));
-        let select_class = ("", is_selected.map(|is_selected| if is_selected{ "danger"} else { "" }.to_string()));
+    fn row_viewbuilder(
+        row: &Row,
+        selected: Model<Option<usize>>,
+        hydrate_from: Option<&JsDom>,
+    ) -> ViewBuilder {
+        let id = row.id;
+        let is_selected = selected.stream().map(move |selected| selected == Some(id));
+        let select_class = (
+            "",
+            is_selected.map(|is_selected| if is_selected { "danger" } else { "" }.to_string()),
+        );
         let mut builder = rsx!(
-            tr(key=row.id.to_string(), class = select_class) {
+            tr(key = row.id.to_string(), class = select_class) {
                 td(class="col-md-1"){{ row.id.to_string() }}
                 td(class="col-md-4"){
                     a() {{ ("", row.label.stream()) }}
@@ -192,9 +197,12 @@ impl Mdl {
                 td(class="col-md-6"){ }
             }
         );
-        if let Some(dom) = identity {
-            builder.identity = ViewIdentity::Hydrate(AnyView::new(dom));
-        }
+        builder.hydration_root = hydrate_from.map(|row_node| {
+            let node = row_node
+                .visit_as(|node: &web_sys::Node| node.clone_node_with_deep(true).unwrap_throw())
+                .unwrap_throw();
+            AnyView::new(JsDom::from_jscast(&node))
+        });
         builder
     }
 
@@ -204,7 +212,16 @@ impl Mdl {
     pub fn viewbuilder(self) -> ViewBuilder {
         let main_click = Output::<JsDomEvent>::default();
         let selected = self.selected.clone();
-        let row_node = row_viewbuilder()
+        let row_node: JsDom = Self::row_viewbuilder(
+            &Row {
+                id: 0,
+                label: Model::new("".to_string()),
+            },
+            selected.clone(),
+            None,
+        )
+        .try_into()
+        .unwrap_throw();
         let builder = rsx! (
             div(id="main", on:click = main_click.sink()) {
                 div(class="container") {
@@ -229,7 +246,9 @@ impl Mdl {
                         tbody(patch:children = self.rows
                             .stream()
                             .map(move |patch|{
-                                patch.map(|row| {})
+                                patch.map(|row| {
+                                    Self::row_viewbuilder(&row, selected.clone(), None) //Some(&row_node))
+                                })
                             })
                         ) {}
                     }

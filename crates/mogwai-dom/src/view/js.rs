@@ -1,23 +1,27 @@
 //! Wrapper around Javascript DOM nodes.
 use std::{
-    collections::HashMap,
+    cell::RefCell,
+    collections::{HashMap, VecDeque},
     future::Future,
     ops::{Bound, Deref, RangeBounds},
     pin::Pin,
+    rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
+    task::{RawWaker, Wake, Waker},
 };
 
 use anyhow::Context;
 use async_lock::RwLock;
 use mogwai::{
     channel::mpsc,
+    future::FutureExt,
     patch::{HashPatch, HashPatchApply, ListPatch, ListPatchApply},
     sink::SinkExt,
-    stream::StreamExt,
-    view::{AnyEvent, AnyView, Listener, Update, ViewBuilder, ViewIdentity},
+    stream::{select_all, Stream, StreamExt},
+    view::{AnyEvent, AnyView, Downcast, Listener, Update, ViewBuilder, ViewIdentity},
 };
 use send_wrapper::SendWrapper;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
@@ -29,50 +33,131 @@ use crate::{
 
 use super::FutureTask;
 
+struct CancelStream<St> {
+    st: St,
+    cancelled: SendWrapper<Rc<AtomicBool>>,
+    waker: SendWrapper<Rc<Mutex<Option<Waker>>>>,
+}
 
-#[derive(Clone)]
-pub struct JsTask(Arc<AtomicBool>, Option<async_channel::Sender<()>>);
+impl<St: Stream + Unpin> Stream for CancelStream<St> {
+    type Item = St::Item;
 
-impl Drop for JsTask {
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        if self.cancelled.load(Ordering::Relaxed) {
+            std::task::Poll::Ready(None)
+        } else {
+            *self.waker.lock().unwrap_throw() = Some(cx.waker().clone());
+            self.get_mut().st.poll_next(cx)
+        }
+    }
+}
+
+pub(crate) struct StreamHandle {
+    cancelled: SendWrapper<Rc<AtomicBool>>,
+    waker: SendWrapper<Rc<Mutex<Option<Waker>>>>,
+}
+
+impl Drop for StreamHandle {
     fn drop(&mut self) {
-        let _ = self.cancel();
+        self.cancelled.store(true, Ordering::Relaxed);
+        if let Some(waker) = self.waker.lock().unwrap_throw().take() {
+            waker.wake();
+        }
     }
 }
 
-impl JsTask {
-    pub fn is_finished(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
-    }
-
-    /// Cancels the task, if possible. not yet finished.
-    pub fn cancel(&mut self) -> anyhow::Result<()> {
-        let cancel_tx = self.1.take().context("already cancelled")?;
-        let _ = cancel_tx.try_send(());
-        Ok(())
-    }
-
-    /// Detaches the task, running it in Javascript without the ability to be
-    /// canceled.
-    pub fn detach(mut self) {
-        self.1 = None;
-    }
+fn stream_and_handle<St>(st: St) -> (CancelStream<St>, StreamHandle) {
+    let cancelled = SendWrapper::new(Rc::new(AtomicBool::new(false)));
+    let waker = SendWrapper::new(Rc::new(Mutex::new(None)));
+    (
+        CancelStream {
+            cancelled: cancelled.clone(),
+            waker: waker.clone(),
+            st,
+        },
+        StreamHandle { cancelled, waker },
+    )
 }
 
-/// Spawn an async task and return a `JsTask<T>`.
-pub fn spawn_local(future: impl Future<Output = ()> + 'static) -> JsTask {
-    let finished: Arc<AtomicBool> = Default::default();
-    let finished_spawned = finished.clone();
-    let (tx_cancel_task, mut rx_cancel_task) = async_channel::bounded(1);
-    wasm_bindgen_futures::spawn_local(async move {
-        use mogwai::future::FutureExt;
+//struct JsTask {
+//    future: SendWrapper<RefCell<Option<Pin<Box<dyn Future<Output = ()> + Send + Unpin + 'static>>>>>,
+//    executor: Executor,
+//    index: usize,
+//}
+//
+//impl Wake for JsTask {
+//    fn wake(self: Arc<Self>) {
+//        self.executor.tasks_tx.try_send(self.index).unwrap_throw();
+//        self.executor.run_next_frame();
+//    }
+//}
+//
+//#[derive(Clone)]
+//struct Executor {
+//    will_run: SendWrapper<Rc<AtomicBool>>,
+//    tasks: SendWrapper<Rc<Vec<JsTask>>>,
+//    tasks_tx: mpsc::Sender<usize>,
+//    tasks_rx: mpsc::Receiver<usize>,
+//}
+//
+//impl Default for Executor {
+//    fn default() -> Self {
+//        let (tasks_tx, tasks_rx) = mpsc::unbounded();
+//        Self {
+//            will_run: SendWrapper::new(Rc::new(AtomicBool::new(false))),
+//            tasks: SendWrapper::new(Rc::new(vec![])
+//            tasks_tx, tasks_rx
+//        }
+//    }
+//}
+//
+//impl Executor {
+//    fn run_next_frame(&self) {
+//        if !self.will_run.swap(true, Ordering::Relaxed) {
+//            let e = self.clone();
+//            mogwai::time::set_immediate(move || {
+//                e.run();
+//            });
+//        }
+//    }
+//
+//    fn run(&self) {
+//        while let Ok(task) = self.tasks_rx.try_recv() {
+//            let waker = unsafe { Waker::from_raw(RawWaker::from(task.clone())) };
+//            let mut cx: std::task::Context = std::task::Context::from_waker(&waker);
+//            let may_future = task.future.borrow_mut();
+//            if let Some(mut future) = may_future.take() {
+//                match future.poll(&mut cx) {
+//                    std::task::Poll::Ready(()) => {}
+//                    std::task::Poll::Pending => {
+//                        // wait for a new wakeup
+//                        *may_future = Some(future);
+//                    }
+//                }
+//            }
+//        }
+//        self.will_run.swap(false, Ordering::Relaxed);
+//    }
+//
+//    fn spawn(&self, future: impl Future<Output = ()> + Send + Unpin + 'static) {
+//        let task = Arc::new(JsTask {
+//            future: SendWrapper::new(RefCell::new(Box::pin(future))),
+//            executor: self.clone(),
+//        });
+//        task.wake();
+//    }
+//}
+//
+//lazy_static::lazy_static! {
+//    static ref EXECUTOR: Executor = Default::default();
+//}
 
-        let task_cancelled = async move {
-            rx_cancel_task.next().await;
-        };
-        future.or(task_cancelled).await;
-        finished_spawned.store(true, Ordering::Relaxed)
-    });
-    JsTask(finished, Some(tx_cancel_task))
+pub fn spawn_local(future: impl Future<Output = ()> + Send + Unpin + 'static) {
+    //EXECUTOR.spawn(future)
+    wasm_bindgen_futures::spawn_local(future)
 }
 
 /// A Javascript/browser DOM node.
@@ -81,27 +166,33 @@ pub fn spawn_local(future: impl Future<Output = ()> + 'static) -> JsTask {
 #[derive(Clone)]
 pub struct JsDom {
     pub(crate) inner: SendWrapper<JsValue>,
-    pub(crate) tasks: Arc<RwLock<Vec<JsTask>>>,
+    pub(crate) handles: SendWrapper<Rc<Mutex<Vec<StreamHandle>>>>,
     pub(crate) listener_callbacks: Arc<RwLock<Vec<WebCallback>>>,
     pub(crate) children: Arc<RwLock<Vec<JsDom>>>,
     // a list of this element's parent's children, so that this element may remove itself
     pub(crate) parents_children: Option<Arc<RwLock<Vec<JsDom>>>>,
 }
 
+impl Downcast<JsDom> for AnyView {
+    fn downcast(self) -> anyhow::Result<JsDom> {
+        #[cfg(debug_assertions)]
+        let type_name = self.inner_type_name;
+        #[cfg(not(debug_assertions))]
+        let type_name = "unknown";
+
+        let v: Box<JsDom> = self
+            .inner
+            .downcast()
+            .ok()
+            .with_context(|| format!("could not downcast AnyView{{{type_name}}} to JsDom",))?;
+        Ok(*v)
+    }
+}
+
 impl std::fmt::Debug for JsDom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("JsDom")
             .field("inner", &self.inner)
-            .field(
-                "tasks",
-                &format!(
-                    "vec(len={})",
-                    self.tasks
-                        .try_read()
-                        .map(|vs| vs.len().to_string())
-                        .unwrap_or("?".to_string())
-                ),
-            )
             .field("children", &self.children)
             .finish()
     }
@@ -119,14 +210,13 @@ impl From<JsValue> for JsDom {
     fn from(value: JsValue) -> Self {
         JsDom {
             inner: SendWrapper::new(value),
-            tasks: Default::default(),
+            handles: SendWrapper::new(Default::default()),
             listener_callbacks: Default::default(),
             children: Default::default(),
             parents_children: None,
         }
     }
 }
-
 
 // TODO: Make errors returned by JsDom methods Box<dyn Error>
 impl JsDom {
@@ -286,16 +376,18 @@ impl JsDom {
                     })
                 })
             } else {
-                DOCUMENT.with(|d| {
-                    d.create_element(tag)
-                        .map_err(|e| anyhow::anyhow!("could not create {} element: {:#?}", tag, e))
-                })
+                web_sys::window()
+                    .unwrap_throw()
+                    .document()
+                    .unwrap_throw()
+                    .create_element(tag)
+                    .map_err(|e| anyhow::anyhow!("could not create {} element: {:#?}", tag, e))
             }?
             .into(),
         );
         Ok(JsDom {
             inner,
-            tasks: Default::default(),
+            handles: SendWrapper::new(Default::default()),
             listener_callbacks: Default::default(),
             children: Default::default(),
             parents_children: None,
@@ -311,7 +403,7 @@ impl JsDom {
         let inner = SendWrapper::new(node);
         Ok(JsDom {
             inner,
-            tasks: Default::default(),
+            handles: SendWrapper::new(Default::default()),
             listener_callbacks: Default::default(),
             children: Default::default(),
             parents_children: None,
@@ -398,19 +490,19 @@ impl JsDom {
 
     /// Conduct upkeep of this node, trimming any finished tasks
     fn upkeep<'a, 'b: 'a>(&'b self) -> Pin<Box<dyn Future<Output = usize> + 'a>> {
-        Box::pin(async {
-            let mut tasks = self.tasks.write().await;
-            tasks.retain(|task| !task.is_finished());
-            let mut total_retained_tasks = tasks.len();
-            drop(tasks);
-
-            let children = self.children.read().await;
-            for child in children.iter() {
-                let child_retained_tasks = child.upkeep().await;
-                total_retained_tasks += child_retained_tasks;
-            }
-            total_retained_tasks
-        })
+        Box::pin(async { 0 })
+        //            let mut tasks = self.tasks.write().await;
+        //            tasks.retain(|task| !task.is_finished());
+        //            let mut total_retained_tasks = tasks.len();
+        //            drop(tasks);
+        //
+        //            let children = self.children.read().await;
+        //            for child in children.iter() {
+        //                let child_retained_tasks = child.upkeep().await;
+        //                total_retained_tasks += child_retained_tasks;
+        //            }
+        //            total_retained_tasks
+        //        })
     }
 
     /// Run this view in a parent container forever, never dropping it.
@@ -566,34 +658,23 @@ pub(crate) fn build(
 ) -> anyhow::Result<JsDom> {
     let ViewBuilder {
         identity,
+        initial_values,
         updates,
         post_build_ops,
+        view_sinks,
         listeners,
         tasks,
-        view_sinks,
         hydration_root,
     } = builder;
-
-    let (update_stream, initial_values) = if let Some(updates) = super::my_select_all(updates) {
-        let (stream, vals) = super::exhaust(updates);
-        (Some(stream), vals)
-    } else {
-        (None, vec![])
-    };
-
     let hydrating_root = hydration_root.is_some();
     let hydrating_child = may_parent.is_some();
 
     // intialize it
     let dom = if hydrating_child {
-        let attribs = initial_values
-            .iter()
-            .filter_map(|update| {
-                match update {
-                    Update::Attribute(patch) => Some(patch.clone()),
-                    _ => None
-                }
-            });
+        let attribs = initial_values.iter().filter_map(|update| match update {
+            Update::Attribute(patch) => Some(patch.clone()),
+            _ => None,
+        });
         let key = match identity {
             ViewIdentity::Branch(t) => HydrationKey::try_new(t, attribs, may_parent),
             ViewIdentity::NamespacedBranch(t, _) => HydrationKey::try_new(t, attribs, may_parent),
@@ -643,22 +724,25 @@ pub(crate) fn build(
     }
 
     // post build
-    let mut any_view = AnyView::new(dom);
     for op in post_build_ops.into_iter() {
+        let mut any_view = AnyView::new(dom.clone());
         (op)(&mut any_view)?;
     }
-    let dom = any_view.downcast::<JsDom>()?;
 
     // make spawn update loop
     let mut to_spawn = vec![];
-    if let Some(mut update_stream) = update_stream {
+    let mut handles = dom.handles.lock().unwrap_throw();
+    for stream in updates.into_iter() {
+        let (mut stream, handle) = stream_and_handle(stream);
         let node = dom.clone();
         to_spawn.push(FutureTask(Box::pin(async move {
-            while let Some(update) = update_stream.next().await {
+            while let Some(update) = stream.next().await {
                 node.update(update).unwrap_throw();
             }
         })));
+        handles.push(handle);
     }
+    drop(handles);
 
     // make spawn logic tasks
     for task in tasks.into_iter() {
@@ -666,11 +750,9 @@ pub(crate) fn build(
     }
 
     // spawn them
-    let mut ts = dom.tasks.try_write().unwrap();
     for future_task in to_spawn.into_iter() {
-        ts.push(spawn_local(future_task.0));
+        spawn_local(future_task.0);
     }
-    drop(ts);
 
     // send view sinks
     for sink in view_sinks.into_iter() {
@@ -807,86 +889,26 @@ impl From<Hydrator> for JsDom {
 impl TryFrom<ViewBuilder> for Hydrator {
     type Error = anyhow::Error;
 
-    fn try_from(builder: ViewBuilder) -> anyhow::Result<Self> {
-        Hydrator::try_hydrate(builder, None)
-    }
-}
-
-impl Hydrator {
     /// Attempt to hydrate [`JsDom`] from [`ViewBuilder`].
-    fn try_hydrate(
-        builder: ViewBuilder,
-        may_parent: Option<(usize, &web_sys::Node)>,
-    ) -> anyhow::Result<Hydrator> {
-        let ViewBuilder {
-            identity,
-            updates,
-            post_build_ops,
-            view_sinks,
-            listeners,
-            tasks,
-        } = builder;
-        let construct_with = match identity {
-            ViewIdentity::Branch(s) => s.to_owned(),
-            ViewIdentity::NamespacedBranch(s, _) => s.to_owned(),
-            ViewIdentity::Leaf(s) => s,
-        };
-
-        let (update_stream, updates) = if let Some(updates) = super::my_select_all(updates) {
-            let (stream, vals) = mogwai::view::exhaust(updates);
-            (Some(stream), vals)
-        } else {
-            (None, vec![])
-        };
-        let (updates, attribs) =
-            updates
-                .into_iter()
-                .fold((vec![], vec![]), |(mut updates, mut attribs), update| {
-                    match update {
-                        Update::Attribute(patch) => attribs.push(patch),
-                        update => updates.push(update),
-                    }
-                    (updates, attribs)
+    fn try_from(mut builder: ViewBuilder) -> anyhow::Result<Self> {
+        if builder.hydration_root.is_none() {
+            let attribs = builder
+                .initial_values
+                .iter()
+                .filter_map(|update| match update {
+                    Update::Attribute(patch) => Some(patch.clone()),
+                    _ => None,
                 });
-
-        let key = HydrationKey::try_new(construct_with, attribs, may_parent)?;
-        let dom = key.hydrate()?;
-
-        let (dom, tasks) = super::finalize_build(
-            dom,
-            update_stream,
-            post_build_ops,
-            listeners,
-            tasks,
-            view_sinks,
-            JsDom::add_listener,
-            JsDom::update,
-        )?;
-
-        let node = dom
-            .clone_as::<web_sys::Node>()
-            .context("element is not a node")?;
-        let child_patches = updates.into_iter().filter_map(|update| match update {
-            Update::Child(patch) => Some(patch),
-            _ => None,
-        });
-        let mut children: Vec<ViewBuilder> = vec![];
-        for patch in child_patches.into_iter() {
-            let _ = children.list_patch_apply(patch);
+            let key = match &builder.identity {
+                ViewIdentity::Branch(t) => HydrationKey::try_new(t, attribs, None),
+                ViewIdentity::NamespacedBranch(t, _) => HydrationKey::try_new(t, attribs, None),
+                ViewIdentity::Leaf(t) => HydrationKey::try_new(t, attribs, None),
+            }?;
+            builder.hydration_root = Some(AnyView::new(key.hydrate()?));
         }
 
-        for (bldr, i) in children.into_iter().zip(0..) {
-            // we don't need to do anything with the hydrated JsDom because it is already
-            // attached and its reactivity has been spawned
-            let _ = Hydrator::try_hydrate(bldr, Some((i, &node)))?;
-        }
+        let inner = build(builder, None)?;
 
-        // lastly spawn all our tasks
-        for fut_task in tasks.into_iter() {
-            let mut ts = dom.tasks.try_write().unwrap();
-            ts.push(spawn_local(fut_task.0));
-        }
-
-        Ok(Hydrator { inner: dom })
+        Ok(Hydrator { inner })
     }
 }

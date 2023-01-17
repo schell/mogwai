@@ -151,7 +151,6 @@ pub(crate) fn set_checkup_interval(millis: i32, f: &Closure<dyn FnMut()>) -> i32
         .expect("should register `setInterval` OK")
 }
 
-#[cfg(target_arch = "wasm32")]
 /// Schedule the given closure to be run as soon as possible.
 ///
 /// On wasm32 this schedules the closure to run async at the next "frame". Any other
@@ -160,7 +159,8 @@ pub fn set_immediate<F>(f: F)
 where
     F: FnOnce() + 'static,
 {
-    if cfg!(target_arch = "wasm32") {
+    #[cfg(target_arch = "wasm32")]
+    {
         // `setTimeout(0, callback)` does not run the callback immediately, there is a minimum delay of ~4ms
         // https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/setTimeout#Reasons_for_delays_longer_than_specified
         // browsers do not have a native `setImmediate(callback)` function, so we have to use a hack :(
@@ -196,7 +196,9 @@ where
         if !was_scheduled {
             PORT_TO_SELF.with(|port| port.post_message(&JsValue::NULL).unwrap_throw());
         }
-    } else {
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
         f()
     }
 }
