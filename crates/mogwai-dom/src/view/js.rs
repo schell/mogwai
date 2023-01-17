@@ -35,7 +35,6 @@ use super::{FutureTask, atomic::AtomicOption};
 
 struct CancelStream<St> {
     st: St,
-    cancelled: SendWrapper<Rc<AtomicBool>>,
     waker: SendWrapper<Rc<AtomicOption<Waker>>>,
 }
 
@@ -46,7 +45,7 @@ impl<St: Stream + Unpin> Stream for CancelStream<St> {
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        if self.cancelled.load(Ordering::Relaxed) {
+        if self.is_cancelled() {
             std::task::Poll::Ready(None)
         } else {
             self.waker.swap(Some(cx.waker().clone()));
@@ -55,14 +54,18 @@ impl<St: Stream + Unpin> Stream for CancelStream<St> {
     }
 }
 
+impl<St> CancelStream<St> {
+    fn is_cancelled(&self) -> bool {
+        Rc::strong_count(&self.waker) < 2
+    }
+}
+
 pub(crate) struct StreamHandle {
-    cancelled: SendWrapper<Rc<AtomicBool>>,
     waker: SendWrapper<Rc<AtomicOption<Waker>>>,
 }
 
 impl Drop for StreamHandle {
     fn drop(&mut self) {
-        self.cancelled.store(true, Ordering::Relaxed);
         if let Some(waker) = self.waker.as_ref().take() {
             waker.wake();
         }
@@ -74,11 +77,10 @@ fn stream_and_handle<St>(st: St) -> (CancelStream<St>, StreamHandle) {
     let waker = SendWrapper::new(Rc::new(AtomicOption::new(None)));
     (
         CancelStream {
-            cancelled: cancelled.clone(),
             waker: waker.clone(),
             st,
         },
-        StreamHandle { cancelled, waker },
+        StreamHandle { waker },
     )
 }
 
