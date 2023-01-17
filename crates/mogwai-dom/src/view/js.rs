@@ -1,26 +1,23 @@
 //! Wrapper around Javascript DOM nodes.
 use std::{
-    cell::RefCell,
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     future::Future,
     ops::{Bound, Deref, RangeBounds},
     pin::Pin,
-    rc::{Rc, Weak, self},
+    rc::Rc,
     sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex, Weak as ArcWeak
+        Arc, Mutex, Weak
     },
-    task::{RawWaker, Wake, Waker},
+    task::Waker,
 };
 
 use anyhow::Context;
 use async_lock::RwLock;
 use mogwai::{
     channel::mpsc,
-    future::FutureExt,
     patch::{HashPatch, HashPatchApply, ListPatch, ListPatchApply},
     sink::SinkExt,
-    stream::{select_all, Stream, StreamExt},
+    stream::{Stream, StreamExt},
     view::{AnyEvent, AnyView, Downcast, Listener, Update, ViewBuilder, ViewIdentity},
 };
 use send_wrapper::SendWrapper;
@@ -73,7 +70,6 @@ impl Drop for StreamHandle {
 }
 
 fn stream_and_handle<St>(st: St) -> (CancelStream<St>, StreamHandle) {
-    let cancelled = SendWrapper::new(Rc::new(AtomicBool::new(false)));
     let waker = SendWrapper::new(Rc::new(AtomicOption::new(None)));
     (
         CancelStream {
@@ -192,7 +188,7 @@ impl<T> Shared<T> {
 }
 
 #[derive(Debug)]
-pub(crate) struct WeakShared<T>(ArcWeak<T>);
+pub(crate) struct WeakShared<T>(Weak<T>);
 
 impl<T> Clone for WeakShared<T> {
     fn clone(&self) -> Self {

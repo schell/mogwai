@@ -1,13 +1,12 @@
 //! Wrapped views.
-use std::{collections::VecDeque, future::Future, pin::Pin, sync::Arc};
+use std::{future::Future, pin::Pin, sync::Arc};
 
 use anyhow::Context;
 use async_executor::Executor;
 use mogwai::{
     either::Either,
     patch::{ListPatch, ListPatchApply},
-    stream::{select_all, SelectAll, Stream, StreamExt},
-    view::{exhaust, AnyEvent, AnyView, Downcast, Listener, Update, ViewBuilder},
+    view::{AnyEvent, AnyView, Downcast, Listener, Update, ViewBuilder},
 };
 pub use serde_json::Value;
 pub use ssr::SsrDom;
@@ -25,20 +24,6 @@ use self::ssr::SsrDomEvent;
 mod ssr;
 
 pub(crate) struct FutureTask<T>(pub(crate) Pin<Box<dyn Future<Output = T> + Send>>);
-
-pub(crate) fn separate_now_and_later(
-    updates: Vec<Pin<Box<dyn Stream<Item = Update> + Send>>>,
-) -> (
-    Option<SelectAll<Pin<Box<dyn Stream<Item = Update> + Send>>>>,
-    Vec<Update>,
-) {
-    if let Some(updates) = select_all(updates) {
-        let (stream, vals) = exhaust(updates);
-        (Some(stream), vals)
-    } else {
-        (None, vec![])
-    }
-}
 
 #[derive(Clone)]
 pub struct Dom(Either<JsDom, SsrDom>);

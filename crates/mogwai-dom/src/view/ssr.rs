@@ -8,11 +8,8 @@ use mogwai::{
     either::Either,
     patch::{HashPatch, ListPatch, ListPatchApply},
     sink::{SendError, Sink, SinkExt},
-    stream::{select_all, SelectAll, Stream, StreamExt},
-    view::{
-        AnyEvent, AnyView, Downcast, Listener, MogwaiFuture, MogwaiSink, PostBuild, Update,
-        ViewBuilder, ViewIdentity,
-    },
+    stream::{select_all, StreamExt},
+    view::{AnyEvent, AnyView, Downcast, Listener, Update, ViewBuilder, ViewIdentity},
 };
 use serde_json::Value;
 
@@ -452,7 +449,7 @@ pub(crate) fn build(
         view_sinks,
         listeners,
         tasks,
-        hydration_root,
+        hydration_root: _,
     } = builder;
     // intialize it
     let dom = match identity {

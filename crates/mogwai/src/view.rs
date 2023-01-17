@@ -276,7 +276,7 @@ impl<T, St: Stream<Item = T> + Send + 'static> MogwaiValue<T, St> {
     /// If there is no current value the first element will be `None`.
     ///
     /// If there is _only_ a current value the second element will be `None`.
-    pub fn split(mut self) -> (Option<T>, Option<St>) {
+    pub fn split(self) -> (Option<T>, Option<St>) {
         match self {
             MogwaiValue::Owned(s) => (Some(s), None),
             MogwaiValue::Stream(st) => (None, Some(st)),

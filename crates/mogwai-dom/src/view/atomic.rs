@@ -39,11 +39,6 @@ impl<A> AtomicOption<A> {
     }
 
     #[inline]
-    pub(crate) fn store(&self, value: Option<A>) {
-        drop(self.swap(value));
-    }
-
-    #[inline]
     pub(crate) fn take(&self) -> Option<A> {
         self.swap(None)
     }
