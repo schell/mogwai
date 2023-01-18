@@ -244,12 +244,12 @@ pub fn main() {
                 Bench::new("create_1000", || async {
                     benches::create(&mdl, &doc, 1000).await;
                 })
+            )
+            .with_bench(
+                Bench::new("create_10_000", || async {
+                    benches::create(&mdl, &doc, 10_000).await;
+                })
             );
-            //.with_bench(
-            //    Bench::new("create_10_000", || async {
-            //        benches::create(&mdl, &doc, 10_000).await;
-            //    })
-            //);
         set.run().await;
 
         let stats = JsDom::try_from(set.viewbuilder())

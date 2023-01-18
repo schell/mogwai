@@ -286,32 +286,19 @@ impl JsDom {
         match update {
             Update::Text(s) => {
                 self.inner
-                    .dyn_ref::<web_sys::Text>()
-                    .context("not a text node")?
+                    .unchecked_ref::<web_sys::Text>()
                     .set_data(&s);
             }
             Update::Attribute(patch) => match patch {
                 HashPatch::Insert(k, v) => {
                     self.inner
-                        .dyn_ref::<web_sys::Element>()
-                        .with_context(|| {
-                            format!(
-                                "could not set attribute {}={} on {:?}: not an element",
-                                k, v, self.inner
-                            )
-                        })?
+                        .unchecked_ref::<web_sys::Element>()
                         .set_attribute(&k, &v)
                         .map_err(|_| anyhow::anyhow!("could not set attrib"))?;
                 }
                 HashPatch::Remove(k) => {
                     self.inner
-                        .dyn_ref::<web_sys::Element>()
-                        .with_context(|| {
-                            format!(
-                                "could remove attribute {} on {:?}: not an element",
-                                k, self.inner
-                            )
-                        })?
+                        .unchecked_ref::<web_sys::Element>()
                         .remove_attribute(&k)
                         .map_err(|_| anyhow::anyhow!("could remove attrib"))?;
                 }
@@ -320,38 +307,19 @@ impl JsDom {
                 HashPatch::Insert(k, v) => {
                     if v {
                         self.inner
-                            .dyn_ref::<web_sys::Element>()
-                            .with_context(|| {
-                                format!(
-                                    "could not set boolean attribute {}={} on {:?}: not an element",
-                                    k, v, self.inner
-                                )
-                            })?
+                            .unchecked_ref::<web_sys::Element>()
                             .set_attribute(&k, "")
                             .map_err(|_| anyhow::anyhow!("could not set boolean attrib"))?;
                     } else {
                         self.inner
-                            .dyn_ref::<web_sys::Element>()
-                            .with_context(|| {
-                                format!(
-                                    "could not remove boolean attribute {}={} on {:?}: not an \
-                                     element",
-                                    k, v, self.inner
-                                )
-                            })?
+                            .unchecked_ref::<web_sys::Element>()
                             .remove_attribute(&k)
                             .map_err(|_| anyhow::anyhow!("could not remove boolean attrib"))?;
                     }
                 }
                 HashPatch::Remove(k) => {
                     self.inner
-                        .dyn_ref::<web_sys::Element>()
-                        .with_context(|| {
-                            format!(
-                                "could not remove boolean attribute {} on {:?}: not an element",
-                                k, self.inner
-                            )
-                        })?
+                        .unchecked_ref::<web_sys::Element>()
                         .remove_attribute(&k)
                         .map_err(|_| {
                             anyhow::anyhow!("could not remove boolean attrib".to_string())
@@ -395,10 +363,9 @@ impl JsDom {
 
     /// Detaches the node from the DOM.
     pub fn detach(&self) {
-        if let Some(node) = self.inner.dyn_ref::<web_sys::Node>() {
-            if let Some(parent) = node.parent_node() {
-                let _ = parent.remove_child(&node);
-            }
+        let node = self.inner.unchecked_ref::<web_sys::Node>();
+        if let Some(parent) = node.parent_node() {
+            let _ = parent.remove_child(&node);
         }
     }
 
@@ -506,13 +473,13 @@ impl JsDom {
     pub fn patch(&self, patch: ListPatch<JsDom>) -> Vec<JsDom> {
         let node_patch = patch
             .clone()
-            .map(|js| js.clone_as::<web_sys::Node>().unwrap());
+            .map(|js| js.clone_as::<web_sys::Node>().unwrap_throw());
 
-        let mut parent = self.inner.dyn_ref::<web_sys::Node>().unwrap().clone();
+        let mut parent = self.inner.dyn_ref::<web_sys::Node>().unwrap_throw().clone();
         list_patch_apply_node(&mut parent, node_patch);
 
         let weakly_shared_children = Some(self.children.downgrade());
-        let mut w = self.children.try_write().unwrap();
+        let mut w = self.children.try_write().unwrap_throw();
         let mut removed = w.list_patch_apply(patch.map(|mut js_dom| {
             js_dom.parents_children = weakly_shared_children.clone();
             js_dom
@@ -564,7 +531,7 @@ impl JsDom {
         let (tx, mut rx) = mpsc::bounded(1);
         wasm_bindgen_futures::spawn_local(async move {
             let t = fut.await;
-            let _ = tx.send(t).await.unwrap();
+            let _ = tx.send(t).await.unwrap_throw();
         });
         let t = rx.next().await.context("future never finished")?;
         Ok(t)
@@ -586,7 +553,7 @@ impl JsDom {
                 self.inner
                     .dyn_ref::<web_sys::EventTarget>()
                     .ok_or_else(|| "not an event target".to_string())
-                    .unwrap(),
+                    .unwrap_throw(),
                 Box::pin(tx),
             ),
             "window" => {
@@ -650,9 +617,9 @@ pub(crate) fn list_patch_apply_node(
                 if let Some(old_child) = children.get(i) {
                     if range.contains(&i) {
                         if let Some(new_child) = replace_with.next() {
-                            self_node.replace_child(&new_child, &old_child).unwrap();
+                            self_node.replace_child(&new_child, &old_child).unwrap_throw();
                         } else {
-                            self_node.remove_child(&old_child).unwrap();
+                            self_node.remove_child(&old_child).unwrap_throw();
                         }
                         removed.push(old_child.clone());
                     } else {
@@ -662,15 +629,15 @@ pub(crate) fn list_patch_apply_node(
             }
 
             for child in replace_with {
-                self_node.insert_before(&child, child_after).unwrap();
+                self_node.insert_before(&child, child_after).unwrap_throw();
             }
         }
         ListPatch::Push(new_node) => {
-            let _ = self_node.append_child(&new_node).unwrap();
+            let _ = self_node.append_child(&new_node).unwrap_throw();
         }
         ListPatch::Pop => {
             if let Some(child) = self_node.last_child() {
-                let _ = self_node.remove_child(&child).unwrap();
+                let _ = self_node.remove_child(&child).unwrap_throw();
                 removed.push(child);
             }
         }
