@@ -855,10 +855,18 @@ impl HydrationKey {
                     .get(index as usize)
                     .with_context(|| {
                         format!(
-                            "Child at index {} could not be found in node '{}' containing '{:?}'",
+                            "Child at index {} could not be found in non-empty children of node '{}' containing '{:?}'",
                             index,
                             node.node_name(),
-                            node.node_value()
+                            node.node_value(),
+                            //node,
+                            //{
+                            //    let mut nodes = vec![];
+                            //    for i in 0..children.length() {
+                            //        nodes.push(children.get(i).unwrap_throw().outer_html().unwrap_throw());
+                            //    }
+                            //    nodes
+                            //}
                         )
                     })?
                     .clone();

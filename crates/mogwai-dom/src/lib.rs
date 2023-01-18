@@ -615,16 +615,13 @@ mod wasm {
             .append(ViewBuilder::text("Hello!"))
             .with_single_attrib_stream("id", "view1")
             .with_single_style_stream("color", "red")
-            .with_single_style_stream(
-                "width",
-                futures::stream::once(async { "100px".to_string() }),
-            )
+            .with_single_style_stream("width", "100px")
             .try_into()
             .unwrap();
 
         assert_eq!(
+            r#"<div id="view1" style="color: red; width: 100px;">Hello!</div>"#,
             view.html_string().await,
-            r#"<div id="view1" style="color: red; width: 100px;">Hello!</div>"#
         );
     }
 
@@ -634,10 +631,7 @@ mod wasm {
             .append(ViewBuilder::text("Hello!"))
             .with_single_attrib_stream("id", "view1")
             .with_single_style_stream("color", "red")
-            .with_single_style_stream(
-                "width",
-                futures::stream::once(async { "100px".to_string() }),
-            )
+            .with_single_style_stream("width", "100px")
             .try_into()
             .unwrap();
 
@@ -771,13 +765,13 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn gizmo_texts() {
-        let div: JsDom = html! {
-            <div>
+        let div: JsDom = rsx! {
+            div() {
                 "here is some text "
-            // i can use comments, yay!
-            {&format!("{}", 66)}
-            " <- number"
-                </div>
+                // i can use comments, yay!
+                {format!("{}", 66)}
+                " <- number"
+            }
         }
         .try_into()
         .unwrap();
@@ -848,12 +842,11 @@ mod wasm {
 
     #[wasm_bindgen_test]
     pub async fn initial_text_nested() {
-        let dom = JsDom::try_from(ViewBuilder::element("div").append(
-            ViewBuilder::text((
-                "hello",
-                stream::once("goodbye".to_string()),
-            ))
-        )).unwrap();
+        let dom = JsDom::try_from(ViewBuilder::element("div").append(ViewBuilder::text((
+            "hello",
+            stream::once("goodbye".to_string()),
+        ))))
+        .unwrap();
         assert_eq!("<div>hello</div>", dom.html_string().await);
     }
 
@@ -1182,6 +1175,53 @@ mod wasm {
             .visit_as(|input: &web_sys::HtmlInputElement| input.value())
             .unwrap();
         assert_eq!("2", value.as_str());
+    }
+
+    #[wasm_bindgen_test]
+    async fn can_hydrate_and_update() {
+        fn builder(
+            id: impl Stream<Item = usize> + Send + Sync + 'static,
+            label: impl Stream<Item = String> + Send + Sync + 'static,
+            root: Option<&JsDom>,
+        ) -> ViewBuilder {
+            let builder = rsx!(
+                div(id = ("0", id.map(|i| format!("{}", i)))) {
+                    {("unknown", label)}
+                }
+            );
+            if let Some(root) = root {
+                builder.with_hydration_root(JsDom::from_jscast(
+                    &root
+                        .visit_as::<web_sys::Node, web_sys::Node>(|n| {
+                            n.clone_node_with_deep(true).unwrap()
+                        })
+                        .unwrap(),
+                ))
+            } else {
+                builder
+            }
+        }
+
+        let root = JsDom::try_from(builder(
+            mogwai::stream::once(0),
+            mogwai::stream::once("yar".to_string()),
+            None,
+        ))
+        .unwrap()
+        .ossify();
+        assert_eq!(r#"<div id="0">unknown</div>"#, root.html_string().await);
+
+        let mut id = Input::<usize>::default();
+        let mut label = Input::<String>::default();
+        let hydrated = JsDom::try_from(builder(
+            id.stream().unwrap(),
+            label.stream().unwrap(),
+            Some(&root),
+        )).unwrap();
+        id.set(1usize).await.unwrap();
+        label.set("hello").await.unwrap();
+        mogwai::time::wait_one_frame().await;
+        assert_eq!(r#"<div id="1">hello</div>"#, hydrated.html_string().await);
     }
 }
 

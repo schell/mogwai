@@ -204,18 +204,18 @@ where
 }
 
 pub async fn wait_one_frame() {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let (tx, rx) = async_channel::bounded::<()>(1);
-        set_immediate(move || {
-            let _ = tx.try_send(());
-        });
-        let _ = rx.recv().await;
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
+    //#[cfg(target_arch = "wasm32")]
+    //{
+    //    let (tx, rx) = async_channel::bounded::<()>(1);
+    //    set_immediate(move || {
+    //        let _ = tx.try_send(());
+    //    });
+    //    let _ = rx.recv().await;
+    //}
+    //#[cfg(not(target_arch = "wasm32"))]
+    //{
         futures_lite::future::yield_now().await;
-    }
+    //}
 }
 
 #[derive(Clone)]

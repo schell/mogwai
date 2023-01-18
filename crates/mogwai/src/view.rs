@@ -10,7 +10,7 @@ use std::{
 use crate::{
     patch::{HashPatch, ListPatch},
     sink::{Sink, SinkExt},
-    stream::{Stream, StreamExt},
+    stream::{Stream, StreamExt}, model::Model,
 };
 use anyhow::Context;
 pub use anyhow::Error;
@@ -288,6 +288,17 @@ impl<T, St: Stream<Item = T> + Send + 'static> MogwaiValue<T, St> {
 }
 
 pub type PinBoxStream<T> = Pin<Box<dyn Stream<Item = T> + Send + 'static>>;
+
+impl<T: Clone + PartialEq + Send + Sync + 'static> From<Model<T>> for MogwaiValue<T, PinBoxStream<T>> {
+    fn from(model: Model<T>) -> Self {
+        let stream = Box::pin(model.stream());
+        if let Some(current) = model.current() {
+            MogwaiValue::OwnedAndStream(current, stream)
+        } else {
+            MogwaiValue::Stream(stream)
+        }
+    }
+}
 
 impl From<bool> for MogwaiValue<bool, PinBoxStream<bool>> {
     fn from(b: bool) -> Self {
@@ -843,19 +854,19 @@ where
 
 impl From<&String> for ViewBuilder {
     fn from(s: &String) -> Self {
-        ViewBuilder::text(futures_lite::stream::iter(std::iter::once(s.clone())))
+        ViewBuilder::text(s)
     }
 }
 
 impl From<String> for ViewBuilder {
     fn from(s: String) -> Self {
-        ViewBuilder::text(futures_lite::stream::iter(std::iter::once(s)))
+        ViewBuilder::text(s)
     }
 }
 
 impl From<&str> for ViewBuilder {
     fn from(s: &str) -> Self {
-        ViewBuilder::text(futures_lite::stream::iter(std::iter::once(s.to_string())))
+        ViewBuilder::text(s)
     }
 }
 
@@ -874,6 +885,17 @@ where
 {
     fn from(tuple: (&'a str, St)) -> Self {
         ViewBuilder::text(tuple)
+    }
+}
+
+impl From<Model<String>> for ViewBuilder {
+    fn from(value: Model<String>) -> Self {
+        let st = value.stream();
+        if let Some(current) = value.current() {
+            ViewBuilder::text((current, st))
+        } else {
+            ViewBuilder::text(st)
+        }
     }
 }
 

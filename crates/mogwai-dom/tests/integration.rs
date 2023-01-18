@@ -3,8 +3,11 @@ use std::convert::TryFrom;
 use mogwai::model::Model;
 use mogwai_dom::{core::channel::broadcast, prelude::*};
 use wasm_bindgen::UnwrapThrowExt;
+use wasm_bindgen_test::*;
 
-#[test]
+wasm_bindgen_test_configure!(run_in_browser);
+
+#[wasm_bindgen_test]
 fn expand_this_builder() {
     let _ = html! {
         <div
@@ -304,7 +307,7 @@ fn rsx_same_as_html() {
 
 fn row(
     id: usize,
-    label: Model<String>,
+    label: &'static str,
     selected: Model<Option<usize>>,
     hydrate_from: Option<&JsDom>,
 ) -> ViewBuilder {
@@ -313,11 +316,18 @@ fn row(
         "",
         is_selected.map(|is_selected| if is_selected { "danger" } else { "" }.to_string()),
     );
-    let mut builder = rsx!(
-        tr(key = id.to_string(), class = select_class) {
-            td(class="col-md-1"){{ id.to_string() }}
+
+    let input_key = FanInput::<String>::default();
+    input_key.try_send(id.to_string()).unwrap_throw();
+
+    let mut input_label = Input::<String>::default();
+    input_label.try_send(label.to_string()).unwrap_throw();
+
+    let mut builder = rsx! {
+        tr(key = (id.to_string(), input_key.stream()), class = select_class) {
+            td(class="col-md-1"){ {(id.to_string(), input_key.stream())} }
             td(class="col-md-4"){
-                a() {{ ("", label.stream()) }}
+                a() { {(label, input_label.stream().unwrap_throw())} }
             }
             td(class="col-md-1"){
                 a() {
@@ -326,24 +336,40 @@ fn row(
             }
             td(class="col-md-6"){ }
         }
-    );
+    };
+
     builder.hydration_root = hydrate_from.map(|row_node| {
         let node = row_node
             .visit_as(|node: &web_sys::Node| node.clone_node_with_deep(true).unwrap_throw())
             .unwrap_throw();
         AnyView::new(JsDom::from_jscast(&node))
     });
+
     builder
 }
 
-#[test]
-fn benchmark_row_clone() {
-    futures::executor::block_on(async {
-        let proto_node = JsDom::try_from(row(0, Model::new("hello"), Model::new(None), None))
-            .unwrap()
-            .ossify();
+#[wasm_bindgen_test]
+async fn benchmark_row_clone() {
+    let proto_node = JsDom::try_from(row(0, "hello", Model::new(None), None))
+        .unwrap()
+        .ossify();
 
-        let html_string = proto_node.html_string().await;
-        assert_eq!(r#"<tr key = "0"><td class="col-md-1">0</td><td class="col-md-4"><a></a><td class="col-md-1"><a><span class="glyphicon glyphicon-remove", area-hidden"true"></span></a><td class="col-md-6"></td></tr>"#, html_string);
-    });
+    fn compare_str(id: usize, label: &str) -> String {
+        format!(
+            r#"<tr key="{id}" class=""><td class="col-md-1">0</td><td class="col-md-4"><a>{label}</a></td><td class="col-md-1"><a><span class="glyphicon glyphicon-remove" aria-hidden="true"></span></a></td><td class="col-md-6"></td></tr>"#
+        )
+    }
+
+    let html_string = proto_node.html_string().await;
+    assert_eq!(compare_str(0, "hello"), html_string);
+
+    let hydrated_node =
+        JsDom::try_from(row(1, "kia ora", Model::new(None), Some(&proto_node))).unwrap();
+    let html_string = hydrated_node.html_string().await;
+    assert_eq!(compare_str(0, "hello"), html_string);
+
+    mogwai::time::wait_millis(100).await;
+
+    let html_string = hydrated_node.html_string().await;
+    assert_eq!(compare_str(1, "kia ora"), html_string);
 }
