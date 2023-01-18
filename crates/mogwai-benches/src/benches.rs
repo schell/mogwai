@@ -183,11 +183,12 @@ impl Mdl {
             "",
             is_selected.map(|is_selected| if is_selected { "danger" } else { "" }.to_string()),
         );
+        let id = row.id.to_string();
         let mut builder = rsx!(
-            tr(key = row.id.to_string(), class = select_class) {
-                td(class="col-md-1"){{ row.id.to_string() }}
+            tr(key = (id.clone(), mogwai_dom::core::stream::once(id.clone())), class = select_class) {
+                td(class="col-md-1"){{ (id.clone(), mogwai_dom::core::stream::once(id)) }}
                 td(class="col-md-4"){
-                    a() {{ ("", row.label.stream()) }}
+                    a() {{ row.label.clone() }}
                 }
                 td(class="col-md-1"){
                     a() {
@@ -247,7 +248,7 @@ impl Mdl {
                             .stream()
                             .map(move |patch|{
                                 patch.map(|row| {
-                                    Self::row_viewbuilder(&row, selected.clone(), None) //Some(&row_node))
+                                    Self::row_viewbuilder(&row, selected.clone(), Some(&row_node))
                                 })
                             })
                         ) {}
