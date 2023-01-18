@@ -317,11 +317,7 @@ mod nonwasm {
         });
     }
 
-    async fn wait_eq(
-        t: &str,
-        secs: f64,
-        view: &SsrDom,
-    ) {
+    async fn wait_eq(t: &str, secs: f64, view: &SsrDom) {
         let start = mogwai::time::now() / 1000.0;
         let timeout = secs;
         loop {
@@ -341,13 +337,16 @@ mod nonwasm {
         futures_lite::future::block_on(async {
             let mut text = Input::<String>::default();
 
-            let view = SsrDom::try_from(ViewBuilder::text(("hello", text.stream().unwrap()))).unwrap();
+            let view =
+                SsrDom::try_from(ViewBuilder::text(("hello", text.stream().unwrap()))).unwrap();
             let v = view.clone();
             view.run_while(async move {
                 wait_eq(r#"hello"#, 1.0, &v).await;
                 text.set("goodbye").await.unwrap();
                 wait_eq(r#"goodbye"#, 1.0, &v).await;
-            }).await.unwrap();
+            })
+            .await
+            .unwrap();
         });
     }
 
@@ -360,7 +359,8 @@ mod nonwasm {
                 p() {
                     {("hello", text.stream().unwrap())}
                 }
-            )).unwrap();
+            ))
+            .unwrap();
             let v = view.clone();
             view.run_while(async move {
                 wait_eq(r#"<p>hello</p>"#, 1.0, &v).await;
@@ -370,7 +370,9 @@ mod nonwasm {
 
                 text.set("kia ora").await.unwrap();
                 wait_eq(r#"<p>kia ora</p>"#, 1.0, &v).await;
-            }).await.unwrap();
+            })
+            .await
+            .unwrap();
         });
     }
 
@@ -384,7 +386,8 @@ mod nonwasm {
                 p(class=("p_class", class.stream().unwrap())) {
                     {("hello", text.stream().unwrap())}
                 }
-            )).unwrap();
+            ))
+            .unwrap();
             let v = view.clone();
             view.run_while(async move {
                 wait_eq(r#"<p class="p_class">hello</p>"#, 1.0, &v).await;
@@ -394,7 +397,9 @@ mod nonwasm {
 
                 class.set("my_p_class").await.unwrap();
                 wait_eq(r#"<p class="my_p_class">goodbye</p>"#, 1.0, &v).await;
-            }).await.unwrap();
+            })
+            .await
+            .unwrap();
         });
     }
 
@@ -417,35 +422,39 @@ mod nonwasm {
 
             let v = view.clone();
             view.run_while(async move {
-                    wait_eq(
-                        r#"<div style="float: left;"><p class="p_class">here</p></div>"#,
-                        1.0,
-                        &v,
-                    )
-                    .await;
+                wait_eq(
+                    r#"<div style="float: left;"><p class="p_class">here</p></div>"#,
+                    1.0,
+                    &v,
+                )
+                .await;
 
-                    let _ = text.try_send("there".to_string()).unwrap();
-                    wait_eq(
-                        r#"<div style="float: left;"><p class="p_class">there</p></div>"#,
-                        1.0,
-                        &v
-                    ).await;
+                let _ = text.try_send("there".to_string()).unwrap();
+                wait_eq(
+                    r#"<div style="float: left;"><p class="p_class">there</p></div>"#,
+                    1.0,
+                    &v,
+                )
+                .await;
 
-                    let _ = style.try_send("right".to_string()).unwrap();
-                    wait_eq(
-                        r#"<div style="float: right;"><p class="p_class">there</p></div>"#,
-                        1.0,
-                        &v
-                    ).await;
+                let _ = style.try_send("right".to_string()).unwrap();
+                wait_eq(
+                    r#"<div style="float: right;"><p class="p_class">there</p></div>"#,
+                    1.0,
+                    &v,
+                )
+                .await;
 
-                    let _ = class.try_send("my_p_class".to_string()).unwrap();
-                    wait_eq(
-                        r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#,
-                        1.0,
-                        &v
-                    ).await;
-                })
-                .await.unwrap();
+                let _ = class.try_send("my_p_class".to_string()).unwrap();
+                wait_eq(
+                    r#"<div style="float: right;"><p class="my_p_class">there</p></div>"#,
+                    1.0,
+                    &v,
+                )
+                .await;
+            })
+            .await
+            .unwrap();
         });
     }
 
@@ -563,7 +572,8 @@ mod wasm {
         prelude::*,
         view::js::Hydrator,
     };
-    use futures::stream;
+    //use futures::stream;
+    use mogwai::stream;
     use wasm_bindgen::JsCast;
     use wasm_bindgen_test::*;
     use web_sys::HtmlElement;
@@ -582,20 +592,20 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn can_create_text_view_node_from_stream() {
-        let s = stream::once(async { "Hello!".to_string() });
+        let s = stream::once("Hello!".to_string());
         let _view: JsDom = ViewBuilder::text(s).try_into().unwrap();
     }
 
     #[wasm_bindgen_test]
     async fn can_create_text_view_node_from_string_and_stream() {
         let s = "Hello!".to_string();
-        let st = stream::once(async { "Goodbye!".to_string() });
+        let st = stream::once("Goodbye!".to_string());
         let _view: JsDom = ViewBuilder::text((s, st)).try_into().unwrap();
     }
 
     #[wasm_bindgen_test]
     async fn can_create_text_view_node_from_str_and_stream() {
-        let st = stream::once(async { "Goodbye!".to_string() });
+        let st = stream::once("Goodbye!".to_string());
         let _view: JsDom = ViewBuilder::text(("Hello!", st)).try_into().unwrap();
     }
 
@@ -827,6 +837,27 @@ mod wasm {
     }
 
     #[wasm_bindgen_test]
+    pub async fn initial_text() {
+        let dom = JsDom::try_from(ViewBuilder::text((
+            "hello",
+            stream::once("goodbye".to_string()),
+        )))
+        .unwrap();
+        assert_eq!("hello", dom.html_string().await);
+    }
+
+    #[wasm_bindgen_test]
+    pub async fn initial_text_nested() {
+        let dom = JsDom::try_from(ViewBuilder::element("div").append(
+            ViewBuilder::text((
+                "hello",
+                stream::once("goodbye".to_string()),
+            ))
+        )).unwrap();
+        assert_eq!("<div>hello</div>", dom.html_string().await);
+    }
+
+    #[wasm_bindgen_test]
     pub async fn rx_text() {
         let (tx, rx) = broadcast::bounded::<String>(1);
 
@@ -853,13 +884,11 @@ mod wasm {
         let rx = rx.scan(0, |n: &mut i32, _: JsDomEvent| {
             log::info!("event!");
             *n += 1;
-            Some(
-                if *n == 1 {
-                    "Clicked 1 time".to_string()
-                } else {
-                    format!("Clicked {} times", *n)
-                },
-            )
+            Some(if *n == 1 {
+                "Clicked 1 time".to_string()
+            } else {
+                format!("Clicked {} times", *n)
+            })
         });
 
         let button: JsDom = html! {
@@ -1195,13 +1224,11 @@ mod test {
                     while let Some(()) = self.click.get().await {
                         clicks += 1;
                         self.text
-                            .set(
-                                if clicks == 1 {
-                                    "1 click.".to_string()
-                                } else {
-                                    format!("{} clicks.", clicks)
-                                },
-                            )
+                            .set(if clicks == 1 {
+                                "1 click.".to_string()
+                            } else {
+                                format!("{} clicks.", clicks)
+                            })
                             .await
                             .unwrap_or_else(|_| panic!("could not set text"));
                     }

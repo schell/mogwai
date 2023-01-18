@@ -52,52 +52,74 @@ pub trait StreamableExt {
     }
 }
 
-pub struct SelectAll<St>(VecDeque<St>);
+pub struct SelectAll<I, St>(Option<I>, VecDeque<St>);
 
-impl<St> std::fmt::Debug for SelectAll<St> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("SelectAll").field(&self.0.len()).finish()
+impl<I: Iterator<Item = St>, St> SelectAll<I, St> {
+    fn dequeue(&mut self) -> Option<St> {
+        if self.0.is_some() {
+            // UNWRAP: ok because we know this is Some
+            let unpolled = self.0.as_mut().unwrap();
+            let next = unpolled.next();
+            if next.is_some() {
+                return next;
+            } else {
+                self.0 = None;
+            }
+        }
+
+        self.1.pop_front()
+    }
+
+    fn enqueue(&mut self, st: St) {
+        self.1.push_back(st);
+    }
+
+    fn len(&self) -> usize {
+        self.0.as_ref().map(|vs| vs.size_hint().0).unwrap_or_default() + self.1.len()
     }
 }
 
-pub fn select_all<T: 'static, St: Stream<Item = T> + Send + Unpin + 'static>(
-    streams: impl IntoIterator<Item = St>,
-) -> Option<SelectAll<St>> {
-    let streams = streams.into_iter().collect::<VecDeque<_>>();
-    if streams.len() > 0 {
-        Some(SelectAll(streams))
+pub fn select_all<I: IntoIterator<Item = St>, T: 'static, St: Stream<Item = T> + Send + Unpin + 'static>(
+    streams: I,
+) -> Option<SelectAll<I::IntoIter, St>> {
+    let unpolled_streams = streams.into_iter();
+    let (len, _) = unpolled_streams.size_hint();
+    if len > 0 {
+        let streams = VecDeque::with_capacity(unpolled_streams.size_hint().0);
+        Some(SelectAll(Some(unpolled_streams), streams))
     } else {
         None
     }
 }
 
-impl<T: 'static, St: Stream<Item = T> + Send + Unpin + 'static> Stream for SelectAll<St> {
+impl<I: Iterator<Item = St> + Unpin, T: 'static, St: Stream<Item = T> + Send + Unpin + 'static> Stream for SelectAll<I, St> {
     type Item = T;
 
     fn poll_next(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        let mut len = self.0.len();
-        let many: &mut Self = self.get_mut();
-        while len > 0 {
-            len -= 1;
-            if let Some(mut st) = many.0.pop_front() {
+        let len = self.len();
+        if len == 0 {
+            return std::task::Poll::Ready(None);
+        }
+        let many = self.get_mut();
+        for _ in 0..len {
+            let may_stream = many.dequeue();
+            if let Some(mut st) = may_stream {
                 match st.poll_next(cx) {
                     std::task::Poll::Ready(None) => {
-                        if many.0.is_empty() {
-                            // the streams are all gone and this one is empty,
-                            // we'll never see another yield
-                            return std::task::Poll::Ready(None);
-                        }
+                        // this stream will never yield again, don't enqueue it
+                        // but check the others
                     }
                     std::task::Poll::Ready(Some(t)) => {
-                        many.0.push_back(st);
+                        many.enqueue(st);
+                        // this one is done
                         return std::task::Poll::Ready(Some(t));
                     }
                     std::task::Poll::Pending => {
+                        many.enqueue(st);
                         // just go to the next one
-                        many.0.push_back(st);
                     }
                 }
             }
@@ -106,7 +128,7 @@ impl<T: 'static, St: Stream<Item = T> + Send + Unpin + 'static> Stream for Selec
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.0.len();
+        let len = self.len();
         (len, Some(len))
     }
 }

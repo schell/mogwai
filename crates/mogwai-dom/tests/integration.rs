@@ -1,6 +1,8 @@
 use std::convert::TryFrom;
 
+use mogwai::model::Model;
 use mogwai_dom::{core::channel::broadcast, prelude::*};
+use wasm_bindgen::UnwrapThrowExt;
 
 #[test]
 fn expand_this_builder() {
@@ -297,5 +299,51 @@ fn rsx_same_as_html() {
         let rsx_string = rsx.html_string().await;
 
         assert_eq!(html_string, rsx_string, "rsx and html to not agree");
+    });
+}
+
+fn row(
+    id: usize,
+    label: Model<String>,
+    selected: Model<Option<usize>>,
+    hydrate_from: Option<&JsDom>,
+) -> ViewBuilder {
+    let is_selected = selected.stream().map(move |selected| selected == Some(id));
+    let select_class = (
+        "",
+        is_selected.map(|is_selected| if is_selected { "danger" } else { "" }.to_string()),
+    );
+    let mut builder = rsx!(
+        tr(key = id.to_string(), class = select_class) {
+            td(class="col-md-1"){{ id.to_string() }}
+            td(class="col-md-4"){
+                a() {{ ("", label.stream()) }}
+            }
+            td(class="col-md-1"){
+                a() {
+                    span(class="glyphicon glyphicon-remove", aria_hidden="true") {}
+                }
+            }
+            td(class="col-md-6"){ }
+        }
+    );
+    builder.hydration_root = hydrate_from.map(|row_node| {
+        let node = row_node
+            .visit_as(|node: &web_sys::Node| node.clone_node_with_deep(true).unwrap_throw())
+            .unwrap_throw();
+        AnyView::new(JsDom::from_jscast(&node))
+    });
+    builder
+}
+
+#[test]
+fn benchmark_row_clone() {
+    futures::executor::block_on(async {
+        let proto_node = JsDom::try_from(row(0, Model::new("hello"), Model::new(None), None))
+            .unwrap()
+            .ossify();
+
+        let html_string = proto_node.html_string().await;
+        assert_eq!(r#"<tr key = "0"><td class="col-md-1">0</td><td class="col-md-4"><a></a><td class="col-md-1"><a><span class="glyphicon glyphicon-remove", area-hidden"true"></span></a><td class="col-md-6"></td></tr>"#, html_string);
     });
 }

@@ -252,22 +252,12 @@ pub enum MogwaiValue<S, St> {
     OwnedAndStream(S, St),
 }
 
-impl<T, St: Stream<Item = T> + Send + 'static> MogwaiValue<T, St> {
-    pub fn pinned(self) -> MogwaiValue<T, PinBoxStream<T>> {
+impl<T, St: Stream + Send + 'static> MogwaiValue<T, St> {
+    pub fn pinned(self) -> MogwaiValue<T, PinBoxStream<St::Item>> {
         match self {
             MogwaiValue::Owned(s) => MogwaiValue::Owned(s),
             MogwaiValue::Stream(st) => MogwaiValue::Stream(Box::pin(st)),
             MogwaiValue::OwnedAndStream(s, st) => MogwaiValue::OwnedAndStream(s, Box::pin(st)),
-        }
-    }
-
-    pub fn map<S>(self, f: impl Fn(T) -> S + Send + 'static) -> MogwaiValue<S, PinBoxStream<S>> {
-        match self {
-            MogwaiValue::Owned(s) => MogwaiValue::Owned(f(s)),
-            MogwaiValue::Stream(st) => MogwaiValue::Stream(Box::pin(st.map(f))),
-            MogwaiValue::OwnedAndStream(s, st) => {
-                MogwaiValue::OwnedAndStream(f(s), Box::pin(st.map(f)))
-            }
         }
     }
 
@@ -285,11 +275,29 @@ impl<T, St: Stream<Item = T> + Send + 'static> MogwaiValue<T, St> {
     }
 }
 
+impl<T, St: Stream<Item = T> + Send + 'static> MogwaiValue<T, St> {
+    pub fn map<S>(self, f: impl Fn(T) -> S + Send + 'static) -> MogwaiValue<S, PinBoxStream<S>> {
+        match self {
+            MogwaiValue::Owned(s) => MogwaiValue::Owned(f(s)),
+            MogwaiValue::Stream(st) => MogwaiValue::Stream(Box::pin(st.map(f))),
+            MogwaiValue::OwnedAndStream(s, st) => {
+                MogwaiValue::OwnedAndStream(f(s), Box::pin(st.map(f)))
+            }
+        }
+    }
+}
+
 pub type PinBoxStream<T> = Pin<Box<dyn Stream<Item = T> + Send + 'static>>;
 
 impl From<bool> for MogwaiValue<bool, PinBoxStream<bool>> {
     fn from(b: bool) -> Self {
         MogwaiValue::Owned(b)
+    }
+}
+
+impl From<&'static str> for MogwaiValue<&'static str, PinBoxStream<String>> {
+    fn from(s: &'static str) -> Self {
+        MogwaiValue::Owned(s)
     }
 }
 
@@ -330,40 +338,21 @@ where
     }
 }
 
+impl<St> From<(&'static str, St)> for MogwaiValue<&'static str, St>
+where
+    St: Stream<Item = String>,
+{
+    fn from(s: (&'static str, St)) -> Self {
+        MogwaiValue::OwnedAndStream(s.0, s.1)
+    }
+}
+
 impl<'a, St> From<(String, St)> for MogwaiValue<String, St>
 where
     St: Stream<Item = String>,
 {
     fn from(s: (String, St)) -> Self {
         MogwaiValue::OwnedAndStream(s.0, s.1)
-    }
-}
-
-impl<S: 'static, St: Stream<Item = S> + 'static> From<MogwaiValue<S, St>>
-    for Pin<Box<dyn Stream<Item = S>>>
-{
-    fn from(v: MogwaiValue<S, St>) -> Self {
-        match v {
-            MogwaiValue::Owned(s) => Box::pin(futures_lite::stream::iter(std::iter::once(s))),
-            MogwaiValue::Stream(s) => Box::pin(s),
-            MogwaiValue::OwnedAndStream(s, st) => {
-                Box::pin(futures_lite::stream::iter(std::iter::once(s)).chain(st))
-            }
-        }
-    }
-}
-
-impl<S: Send + 'static, St: Stream<Item = S> + Send + 'static> From<MogwaiValue<S, St>>
-    for Pin<Box<dyn Stream<Item = S> + Send + 'static>>
-{
-    fn from(v: MogwaiValue<S, St>) -> Self {
-        match v {
-            MogwaiValue::Owned(s) => Box::pin(futures_lite::stream::iter(std::iter::once(s))),
-            MogwaiValue::Stream(s) => Box::pin(s),
-            MogwaiValue::OwnedAndStream(s, st) => {
-                Box::pin(futures_lite::stream::iter(std::iter::once(s)).chain(st))
-            }
-        }
     }
 }
 
@@ -389,19 +378,6 @@ pub enum Update {
     Style(HashPatch<String, String>),
     Child(ListPatch<ViewBuilder>),
 }
-
-//impl std::fmt::Debug for Update {
-//    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//        match self {
-//            Self::Text(arg0) => f.debug_tuple("Text").field(arg0).finish(),
-//            Self::Attribute(arg0) =>
-// f.debug_tuple("Attribute").field(arg0).finish(),
-// Self::BooleanAttribute(arg0) =>
-// f.debug_tuple("BooleanAttribute").field(arg0).finish(),
-// Self::Style(arg0) => f.debug_tuple("Style").field(arg0).finish(),
-// Self::Child(arg0) => f.debug_tuple("Child").field(arg0).finish(),        }
-//    }
-//}
 
 /// A listener (sink) of certain events.
 ///
@@ -666,10 +642,13 @@ impl ViewBuilder {
         let key = k.into();
         let (may_style, may_st) = st.into().split();
         if let Some(style) = may_style {
-            self.initial_values.push(Update::Style(HashPatch::Insert(key.clone(), style)));
+            self.initial_values
+                .push(Update::Style(HashPatch::Insert(key.clone(), style)));
         }
         if let Some(st) = may_st {
-            self.updates.push(Box::pin(st.map(move |v| Update::Style(HashPatch::Insert(key.clone(), v)))));
+            self.updates.push(Box::pin(
+                st.map(move |v| Update::Style(HashPatch::Insert(key.clone(), v))),
+            ));
         }
         self
     }
@@ -690,17 +669,21 @@ impl ViewBuilder {
     }
 
     /// Append a child or iterator of children.
-    pub fn append(self, children: impl Into<AppendArg>) -> Self {
+    pub fn append(mut self, children: impl Into<AppendArg>) -> Self {
         let arg = children.into();
 
-        let bldrs = match arg {
-            AppendArg::Single(bldr) => vec![bldr],
-            AppendArg::Iter(bldrs) => bldrs,
-        };
-        let stream = Box::pin(futures_lite::stream::iter(
-            bldrs.into_iter().map(|b| ListPatch::push(b)),
-        ));
-        self.with_child_stream(stream)
+        match arg {
+            AppendArg::Single(bldr) => {
+                self.initial_values
+                    .push(Update::Child(ListPatch::push(bldr)));
+            }
+            AppendArg::Iter(bldrs) => {
+                self.initial_values
+                    .extend(bldrs.into_iter().map(|b| Update::Child(ListPatch::push(b))));
+            }
+        }
+
+        self
     }
 
     /// Add an operation to perform after the view has been built.
@@ -876,14 +859,21 @@ impl From<&str> for ViewBuilder {
     }
 }
 
-impl<S, St> From<(S, St)> for ViewBuilder
+impl<St> From<(String, St)> for ViewBuilder
 where
-    S: AsRef<str>,
     St: Stream<Item = String> + Send + Sync + 'static,
 {
-    fn from((s, st): (S, St)) -> Self {
-        let iter = futures_lite::stream::iter(std::iter::once(s.as_ref().to_string())).chain(st);
-        ViewBuilder::text(iter)
+    fn from(tuple: (String, St)) -> Self {
+        ViewBuilder::text(tuple)
+    }
+}
+
+impl<'a, St> From<(&'a str, St)> for ViewBuilder
+where
+    St: Stream<Item = String> + Send + Sync + 'static,
+{
+    fn from(tuple: (&'a str, St)) -> Self {
+        ViewBuilder::text(tuple)
     }
 }
 

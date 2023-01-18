@@ -216,26 +216,26 @@ impl std::fmt::Debug for DomEvent {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use mogwai::stream::{self, StreamExt};
 
     #[test]
     fn can_stream_my_select_all() {
-        let usizes = futures_lite::stream::iter(vec![0usize, 1, 2, 3]);
-        let floats = futures_lite::stream::iter(vec![0f32, 1.0, 2.0, 3.0]);
-        let chars = futures_lite::stream::iter(vec!['a', 'b', 'c', 'd']);
+        let usizes = stream::iter(vec![0usize, 1, 2, 3]);
+        let floats = stream::iter(vec![0f32, 1.0, 2.0, 3.0]);
+        let chars = stream::iter(vec!['a', 'b', 'c', 'd']);
         #[derive(Debug, PartialEq)]
         enum X {
             A(usize),
             B(f32),
             C(char),
         }
-        let stream = select_all(vec![
+        let stream = stream::select_all(vec![
             usizes.map(X::A).boxed(),
             floats.map(X::B).boxed(),
             chars.map(X::C).boxed(),
         ])
         .unwrap();
-        let vals = futures_lite::future::block_on(stream.collect::<Vec<_>>());
+        let vals = mogwai::future::block_on(stream.collect::<Vec<_>>());
         assert_eq!(
             vec![
                 X::A(0),

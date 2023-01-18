@@ -4,9 +4,8 @@ use std::{
     future::Future,
     ops::{Bound, Deref, RangeBounds},
     pin::Pin,
-    rc::Rc,
     sync::{
-        Arc, Mutex, Weak
+        Arc, Weak
     },
     task::Waker,
 };
@@ -30,9 +29,61 @@ use crate::{
 
 use super::{atomic::AtomicOption, FutureTask};
 
+#[derive(Debug)]
+pub(crate) struct Shared<T>(Arc<T>);
+
+impl<T: Default> Default for Shared<T> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<T> Clone for Shared<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T> Deref for Shared<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<T> AsRef<T> for Shared<T> {
+    fn as_ref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> Shared<T> {
+    pub(crate) fn new(t:T) -> Self {
+        Self(Arc::new(t))
+    }
+
+    pub(crate) fn downgrade(&self) -> WeakShared<T> {
+        WeakShared(Arc::downgrade(&self.0))
+    }
+
+    pub(crate) fn strong_count(&self) -> usize {
+        Arc::strong_count(&self.0)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct WeakShared<T>(Weak<T>);
+
+impl<T> Clone for WeakShared<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
 struct CancelStream<St> {
     st: St,
-    waker: SendWrapper<Rc<AtomicOption<Waker>>>,
+    waker: Shared<AtomicOption<Waker>>,
 }
 
 impl<St: Stream + Unpin> Stream for CancelStream<St> {
@@ -53,12 +104,13 @@ impl<St: Stream + Unpin> Stream for CancelStream<St> {
 
 impl<St> CancelStream<St> {
     fn is_cancelled(&self) -> bool {
-        Rc::strong_count(&self.waker) < 2
+        self.waker.strong_count() < 2
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct StreamHandle {
-    waker: SendWrapper<Rc<AtomicOption<Waker>>>,
+    waker: Shared<AtomicOption<Waker>>,
 }
 
 impl Drop for StreamHandle {
@@ -70,7 +122,7 @@ impl Drop for StreamHandle {
 }
 
 fn stream_and_handle<St>(st: St) -> (CancelStream<St>, StreamHandle) {
-    let waker = SendWrapper::new(Rc::new(AtomicOption::new(None)));
+    let waker = Shared::new(AtomicOption::new(None));
     (
         CancelStream {
             waker: waker.clone(),
@@ -158,51 +210,13 @@ pub fn spawn_local(future: impl Future<Output = ()> + Send + Unpin + 'static) {
     wasm_bindgen_futures::spawn_local(future)
 }
 
-#[derive(Debug)]
-pub(crate) struct Shared<T>(Arc<T>);
-
-impl<T: Default> Default for Shared<T> {
-    fn default() -> Self {
-        Self(Default::default())
-    }
-}
-
-impl<T> Clone for Shared<T> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-impl<T> Deref for Shared<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        self.0.deref()
-    }
-}
-
-impl<T> Shared<T> {
-    pub(crate) fn downgrade(&self) -> WeakShared<T> {
-        WeakShared(Arc::downgrade(&self.0))
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct WeakShared<T>(Weak<T>);
-
-impl<T> Clone for WeakShared<T> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
 /// A Javascript/browser DOM node.
 ///
 /// Represents DOM nodes when a view is built on a WASM target.
 #[derive(Clone)]
 pub struct JsDom {
     pub(crate) inner: SendWrapper<JsValue>,
-    pub(crate) handles: Shared<Mutex<Vec<StreamHandle>>>,
+    pub(crate) update_handle: Option<StreamHandle>,
     pub(crate) listener_callbacks: Shared<RwLock<Vec<WebCallback>>>,
     pub(crate) children: Shared<RwLock<Vec<JsDom>>>,
     // a list of this element's parent's children, so that this element may remove itself
@@ -246,7 +260,7 @@ impl From<JsValue> for JsDom {
     fn from(value: JsValue) -> Self {
         JsDom {
             inner: SendWrapper::new(value),
-            handles: Default::default(),
+            update_handle: Default::default(),
             listener_callbacks: Default::default(),
             children: Default::default(),
             parents_children: None,
@@ -388,7 +402,7 @@ impl JsDom {
         );
         Ok(JsDom {
             inner,
-            handles: Default::default(),
+            update_handle: Default::default(),
             listener_callbacks: Default::default(),
             children: Default::default(),
             parents_children: None,
@@ -404,7 +418,7 @@ impl JsDom {
         let inner = SendWrapper::new(node);
         Ok(JsDom {
             inner,
-            handles: Default::default(),
+            update_handle: Default::default(),
             listener_callbacks: Default::default(),
             children: Default::default(),
             parents_children: None,
@@ -475,7 +489,7 @@ impl JsDom {
             .clone()
             .map(|js| js.clone_as::<web_sys::Node>().unwrap_throw());
 
-        let mut parent = self.inner.dyn_ref::<web_sys::Node>().unwrap_throw().clone();
+        let mut parent = self.inner.unchecked_ref::<web_sys::Node>().clone();
         list_patch_apply_node(&mut parent, node_patch);
 
         let weakly_shared_children = Some(self.children.downgrade());
@@ -490,30 +504,13 @@ impl JsDom {
         removed
     }
 
-    /// Conduct upkeep of this node, trimming any finished tasks
-    fn upkeep<'a, 'b: 'a>(&'b self) -> Pin<Box<dyn Future<Output = usize> + 'a>> {
-        Box::pin(async { 0 })
-        //            let mut tasks = self.tasks.write().await;
-        //            tasks.retain(|task| !task.is_finished());
-        //            let mut total_retained_tasks = tasks.len();
-        //            drop(tasks);
-        //
-        //            let children = self.children.read().await;
-        //            for child in children.iter() {
-        //                let child_retained_tasks = child.upkeep().await;
-        //                total_retained_tasks += child_retained_tasks;
-        //            }
-        //            total_retained_tasks
-        //        })
-    }
-
     /// Run this view in a parent container forever, never dropping it.
     pub fn run_in_container(self, container: JsDom) -> anyhow::Result<()> {
         container.patch(ListPatch::push(self));
         wasm_bindgen_futures::spawn_local(async move {
             loop {
                 crate::core::time::wait_millis(10_000).await;
-                let _tasks = container.upkeep().await;
+                let _ = &container;
             }
         });
         Ok(())
@@ -672,7 +669,7 @@ pub(crate) fn build(
     let hydrating_child = may_parent.is_some();
 
     // intialize it
-    let dom = if hydrating_child {
+    let mut dom = if hydrating_child {
         let attribs = initial_values.iter().filter_map(|update| match update {
             Update::Attribute(patch) => Some(patch.clone()),
             _ => None,
@@ -733,18 +730,17 @@ pub(crate) fn build(
 
     // make spawn update loop
     let mut to_spawn = vec![];
-    let mut handles = dom.handles.lock().unwrap_throw();
-    for stream in updates.into_iter() {
+    if let Some(stream) = mogwai::stream::select_all(updates) {
         let (mut stream, handle) = stream_and_handle(stream);
+        dom.update_handle = Some(handle);
+
         let node = dom.clone();
         to_spawn.push(FutureTask(Box::pin(async move {
             while let Some(update) = stream.next().await {
                 node.update(update).unwrap_throw();
             }
         })));
-        handles.push(handle);
     }
-    drop(handles);
 
     // make spawn logic tasks
     for task in tasks.into_iter() {

@@ -70,7 +70,8 @@ impl<T> Clone for Model<T> {
 
 impl<T: Clone + PartialEq> Model<T> {
     /// Create a new Model.
-    pub fn new(t: T) -> Model<T> {
+    pub fn new(t: impl Into<T>) -> Model<T> {
+        let t = t.into();
         let (mut tx, rx) = broadcast::<T>(1);
         tx.set_overflow(true);
         tx.try_broadcast(t.clone()).unwrap();
