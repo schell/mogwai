@@ -1,4 +1,4 @@
-use mogwai_dom::prelude::*;
+use mogwai_dom::{prelude::*, core::time::wait_for};
 use std::{future::Future, panic, pin::Pin};
 use wasm_bindgen::prelude::*;
 
@@ -208,12 +208,13 @@ pub fn main() {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(log::Level::Trace).expect("could not init console_log");
 
-    log::info!("creating Mdl");
-    let mdl = benches::Mdl::default();
-    let dom = JsDom::try_from(mdl.clone().viewbuilder()).unwrap();
-    dom.run().unwrap();
-
     wasm_bindgen_futures::spawn_local(async move {
+        log::info!("creating Mdl");
+        let mdl = benches::Mdl::default();
+        let dom = JsDom::try_from(mdl.clone().viewbuilder()).unwrap();
+        dom.run().unwrap();
+        mogwai_dom::core::time::wait_millis(100).await;
+
         log::info!("creating and running benchmarks");
 
         let doc = mogwai_dom::utils::document();

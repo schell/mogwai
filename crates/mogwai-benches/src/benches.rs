@@ -1,6 +1,9 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use mogwai_dom::{core::model::*, prelude::*};
+use mogwai_dom::{
+    core::{either::Either, future::FutureExt, model::*},
+    prelude::*,
+};
 use rand::prelude::*;
 use wasm_bindgen::{JsCast, UnwrapThrowExt};
 use web_sys::Element;
@@ -49,21 +52,31 @@ type Id = usize;
 type Count = usize;
 type Step = usize;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Row {
     id: usize,
-    label: Model<String>,
+    label: String,
+}
+
+impl Row {
+    fn id_string(self) -> String {
+        self.id.to_string()
+    }
+
+    fn label(self) -> String {
+        self.label
+    }
 }
 
 fn build_data(count: usize) -> Vec<Row> {
     let mut thread_rng = thread_rng();
 
-    let mut data = Vec::new();
+    let mut data: Vec<Row> = Vec::new();
     data.reserve_exact(count);
 
     let next_id = ID_COUNTER.fetch_add(count, Ordering::Relaxed);
 
-    for id in next_id..next_id + count {
+    for (i, id) in (next_id..next_id + count).enumerate() {
         let adjective = ADJECTIVES.choose(&mut thread_rng).unwrap();
         let colour = COLOURS.choose(&mut thread_rng).unwrap();
         let noun = NOUNS.choose(&mut thread_rng).unwrap();
@@ -74,14 +87,30 @@ fn build_data(count: usize) -> Vec<Row> {
         label.push_str(colour);
         label.push(' ');
         label.push_str(noun);
-        data.push(Row {
-            id,
-            label: Model::new(label),
-        });
+        let row = Row { id, label };
+        data.push(row);
     }
-
     data
 }
+
+//
+//        if i < current_len {
+//            updates.push(async {
+//                existing_read[i].visit_mut(|r| {*r = row;}).await;
+//            });
+//        } else {
+//            data.push(Model::new(Row {
+//                id,
+//                label,
+//            }));
+//        }
+//    }
+//
+//    let existing_read = existing.read().await;
+//    let mut updates = Vec::with_capacity(current_len);
+//
+//
+//}
 
 #[derive(Clone)]
 enum Msg {
@@ -97,44 +126,66 @@ enum Msg {
 #[derive(Clone)]
 pub struct Mdl {
     selected: Model<Option<Id>>,
-    rows: ListPatchModel<Row>,
+    rows: ListPatchModel<Model<Row>>,
 }
 
 impl Default for Mdl {
     fn default() -> Self {
         let selected: Model<Option<Id>> = Model::new(None);
-        let rows: ListPatchModel<Row> = ListPatchModel::default();
+        let rows: ListPatchModel<Model<Row>> = ListPatchModel::default();
         Self { rows, selected }
     }
 }
 
 impl Mdl {
-    // ------ ------
-    //    Update
-    // ------ ------
+    async fn set_rows(&self, mut rows: Vec<Row>) {
+        let existing_rows = self.rows.read().await;
+        let update_rows = rows.splice(0..existing_rows.len(), []).collect::<Vec<_>>();
+        let updates = update_rows
+            .into_iter()
+            .enumerate()
+            .flat_map(|(i, row)| {
+                let existing_rows = &existing_rows;
+                let existing_row_model = existing_rows.get(i)?.clone();
+                Some(
+                    async move {
+                        existing_row_model
+                            .try_visit_mut(|row_model| {
+                                *row_model = row;
+                            })
+                            .expect("can't update row");
+                    }
+                    .boxed(),
+                )
+            })
+            .collect::<Vec<_>>();
+        drop(existing_rows);
+        mogwai_dom::core::future::join_all(updates).await;
+        self.rows
+            .append(rows.into_iter().map(Model::new))
+            .await
+            .expect("could not append");
+    }
+
     async fn update(&self, msg: Msg) {
         match msg {
             Msg::Create(cnt) => {
-                self.selected.visit_mut(|s| *s = None).await;
+                self.selected.replace(None).await;
                 let new_rows = build_data(cnt);
-                for row in new_rows.into_iter() {
-                    self.rows.push(row).await.expect("could not create rows");
-                }
-                //self.rows.splice(.., new_rows).await.expect("could not create
-                // rows");
+                self.set_rows(new_rows).await;
             }
             Msg::Append(cnt) => {
                 let new_rows = build_data(cnt);
-                let num_rows = self.rows.visit(Vec::len).await;
                 self.rows
-                    .splice(num_rows.., new_rows)
+                    .append(new_rows.into_iter().map(Model::new))
                     .await
-                    .expect("could not append rows");
+                    .expect("could not append");
             }
             Msg::Update(step_size) => {
                 let rows = self.rows.read().await;
                 for row in rows.iter().step_by(step_size) {
-                    row.label.visit_mut(|l| l.push_str(" !!!")).await;
+                    row.visit_mut(|existing_row| existing_row.label.push_str(" !!!"))
+                        .await;
                 }
             }
             Msg::Clear => {
@@ -142,29 +193,32 @@ impl Mdl {
                 self.rows.drain().await.expect("could not patch");
             }
             Msg::Swap => {
-                let num_rows = self.rows.visit(Vec::len).await;
-                if num_rows > 998 {
-                    let row998 = self.rows.remove(998).await.expect("can't remove row 998");
-                    let row1 = self
-                        .rows
-                        .replace(1, row998)
-                        .await
-                        .expect("could not replace row 1 with previous 998");
-                    self.rows
-                        .insert(998, row1)
-                        .await
-                        .expect("could not insert row 1 into index 998");
+                let rows = self.rows.read().await;
+                if rows.len() > 998 {
+                    // clone them both
+                    let row1: Row = rows[1].try_visit(Clone::clone).expect("can't read row 1");
+                    let row998: Row = rows[998].try_visit(Clone::clone).expect("can't read row 1");
+                    // switch them both
+                    rows[1].replace(row998).await;
+                    rows[998].replace(row1).await;
                 }
             }
             Msg::Select(id) => {
-                self.selected.visit_mut(|s| *s = Some(id)).await;
+                self.selected.replace(Some(id)).await;
             }
             Msg::Remove(remove_id) => {
                 let rows = self.rows.read().await;
                 let index = rows
                     .iter()
                     .enumerate()
-                    .find_map(|(i, row)| if row.id == remove_id { Some(i) } else { None })
+                    .find_map(|(i, row)| -> Option<usize> {
+                        let id = row.try_visit(|r| r.id)?;
+                        if id == remove_id {
+                            Some(i)
+                        } else {
+                            None
+                        }
+                    })
                     .unwrap();
                 drop(rows);
                 self.rows.remove(index).await.expect("could not patch");
@@ -172,23 +226,38 @@ impl Mdl {
         }
     }
 
-    fn row_viewbuilder(
-        row: &Row,
-        selected: Model<Option<usize>>,
-        hydrate_from: Option<&JsDom>,
-    ) -> ViewBuilder {
-        let id = row.id;
-        let is_selected = selected.stream().map(move |selected| selected == Some(id));
+    fn row_viewbuilder(row: &Model<Row>, selected: &Model<Option<usize>>) -> ViewBuilder {
+        let current_selection = selected.current().expect("can't read selection");
+        let current_row = row.current().expect("can't read row");
+
+        let select: PinBoxStream<Either<Option<usize>, usize>> =
+            selected.stream().map(Either::Left).boxed();
+        let id: PinBoxStream<Either<Option<usize>, usize>> =
+            row.stream().map(|row| Either::Right(row.id)).boxed();
+        let is_selected =
+            select
+                .or(id)
+                .scan((current_selection, current_row.id), |(may_s, id), e| {
+                    match e {
+                        Either::Left(s) => {
+                            *may_s = s;
+                        }
+                        Either::Right(i) => {
+                            *id = i;
+                        }
+                    }
+                    Some(*may_s == Some(*id))
+                });
+
         let select_class = (
             "",
             is_selected.map(|is_selected| if is_selected { "danger" } else { "" }.to_string()),
         );
-        let id = row.id.to_string();
-        let mut builder = rsx!(
-            tr(key = (id.clone(), mogwai_dom::core::stream::once(id.clone())), class = select_class) {
-                td(class="col-md-1"){{ (id.clone(), mogwai_dom::core::stream::once(id)) }}
+        rsx! {
+            tr(key = row.clone().map(Row::id_string), class = select_class) {
+                td(class="col-md-1"){{ row.clone().map(Row::id_string) }}
                 td(class="col-md-4"){
-                    a() {{ row.label.clone() }}
+                    a() {{ row.clone().map(Row::label) }}
                 }
                 td(class="col-md-1"){
                     a() {
@@ -197,14 +266,7 @@ impl Mdl {
                 }
                 td(class="col-md-6"){ }
             }
-        );
-        builder.hydration_root = hydrate_from.map(|row_node| {
-            let node = row_node
-                .visit_as(|node: &web_sys::Node| node.clone_node_with_deep(true).unwrap_throw())
-                .unwrap_throw();
-            AnyView::new(JsDom::from_jscast(&node))
-        });
-        builder
+        }
     }
 
     // ------ ------
@@ -213,16 +275,6 @@ impl Mdl {
     pub fn viewbuilder(self) -> ViewBuilder {
         let main_click = Output::<JsDomEvent>::default();
         let selected = self.selected.clone();
-        let row_node: JsDom = Self::row_viewbuilder(
-            &Row {
-                id: 0,
-                label: Model::new("".to_string()),
-            },
-            selected.clone(),
-            None,
-        )
-        .try_into()
-        .unwrap_throw();
         let builder = rsx! (
             div(id="main", on:click = main_click.sink()) {
                 div(class="container") {
@@ -248,7 +300,7 @@ impl Mdl {
                             .stream()
                             .map(move |patch|{
                                 patch.map(|row| {
-                                    Self::row_viewbuilder(&row, selected.clone(), Some(&row_node))
+                                    Self::row_viewbuilder(&row, &selected)
                                 })
                             })
                         ) {}

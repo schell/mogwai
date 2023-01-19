@@ -12,7 +12,8 @@ use async_lock::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard};
 pub use crate::patch::{HashPatchApply, ListPatchApply};
 use crate::{
     patch::{HashPatch, ListPatch},
-    stream::Stream,
+    prelude::{MogwaiValue, PinBoxStream, ViewBuilder},
+    stream::{Stream, StreamExt},
 };
 
 /// Wraps a value `T` and provides a stream of the latest value.
@@ -102,14 +103,44 @@ impl<T: Clone + PartialEq> Model<T> {
 
     /// Visits the inner value of the model mutably. After the closure returns
     /// the inner value will be sent to all downstream observers.
-    pub async fn visit_mut<F>(&self, f: F)
+    pub async fn visit_mut<X, F>(&self, f: F) -> X
     where
-        F: FnOnce(&mut T),
+        F: FnOnce(&mut T) -> X,
     {
         let mut lock = self.value.write().await;
-        f(lock.deref_mut());
+        let x = f(lock.deref_mut());
         let t = lock.clone();
         self.chan.0.broadcast(t).await.unwrap();
+        x
+    }
+
+    /// Attempts to visit the inner value of the model syncronously. After the closure returns
+    /// the inner value will be sent to all downstream observers.
+    pub fn try_visit<X, F>(&self, f: F) -> Option<X>
+    where
+        F: FnOnce(&T) -> X,
+    {
+        let mut lock = self.value.try_write()?;
+        let x = f(lock.deref_mut());
+        Some(x)
+    }
+
+    /// Attempts to visit the inner value of the model mutably and syncronously. After the closure returns
+    /// the inner value will be sent to all downstream observers.
+    pub fn try_visit_mut<X, F>(&self, f: F) -> Option<X>
+    where
+        F: FnOnce(&mut T) -> X,
+    {
+        let mut lock = self.value.try_write()?;
+        let x = f(lock.deref_mut());
+        let t = lock.clone();
+        self.chan.0.try_broadcast(t).ok()?;
+        Some(x)
+    }
+
+    /// Replace the value of the model, returning the old one.
+    pub async fn replace(&self, t: T) -> T {
+        self.visit_mut(|v| std::mem::replace(v, t)).await
     }
 
     /// Produce a stream of updated values.
@@ -120,6 +151,47 @@ impl<T: Clone + PartialEq> Model<T> {
     /// succession, previous sends will be clobbered.
     pub fn stream(&self) -> impl Stream<Item = T> {
         self.chan.1.clone()
+    }
+
+    /// Map this model into a struct that can be used as a `MogwaiValue`.
+    ///
+    /// This is useful for using projections of a `Model` as a parameter to
+    /// `ViewBuilder`.
+    pub fn map<S, F: Fn(T) -> S + Send + 'static>(self, f: F) -> Map<F, T> {
+        Map { f, model: self }
+    }
+}
+
+/// Struct used to support `Model::map`.
+pub struct Map<F, T> {
+    f: F,
+    model: Model<T>,
+}
+
+impl<F, T, S> From<Map<F, T>> for MogwaiValue<S, PinBoxStream<S>>
+where
+    F: Fn(T) -> S + Send + 'static,
+    T: Clone + PartialEq + Send + Sync + 'static,
+{
+    fn from(Map { f, model }: Map<F, T>) -> Self {
+        match model.current() {
+            Some(val) => MogwaiValue::OwnedAndStream(f(val), model.stream().map(f).boxed()),
+            None => MogwaiValue::Stream(model.stream().map(f).boxed()),
+        }
+    }
+}
+
+impl<F, T, S> From<Map<F, T>> for ViewBuilder
+where
+    F: Fn(T) -> S + Send + Sync + 'static,
+    T: Clone + PartialEq + Send + Sync + 'static,
+    S: ToString
+{
+    fn from(Map { f, model }: Map<F, T>) -> Self {
+        match model.current() {
+            Some(val) => (f(val).to_string(), model.stream().map(move |t| f(t).to_string())).into(),
+            None => ("", model.stream().map(move |t| f(t).to_string())).into(),
+        }
     }
 }
 
@@ -288,6 +360,12 @@ impl<T: Clone> ListPatchModel<T> {
     pub async fn pop(&self) -> anyhow::Result<Option<T>> {
         let mut removed = self.patch(ListPatch::Pop).await?;
         Ok(removed.pop())
+    }
+
+    /// Appends the items to the end of the list.
+    pub async fn append(&self, items: impl IntoIterator<Item = T>) -> anyhow::Result<()> {
+        let _ = self.splice(self.visit(Vec::len).await.., items).await?;
+        Ok(())
     }
 
     /// Drains/removes the entire list.
