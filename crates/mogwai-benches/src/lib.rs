@@ -1,4 +1,4 @@
-use mogwai_dom::{prelude::*, core::time::wait_for};
+use mogwai_dom::prelude::*;
 use std::{future::Future, panic, pin::Pin};
 use wasm_bindgen::prelude::*;
 

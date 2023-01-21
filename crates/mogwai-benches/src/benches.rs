@@ -1,11 +1,11 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use mogwai_dom::{
-    core::{either::Either, future::FutureExt, model::*},
+    core::{either::Either, model::*},
     prelude::*,
 };
 use rand::prelude::*;
-use wasm_bindgen::{JsCast, UnwrapThrowExt};
+use wasm_bindgen::JsCast;
 use web_sys::Element;
 
 static ADJECTIVES: &[&str] = &[
@@ -76,7 +76,7 @@ fn build_data(count: usize) -> Vec<Row> {
 
     let next_id = ID_COUNTER.fetch_add(count, Ordering::Relaxed);
 
-    for (i, id) in (next_id..next_id + count).enumerate() {
+    for id in next_id..next_id + count {
         let adjective = ADJECTIVES.choose(&mut thread_rng).unwrap();
         let colour = COLOURS.choose(&mut thread_rng).unwrap();
         let noun = NOUNS.choose(&mut thread_rng).unwrap();
@@ -92,25 +92,6 @@ fn build_data(count: usize) -> Vec<Row> {
     }
     data
 }
-
-//
-//        if i < current_len {
-//            updates.push(async {
-//                existing_read[i].visit_mut(|r| {*r = row;}).await;
-//            });
-//        } else {
-//            data.push(Model::new(Row {
-//                id,
-//                label,
-//            }));
-//        }
-//    }
-//
-//    let existing_read = existing.read().await;
-//    let mut updates = Vec::with_capacity(current_len);
-//
-//
-//}
 
 #[derive(Clone)]
 enum Msg {
@@ -138,41 +119,12 @@ impl Default for Mdl {
 }
 
 impl Mdl {
-    async fn set_rows(&self, mut rows: Vec<Row>) {
-        let existing_rows = self.rows.read().await;
-        let update_rows = rows.splice(0..existing_rows.len(), []).collect::<Vec<_>>();
-        let updates = update_rows
-            .into_iter()
-            .enumerate()
-            .flat_map(|(i, row)| {
-                let existing_rows = &existing_rows;
-                let existing_row_model = existing_rows.get(i)?.clone();
-                Some(
-                    async move {
-                        existing_row_model
-                            .try_visit_mut(|row_model| {
-                                *row_model = row;
-                            })
-                            .expect("can't update row");
-                    }
-                    .boxed(),
-                )
-            })
-            .collect::<Vec<_>>();
-        drop(existing_rows);
-        mogwai_dom::core::future::join_all(updates).await;
-        self.rows
-            .append(rows.into_iter().map(Model::new))
-            .await
-            .expect("could not append");
-    }
-
     async fn update(&self, msg: Msg) {
         match msg {
             Msg::Create(cnt) => {
                 self.selected.replace(None).await;
                 let new_rows = build_data(cnt);
-                self.set_rows(new_rows).await;
+                self.rows.append(new_rows.into_iter().map(Model::new)).await.expect("could not append");
             }
             Msg::Append(cnt) => {
                 let new_rows = build_data(cnt);

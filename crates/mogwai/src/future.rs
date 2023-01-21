@@ -1,16 +1,12 @@
 //! Re-exports of the [futures_lite] crate, along with extensions and helper types.
 use std::{
-    collections::VecDeque,
     sync::{Arc, Mutex, RwLock},
     task::Waker,
 };
 
 pub use futures_lite::future::*;
 
-use crate::{
-    either::Either,
-    sink::{SendError, Sink, TrySendError},
-};
+use crate::sink::{SendError, Sink, TrySendError};
 
 /// A future view, which uses `Sink` to store the result of an
 /// operation.
