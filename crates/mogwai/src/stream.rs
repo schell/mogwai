@@ -108,9 +108,13 @@ impl<I: Iterator<Item = St> + Unpin, T: 'static, St: Stream<Item = T> + Send + U
             let may_stream = many.dequeue();
             if let Some(mut st) = may_stream {
                 match st.poll_next(cx) {
-                    std::task::Poll::Ready(None) => {
+                    std::task::Poll::Ready(None) => if many.1.is_empty() {
                         // this stream will never yield again, don't enqueue it
-                        // but check the others
+                        // and there are no more items so the entire SelectAll is done
+                        return std::task::Poll::Ready(None);
+                    } else {
+                        // this stream will never yield again, don't enqueue it
+                        // but keep checking the others
                     }
                     std::task::Poll::Ready(Some(t)) => {
                         many.enqueue(st);

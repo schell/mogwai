@@ -27,7 +27,7 @@ struct ItemId(usize);
 /// it should be removed).
 fn item(id: ItemId, remove_item_clicked: Output<ItemId>) -> ViewBuilder {
     let increment_item_clicked = Output::<()>::default();
-    let num_clicks = Model::new(0u32);
+    let num_clicks = Model::<u32>::new(0u32);
     // ANCHOR: cookbook_list_item_view
     rsx! {
         li() {

@@ -132,81 +132,7 @@ fn stream_and_handle<St>(st: St) -> (CancelStream<St>, StreamHandle) {
     )
 }
 
-//struct JsTask {
-//    future: SendWrapper<RefCell<Option<Pin<Box<dyn Future<Output = ()> + Send + Unpin + 'static>>>>>,
-//    executor: Executor,
-//    index: usize,
-//}
-//
-//impl Wake for JsTask {
-//    fn wake(self: Arc<Self>) {
-//        self.executor.tasks_tx.try_send(self.index).unwrap_throw();
-//        self.executor.run_next_frame();
-//    }
-//}
-//
-//#[derive(Clone)]
-//struct Executor {
-//    will_run: SendWrapper<Rc<AtomicBool>>,
-//    tasks: SendWrapper<Rc<Vec<JsTask>>>,
-//    tasks_tx: mpsc::Sender<usize>,
-//    tasks_rx: mpsc::Receiver<usize>,
-//}
-//
-//impl Default for Executor {
-//    fn default() -> Self {
-//        let (tasks_tx, tasks_rx) = mpsc::unbounded();
-//        Self {
-//            will_run: SendWrapper::new(Rc::new(AtomicBool::new(false))),
-//            tasks: SendWrapper::new(Rc::new(vec![])
-//            tasks_tx, tasks_rx
-//        }
-//    }
-//}
-//
-//impl Executor {
-//    fn run_next_frame(&self) {
-//        if !self.will_run.swap(true, Ordering::Relaxed) {
-//            let e = self.clone();
-//            mogwai::time::set_immediate(move || {
-//                e.run();
-//            });
-//        }
-//    }
-//
-//    fn run(&self) {
-//        while let Ok(task) = self.tasks_rx.try_recv() {
-//            let waker = unsafe { Waker::from_raw(RawWaker::from(task.clone())) };
-//            let mut cx: std::task::Context = std::task::Context::from_waker(&waker);
-//            let may_future = task.future.borrow_mut();
-//            if let Some(mut future) = may_future.take() {
-//                match future.poll(&mut cx) {
-//                    std::task::Poll::Ready(()) => {}
-//                    std::task::Poll::Pending => {
-//                        // wait for a new wakeup
-//                        *may_future = Some(future);
-//                    }
-//                }
-//            }
-//        }
-//        self.will_run.swap(false, Ordering::Relaxed);
-//    }
-//
-//    fn spawn(&self, future: impl Future<Output = ()> + Send + Unpin + 'static) {
-//        let task = Arc::new(JsTask {
-//            future: SendWrapper::new(RefCell::new(Box::pin(future))),
-//            executor: self.clone(),
-//        });
-//        task.wake();
-//    }
-//}
-//
-//lazy_static::lazy_static! {
-//    static ref EXECUTOR: Executor = Default::default();
-//}
-
 pub fn spawn_local(future: impl Future<Output = ()> + Send + Unpin + 'static) {
-    //EXECUTOR.spawn(future)
     wasm_bindgen_futures::spawn_local(future)
 }
 
@@ -575,11 +501,10 @@ impl JsDom {
         JsDom::from(element)
     }
 
-    //pub fn hydrate(node: JsDom, mut builder: ViewBuilder) ->
-    // anyhow::Result<JsDom> {    builder.identity =
-    // ViewIdentity::Hydrate(AnyView::new(node));
-    //    Hydrator::try_hydrate(builder, None).map(|h| h.inner)
-    //}
+    pub fn hydrate(&self, mut builder: ViewBuilder) -> anyhow::Result<JsDom> {
+        builder.hydration_root = Some(AnyView::new(self.clone()));
+        Hydrator::try_from(builder).map(|h| h.inner)
+    }
 }
 
 // Helper function for defining `ListPatchApply for JsDom`.

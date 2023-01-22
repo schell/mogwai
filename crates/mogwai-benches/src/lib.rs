@@ -2,6 +2,7 @@ use mogwai_dom::prelude::*;
 use std::{future::Future, panic, pin::Pin};
 use wasm_bindgen::prelude::*;
 
+mod app;
 mod benches;
 mod store;
 
@@ -210,7 +211,7 @@ pub fn main() {
 
     wasm_bindgen_futures::spawn_local(async move {
         log::info!("creating Mdl");
-        let mdl = benches::Mdl::default();
+        let mdl = app::Mdl::default();
         let dom = JsDom::try_from(mdl.clone().viewbuilder()).unwrap();
         dom.run().unwrap();
         mogwai_dom::core::time::wait_millis(100).await;
@@ -242,13 +243,21 @@ pub fn main() {
             //    .with_iters(10_000)
             //);
             .with_bench(
-                Bench::new("create_1000", || async {
-                    benches::create(&mdl, &doc, 1000).await;
+                Bench::new("create_1000", || {
+                    let mut mdl = mdl.clone();
+                    let doc = &doc;
+                    async move {
+                        benches::create(&mut mdl, doc, 1000).await;
+                    }
                 })
             )
             .with_bench(
-                Bench::new("create_10_000", || async {
-                    benches::create(&mdl, &doc, 10_000).await;
+                Bench::new("create_10_000", || {
+                    let mut mdl = mdl.clone();
+                    let doc = &doc;
+                    async move {
+                        benches::create(&mut mdl, doc, 10_000).await;
+                    }
                 })
             );
         set.run().await;

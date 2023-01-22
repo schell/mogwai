@@ -139,8 +139,8 @@ impl<T: Clone + PartialEq> Model<T> {
     }
 
     /// Replace the value of the model, returning the old one.
-    pub async fn replace(&self, t: T) -> T {
-        self.visit_mut(|v| std::mem::replace(v, t)).await
+    pub async fn replace(&self, t: impl Into<T>) -> T {
+        self.visit_mut(|v| std::mem::replace(v, t.into())).await
     }
 
     /// Produce a stream of updated values.
@@ -159,6 +159,23 @@ impl<T: Clone + PartialEq> Model<T> {
     /// `ViewBuilder`.
     pub fn map<S, F: Fn(T) -> S + Send + 'static>(self, f: F) -> Map<F, T> {
         Map { f, model: self }
+    }
+
+    /// Force an update to downstream observers without changing the inner value.
+    ///
+    /// This is useful for force-updating a downstream view that may have a stale
+    /// representation of the data, eg. hydrated views.
+    pub async fn refresh(&self) {
+        self.visit_mut(|_| ()).await
+    }
+
+    /// Force an update to downstream observers without changing the inner value,
+    /// syncronously.
+    ///
+    /// This is useful for force-updating a downstream view that may have a stale
+    /// representation of the data, eg. hydrated views.
+    pub fn try_refresh(&self) -> Option<()> {
+        self.try_visit_mut(|_| ())
     }
 }
 

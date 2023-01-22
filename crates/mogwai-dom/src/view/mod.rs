@@ -235,7 +235,12 @@ mod test {
             chars.map(X::C).boxed(),
         ])
         .unwrap();
-        let vals = mogwai::future::block_on(stream.collect::<Vec<_>>());
+        let vals = mogwai::future::block_on(async move {
+            println!("collecting");
+            let vs = stream.collect::<Vec<_>>().await;
+            println!("collected");
+            vs
+        });
         assert_eq!(
             vec![
                 X::A(0),

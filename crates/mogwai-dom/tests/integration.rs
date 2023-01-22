@@ -2,7 +2,6 @@ use std::convert::TryFrom;
 
 use mogwai::model::Model;
 use mogwai_dom::{core::channel::broadcast, prelude::*};
-use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -26,7 +25,7 @@ fn expand_this_builder() {
 
 #[test]
 fn node_self_closing() {
-    futures::executor::block_on(async {
+    futures_lite::future::block_on(async {
         // not all nodes are void nodes
         let div = SsrDom::try_from(html! {
             <a href="http://zyghost.com" />
@@ -46,11 +45,9 @@ fn node_self_closing() {
 
 #[test]
 fn node_self_closing_gt_1_att() {
-    futures::executor::block_on(async {
-        let decomp: ViewBuilder = html! {<a href="http://zyghost.com" class="blah"/>};
-        let (_, updates) =
-            mogwai_dom::core::view::exhaust(futures::stream::select_all(decomp.updates));
-        match &updates[0] {
+    futures_lite::future::block_on(async {
+        let bldr: ViewBuilder = html! {<a href="http://zyghost.com" class="blah"/>};
+        match &bldr.initial_values[0] {
             Update::Attribute(HashPatch::Insert(k, v)) => {
                 assert_eq!("href", k.as_str());
                 assert_eq!("http://zyghost.com", v.as_str());
@@ -76,7 +73,7 @@ fn node_self_closing_gt_1_att() {
 
 #[test]
 fn by_hand() {
-    futures::executor::block_on(async {
+    futures_lite::future::block_on(async {
         let builder: ViewBuilder = ViewBuilder::element("a")
             .with_single_attrib_stream("href", "http://zyghost.com")
             .with_single_attrib_stream("class", "a_link")
@@ -90,7 +87,7 @@ fn by_hand() {
 
 #[test]
 fn node() {
-    futures::executor::block_on(async {
+    futures_lite::future::block_on(async {
         let div: String = SsrDom::try_from(html! {
             <a href="http://zyghost.com" class = "a_link">"a text node"</a>
         })
@@ -106,7 +103,7 @@ fn node() {
 
 #[test]
 fn block_in_text() {
-    futures::executor::block_on(async {
+    futures_lite::future::block_on(async {
         let x: u32 = 66;
         let s: String = SsrDom::try_from(html! {
             <pre>"just a string with the number" {format!("{}", x)} "<- blah blah"</pre>
@@ -124,7 +121,7 @@ fn block_in_text() {
 
 #[test]
 fn block_at_end_of_text() {
-    futures::executor::block_on(async {
+    futures_lite::future::block_on(async {
         let x: u32 = 66;
         let s: String = SsrDom::try_from(html! {
             <pre>"just a string with the number" {format!("{}", x)}</pre>
@@ -139,7 +136,7 @@ fn block_at_end_of_text() {
 
 #[test]
 fn lt_in_text() {
-    futures::executor::block_on(async {
+    futures_lite::future::block_on(async {
         let s: String = SsrDom::try_from(html! {
             <pre>"this is text <- text"</pre>
         })
@@ -153,7 +150,7 @@ fn lt_in_text() {
 
 #[test]
 fn allow_attributes_on_next_line() {
-    futures::executor::block_on(async {
+    futures_lite::future::block_on(async {
         let _: String = SsrDom::try_from(html! {
             <div
                 id="my_div"
@@ -288,7 +285,7 @@ pub fn function_style_rsx() {
 
 #[test]
 fn rsx_same_as_html() {
-    futures::executor::block_on(async {
+    futures_lite::future::block_on(async {
         let html = SsrDom::try_from(html! {
             <p><div class="my_class">"Hello"</div></p>
         })
@@ -305,71 +302,75 @@ fn rsx_same_as_html() {
     });
 }
 
-fn row(
-    id: usize,
-    label: &'static str,
-    selected: Model<Option<usize>>,
-    hydrate_from: Option<&JsDom>,
-) -> ViewBuilder {
-    let is_selected = selected.stream().map(move |selected| selected == Some(id));
-    let select_class = (
-        "",
-        is_selected.map(|is_selected| if is_selected { "danger" } else { "" }.to_string()),
-    );
+#[derive(Clone)]
+struct Row {
+    id: Model<usize>,
+    label: Model<String>,
+    selected: Model<bool>,
+}
 
-    let input_key = FanInput::<String>::default();
-    input_key.try_send(id.to_string()).unwrap_throw();
-
-    let mut input_label = Input::<String>::default();
-    input_label.try_send(label.to_string()).unwrap_throw();
-
-    let mut builder = rsx! {
-        tr(key = (id.to_string(), input_key.stream()), class = select_class) {
-            td(class="col-md-1"){ {(id.to_string(), input_key.stream())} }
-            td(class="col-md-4"){
-                a() { {(label, input_label.stream().unwrap_throw())} }
-            }
-            td(class="col-md-1"){
-                a() {
-                    span(class="glyphicon glyphicon-remove", aria_hidden="true") {}
-                }
-            }
-            td(class="col-md-6"){ }
+impl Row {
+    fn new(id: usize, label: impl Into<String>) -> Self {
+        Row {
+            id: Model::new(id),
+            label: Model::new(label),
+            selected: Model::new(false),
         }
-    };
+    }
 
-    builder.hydration_root = hydrate_from.map(|row_node| {
-        let node = row_node
-            .visit_as(|node: &web_sys::Node| node.clone_node_with_deep(true).unwrap_throw())
-            .unwrap_throw();
-        AnyView::new(JsDom::from_jscast(&node))
-    });
+    fn viewbuilder(self) -> ViewBuilder {
+        rsx! {
+            tr(
+                key = self.id.clone().map(|id| id.to_string()),
+                class = self.selected.map(|is_selected| if is_selected {
+                        "danger"
+                    } else {
+                        ""
+                    }.to_string())
+            ) {
+                td(class="col-md-1"){{ self.id.clone().map(|id| id.to_string()) }}
+                td(class="col-md-4"){
+                    a() {{ self.label.clone() }}
+                }
+                td(class="col-md-1"){
+                    a() {
+                        span(class="glyphicon glyphicon-remove", aria_hidden="true") {}
+                    }
+                }
+                td(class="col-md-6"){ }
+            }
+        }
+    }
+}
 
-    builder
+impl TryFrom<Row> for JsDom {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Row) -> Result<Self, Self::Error> {
+        value.viewbuilder().try_into()
+    }
 }
 
 #[wasm_bindgen_test]
 async fn benchmark_row_clone() {
-    let proto_node = JsDom::try_from(row(0, "hello", Model::new(None), None))
+    let row = Row::new(0, "hello");
+    let proto_node = JsDom::try_from(row.clone())
         .unwrap()
         .ossify();
 
     fn compare_str(id: usize, label: &str) -> String {
         format!(
-            r#"<tr key="{id}" class=""><td class="col-md-1">0</td><td class="col-md-4"><a>{label}</a></td><td class="col-md-1"><a><span class="glyphicon glyphicon-remove" aria-hidden="true"></span></a></td><td class="col-md-6"></td></tr>"#
+            r#"<tr key="{id}" class=""><td class="col-md-1">{id}</td><td class="col-md-4"><a>{label}</a></td><td class="col-md-1"><a><span class="glyphicon glyphicon-remove" aria-hidden="true"></span></a></td><td class="col-md-6"></td></tr>"#
         )
     }
 
     let html_string = proto_node.html_string().await;
     assert_eq!(compare_str(0, "hello"), html_string);
 
-    let hydrated_node =
-        JsDom::try_from(row(1, "kia ora", Model::new(None), Some(&proto_node))).unwrap();
-    let html_string = hydrated_node.html_string().await;
-    assert_eq!(compare_str(0, "hello"), html_string);
-
-    mogwai::time::wait_millis(100).await;
-
+    let hydrated_node = proto_node.hydrate(row.clone().viewbuilder()).unwrap();
+    row.id.replace(1usize).await;
+    row.label.replace("kia ora").await;
+    mogwai::time::wait_millis(10).await;
     let html_string = hydrated_node.html_string().await;
     assert_eq!(compare_str(1, "kia ora"), html_string);
 }

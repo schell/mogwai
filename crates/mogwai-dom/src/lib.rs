@@ -22,13 +22,11 @@
 //! If you're wondering what the acronym "mogwai" stands for, here is a table of
 //! options that work well, depending on the domain. It's fun to mix and match.
 //!
-//! | M           | O         | G           | W      | A             | I
-//! |
+//! | M           | O         | G           | W      | A             | I            |
 //! |-------------|-----------|-------------|--------|---------------|--------------|
-//! | minimal     | obvious   | graphical   | web    | application   | interface
-//! | | modular     | operable  | graphable   | widget |               |
-//! | | mostly      |           | gui         | work   |               |
-//! |
+//! | minimal     | obvious   | graphical   | web    | application   | interface    |
+//! | modular     | operable  | graphable   | widget |               |              |
+//! | mostly      |           | gui         | work   |               |              |
 //!
 //! ## JavaScript interoperability
 //! This library is a thin layer on top of the [web-sys](https://crates.io/crates/web-sys)
@@ -322,13 +320,13 @@ mod nonwasm {
         let timeout = secs;
         loop {
             let s = view.html_string().await;
-            let now = mogwai::time::now();
+            let now = mogwai::time::now() / 1000.0;
             if (now - start) >= timeout {
                 panic!("timeout {}s: {:?} != {:?} ", timeout, t, s);
             } else if t.trim() == s.trim() {
                 return;
             }
-            mogwai_dom::core::time::wait_one_frame().await;
+            mogwai_dom::core::time::wait_millis(1).await;
         }
     }
 
@@ -424,7 +422,7 @@ mod nonwasm {
             view.run_while(async move {
                 wait_eq(
                     r#"<div style="float: left;"><p class="p_class">here</p></div>"#,
-                    1.0,
+                    10.0,
                     &v,
                 )
                 .await;
@@ -1217,7 +1215,8 @@ mod wasm {
             id.stream().unwrap(),
             label.stream().unwrap(),
             Some(&root),
-        )).unwrap();
+        ))
+        .unwrap();
         id.set(1usize).await.unwrap();
         label.set("hello").await.unwrap();
         mogwai::time::wait_one_frame().await;
