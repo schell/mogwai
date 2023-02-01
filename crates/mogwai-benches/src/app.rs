@@ -1,11 +1,8 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex};
 
-use mogwai_dom::{
-    core::model::*,
-    prelude::*,
-};
+use mogwai_dom::{core::model::*, prelude::*};
 use rand::prelude::*;
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, UnwrapThrowExt};
 use web_sys::Element;
 
 static ADJECTIVES: &[&str] = &[
@@ -93,6 +90,7 @@ pub struct Row {
     input_selected: Input<bool>,
     model_id: Model<usize>,
     model_label: Model<String>,
+    dom: Captured<JsDom>
 }
 
 impl Row {
@@ -101,11 +99,15 @@ impl Row {
             input_selected: Input::new(false),
             model_id: Model::new(id),
             model_label: Model::new(label),
+            dom: Default::default(),
         }
     }
 
     fn get_id_label(&self) -> (usize, String) {
-        (self.model_id.current().unwrap(), self.model_label.current().unwrap())
+        (
+            self.model_id.current().unwrap(),
+            self.model_label.current().unwrap(),
+        )
     }
 
     fn set_id_label(&self, id: usize, label: String) {
@@ -118,7 +120,7 @@ impl Row {
     }
 
     fn viewbuilder(mut self) -> ViewBuilder {
-        rsx! {
+        self.dom.current().map(ViewBuilder::from).unwrap_or_else(|| rsx! {
             tr(
                 key = self.model_id.clone().map(|id| id.to_string()),
                 class = self
@@ -129,7 +131,8 @@ impl Row {
                         "danger"
                     } else {
                         ""
-                    }.to_string())
+                    }.to_string()),
+                capture:view = self.dom.sink()
             ) {
                 td(class="col-md-1"){{ self.model_id.clone().map(|id| id.to_string()) }}
                 td(class="col-md-4"){
@@ -142,58 +145,85 @@ impl Row {
                 }
                 td(class="col-md-6"){ }
             }
-        }
+        })
     }
 }
 
 #[derive(Clone)]
 pub struct Mdl {
-    selected: Option<Id>,
+    selected: Arc<Mutex<Option<Id>>>,
+    cache: Arc<Mutex<Vec<Row>>>,
     rows: ListPatchModel<Row>,
 }
 
 impl Default for Mdl {
     fn default() -> Self {
         let rows: ListPatchModel<Row> = ListPatchModel::default();
-        Self { rows, selected: None }
+        Self {
+            rows,
+            cache: Arc::new(Mutex::new(Vec::with_capacity(11_000))),
+            selected: Default::default(),
+        }
     }
 }
 
 impl Mdl {
-    async fn select(&mut self, row: Option<usize>) {
+    async fn select(&self, row: Option<usize>) {
         let rows = self.rows.read().await;
-        if let Some(prev_selected) = self.selected.take() {
+        if let Some(prev_selected) = self.selected.lock().unwrap_throw().take() {
             if let Some(row) = rows.get(prev_selected) {
-                row.input_selected.set(false).await.expect("can't deselect");
+                row.input_selected.try_set(false).expect("can't deselect");
             }
         }
         if let Some(newly_selected) = row {
             if let Some(row) = rows.get(newly_selected) {
-                row.input_selected.set(true).await.expect("can't select");
+                row.input_selected.try_set(true).expect("can't select");
             }
         }
+    }
+
+    pub fn dequeue(&self, rows: impl IntoIterator<Item = (usize, String)>) -> Vec<Row> {
+        let mut cache = self.cache.lock().unwrap_throw();
+        rows.into_iter().map(|(id, label)| if let Some(row) = cache.pop() {
+            row.model_id
+                .try_visit_mut(|i| {
+                    *i = id;
+                })
+                .unwrap_throw();
+            row.model_label
+                .try_visit_mut(|l| {
+                    *l = label;
+                })
+                .unwrap_throw();
+            row
+        } else {
+            Row::new((id, label))
+        }).collect()
     }
 
     pub async fn update(&mut self, msg: Msg) {
         match msg {
             Msg::Create(cnt) => {
                 self.select(None).await;
-                let new_rows = build_data(cnt).into_iter().map(Row::new);
-                self.rows.append(new_rows).await.expect("could not append");
+                let rows = self.dequeue(build_data(cnt));
+                self.rows.append(rows).await.expect("could not append");
             }
             Msg::Append(cnt) => {
-                let new_rows = build_data(cnt).into_iter().map(Row::new);
-                self.rows.append(new_rows).await.expect("could not append");
+                let rows = self.dequeue(build_data(cnt));
+                self.rows.append(rows).await.expect("could not append");
             }
             Msg::Update(step_size) => {
                 let rows = self.rows.read().await;
                 for row in rows.iter().step_by(step_size) {
-                    row.model_label.visit_mut(|label| label.push_str(" !!!")).await;
+                    row.model_label
+                        .visit_mut(|label| label.push_str(" !!!"))
+                        .await;
                 }
             }
             Msg::Clear => {
                 self.select(None).await;
-                self.rows.drain().await.expect("could not patch");
+                let rows = self.rows.drain().await.expect("could not patch");
+                self.cache.lock().unwrap_throw().extend(rows);
             }
             Msg::Swap => {
                 let rows = self.rows.read().await;
@@ -224,7 +254,8 @@ impl Mdl {
                     })
                     .unwrap();
                 drop(rows);
-                self.rows.remove(index).await.expect("could not patch");
+                let row = self.rows.remove(index).await.expect("could not patch");
+                self.cache.lock().unwrap_throw().push(row);
             }
         }
     }

@@ -134,7 +134,7 @@ impl<T: Send> Input<T> {
     ///
     /// When this fails it is because the input has an existing value
     /// set that has not been consumed.
-    pub fn try_set(&mut self, item: impl Into<T>) -> anyhow::Result<()> {
+    pub fn try_set(&self, item: impl Into<T>) -> anyhow::Result<()> {
         self.try_send(item.into())
             .ok()
             .with_context(|| format!("could not try_set input of {}", std::any::type_name::<T>()))

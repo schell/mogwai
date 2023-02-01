@@ -4,9 +4,7 @@ use std::{
     future::Future,
     ops::{Bound, Deref, RangeBounds},
     pin::Pin,
-    sync::{
-        Arc, Weak
-    },
+    sync::{Arc, Weak},
     task::Waker,
 };
 
@@ -59,7 +57,7 @@ impl<T> AsRef<T> for Shared<T> {
 }
 
 impl<T> Shared<T> {
-    pub(crate) fn new(t:T) -> Self {
+    pub(crate) fn new(t: T) -> Self {
         Self(Arc::new(t))
     }
 
@@ -225,9 +223,7 @@ impl JsDom {
     pub fn update(&self, update: Update) -> anyhow::Result<()> {
         match update {
             Update::Text(s) => {
-                self.inner
-                    .unchecked_ref::<web_sys::Text>()
-                    .set_data(&s);
+                self.inner.unchecked_ref::<web_sys::Text>().set_data(&s);
             }
             Update::Attribute(patch) => match patch {
                 HashPatch::Insert(k, v) => {
@@ -539,7 +535,9 @@ pub(crate) fn list_patch_apply_node(
                 if let Some(old_child) = children.get(i) {
                     if range.contains(&i) {
                         if let Some(new_child) = replace_with.next() {
-                            self_node.replace_child(&new_child, &old_child).unwrap_throw();
+                            self_node
+                                .replace_child(&new_child, &old_child)
+                                .unwrap_throw();
                         } else {
                             self_node.remove_child(&old_child).unwrap_throw();
                         }
@@ -691,6 +689,22 @@ impl TryFrom<ViewBuilder> for JsDom {
 
     fn try_from(builder: ViewBuilder) -> Result<Self, Self::Error> {
         build(builder, None)
+    }
+}
+
+impl From<JsDom> for ViewBuilder {
+    fn from(js: JsDom) -> Self {
+        ViewBuilder {
+            // this doesn't matter as it's replaced by the hydration_root
+            identity: ViewIdentity::Branch(""),
+            initial_values: Default::default(),
+            updates: Default::default(),
+            post_build_ops: Default::default(),
+            view_sinks: Default::default(),
+            listeners: Default::default(),
+            tasks: Default::default(),
+            hydration_root: Some(AnyView::new(js)),
+        }
     }
 }
 

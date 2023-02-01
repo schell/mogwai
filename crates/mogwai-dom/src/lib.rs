@@ -571,7 +571,7 @@ mod wasm {
         view::js::Hydrator,
     };
     //use futures::stream;
-    use mogwai::stream;
+    use mogwai::{stream, model::Model};
     use wasm_bindgen::JsCast;
     use wasm_bindgen_test::*;
     use web_sys::HtmlElement;
@@ -1221,6 +1221,22 @@ mod wasm {
         label.set("hello").await.unwrap();
         mogwai::time::wait_one_frame().await;
         assert_eq!(r#"<div id="1">hello</div>"#, hydrated.html_string().await);
+    }
+
+    #[wasm_bindgen_test]
+    async fn can_nest_jsdom_as_viewbuilder() {
+        let model = Model::<(usize, String)>::new((666, "hello".into()));
+        let child = JsDom::try_from(rsx! {
+            p(id = model.clone().map(|m| m.0.to_string())){{ model.clone().map(|m| m.1) }}
+        }).unwrap();
+        let parent = JsDom::try_from(rsx! {
+            div(){{ child }}
+        }).unwrap();
+        assert_eq!(r#"<div><p id="666">hello</p></div>"#, parent.html_string().await);
+
+        model.replace((123, "goodbye".into())).await;
+        mogwai::time::wait_millis(10).await;
+        assert_eq!(r#"<div><p id="123">goodbye</p></div>"#, parent.html_string().await);
     }
 }
 
