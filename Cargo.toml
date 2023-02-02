@@ -2,6 +2,7 @@
 
 members = [
   "cookbook",
+  "crates/js-framework-benchmark",
   "crates/mogwai",
   "crates/mogwai-benches",
   "crates/mogwai-dom",

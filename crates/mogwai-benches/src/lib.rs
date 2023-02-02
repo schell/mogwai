@@ -1,8 +1,8 @@
+use js_framework_benchmark::App;
 use mogwai_dom::prelude::*;
 use std::{future::Future, panic, pin::Pin};
 use wasm_bindgen::prelude::*;
 
-mod app;
 mod benches;
 mod store;
 
@@ -210,13 +210,10 @@ pub fn main() {
     console_log::init_with_level(log::Level::Trace).expect("could not init console_log");
 
     wasm_bindgen_futures::spawn_local(async move {
-        log::info!("creating Mdl");
-        let mdl = app::Mdl::default();
+        let mdl = App::default();
         let dom = JsDom::try_from(mdl.clone().viewbuilder()).unwrap();
         dom.run().unwrap();
         mogwai_dom::core::time::wait_millis(100).await;
-
-        log::info!("creating and running benchmarks");
 
         let doc = mogwai_dom::utils::document();
         let mut set = BenchSet::default()

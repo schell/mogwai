@@ -1,4 +1,8 @@
-use std::sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex};
+//! The mogwai-dom js-framework-benchmark application.
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex,
+};
 
 use mogwai_dom::{core::model::*, prelude::*};
 use rand::prelude::*;
@@ -90,7 +94,7 @@ pub struct Row {
     input_selected: Input<bool>,
     model_id: Model<usize>,
     model_label: Model<String>,
-    dom: Captured<JsDom>
+    dom: Captured<JsDom>,
 }
 
 impl Row {
@@ -120,43 +124,56 @@ impl Row {
     }
 
     fn viewbuilder(mut self) -> ViewBuilder {
-        self.dom.current().map(ViewBuilder::from).unwrap_or_else(|| rsx! {
-            tr(
-                key = self.model_id.clone().map(|id| id.to_string()),
-                class = self
-                    .input_selected
-                    .stream()
-                    .unwrap()
-                    .map(|is_selected| if is_selected {
-                        "danger"
-                    } else {
-                        ""
-                    }.to_string()),
-                capture:view = self.dom.sink()
-            ) {
-                td(class="col-md-1"){{ self.model_id.clone().map(|id| id.to_string()) }}
-                td(class="col-md-4"){
-                    a() {{ self.model_label.clone() }}
-                }
-                td(class="col-md-1"){
-                    a() {
-                        span(class="glyphicon glyphicon-remove", aria_hidden="true") {}
+        self.dom
+            .current()
+            .map(ViewBuilder::from)
+            .unwrap_or_else(|| {
+                rsx! {
+                    tr(
+                        key = self.model_id.clone().map(|id| id.to_string()),
+                        class = self
+                            .input_selected
+                            .stream()
+                            .unwrap()
+                            .map(|is_selected| if is_selected {
+                                "danger"
+                            } else {
+                                ""
+                            }.to_string()),
+                        capture:view = self.dom.sink()
+                    ) {
+                        td(class="col-md-1"){{ self.model_id.clone().map(|id| id.to_string()) }}
+                        td(class="col-md-4"){
+                            a(
+                                class = "lbl",
+                                key=self.model_id.clone().map(|id| id.to_string())
+                            ) {{ self.model_label.clone() }}
+                        }
+                        td(class="col-md-1"){
+                            a(class="remove" ) {
+                                span(
+                                    class="remove glyphicon glyphicon-remove",
+                                    key = self.model_id.clone().map(|id| id.to_string()),
+                                    aria_hidden="true"
+                                ) {}
+                            }
+                        }
+                        td(class="col-md-6"){ }
                     }
                 }
-                td(class="col-md-6"){ }
-            }
-        })
+            })
     }
 }
 
+/// The main application widget.
 #[derive(Clone)]
-pub struct Mdl {
-    selected: Arc<Mutex<Option<Id>>>,
+pub struct App {
+    selected: Arc<Mutex<Option<Row>>>,
     cache: Arc<Mutex<Vec<Row>>>,
     rows: ListPatchModel<Row>,
 }
 
-impl Default for Mdl {
+impl Default for App {
     fn default() -> Self {
         let rows: ListPatchModel<Row> = ListPatchModel::default();
         Self {
@@ -167,44 +184,61 @@ impl Default for Mdl {
     }
 }
 
-impl Mdl {
-    async fn select(&self, row: Option<usize>) {
-        let rows = self.rows.read().await;
-        if let Some(prev_selected) = self.selected.lock().unwrap_throw().take() {
-            if let Some(row) = rows.get(prev_selected) {
-                row.input_selected.try_set(false).expect("can't deselect");
-            }
+impl App {
+    /// Select a new row, deselecting the old row if needed.
+    async fn select(&self, row: Option<Row>) {
+        log::info!(
+            "selecting row: {:?}",
+            row.as_ref().map(|r| r.model_label.current()).flatten()
+        );
+        if let Some(prev_selected_row) = self.selected.lock().unwrap_throw().take() {
+            prev_selected_row
+                .input_selected
+                .try_set(false)
+                .expect("can't deselect");
         }
-        if let Some(newly_selected) = row {
-            if let Some(row) = rows.get(newly_selected) {
-                row.input_selected.try_set(true).expect("can't select");
-            }
+        if let Some(newly_selected_row) = row.as_ref() {
+            newly_selected_row
+                .input_selected
+                .try_set(true)
+                .expect("can't select");
         }
+        *self.selected.lock().unwrap_throw() = row;
     }
 
     pub fn dequeue(&self, rows: impl IntoIterator<Item = (usize, String)>) -> Vec<Row> {
         let mut cache = self.cache.lock().unwrap_throw();
-        rows.into_iter().map(|(id, label)| if let Some(row) = cache.pop() {
-            row.model_id
-                .try_visit_mut(|i| {
-                    *i = id;
-                })
-                .unwrap_throw();
-            row.model_label
-                .try_visit_mut(|l| {
-                    *l = label;
-                })
-                .unwrap_throw();
-            row
-        } else {
-            Row::new((id, label))
-        }).collect()
+        rows.into_iter()
+            .map(|(id, label)| {
+                if let Some(row) = cache.pop() {
+                    row.model_id
+                        .try_visit_mut(|i| {
+                            *i = id;
+                        })
+                        .unwrap_throw();
+                    row.model_label
+                        .try_visit_mut(|l| {
+                            *l = label;
+                        })
+                        .unwrap_throw();
+                    row
+                } else {
+                    Row::new((id, label))
+                }
+            })
+            .collect()
+    }
+
+    pub async fn clear(&mut self) {
+        self.select(None).await;
+        let rows = self.rows.drain().await.expect("could not patch");
+        self.cache.lock().unwrap_throw().extend(rows);
     }
 
     pub async fn update(&mut self, msg: Msg) {
         match msg {
             Msg::Create(cnt) => {
-                self.select(None).await;
+                self.clear().await;
                 let rows = self.dequeue(build_data(cnt));
                 self.rows.append(rows).await.expect("could not append");
             }
@@ -221,26 +255,49 @@ impl Mdl {
                 }
             }
             Msg::Clear => {
-                self.select(None).await;
-                let rows = self.rows.drain().await.expect("could not patch");
-                self.cache.lock().unwrap_throw().extend(rows);
+                self.clear().await;
             }
             Msg::Swap => {
-                let rows = self.rows.read().await;
-                if rows.len() > 998 {
-                    //if cfg!(feature = "keyed") {
-                    //} else {
-                        // clone them both
+                if self.rows.try_visit(Vec::len).unwrap_throw() > 998 {
+                    // This single application supports both keyed and non-keyed implementations.
+                    // Which one is used is selected at compilation time using cargo features.
+                    if cfg!(feature = "keyed") {
+                        // Swap their dom elements by patching the list of rows
+                        let row_998 = self
+                            .rows
+                            .try_patch(ListPatch::remove(998))
+                            .unwrap_throw()
+                            .pop()
+                            .unwrap_throw();
+                        let row_1 = self
+                            .rows
+                            .try_patch(ListPatch::replace(1, row_998))
+                            .unwrap_throw()
+                            .pop()
+                            .unwrap_throw();
+                        let _ = self
+                            .rows
+                            .try_patch(ListPatch::insert(998, row_1))
+                            .unwrap_throw();
+                    } else {
+                        // Swap the text of their ids and labels by updating their fields
+                        let rows = self.rows.read().await;
                         let (row1_id, row1_label) = rows[1].get_id_label();
                         let (row998_id, row998_label) = rows[998].get_id_label();
-                        // switch them both
                         rows[1].set_id_label(row998_id, row998_label);
                         rows[998].set_id_label(row1_id, row1_label);
-                    //}
+                    }
                 }
             }
             Msg::Select(id) => {
-                self.select(Some(id)).await;
+                let selected = self
+                    .rows
+                    .read()
+                    .await
+                    .iter()
+                    .find(|row| row.model_id.current().unwrap_throw() == id)
+                    .cloned();
+                self.select(selected).await;
             }
             Msg::Remove(remove_id) => {
                 let rows = self.rows.read().await;
@@ -264,7 +321,20 @@ impl Mdl {
     }
 
     pub fn viewbuilder(mut self) -> ViewBuilder {
+        // Create one main output click event.
+        // We'll use this later to figure out which row was clicked.
         let main_click = Output::<JsDomEvent>::default();
+        // Create the DOM using rsx!, which is a nice macro for making nested HTML-like
+        // views.
+        fn btn(id: &'static str, label: &'static str) -> ViewBuilder {
+            rsx!(div(class="col-sm-6 smallpad") {
+                button(
+                    type="button",
+                    class="btn btn-primary btn-block",
+                    id = id
+                ) { {label} }
+            })
+        }
         let builder = rsx! (
             div(id="main", on:click = main_click.sink()) {
                 div(class="container") {
@@ -275,17 +345,20 @@ impl Mdl {
                             }
                             div(class="col-md-6") {
                                 div(class="row") {
-                                    button(id="run")      { "Create 1,000 rows" }
-                                    button(id="runlots")  { "Create 10,000 rows" }
-                                    button(id="add")      { "Append 1,000 rows" }
-                                    button(id="update")   { "Update every 10th row" }
-                                    button(id="clear")    { "Clear" }
-                                    button(id="swaprows") { "Swap Rows" }
+                                    // we can embed any ViewBuilder using curly brackets
+                                    {btn("run", "Create 1,000 rows")}
+                                    {btn("runlots", "Create 10,000 rows")}
+                                    {btn("add", "Append 1,000 rows")}
+                                    {btn("update", "Update every 10th row") }
+                                    {btn("clear", "Clear")}
+                                    {btn("swaprows", "Swap Rows")}
                                 }
                             }
                         }
                     }
                     table( class="table table-hover table-striped test-data") {
+                        // tbody will have its children patched by a "diff stream" of updates
+                        // made to the `rows` field.
                         tbody(patch:children = self
                               .rows
                               .stream()
@@ -296,6 +369,9 @@ impl Mdl {
             }
         );
         builder.with_task(async move {
+            // To save creating thousands of event listeners (one on each row) we instead use one
+            // click event on the main div, and then figure out which row was clicked using JS APIs.
+            // This is the power of mogwai being so close to the metal.
             while let Some(ev) = main_click.get().await {
                 let may_msg = {
                     let e = ev.browser_event().expect("not an event");

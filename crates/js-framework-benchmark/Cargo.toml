@@ -1,5 +1,5 @@
 [package]
-name = "mogwai-benches"
+name = "js-framework-benchmark"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,14 +9,14 @@ crate-type = ["cdylib", "rlib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["keyed"]
-keyed = ["js-framework-benchmark/keyed"]
+default = []
+keyed = []
 
 [dependencies]
-anyhow = { version = "^1.0" }
+anyhow = "1.0.68"
 console_error_panic_hook = { version = "0.1.6" }
 console_log = "^0.1"
-js-framework-benchmark = { path = "../js-framework-benchmark" }
+getrandom = { version = "0.2", features = ["js"] }
 log = "^0.4"
 mogwai-dom = { version = "0.2.2", path = "../mogwai-dom" }
 rand = { version = "0.8.5", features = ["small_rng"] }

@@ -1,8 +1,8 @@
 use mogwai_dom::view::JsDom;
 
-use super::app::*;
+use js_framework_benchmark::{App, Msg};
 
-async fn mdl_create(count: usize, mdl: &mut Mdl, doc: &JsDom) -> f64 {
+async fn mdl_create(count: usize, mdl: &mut App, doc: &JsDom) -> f64 {
     mdl.update(Msg::Create(count)).await;
     let found = mogwai_dom::core::time::wait_for(20.0, || {
         doc.clone_as::<web_sys::Document>()?
@@ -17,7 +17,7 @@ async fn mdl_create(count: usize, mdl: &mut Mdl, doc: &JsDom) -> f64 {
     found.elapsed_seconds
 }
 
-async fn mdl_clear(mdl: &mut Mdl, doc: &JsDom) -> f64 {
+async fn mdl_clear(mdl: &mut App, doc: &JsDom) -> f64 {
     mdl.update(Msg::Clear).await;
     let found = mogwai_dom::core::time::wait_for(3.0, || {
         let trs = doc
@@ -35,6 +35,6 @@ async fn mdl_clear(mdl: &mut Mdl, doc: &JsDom) -> f64 {
     found.elapsed_seconds
 }
 
-pub async fn create(mdl: &mut Mdl, doc: &JsDom, count: usize) -> f64 {
+pub async fn create(mdl: &mut App, doc: &JsDom, count: usize) -> f64 {
     mdl_create(count, mdl, doc).await + mdl_clear(mdl, doc).await
 }
