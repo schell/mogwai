@@ -1,14 +1,15 @@
 [package]
 name = "mogwai-dom"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 license = "MIT"
 description = "mogwai's DOM view implementation"
-documentation = "https://docs.rs/mogwai/"
+documentation = "https://docs.rs/mogwai-dom/"
 repository = "https://github.com/schell/mogwai"
 keywords = ["ui", "dom", "app", "reactive", "frontend"]
 categories = ["gui", "wasm", "web-programming"]
+readme = "../../README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]

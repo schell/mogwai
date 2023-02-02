@@ -1,4 +1,4 @@
-use js_framework_benchmark::App;
+use mogwai_js_framework_benchmark::App;
 use mogwai_dom::prelude::*;
 use std::{future::Future, panic, pin::Pin};
 use wasm_bindgen::prelude::*;

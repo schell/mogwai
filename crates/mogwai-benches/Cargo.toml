@@ -10,13 +10,13 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["keyed"]
-keyed = ["js-framework-benchmark/keyed"]
+keyed = ["mogwai-js-framework-benchmark/keyed"]
 
 [dependencies]
 anyhow = { version = "^1.0" }
 console_error_panic_hook = { version = "0.1.6" }
 console_log = "^0.1"
-js-framework-benchmark = { path = "../js-framework-benchmark" }
+mogwai-js-framework-benchmark = { path = "../mogwai-js-framework-benchmark" }
 log = "^0.4"
 mogwai-dom = { version = "0.2.2", path = "../mogwai-dom" }
 rand = { version = "0.8.5", features = ["small_rng"] }

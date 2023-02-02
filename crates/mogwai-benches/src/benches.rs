@@ -1,6 +1,5 @@
 use mogwai_dom::view::JsDom;
-
-use js_framework_benchmark::{App, Msg};
+use mogwai_js_framework_benchmark::{App, Msg};
 
 async fn mdl_create(count: usize, mdl: &mut App, doc: &JsDom) -> f64 {
     mdl.update(Msg::Create(count)).await;
