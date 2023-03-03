@@ -151,7 +151,7 @@ impl<T: Send> Input<T> {
     /// It is suggested you use `input.stream().unwrap()` (or similar) when constructing
     /// a [`ViewBuilder`](crate::view::ViewBuilder) from an `Input` so that
     /// the program fails if this function is called more than once on the same input.
-    pub fn stream(&mut self) -> Option<impl Stream<Item = T>> {
+    pub fn stream(&mut self) -> Option<impl Stream<Item = T> + Send> {
         let mut lock = self.rx.lock().unwrap();
         lock.take()
     }
@@ -223,7 +223,7 @@ impl<T: Clone + Send + Sync> FanInput<T> {
     ///
     /// Unlike `Input`, `FanInput` can have many consumers in the destination view,
     /// so this operation always returns a stream.
-    pub fn stream(&self) -> impl Stream<Item = T> {
+    pub fn stream(&self) -> impl Stream<Item = T> + Send + Sync {
         self.chan.receiver()
     }
 }
@@ -262,7 +262,7 @@ impl<T: Clone + Send + Sync> Output<T> {
     /// Returns a sink used to send events through the output.
     ///
     /// This can be used by views to send events downstream.
-    pub fn sink(&self) -> impl Sink<T> {
+    pub fn sink(&self) -> impl Sink<T> + Send + Sync {
         self.chan.sender()
     }
 
@@ -276,12 +276,12 @@ impl<T: Clone + Send + Sync> Output<T> {
     }
 
     /// Return a stream of event occurrences.
-    pub fn get_stream(&self) -> impl Stream<Item = T> {
+    pub fn get_stream(&self) -> impl Stream<Item = T> + Send + Sync {
         self.chan.receiver()
     }
 
     /// Convert the output into stream of event occurrences.
-    pub fn into_stream(self) -> impl Stream<Item = T> {
+    pub fn into_stream(self) -> impl Stream<Item = T> + Send + Sync {
         self.chan.receiver()
     }
 }
