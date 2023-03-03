@@ -69,7 +69,7 @@ impl<T> Clone for Model<T> {
     }
 }
 
-impl<T: Clone + PartialEq> Model<T> {
+impl<T: Clone + PartialEq + Send + Sync> Model<T> {
     /// Create a new Model.
     pub fn new(t: impl Into<T>) -> Model<T> {
         let t = t.into();
@@ -149,7 +149,7 @@ impl<T: Clone + PartialEq> Model<T> {
     /// When a task mutates the model by calling [`Model::visit_mut`], an update
     /// is scheduled to be sent on the stream. If mutations happen in a fast
     /// succession, previous sends will be clobbered.
-    pub fn stream(&self) -> impl Stream<Item = T> {
+    pub fn stream(&self) -> impl Stream<Item = T>  + Send + Sync {
         self.chan.1.clone()
     }
 
