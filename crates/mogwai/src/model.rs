@@ -192,8 +192,8 @@ where
 {
     fn from(Map { f, model }: Map<F, T>) -> Self {
         match model.current() {
-            Some(val) => MogwaiValue::OwnedAndStream(f(val), model.stream().map(f).boxed()),
-            None => MogwaiValue::Stream(model.stream().map(f).boxed()),
+            Some(val) => MogwaiValue::OwnedAndStream(f(val), Box::pin(model.stream().map(f))),
+            None => MogwaiValue::Stream(Box::pin(model.stream().map(f))),
         }
     }
 }
