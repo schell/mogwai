@@ -8,12 +8,12 @@ use std::{
 use anyhow::Context;
 use async_broadcast::{broadcast, Receiver, Sender};
 use async_lock::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard};
+use futures_lite::stream::{Stream, StreamExt};
 
 pub use crate::patch::{HashPatchApply, ListPatchApply};
 use crate::{
     patch::{HashPatch, ListPatch},
     prelude::{MogwaiValue, PinBoxStream, ViewBuilder},
-    stream::{Stream, StreamExt},
 };
 
 /// Wraps a value `T` and provides a stream of the latest value.
