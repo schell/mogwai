@@ -280,6 +280,11 @@ impl<T: Clone + Send + Sync> Output<T> {
         self.chan.receiver()
     }
 
+    /// Return a stream of event occurrences.
+    pub fn stream(&self) -> impl Stream<Item = T> + Send + Sync {
+        self.chan.receiver()
+    }
+
     /// Convert the output into stream of event occurrences.
     pub fn into_stream(self) -> impl Stream<Item = T> + Send + Sync {
         self.chan.receiver()

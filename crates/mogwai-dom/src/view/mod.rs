@@ -55,7 +55,9 @@ impl From<SsrDom> for Dom {
 impl Dom {
     pub fn add_listener(dom: &Self, listener: Listener) -> anyhow::Result<()> {
         match &dom.0 {
-            Either::Left(js) => js.add_listener(listener),
+            Either::Left(js) => js.add_listener_with(listener, |js_dom_event| {
+                AnyEvent::new(DomEvent(Either::Left(js_dom_event)))
+            }),
             Either::Right(ssr) => ssr.add_listener(listener),
         }
     }
@@ -186,7 +188,7 @@ pub struct DomEvent(Either<JsDomEvent, SsrDomEvent>);
 
 impl Downcast<DomEvent> for AnyEvent {
     fn downcast(self) -> anyhow::Result<DomEvent> {
-        if cfg!(target = "wasm32") {
+        if cfg!(target_arch = "wasm32") {
             let js: JsDomEvent = self.downcast()?;
             Ok(DomEvent(Either::Left(js)))
         } else {

@@ -456,16 +456,16 @@ impl JsDom {
         Ok(t)
     }
 
-    /// Add an event listener to this element.
-    pub fn add_listener(
+    pub fn add_listener_with(
         &self,
         Listener {
             event_name,
             event_target,
             sink,
         }: Listener,
+        f: fn(JsDomEvent) -> AnyEvent
     ) -> anyhow::Result<()> {
-        let tx = sink.contra_map(|event: JsDomEvent| AnyEvent::new(event));
+        let tx = sink.contra_map(f);
         let callback = match event_target {
             "myself" => crate::event::add_event(
                 &event_name,
@@ -490,6 +490,14 @@ impl JsDom {
         write.push(callback);
 
         Ok(())
+    }
+
+    /// Add an event listener to this element.
+    pub fn add_listener(
+        &self,
+        listener: Listener,
+    ) -> anyhow::Result<()> {
+        self.add_listener_with(listener, |event: JsDomEvent| AnyEvent::new(event))
     }
 
     pub fn ossify(self) -> JsDom {

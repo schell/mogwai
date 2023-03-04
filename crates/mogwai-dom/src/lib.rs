@@ -1238,6 +1238,49 @@ mod wasm {
         mogwai::time::wait_millis(10).await;
         assert_eq!(r#"<div><p id="123">goodbye</p></div>"#, parent.html_string().await);
     }
+
+    #[wasm_bindgen_test]
+    async fn can_use_dom() {
+        use mogwai::time;
+
+        let click = Output::<()>::default();
+        let mut text = Input::<String>::default();
+        let view = Dom::try_from({
+            let builder = rsx! {
+                div() {
+                    button(
+                        id = "button",
+                        on:click = click.sink().contra_map(|_:DomEvent| ()),
+                    ) {
+                        "click me"
+                    }
+                    span(){
+                        {("", text.stream().unwrap())}
+                    }
+                }
+            };
+            builder.with_task(async move {
+                let mut t = 0;
+                while let Some(()) = click.get().await {
+                    t += 1;
+                    text.set(format!("{}", t)).await.unwrap();
+                }
+            })
+        }).unwrap();
+        let div = view.clone();
+        view.run().unwrap();
+
+        div.as_either_ref().left().unwrap().visit_as(|el: &web_sys::HtmlElement| {
+            let button = el
+                .query_selector("#button")
+                .unwrap()
+                .unwrap()
+                .dyn_into::<web_sys::HtmlElement>()
+                .unwrap();
+            button.click();
+        });
+        time::wait_millis(10).await;
+    }
 }
 
 #[cfg(test)]
