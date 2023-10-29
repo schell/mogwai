@@ -1,6 +1,7 @@
 //! Domain agnostic view doclaration.
 use std::{
     any::Any,
+    borrow::Cow,
     future::Future,
     pin::Pin,
     sync::Arc,
@@ -8,9 +9,10 @@ use std::{
 };
 
 use crate::{
+    model::Model,
     patch::{HashPatch, ListPatch},
     sink::{Sink, SinkExt},
-    stream::{Stream, StreamExt}, model::Model,
+    stream::{Stream, StreamExt},
 };
 use anyhow::Context;
 pub use anyhow::Error;
@@ -289,7 +291,9 @@ impl<T, St: Stream<Item = T> + Send + 'static> MogwaiValue<T, St> {
 
 pub type PinBoxStream<T> = Pin<Box<dyn Stream<Item = T> + Send + 'static>>;
 
-impl<T: Clone + PartialEq + Send + Sync + 'static> From<Model<T>> for MogwaiValue<T, PinBoxStream<T>> {
+impl<T: Clone + PartialEq + Send + Sync + 'static> From<Model<T>>
+    for MogwaiValue<T, PinBoxStream<T>>
+{
     fn from(model: Model<T>) -> Self {
         let stream = Box::pin(model.stream());
         if let Some(current) = model.current() {
@@ -370,8 +374,8 @@ where
 /// The starting identity of a view.
 #[derive(Debug)]
 pub enum ViewIdentity {
-    Branch(&'static str),
-    NamespacedBranch(&'static str, &'static str),
+    Branch(Cow<'static, str>),
+    NamespacedBranch(Cow<'static, str>, Cow<'static, str>),
     Leaf(String),
 }
 
@@ -468,9 +472,9 @@ impl ViewBuilder {
     }
 
     /// Create a new container element builder.
-    pub fn element(tag: &'static str) -> Self {
+    pub fn element(tag: impl Into<Cow<'static, str>>) -> Self {
         ViewBuilder {
-            identity: ViewIdentity::Branch(tag),
+            identity: ViewIdentity::Branch(tag.into()),
             initial_values: Default::default(),
             updates: Default::default(),
             post_build_ops: vec![],
@@ -482,9 +486,12 @@ impl ViewBuilder {
     }
 
     /// Create a new namespaced container element builder.
-    pub fn element_ns(tag: &'static str, ns: &'static str) -> Self {
+    pub fn element_ns(
+        tag: impl Into<Cow<'static, str>>,
+        ns: impl Into<Cow<'static, str>>,
+    ) -> Self {
         ViewBuilder {
-            identity: ViewIdentity::NamespacedBranch(tag, ns),
+            identity: ViewIdentity::NamespacedBranch(tag.into(), ns.into()),
             initial_values: Default::default(),
             updates: Default::default(),
             post_build_ops: vec![],

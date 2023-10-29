@@ -5,7 +5,7 @@ use std::{
     ops::{Bound, Deref, RangeBounds},
     pin::Pin,
     sync::{Arc, Weak},
-    task::Waker,
+    task::Waker, borrow::Cow,
 };
 
 use anyhow::Context;
@@ -463,7 +463,7 @@ impl JsDom {
             event_target,
             sink,
         }: Listener,
-        f: fn(JsDomEvent) -> AnyEvent
+        f: fn(JsDomEvent) -> AnyEvent,
     ) -> anyhow::Result<()> {
         let tx = sink.contra_map(f);
         let callback = match event_target {
@@ -493,10 +493,7 @@ impl JsDom {
     }
 
     /// Add an event listener to this element.
-    pub fn add_listener(
-        &self,
-        listener: Listener,
-    ) -> anyhow::Result<()> {
+    pub fn add_listener(&self, listener: Listener) -> anyhow::Result<()> {
         self.add_listener_with(listener, |event: JsDomEvent| AnyEvent::new(event))
     }
 
@@ -607,7 +604,9 @@ pub(crate) fn build(
         });
         let key = match identity {
             ViewIdentity::Branch(t) => HydrationKey::try_new(t, attribs, may_parent),
-            ViewIdentity::NamespacedBranch(t, _) => HydrationKey::try_new(t, attribs, may_parent),
+            ViewIdentity::NamespacedBranch(t, _) => {
+                HydrationKey::try_new(t, attribs, may_parent)
+            }
             ViewIdentity::Leaf(t) => HydrationKey::try_new(t, attribs, may_parent),
         }?;
         key.hydrate()?
@@ -704,7 +703,7 @@ impl From<JsDom> for ViewBuilder {
     fn from(js: JsDom) -> Self {
         ViewBuilder {
             // this doesn't matter as it's replaced by the hydration_root
-            identity: ViewIdentity::Branch(""),
+            identity: ViewIdentity::Branch(Cow::from("")),
             initial_values: Default::default(),
             updates: Default::default(),
             post_build_ops: Default::default(),

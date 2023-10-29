@@ -2,7 +2,7 @@
 use anyhow::Context;
 use async_executor::Executor;
 use async_lock::RwLock;
-use std::{collections::HashMap, future::Future, ops::DerefMut, pin::Pin, sync::Arc};
+use std::{collections::HashMap, future::Future, ops::DerefMut, pin::Pin, sync::Arc, borrow::Cow};
 
 use mogwai::{
     either::Either,
@@ -60,7 +60,7 @@ impl Downcast<SsrDomEvent> for AnyEvent {
 //     keygen - facilitates public key generation for web certificates
 // [deprecated]     source - specifies media sources for picture, audio, and
 // video elements
-fn tag_is_voidable(tag: &'static str) -> bool {
+fn tag_is_voidable(tag: &Cow<'static, str>) -> bool {
     tag == "area"
         || tag == "base"
         || tag == "br"
@@ -83,7 +83,7 @@ pub enum SsrNode {
     /// Parent node.
     Container {
         /// Tag name.
-        name: &'static str,
+        name: Cow<'static, str>,
         /// Tag attributes.
         attributes: Vec<(String, Option<String>)>,
         /// Styles
@@ -231,11 +231,11 @@ impl SsrDom {
     }
 
     /// Creates a container node that may contain child nodes.
-    pub fn element(executor: Arc<Executor<'static>>, tag: &'static str) -> Self {
+    pub fn element(executor: Arc<Executor<'static>>, tag: impl Into<Cow<'static, str>>) -> Self {
         SsrDom {
             executor,
             node: Arc::new(RwLock::new(SsrNode::Container {
-                name: tag,
+                name: tag.into(),
                 attributes: vec![],
                 styles: vec![],
                 children: vec![],
@@ -453,9 +453,9 @@ pub(crate) fn build(
     } = builder;
     // intialize it
     let dom = match identity {
-        ViewIdentity::Branch(tag) => SsrDom::element(executor.clone(), &tag),
+        ViewIdentity::Branch(tag) => SsrDom::element(executor.clone(), tag),
         ViewIdentity::NamespacedBranch(tag, ns) => {
-            let el = SsrDom::element(executor.clone(), &tag);
+            let el = SsrDom::element(executor.clone(), tag);
             el.set_attrib("xmlns", Some(&ns))?;
             el
         }
