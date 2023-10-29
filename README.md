@@ -8,7 +8,7 @@
 
 > **m**inimal, **o**bvious, **g**raphical **w**eb **a**pplication **i**nterface
 
-[![Crates.io][ci]][cl] ![cicd](https://github.com/schell/mogwai/workflows/test/badge.svg?branch=main)
+[![Crates.io][ci]][cl]
 
 [ci]: https://img.shields.io/crates/v/mogwai.svg
 [cl]: https://crates.io/crates/mogwai/
