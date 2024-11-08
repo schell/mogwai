@@ -1,11 +1,12 @@
 //! Wrapper around Javascript DOM nodes.
 use std::{
+    borrow::Cow,
     collections::HashMap,
     future::Future,
     ops::{Bound, Deref, RangeBounds},
     pin::Pin,
     sync::{Arc, Weak},
-    task::Waker, borrow::Cow,
+    task::Waker,
 };
 
 use anyhow::Context;
@@ -604,9 +605,7 @@ pub(crate) fn build(
         });
         let key = match identity {
             ViewIdentity::Branch(t) => HydrationKey::try_new(t, attribs, may_parent),
-            ViewIdentity::NamespacedBranch(t, _) => {
-                HydrationKey::try_new(t, attribs, may_parent)
-            }
+            ViewIdentity::NamespacedBranch(t, _) => HydrationKey::try_new(t, attribs, may_parent),
             ViewIdentity::Leaf(t) => HydrationKey::try_new(t, attribs, may_parent),
         }?;
         key.hydrate()?

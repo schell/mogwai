@@ -2,7 +2,7 @@
 use anyhow::Context;
 use async_executor::Executor;
 use async_lock::RwLock;
-use std::{collections::HashMap, future::Future, ops::DerefMut, pin::Pin, sync::Arc, borrow::Cow};
+use std::{borrow::Cow, collections::HashMap, future::Future, ops::DerefMut, pin::Pin, sync::Arc};
 
 use mogwai::{
     either::Either,
@@ -220,12 +220,7 @@ impl SsrDom {
     pub fn text(executor: Arc<Executor<'static>>, s: &str) -> Self {
         SsrDom {
             executor,
-            node: Arc::new(RwLock::new(SsrNode::Text(
-                s.replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace(">", "&gt;")
-                    .into(),
-            ))),
+            node: Arc::new(RwLock::new(SsrNode::Text(s.into()))),
             events: Default::default(),
         }
     }
@@ -250,11 +245,7 @@ impl SsrDom {
     pub fn set_text(&self, text: &str) -> anyhow::Result<()> {
         let mut lock = self.node.try_write().context("can't lock for writing")?;
         if let SsrNode::Text(prev) = lock.deref_mut() {
-            *prev = text
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .to_string();
+            *prev = text.to_string();
         } else {
             anyhow::bail!("not a text node");
         }
