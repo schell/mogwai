@@ -7,6 +7,7 @@ members = [
   "crates/mogwai-dom",
   "crates/mogwai-js-framework-benchmark",
   "crates/mogwai-macros",
+  "crates/mogwai-futura",
   "examples/counter",
   "examples/nested-components",
   #"examples/focus-follower",
@@ -20,7 +21,7 @@ members = [
 ]
 
 exclude = [
-  "gentest"
+  "gentest",
 ]
 
 resolver = "2"
