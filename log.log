@@ -1,0 +1,1295 @@
+04:12:01 [INFO] starting
+04:12:03 [INFO] got event: Key(
+    KeyEvent {
+        code: Char(
+            'a',
+        ),
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+        kind: Press,
+        state: KeyEventState(
+            0x0,
+        ),
+    },
+)
+04:12:04 [INFO] got event: Key(
+    KeyEvent {
+        code: Char(
+            'o',
+        ),
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+        kind: Press,
+        state: KeyEventState(
+            0x0,
+        ),
+    },
+)
+04:12:04 [INFO] got event: Key(
+    KeyEvent {
+        code: Char(
+            'e',
+        ),
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+        kind: Press,
+        state: KeyEventState(
+            0x0,
+        ),
+    },
+)
+04:12:04 [INFO] got event: Key(
+    KeyEvent {
+        code: Char(
+            'u',
+        ),
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+        kind: Press,
+        state: KeyEventState(
+            0x0,
+        ),
+    },
+)
+04:12:04 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 45,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:04 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 46,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:04 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 47,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:04 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 47,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 48,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 48,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 48,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 49,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 49,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 49,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 50,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 50,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 50,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 66,
+        row: 52,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 66,
+        row: 52,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 53,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 53,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 53,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 53,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 68,
+        row: 53,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 68,
+        row: 53,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 68,
+        row: 53,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 68,
+        row: 53,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 68,
+        row: 54,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 68,
+        row: 54,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 68,
+        row: 54,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 68,
+        row: 55,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 68,
+        row: 55,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 68,
+        row: 55,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 68,
+        row: 55,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 56,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 56,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 56,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 56,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 56,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 56,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 56,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 56,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 56,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 56,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 55,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 67,
+        row: 55,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 66,
+        row: 55,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 65,
+        row: 55,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 64,
+        row: 54,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 64,
+        row: 54,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 63,
+        row: 54,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 62,
+        row: 53,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 61,
+        row: 53,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 60,
+        row: 53,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 59,
+        row: 52,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 59,
+        row: 52,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 58,
+        row: 52,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 58,
+        row: 52,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Moved,
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:05 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:06 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:06 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:06 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:06 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:06 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:06 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:06 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:06 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:06 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:06 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:06 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:07 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:07 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:07 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:07 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:07 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:07 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:07 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:07 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:07 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:07 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:07 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:08 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:08 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:08 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:08 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:08 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:08 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:08 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:08 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:08 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:08 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:08 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:09 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:09 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:09 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:09 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:09 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:09 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:09 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:09 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:09 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:09 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:09 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:10 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Down(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:10 [INFO] got event: Mouse(
+    MouseEvent {
+        kind: Up(
+            Left,
+        ),
+        column: 57,
+        row: 51,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+    },
+)
+04:12:10 [INFO] got event: Key(
+    KeyEvent {
+        code: Esc,
+        modifiers: KeyModifiers(
+            0x0,
+        ),
+        kind: Press,
+        state: KeyEventState(
+            0x0,
+        ),
+    },
+)

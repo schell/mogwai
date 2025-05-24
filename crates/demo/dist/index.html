@@ -1,0 +1,16 @@
+<html>
+  <head>
+    
+<script type="module">
+import init, * as bindings from '/demo-1ad22f001b4045eb.js';
+const wasm = await init({ module_or_path: '/demo-1ad22f001b4045eb_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+  <link rel="modulepreload" href="/demo-1ad22f001b4045eb.js" crossorigin="anonymous" integrity="sha384-FKxVQ7UN7WbSZhyq8aTDUDj4eEc07SHh4EkEJFDLjTALbnzVbQnNQv5etcgoDqTn"><link rel="preload" href="/demo-1ad22f001b4045eb_bg.wasm" crossorigin="anonymous" integrity="sha384-cL0IDdatb27cd9C7+08lAtoG1ct/zhl5366dL3aou6LfSGnEzOowbYv12EfwggCm" as="fetch" type="application/wasm"></head>
+</html>

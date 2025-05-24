@@ -1,0 +1,48 @@
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "demo-tui"
+path = "src/tui.rs"
+
+[[bin]]
+name = "demo-ssr"
+path = "src/ssr.rs"
+
+[features]
+default = ["web", "tui", "ssr"]
+web = ["mogwai-futura/web", "dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures"]
+tui = ["dep:ratatui", "dep:crossterm", "dep:async-channel"]
+ssr = ["mogwai-futura/ssr"]
+
+[dependencies]
+async-channel = { version = "2.3.1", optional = true }
+crossterm = { version = "0.29", optional = true}
+simplelog = "0.12"
+futures-lite = "2.6.0"
+log = "0.4.27"
+mogwai-futura = { path = "../mogwai-futura" }
+ratatui = { version = "0.29", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "CharacterData",
+  "CssStyleDeclaration",
+  "Document",
+  "Element",
+  "Event",
+  "EventTarget",
+  "HtmlElement",
+  "Node",
+  "Text",
+  "Window"
+]
+optional = true

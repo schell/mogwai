@@ -1,0 +1,12 @@
+[package]
+name = "mogwai-future-rsx"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = { version = "1.0", features = ["span-locations"] }
+quote = "1.0"
+syn = { version = "2.0.49", features = ["full", "extra-traits", "parsing"] }

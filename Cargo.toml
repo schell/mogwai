@@ -17,7 +17,7 @@ members = [
   "examples/spa-routing",
   "examples/svg",
   "examples/todomvc",
-  "crates/xtask",
+  "crates/xtask", "crates/mogwai-future-rsx", "crates/demo",
 ]
 
 exclude = [

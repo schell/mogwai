@@ -3,8 +3,19 @@ name = "mogwai-futura"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["web", "ssr"]
+web = ["dep:wasm-bindgen-futures", "dep:web-sys", "dep:mogwai-future-rsx"]
+ssr = ["dep:async-channel"]
+# tui = ["dep:ratatui", "dep:crossterm"]
+
 [dependencies]
+async-channel = { version = "2.3.1", optional = true }
+futures-core = "0.3.31"
+log = "0.4.27"
+mogwai-future-rsx = { version = "0.1.0", path = "../mogwai-future-rsx", optional = true }
 serde = { version = "1.0", features = ["derive"] }
+wasm-bindgen-futures = { version = "0.4", optional = true }
 
 [dependencies.web-sys]
 version = "0.3"
@@ -25,3 +36,4 @@ features = [
   "Text",
   "Window"
 ]
+optional = true
