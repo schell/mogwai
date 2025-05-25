@@ -39,7 +39,7 @@ impl ButtonClicks {
     }
 }
 
-pub struct Label<V: View = Web> {
+pub struct Label<V: View = Builder> {
     wrapper: V::Element<web_sys::HtmlElement>,
     title: V::Text<web_sys::Text>,
 }
@@ -53,11 +53,52 @@ impl Default for Label {
     }
 }
 
+impl From<Label> for Label<Web> {
+    fn from(value: Label) -> Self {
+        Label {
+            wrapper: Web::build_element(value.wrapper),
+            title: Web::build_text(value.title),
+        }
+    }
+}
+
 pub struct ButtonClicksView<V: View = Builder> {
     pub wrapper: V::Element<web_sys::HtmlElement>,
     text: V::Text<web_sys::Text>,
     label: Label<V>,
     button_click: V::EventListener<EventListener>,
+}
+
+impl Default for ButtonClicksView {
+    fn default() -> Self {
+        let wrapper = ElementBuilder::new("div");
+        wrapper.set_property("id", "buttonwrapper");
+        let label = Label::default();
+        let button = ElementBuilder::new("button");
+        button.set_style("cursor", "pointer");
+        let button_click = button.listen("click");
+        wrapper.append_child(&button);
+        let p = ElementBuilder::new("p");
+        let text = TextBuilder::new("Click me.");
+        p.append_child(&text);
+        Self {
+            wrapper,
+            text,
+            label,
+            button_click,
+        }
+    }
+}
+
+impl From<ButtonClicksView> for ButtonClicksView<Web> {
+    fn from(value: ButtonClicksView) -> Self {
+        Self {
+            wrapper: Web::build_element(value.wrapper),
+            text: Web::build_text(value.text),
+            label: value.label.into(),
+            button_click: Web::build_listener(value.button_click),
+        }
+    }
 }
 
 #[cfg(feature = "web")]
@@ -159,57 +200,10 @@ pub mod web {
     }
 }
 
-#[cfg(feature = "ssr")]
-pub mod ssr {
-    use mogwai_futura::ssr::Text;
-
-    use super::*;
-
-    #[derive(Default)]
-    struct Label {
-        inner: Text,
-    }
-
-    #[derive(Default)]
-    struct ButtonClicksSsr {
-        title: Label,
-        description: Text,
-    }
-
-    impl ButtonClicksInterface for ButtonClicksSsr {
-        fn title(&self) -> &impl ViewText {
-            &self.title.inner
-        }
-
-        fn description(&self) -> &impl ViewText {
-            &self.description
-        }
-
-        async fn get_next_event(&self) -> ButtonClickEvent {
-            ButtonClickEvent::Clicked
-        }
-    }
-
-    #[cfg(feature = "ssr")]
-    pub fn run() {
-        // let mut model = ButtonClicks {
-        //     label: LabelField {
-        //         title: "Button clicking demo".into(),
-        //     },
-        //     clicks: 0,
-        // };
-
-        // let mut view = ButtonClicksSsr::default();
-        // futures_lite::future::block_on(async { model.run(view).await });
-
-        // println!("html: {}", view.html_string());
-    }
-}
-
 #[cfg(feature = "tui")]
 pub mod tui {
     use super::*;
-    use mogwai_futura::sync::Shared;
+    use mogwai_futura::{Str, sync::Shared};
 
     use crossterm::event::{self, EnableMouseCapture, Event};
     use ratatui::{

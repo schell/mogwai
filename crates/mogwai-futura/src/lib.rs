@@ -46,17 +46,11 @@
 //! tools and wrappers to make fullfilling those traits on specific platforms as easy
 //! as possible.
 
-use std::{borrow::Cow, marker::PhantomData, ops::DerefMut};
+use std::{any::Any, borrow::Cow};
 
 use sync::Shared;
 
-use web::event::EventListener;
-#[cfg(feature = "web")]
-use web_sys::wasm_bindgen::JsCast;
-
 pub mod macros;
-#[cfg(feature = "ssr")]
-pub mod ssr;
 pub mod sync;
 pub mod tuple;
 #[cfg(feature = "web")]
@@ -128,6 +122,16 @@ impl ViewText for Shared<Str> {
     }
 }
 
+impl ViewText for TextBuilder {
+    fn new(text: impl Into<Str>) -> Self {
+        TextBuilder::new(text)
+    }
+
+    fn set_text(&self, text: impl Into<Str>) {
+        self.text.set(text.into());
+    }
+}
+
 #[cfg(feature = "web")]
 impl ViewText for web_sys::Text {
     fn new(text: impl Into<Str>) -> Self {
@@ -140,38 +144,19 @@ impl ViewText for web_sys::Text {
     }
 }
 
-#[cfg(feature = "ssr")]
-impl ViewText for ssr::Text {
-    fn new(text: impl Into<Str>) -> Self {
-        ssr::Text::new(text)
-    }
-
-    fn set_text(&self, text: impl Into<Str>) {
-        ssr::Text::set_text(self, text);
-    }
-}
-
 pub trait Container {
     type Child;
 
     fn append_child(&self, child: impl Into<Self::Child>);
 }
 
-pub struct TextBuilder<T = web_sys::Text> {
+#[derive(Clone)]
+pub struct TextBuilder {
     text: Shared<Str>,
-    built: Shared<Option<T>>,
+    built: Shared<Option<Box<dyn Any>>>,
 }
 
-impl<T> Clone for TextBuilder<T> {
-    fn clone(&self) -> Self {
-        Self {
-            text: self.text.clone(),
-            built: self.built.clone(),
-        }
-    }
-}
-
-impl<T> TextBuilder<T> {
+impl TextBuilder {
     pub fn new(text: impl Into<Str>) -> Self {
         Self {
             text: text.into().into(),
@@ -180,9 +165,11 @@ impl<T> TextBuilder<T> {
     }
 }
 
-pub struct EventListenerBuilder<T> {
+#[derive(Clone)]
+pub struct EventListenerBuilder {
     name: Str,
-    built: Shared<Option<T>>,
+    node: NodeBuilder,
+    built: Shared<Option<Box<dyn Any>>>,
 }
 
 /// Builder for runtime views.
@@ -190,17 +177,18 @@ pub struct EventListenerBuilder<T> {
 /// **El** - container element type.
 /// **T** - text type.
 /// **L** - event listener type.
-pub struct ElementBuilder<El, T, L> {
+#[derive(Clone)]
+pub struct ElementBuilder {
     name: Str,
-    built: Shared<Option<El>>,
+    built: Shared<Option<Box<dyn Any>>>,
     attributes: Shared<Vec<(Str, Option<Str>)>>,
     styles: Shared<Vec<(Str, Str)>>,
-    events: Shared<Vec<EventListenerBuilder<L>>>,
-    children: Shared<Vec<NodeBuilder<El, T, L>>>,
+    events: Shared<Vec<EventListenerBuilder>>,
+    children: Shared<Vec<NodeBuilder>>,
 }
 
-impl<El, T, L> Container for ElementBuilder<El, T, L> {
-    type Child = NodeBuilder<El, T, L>;
+impl Container for ElementBuilder {
+    type Child = NodeBuilder;
 
     fn append_child(&self, child: impl Into<Self::Child>) {
         let child = child.into();
@@ -208,7 +196,7 @@ impl<El, T, L> Container for ElementBuilder<El, T, L> {
     }
 }
 
-impl<El, T, L> ElementBuilder<El, T, L> {
+impl ElementBuilder {
     pub fn new(name: impl Into<Str>) -> Self {
         Self {
             name: name.into(),
@@ -219,37 +207,242 @@ impl<El, T, L> ElementBuilder<El, T, L> {
             children: Default::default(),
         }
     }
+
+    pub fn listen(&self, event_name: impl Into<Str>) -> EventListenerBuilder {
+        let event_listener = EventListenerBuilder {
+            name: event_name.into(),
+            node: self.into(),
+            built: Default::default(),
+        };
+        self.events.get_mut().push(event_listener.clone());
+        event_listener
+    }
+
+    /// Add an attribute.
+    pub fn set_property(&self, key: impl Into<Str>, value: impl Into<Str>) {
+        let mut attributes = self.attributes.get_mut();
+        let (k, v) = (key.into(), value.into());
+        for (k_prev, v_prev) in attributes.iter_mut() {
+            if k_prev.as_str() == k.as_str() {
+                *v_prev = Some(v);
+                return;
+            }
+        }
+        attributes.push((k, Some(v)));
+    }
+
+    /// Get the value of an attribute.
+    pub fn has_property(&self, key: impl AsRef<str>) -> bool {
+        for (pkey, _pval) in self.attributes.get().iter() {
+            if pkey.as_str() == key.as_ref() {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Get the value of an attribute.
+    pub fn get_property(&self, key: impl AsRef<str>) -> Option<Str> {
+        for (pkey, pval) in self.attributes.get().iter() {
+            if pkey.as_str() == key.as_ref() {
+                return pval.clone();
+            }
+        }
+        None
+    }
+
+    /// Remove an attribute.
+    ///
+    /// Returns the previous value, if any.
+    pub fn remove_attrib(&self, key: impl AsRef<str>) -> Option<Str> {
+        let mut value = None;
+        self.attributes.get_mut().retain_mut(|p| {
+            if p.0.as_str() == key.as_ref() {
+                value = p.1.take();
+                false
+            } else {
+                true
+            }
+        });
+        value
+    }
+
+    /// Add a style property.
+    pub fn set_style(&self, key: impl Into<Str>, value: impl Into<Str>) {
+        let mut styles = self.styles.get_mut();
+        let key = key.into();
+        for (pkey, pval) in styles.iter_mut() {
+            if pkey.as_str() == key.as_str() {
+                *pval = value.into();
+                return;
+            }
+        }
+        styles.push((key, value.into()));
+    }
+
+    /// Remove a style property.
+    ///
+    /// Returns the previous style value, if any.
+    pub fn remove_style(&self, key: impl AsRef<str>) -> Option<Str> {
+        let mut value = None;
+        self.styles.get_mut().retain_mut(|p| {
+            if p.0.as_str() == key.as_ref() {
+                value = Some(std::mem::replace(&mut p.1, "".into()));
+                false
+            } else {
+                true
+            }
+        });
+        value
+    }
+
+    /// Add a child.
+    pub fn append_child(&self, child: impl Into<NodeBuilder>) {
+        self.children.get_mut().push(child.into());
+    }
+
+    pub fn html_string(&self) -> String {
+        // Only certain nodes can be "void" - which means written as <tag /> when
+        // the node contains no children. Writing non-void nodes in void notation
+        // does some spooky things to the DOM at parse-time.
+        //
+        // From https://riptutorial.com/html/example/4736/void-elements
+        // HTML 4.01/XHTML 1.0 Strict includes the following void elements:
+        //
+        //     rea - clickable, defined area in an image
+        //     base - specifies a base URL from which all links base
+        //     br - line break
+        //     col - column in a table [deprecated]
+        //     hr - horizontal rule (line)
+        //     img - image
+        //     input - field where users enter data
+        //     link - links an external resource to the document
+        //     meta - provides information about the document
+        //     param - defines parameters for plugins
+        //
+        //     HTML 5 standards include all non-deprecated tags from the previous list
+        // and
+        //
+        //     command - represents a command users can invoke [obsolete]
+        //     keygen - facilitates public key generation for web certificates
+        // [deprecated]     source - specifies media sources for picture, audio, and
+        // video elements
+        fn tag_is_voidable(tag: &str) -> bool {
+            tag == "area"
+                || tag == "base"
+                || tag == "br"
+                || tag == "col"
+                || tag == "hr"
+                || tag == "img"
+                || tag == "input"
+                || tag == "link"
+                || tag == "meta"
+                || tag == "param"
+                || tag == "command"
+                || tag == "keygen"
+                || tag == "source"
+        }
+        let name = &self.name;
+        let styles = self.styles.get();
+        let attributes = self.attributes.get_mut();
+        let children = self.children.get();
+
+        let mut attributes = attributes.clone();
+        if !styles.is_empty() {
+            let styles = styles
+                .iter()
+                .map(|(k, v)| format!("{}: {};", k, v))
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            let mut style_added = false;
+            for (key, value) in attributes.iter_mut() {
+                if key.as_str() == "style" {
+                    if let Some(prev_style) = value.as_mut() {
+                        *prev_style = [prev_style.as_str(), styles.as_str()].join(" ").into();
+                        style_added = true;
+                        break;
+                    }
+                }
+            }
+            if !style_added {
+                attributes.push(("style".into(), Some(styles.into())));
+            }
+        }
+
+        let atts = attributes
+            .iter()
+            .map(|(key, may_val)| {
+                if let Some(val) = may_val {
+                    format!(r#"{}="{}""#, key, val)
+                } else {
+                    format!("{}", key)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        if children.is_empty() {
+            if attributes.is_empty() {
+                if tag_is_voidable(name.as_str()) {
+                    format!("<{} />", name)
+                } else {
+                    format!("<{}></{}>", name, name)
+                }
+            } else if tag_is_voidable(name.as_str()) {
+                format!("<{} {} />", name, atts)
+            } else {
+                format!("<{} {}></{}>", name, atts, name)
+            }
+        } else {
+            let mut kids = vec![];
+            for kid in children.iter() {
+                let node = match kid {
+                    NodeBuilder::Element(element_builder) => element_builder.html_string(),
+                    NodeBuilder::Text(text_builder) => text_builder.text.get().to_string(),
+                };
+                kids.push(node);
+            }
+            let kids: String = kids.join(" ");
+            if attributes.is_empty() {
+                format!("<{}>{}</{}>", name, kids, name)
+            } else {
+                format!("<{} {}>{}</{}>", name, atts, kids, name)
+            }
+        }
+    }
 }
 
-pub enum NodeBuilder<El, T, L> {
-    Element(ElementBuilder<El, T, L>),
-    Text(TextBuilder<T>),
+#[derive(Clone)]
+pub enum NodeBuilder {
+    Element(ElementBuilder),
+    Text(TextBuilder),
 }
 
-impl<El, T, L> From<&TextBuilder<T>> for NodeBuilder<El, T, L> {
-    fn from(value: &TextBuilder<T>) -> Self {
+impl From<&TextBuilder> for NodeBuilder {
+    fn from(value: &TextBuilder) -> Self {
         NodeBuilder::Text(value.clone())
     }
 }
 
+impl From<&ElementBuilder> for NodeBuilder {
+    fn from(value: &ElementBuilder) -> Self {
+        NodeBuilder::Element(value.clone())
+    }
+}
+
 pub trait View {
-    type Element<El, T, L>;
+    type Element<T>;
+    // TODO: revisit to see if we need this `T`
     type Text<T>;
+    // TODO: revisit to see if we need this `T`
     type EventListener<T>;
 }
 
 pub struct Builder;
 
 impl View for Builder {
-    type Element<El, T, L> = ElementBuilder<El, T, L>;
-    type Text<T> = TextBuilder<T>;
-    type EventListener<T> = EventListenerBuilder<T>;
-}
-
-pub struct Web;
-
-impl View for Web {
-    type Element<El, T, L> = El;
-    type Text<T> = T;
-    type EventListener<T> = EventListener;
+    type Element<T> = ElementBuilder;
+    type Text<T> = TextBuilder;
+    type EventListener<T> = EventListenerBuilder;
 }

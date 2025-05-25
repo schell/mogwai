@@ -2,7 +2,7 @@
 
 use std::ops::DerefMut;
 
-use event::{EventListener, EventListenerExt};
+use event::EventListener;
 use web_sys::wasm_bindgen::JsCast;
 
 use crate::{ElementBuilder, EventListenerBuilder, NodeBuilder, TextBuilder};
@@ -11,41 +11,58 @@ pub mod event;
 pub mod prelude {
     pub use crate::{
         Builder, Container, ElementBuilder, EventListenerBuilder, NodeBuilder, TextBuilder, View,
-        ViewText, Web,
+        ViewText,
     };
 
-    pub use super::event::*;
+    pub use super::{Web, event::*};
 }
 
-impl<T: Clone + JsCast> TextBuilder<T> {
-    pub fn build_web(self) -> T {
-        if let Some(already_built) = self.built.get().as_ref() {
-            already_built.clone()
-        } else {
-            let built = web_sys::Text::new_with_data(self.text.get().as_str())
+pub struct Web;
+
+impl super::View for Web {
+    type Element<T> = T;
+    type Text<T> = T;
+    type EventListener<T> = EventListener;
+}
+
+impl Web {
+    pub fn build_text(builder: TextBuilder) -> web_sys::Text {
+        if let Some(already_built) = builder.built.get().as_ref() {
+            // UNWRAP: safe because only this function ever sets `built`
+            already_built
+                .downcast_ref::<web_sys::Text>()
                 .unwrap()
-                .dyn_into::<T>()
-                .unwrap();
-            self.built.set(Some(built.clone()));
+                .clone()
+        } else {
+            let built = web_sys::Text::new_with_data(builder.text.get().as_str()).unwrap();
+            builder.built.set(Some(Box::new(built.clone())));
             built
         }
     }
-}
 
-impl EventListenerBuilder<EventListener> {
-    pub fn build_web(self, event_target: &web_sys::EventTarget) -> EventListener {
-        if let Some(already_built) = self.built.get().as_ref() {
-            already_built.clone()
+    pub fn build_listener(builder: EventListenerBuilder) -> EventListener {
+        if let Some(already_built) = builder.built.get().as_ref() {
+            already_built
+                .downcast_ref::<EventListener>()
+                .unwrap()
+                .clone()
         } else {
-            let listener = event_target.listen(self.name);
-            self.built.set(Some(listener.clone()));
+            let listener = match builder.node {
+                NodeBuilder::Element(element_builder) => {
+                    let element = Self::build_element::<web_sys::Element>(element_builder);
+                    EventListener::new(&element, builder.name)
+                }
+                NodeBuilder::Text(text_builder) => {
+                    let text = Self::build_text(text_builder);
+                    EventListener::new(&text, builder.name)
+                }
+            };
+            builder.built.set(Some(Box::new(listener.clone())));
             listener
         }
     }
-}
 
-impl<T: Clone + JsCast> ElementBuilder<T, web_sys::Text, EventListener> {
-    fn build_web(self) -> T {
+    pub fn build_element<T: Clone + JsCast + 'static>(builder: ElementBuilder) -> T {
         let ElementBuilder {
             name,
             built,
@@ -53,9 +70,9 @@ impl<T: Clone + JsCast> ElementBuilder<T, web_sys::Text, EventListener> {
             styles,
             events,
             children,
-        } = self;
+        } = builder;
         if let Some(already_built) = built.get().as_ref() {
-            return already_built.clone();
+            return already_built.downcast_ref::<T>().unwrap().clone();
         }
         let el = web_sys::window()
             .unwrap()
@@ -78,19 +95,16 @@ impl<T: Clone + JsCast> ElementBuilder<T, web_sys::Text, EventListener> {
         }
         for event_builder in std::mem::take(events.get_mut().deref_mut()).into_iter() {
             // We don't have to do anything with the listener except build it.
-            let _listener = event_builder.build_web(el.dyn_ref::<web_sys::EventTarget>().unwrap());
+            let _listener = Self::build_listener(event_builder);
         }
         for child in std::mem::take(children.get_mut().deref_mut()).into_iter() {
             let node = match child {
                 NodeBuilder::Text(text_builder) => {
-                    let text = text_builder.build_web();
+                    let text = Self::build_text(text_builder);
                     text.dyn_into::<web_sys::Node>().unwrap()
                 }
                 NodeBuilder::Element(element_builder) => {
-                    let child_el = element_builder.build_web();
-                    child_el
-                        .dyn_into::<web_sys::Node>()
-                        .unwrap_or_else(|_| panic!("cannot cast to node"))
+                    Self::build_element::<web_sys::Node>(element_builder)
                 }
             };
             el.dyn_ref::<web_sys::Node>()
@@ -98,6 +112,7 @@ impl<T: Clone + JsCast> ElementBuilder<T, web_sys::Text, EventListener> {
                 .append_child(&node)
                 .unwrap();
         }
+        built.set(Some(Box::new(el.clone())));
         el
     }
 }
