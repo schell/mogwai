@@ -65,6 +65,14 @@ impl Drop for EventListener {
     }
 }
 
+impl super::super::ViewEventListener for EventListener {
+    type Event = web_sys::Event;
+
+    fn next(&self) -> impl Future<Output = web_sys::Event> {
+        EventListener::next(self)
+    }
+}
+
 impl EventListener {
     pub fn new(target: impl AsRef<web_sys::EventTarget>, event_name: impl Into<Str>) -> Self {
         let events: Rc<RefCell<FutureEventOccurrence>> = Default::default();
@@ -108,15 +116,5 @@ impl EventListener {
 
     pub fn next(&self) -> impl std::future::Future<Output = web_sys::Event> {
         self.events.borrow().clone()
-    }
-}
-
-pub trait EventListenerExt {
-    fn listen(&self, event_name: impl Into<Str>) -> EventListener;
-}
-
-impl<T: AsRef<web_sys::EventTarget>> EventListenerExt for T {
-    fn listen(&self, event_name: impl Into<Str>) -> EventListener {
-        EventListener::new(self, event_name)
     }
 }

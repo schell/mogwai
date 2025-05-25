@@ -56,6 +56,13 @@ pub mod tuple;
 #[cfg(feature = "web")]
 pub mod web;
 
+pub mod prelude {
+    pub use crate::{
+        Builder, ElementBuilder, EventListenerBuilder, NodeBuilder, TextBuilder, View,
+        ViewContainer, ViewEventListener, ViewNode, ViewText,
+    };
+}
+
 /// A transparent wrapper around [`Cow<'static, str>`].
 #[repr(transparent)]
 #[derive(Clone, Default)]
@@ -144,16 +151,44 @@ impl ViewText for web_sys::Text {
     }
 }
 
-pub trait Container {
-    type Child;
+pub trait ViewEventListener {
+    type Event;
 
-    fn append_child(&self, child: impl Into<Self::Child>);
+    fn next(&self) -> impl Future<Output = Self::Event>;
+}
+
+pub trait ViewNode {
+    type Parent<T>: ViewContainer;
+
+    fn append_to_parent<T>(&self, parent: impl AsRef<Self::Parent<T>>);
+}
+
+pub trait ViewContainer {
+    fn append_child<C, T>(&self, child: &C)
+    where
+        C: ViewNode,
+        Self: AsRef<C::Parent<T>>,
+    {
+        child.append_to_parent(self);
+    }
 }
 
 #[derive(Clone)]
 pub struct TextBuilder {
     text: Shared<Str>,
     built: Shared<Option<Box<dyn Any>>>,
+}
+
+impl ViewNode for TextBuilder {
+    type Parent<T> = ElementBuilder;
+
+    fn append_to_parent<T>(&self, parent: impl AsRef<Self::Parent<T>>) {
+        parent
+            .as_ref()
+            .children
+            .get_mut()
+            .push(NodeBuilder::Text(self.clone()));
+    }
 }
 
 impl TextBuilder {
@@ -172,11 +207,15 @@ pub struct EventListenerBuilder {
     built: Shared<Option<Box<dyn Any>>>,
 }
 
+impl ViewEventListener for EventListenerBuilder {
+    type Event = ();
+
+    fn next(&self) -> impl Future<Output = Self::Event> {
+        std::future::ready(())
+    }
+}
+
 /// Builder for runtime views.
-///
-/// **El** - container element type.
-/// **T** - text type.
-/// **L** - event listener type.
 #[derive(Clone)]
 pub struct ElementBuilder {
     name: Str,
@@ -187,14 +226,25 @@ pub struct ElementBuilder {
     children: Shared<Vec<NodeBuilder>>,
 }
 
-impl Container for ElementBuilder {
-    type Child = NodeBuilder;
-
-    fn append_child(&self, child: impl Into<Self::Child>) {
-        let child = child.into();
-        self.children.get_mut().push(child);
+impl AsRef<ElementBuilder> for ElementBuilder {
+    fn as_ref(&self) -> &ElementBuilder {
+        self
     }
 }
+
+impl ViewNode for ElementBuilder {
+    type Parent<T> = ElementBuilder;
+
+    fn append_to_parent<T>(&self, parent: impl AsRef<Self::Parent<T>>) {
+        parent
+            .as_ref()
+            .children
+            .get_mut()
+            .push(NodeBuilder::Element(self.clone()));
+    }
+}
+
+impl ViewContainer for ElementBuilder {}
 
 impl ElementBuilder {
     pub fn new(name: impl Into<Str>) -> Self {
@@ -211,7 +261,7 @@ impl ElementBuilder {
     pub fn listen(&self, event_name: impl Into<Str>) -> EventListenerBuilder {
         let event_listener = EventListenerBuilder {
             name: event_name.into(),
-            node: self.into(),
+            node: NodeBuilder::Element(self.clone()),
             built: Default::default(),
         };
         self.events.get_mut().push(event_listener.clone());
@@ -296,10 +346,10 @@ impl ElementBuilder {
         value
     }
 
-    /// Add a child.
-    pub fn append_child(&self, child: impl Into<NodeBuilder>) {
-        self.children.get_mut().push(child.into());
-    }
+    // /// Add a child.
+    // pub fn append_child(&self, child: impl Into<NodeBuilder>) {
+    //     self.children.get_mut().push(child.into());
+    // }
 
     pub fn html_string(&self) -> String {
         // Only certain nodes can be "void" - which means written as <tag /> when
@@ -419,30 +469,55 @@ pub enum NodeBuilder {
     Text(TextBuilder),
 }
 
-impl From<&TextBuilder> for NodeBuilder {
-    fn from(value: &TextBuilder) -> Self {
-        NodeBuilder::Text(value.clone())
+impl ViewNode for NodeBuilder {
+    type Parent = ElementBuilder;
+
+    fn append_to_parent(&self, parent: impl AsRef<Self::Parent>) {
+        parent.as_ref().children.get_mut().push(self.clone());
     }
 }
 
-impl From<&ElementBuilder> for NodeBuilder {
-    fn from(value: &ElementBuilder) -> Self {
-        NodeBuilder::Element(value.clone())
-    }
-}
+// impl From<&TextBuilder> for NodeBuilder {
+//     fn from(value: &TextBuilder) -> Self {
+//         NodeBuilder::Text(value.clone())
+//     }
+// }
+
+// impl From<&ElementBuilder> for NodeBuilder {
+//     fn from(value: &ElementBuilder) -> Self {
+//         NodeBuilder::Element(value.clone())
+//     }
+// }
 
 pub trait View {
-    type Element<T>;
+    type Node: ViewNode;
+    type Element<T>: ViewContainer
+    where
+        T: ViewContainer;
     // TODO: revisit to see if we need this `T`
-    type Text<T>;
+    type Text<T>: ViewText
+    where
+        T: ViewText;
     // TODO: revisit to see if we need this `T`
-    type EventListener<T>;
+    type EventListener<T>: ViewEventListener
+    where
+        T: ViewEventListener;
 }
 
 pub struct Builder;
 
 impl View for Builder {
-    type Element<T> = ElementBuilder;
-    type Text<T> = TextBuilder;
-    type EventListener<T> = EventListenerBuilder;
+    type Node = NodeBuilder;
+    type Element<T>
+        = ElementBuilder
+    where
+        T: ViewContainer;
+    type Text<T>
+        = TextBuilder
+    where
+        T: ViewText;
+    type EventListener<T>
+        = EventListenerBuilder
+    where
+        T: ViewEventListener;
 }

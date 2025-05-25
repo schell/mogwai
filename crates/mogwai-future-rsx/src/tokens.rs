@@ -297,65 +297,7 @@ impl Flavor for SsrFlavor {
     }
 }
 
-pub struct PlatformFlavor;
-
-impl Flavor for PlatformFlavor {
-    fn create_text(ident: &syn::Ident, expr: &syn::Expr) -> proc_macro2::TokenStream {
-        quote! { let #ident = T::Text::new(#expr); }
-    }
-
-    fn create_element(el: &String) -> proc_macro2::TokenStream {
-        quote! { T::Container::new(#el) }
-    }
-
-    fn create_element_ns(el: &String, ns: &syn::Expr) -> proc_macro2::TokenStream {
-        quote! { T::Container::new(#el, Some(#ns)) }
-    }
-
-    fn cast_creation(
-        ident: &syn::Ident,
-        expr: &syn::Type,
-        creation: proc_macro2::TokenStream,
-    ) -> proc_macro2::TokenStream {
-        todo!()
-    }
-
-    fn append_child(ident: &syn::Ident, child_id: &syn::Ident) -> proc_macro2::TokenStream {
-        todo!()
-    }
-
-    fn set_style_property(
-        ident: &syn::Ident,
-        key: &String,
-        expr: &syn::Expr,
-    ) -> proc_macro2::TokenStream {
-        todo!()
-    }
-
-    fn set_attribute(
-        ident: &syn::Ident,
-        key: &String,
-        expr: &syn::Expr,
-    ) -> proc_macro2::TokenStream {
-        todo!()
-    }
-
-    fn create_listener(
-        ident: &syn::Ident,
-        listener: &syn::Expr,
-        event: &String,
-    ) -> proc_macro2::TokenStream {
-        todo!()
-    }
-
-    fn create_window_listener(listener: &syn::Expr, event: &String) -> proc_macro2::TokenStream {
-        todo!()
-    }
-
-    fn create_document_listener(listener: &syn::Expr, event: &String) -> proc_macro2::TokenStream {
-        todo!()
-    }
-}
+pub struct BuilderFlavor;
 
 pub struct ViewTokenOutput<'a, T> {
     view: &'a ViewToken,

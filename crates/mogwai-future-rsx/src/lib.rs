@@ -2,7 +2,7 @@
 #![allow(deprecated)]
 
 use quote::ToTokens;
-use tokens::{PlatformFlavor, SsrFlavor, ViewTokenOutput, WebSysFlavor};
+use tokens::{SsrFlavor, ViewTokenOutput, WebSysFlavor};
 
 mod tokens;
 
@@ -19,15 +19,6 @@ pub fn rsx_web(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 pub fn rsx_ssr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match syn::parse::<tokens::ViewToken>(input) {
         Ok(view_token) => ViewTokenOutput::<SsrFlavor>::new(&view_token).into_token_stream(),
-        Err(error) => error.to_compile_error(),
-    }
-    .into()
-}
-
-#[proc_macro]
-pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    match syn::parse::<tokens::ViewToken>(input) {
-        Ok(view_token) => ViewTokenOutput::<PlatformFlavor>::new(&view_token).into_token_stream(),
         Err(error) => error.to_compile_error(),
     }
     .into()

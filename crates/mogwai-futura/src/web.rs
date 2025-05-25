@@ -5,24 +5,41 @@ use std::ops::DerefMut;
 use event::EventListener;
 use web_sys::wasm_bindgen::JsCast;
 
-use crate::{ElementBuilder, EventListenerBuilder, NodeBuilder, TextBuilder};
+use crate::prelude::*;
 pub mod event;
 
 pub mod prelude {
-    pub use crate::{
-        Builder, Container, ElementBuilder, EventListenerBuilder, NodeBuilder, TextBuilder, View,
-        ViewText,
-    };
-
     pub use super::{Web, event::*};
+    pub use crate::prelude::*;
 }
+
+impl ViewNode for web_sys::Node {
+    type Parent = web_sys::Node;
+
+    fn append_to_parent(&self, parent: impl AsRef<Self::Parent>) {
+        parent.as_ref().append_child(self).unwrap();
+    }
+}
+
+impl ViewContainer for web_sys::HtmlElement {}
+impl ViewContainer for web_sys::Node {}
 
 pub struct Web;
 
 impl super::View for Web {
-    type Element<T> = T;
-    type Text<T> = T;
-    type EventListener<T> = EventListener;
+    type Node = web_sys::Node;
+    type Element<T>
+        = T
+    where
+        T: ViewContainer;
+    type Text<T>
+        = T
+    where
+        T: ViewText;
+    type EventListener<T>
+        = EventListener
+    where
+        T: ViewEventListener;
 }
 
 impl Web {

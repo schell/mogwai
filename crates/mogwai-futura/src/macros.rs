@@ -4,5 +4,3 @@ pub use mogwai_future_rsx::rsx_web;
 
 #[cfg(feature = "ssr")]
 pub use mogwai_future_rsx::rsx_ssr;
-
-pub use mogwai_future_rsx::rsx;
