@@ -108,8 +108,8 @@ impl Parse for ViewToken {
 /// paths, all with the same structure.
 trait Flavor {
     fn create_text(ident: &syn::Ident, expr: &syn::Expr) -> proc_macro2::TokenStream;
-    fn create_element(el: &String) -> proc_macro2::TokenStream;
-    fn create_element_ns(el: &String, ns: &syn::Expr) -> proc_macro2::TokenStream;
+    fn create_element(el: &str) -> proc_macro2::TokenStream;
+    fn create_element_ns(el: &str, ns: &syn::Expr) -> proc_macro2::TokenStream;
     fn cast_creation(
         ident: &syn::Ident,
         expr: &syn::Type,
@@ -118,49 +118,35 @@ trait Flavor {
     fn append_child(ident: &syn::Ident, child_id: &syn::Ident) -> proc_macro2::TokenStream;
     fn set_style_property(
         ident: &syn::Ident,
-        key: &String,
+        key: &str,
         expr: &syn::Expr,
     ) -> proc_macro2::TokenStream;
-    fn set_attribute(
-        ident: &syn::Ident,
-        key: &String,
-        expr: &syn::Expr,
-    ) -> proc_macro2::TokenStream;
+    fn set_attribute(ident: &syn::Ident, key: &str, expr: &syn::Expr) -> proc_macro2::TokenStream;
     fn create_listener(
         ident: &syn::Ident,
         listener: &syn::Expr,
-        event: &String,
+        event: &str,
     ) -> proc_macro2::TokenStream;
-    fn create_window_listener(listener: &syn::Expr, event: &String) -> proc_macro2::TokenStream;
-    fn create_document_listener(listener: &syn::Expr, event: &String) -> proc_macro2::TokenStream;
+    fn create_window_listener(listener: &syn::Expr, event: &str) -> proc_macro2::TokenStream;
+    fn create_document_listener(listener: &syn::Expr, event: &str) -> proc_macro2::TokenStream;
 }
 
-pub struct WebSysFlavor;
+pub struct WebFlavor;
 
-impl Flavor for WebSysFlavor {
+impl Flavor for WebFlavor {
     fn create_text(ident: &syn::Ident, expr: &syn::Expr) -> proc_macro2::TokenStream {
-        quote! { let #ident = web_sys::Text::new_with_data(#expr).unwrap(); }
+        quote! { let #ident = mogwai_futura::builder::TextBuilder::new(#expr); }
     }
-    fn create_element_ns(el: &String, ns: &syn::Expr) -> proc_macro2::TokenStream {
-        quote! {
-            web_sys::window()
-                .unwrap()
-                .document()
-                .unwrap()
-                .create_element_ns(#el, #ns)
-                .unwrap()
-        }
+    fn create_element_ns(el: &str, ns: &syn::Expr) -> proc_macro2::TokenStream {
+        quote! { {
+            let __el = mogwai_futura::builder::ElementBuilder::new(#el);
+            __el.set_property("xmlns", #ns);
+            __el
+        }}
     }
 
-    fn create_element(el: &String) -> proc_macro2::TokenStream {
-        quote! {
-            web_sys::window()
-                .unwrap()
-                .document()
-                .unwrap()
-                .create_element(#el)
-                .unwrap()
-        }
+    fn create_element(el: &str) -> proc_macro2::TokenStream {
+        quote! { mogwai_futura::builder::ElementBuilder::new(#el) }
     }
 
     fn cast_creation(
@@ -168,136 +154,41 @@ impl Flavor for WebSysFlavor {
         cast_expr: &syn::Type,
         creation: proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
-        quote! {
-            let #ident: #cast_expr = #creation
-                .dyn_into::<#cast_expr>()
-                .unwrap();
-        }
+        quote! { let #ident: mogwai_futura::builder::ElementBuilder::<#cast_expr> = #creation; }
     }
 
     fn append_child(ident: &syn::Ident, child_id: &syn::Ident) -> proc_macro2::TokenStream {
-        quote! { let _ = #ident.append_child(#child_id.as_ref()).unwrap(); }
+        quote! { #ident.append_child(&#child_id); }
     }
 
     fn set_style_property(
         ident: &syn::Ident,
-        key: &String,
-        expr: &syn::Expr,
-    ) -> proc_macro2::TokenStream {
-        quote! { #ident.dyn_ref::<web_sys::HtmlElement>().unwrap().style().set_property(#key, #expr).unwrap(); }
-    }
-
-    fn set_attribute(
-        ident: &syn::Ident,
-        key: &String,
-        expr: &syn::Expr,
-    ) -> proc_macro2::TokenStream {
-        quote! { #ident.set_attribute(#key, #expr).unwrap(); }
-    }
-
-    fn create_listener(
-        ident: &syn::Ident,
-        listener: &syn::Expr,
-        event: &String,
-    ) -> proc_macro2::TokenStream {
-        quote! {
-            let #listener = mogwai_futura::web::event::EventListener::new(
-                &#ident,
-                #event,
-            );
-        }
-    }
-
-    fn create_window_listener(listener: &syn::Expr, event: &String) -> proc_macro2::TokenStream {
-        quote! {
-            let #listener = mogwai_futura::web::event::EventListener::new(
-                web_sys::window().unwrap(),
-                #event
-            );
-        }
-    }
-
-    fn create_document_listener(listener: &syn::Expr, event: &String) -> proc_macro2::TokenStream {
-        quote! {
-            let #listener = mogwai_futurea::web::event::EventListener::new(
-                web_sys::window().unwrap().document().unwrap(),
-                #event
-            );
-        }
-    }
-}
-
-pub struct SsrFlavor;
-
-impl Flavor for SsrFlavor {
-    fn create_text(ident: &syn::Ident, expr: &syn::Expr) -> proc_macro2::TokenStream {
-        quote! { let #ident = mogwai_futura::ssr::Text::new(#expr); }
-    }
-
-    fn create_element(el: &String) -> proc_macro2::TokenStream {
-        quote! { mogwai_futura::ssr::Container::new(#el) }
-    }
-
-    fn create_element_ns(el: &String, ns: &syn::Expr) -> proc_macro2::TokenStream {
-        quote! {{
-            let __container = mogwai_futura::ssr::Container::new(#el);
-            __container.set_property("xmlns", #ns);
-            __container
-        }}
-    }
-
-    fn cast_creation(
-        ident: &syn::Ident,
-        _expr: &syn::Type,
-        creation: proc_macro2::TokenStream,
-    ) -> proc_macro2::TokenStream {
-        quote! { let #ident = #creation; }
-    }
-
-    fn append_child(ident: &syn::Ident, child_id: &syn::Ident) -> proc_macro2::TokenStream {
-        quote! {
-            #ident.append_child(#child_id.clone().into());
-        }
-    }
-
-    fn set_style_property(
-        ident: &syn::Ident,
-        key: &String,
+        key: &str,
         expr: &syn::Expr,
     ) -> proc_macro2::TokenStream {
         quote! { #ident.set_style(#key, #expr); }
     }
 
-    fn set_attribute(
-        ident: &syn::Ident,
-        key: &String,
-        expr: &syn::Expr,
-    ) -> proc_macro2::TokenStream {
+    fn set_attribute(ident: &syn::Ident, key: &str, expr: &syn::Expr) -> proc_macro2::TokenStream {
         quote! { #ident.set_property(#key, #expr); }
     }
 
     fn create_listener(
-        _ident: &syn::Ident,
+        ident: &syn::Ident,
         listener: &syn::Expr,
-        event: &String,
+        event: &str,
     ) -> proc_macro2::TokenStream {
-        SsrFlavor::create_window_listener(listener, event)
+        quote! { let #listener = #ident.listen(#event); }
     }
 
-    fn create_window_listener(listener: &syn::Expr, event: &String) -> proc_macro2::TokenStream {
-        quote! {
-            let _event = #event;
-            let (tx, rx) = async_channel::bounded(1);
-            let #listener = mogwai_futura::ssr::EventListener { tx, rx };
-        }
+    fn create_window_listener(listener: &syn::Expr, event: &str) -> proc_macro2::TokenStream {
+        quote! { let #listener = mogwai_futura::builder::EventListenerBuilder::on_window( #event ); }
     }
 
-    fn create_document_listener(listener: &syn::Expr, event: &String) -> proc_macro2::TokenStream {
-        SsrFlavor::create_window_listener(listener, event)
+    fn create_document_listener(listener: &syn::Expr, event: &str) -> proc_macro2::TokenStream {
+        quote! { let #listener = mogwai_futura::builder::EventListenerBuilder::on_document( #event ); }
     }
 }
-
-pub struct BuilderFlavor;
 
 pub struct ViewTokenOutput<'a, T> {
     view: &'a ViewToken,
@@ -362,7 +253,7 @@ impl ViewToken {
                     .iter()
                     .find_map(|att| {
                         if let AttributeToken::Xmlns(ns) = att {
-                            Some(T::create_element_ns(&el, &ns))
+                            Some(T::create_element_ns(el, ns))
                         } else {
                             None
                         }

@@ -15,6 +15,7 @@ futures-core = "0.3.31"
 log = "0.4.27"
 mogwai-future-rsx = { version = "0.1.0", path = "../mogwai-future-rsx", optional = true }
 serde = { version = "1.0", features = ["derive"] }
+send_wrapper = "0.6"
 wasm-bindgen-futures = { version = "0.4", optional = true }
 
 [dependencies.web-sys]

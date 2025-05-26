@@ -6,6 +6,8 @@ pub mod button_clicks;
 #[cfg(feature = "web")]
 #[wasm_bindgen(start)]
 fn web_run() -> Result<(), wasm_bindgen::JsValue> {
+    console_log::init_with_level(log::Level::Trace).unwrap();
+    log::info!("starting");
     button_clicks::ButtonClicksView::web(button_clicks::ButtonClicks { clicks: 0 })
 }
 

@@ -4,7 +4,7 @@ use std::sync::{
     Arc, Mutex,
 };
 
-use mogwai_dom::{core::model::*, prelude::*};
+use mogwai_futura::web::prelude::*;
 use rand::prelude::*;
 use wasm_bindgen::{JsCast, UnwrapThrowExt};
 use web_sys::Element;
@@ -54,7 +54,7 @@ type Count = usize;
 type Step = usize;
 
 fn build_data(count: usize) -> Vec<(usize, String)> {
-    let mut thread_rng = thread_rng();
+    let mut thread_rng = rand::rng();
 
     let mut data: Vec<(usize, String)> = Vec::new();
     data.reserve_exact(count);

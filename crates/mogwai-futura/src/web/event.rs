@@ -23,6 +23,7 @@ impl std::future::Future for FutureEventOccurrence {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         if let Some(event) = self.event.borrow().as_ref() {
+            log::trace!("event proc'd");
             std::task::Poll::Ready(event.clone())
         } else {
             // Store the waker for later.
@@ -46,35 +47,30 @@ pub struct EventListener {
 
 impl Drop for EventListener {
     fn drop(&mut self) {
-        if let Some(rc_callback) = self.callback.take() {
-            if let Ok(callback) = Rc::try_unwrap(rc_callback) {
-                // This is the last clone of the callback, meaning this listener can be removed.
-                self.target
-                    .remove_event_listener_with_callback(
-                        self.event_name.as_str(),
-                        callback.as_ref().unchecked_ref(),
-                    )
-                    .unwrap();
-                log::trace!(
-                    "dropping listener for {} on target {:?}",
-                    self.event_name,
+        if Rc::strong_count(&self.callback) == 1 {
+            if let Some(rc_callback) = self.callback.take() {
+                if let Ok(callback) = Rc::try_unwrap(rc_callback) {
+                    // This is the last clone of the callback, meaning this listener can be removed.
                     self.target
-                );
+                        .remove_event_listener_with_callback(
+                            self.event_name.as_str(),
+                            callback.as_ref().unchecked_ref(),
+                        )
+                        .unwrap();
+                    log::trace!(
+                        "dropping listener for {} on target {:?}",
+                        self.event_name,
+                        self.target
+                    );
+                }
             }
         }
     }
 }
 
-impl super::super::ViewEventListener for EventListener {
-    type Event = web_sys::Event;
-
-    fn next(&self) -> impl Future<Output = web_sys::Event> {
-        EventListener::next(self)
-    }
-}
-
 impl EventListener {
     pub fn new(target: impl AsRef<web_sys::EventTarget>, event_name: impl Into<Str>) -> Self {
+        let event_name = event_name.into();
         let events: Rc<RefCell<FutureEventOccurrence>> = Default::default();
         let callback = Closure::wrap({
             let events = events.clone();
@@ -98,7 +94,6 @@ impl EventListener {
         });
 
         let target = target.as_ref().clone();
-        let event_name = event_name.into();
         target
             .add_event_listener_with_callback(
                 event_name.as_str(),

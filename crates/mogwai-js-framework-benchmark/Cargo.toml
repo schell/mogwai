@@ -1,7 +1,7 @@
 [package]
 name = "mogwai-js-framework-benchmark"
 description = "mogwai-dom implementation of js-framework-benchmark"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
@@ -18,15 +18,15 @@ keyed = []
 [dependencies]
 anyhow = "1.0.68"
 console_error_panic_hook = { version = "0.1.6" }
-console_log = "^0.1"
-getrandom = { version = "0.2", features = ["js"] }
-log = "^0.4"
-mogwai-dom = { version = "0.2.2", path = "../mogwai-dom" }
-rand = { version = "0.8.5", features = ["small_rng"] }
-serde_json = "1.0.91"
-serde = { version = "1.0.152", features = ["derive"]}
-wasm-bindgen = { version = "^0.2" }
-wasm-bindgen-futures = "0.4.33"
+console_log = "1.0"
+getrandom = { version = "0.3.3" }
+log = "0.4"
+mogwai-futura = { path = "../mogwai-futura" }
+rand = { version = "0.9", features = ["small_rng"] }
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"]}
+wasm-bindgen = { version = "0.2" }
+wasm-bindgen-futures = "0.4"
 
 [dependencies.web-sys]
 version = "^0.3"

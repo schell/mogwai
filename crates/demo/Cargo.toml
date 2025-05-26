@@ -15,13 +15,13 @@ name = "demo-ssr"
 path = "src/ssr.rs"
 
 [features]
-default = ["web", "tui", "ssr"]
-web = ["mogwai-futura/web", "dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures"]
+default = ["web"]
+web = ["mogwai-futura/web", "dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:console_log"]
 tui = ["dep:ratatui", "dep:crossterm", "dep:async-channel"]
-ssr = ["mogwai-futura/ssr"]
 
 [dependencies]
 async-channel = { version = "2.3.1", optional = true }
+console_log = { version = "1.0.0", optional = true }
 crossterm = { version = "0.29", optional = true}
 simplelog = "0.12"
 futures-lite = "2.6.0"
