@@ -13,6 +13,12 @@ pub struct Shared<T> {
     inner: std::sync::Arc<std::sync::RwLock<T>>,
 }
 
+impl<T: PartialEq> PartialEq for Shared<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.read().unwrap().eq(&other.inner.read().unwrap())
+    }
+}
+
 impl<T> Clone for Shared<T> {
     fn clone(&self) -> Self {
         Self {

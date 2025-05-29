@@ -5,7 +5,7 @@ use crate::{sync::Shared, view::ViewText};
 
 /// A transparent wrapper around [`Cow<'static, str>`].
 #[repr(transparent)]
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Str {
     inner: Cow<'static, str>,
 }
@@ -48,6 +48,12 @@ impl<'a> From<&'a Cow<'static, str>> for Str {
     }
 }
 
+impl<'a> From<&'a Str> for Str {
+    fn from(value: &'a Str) -> Self {
+        value.clone()
+    }
+}
+
 impl Deref for Str {
     type Target = str;
 
@@ -64,10 +70,18 @@ impl ViewText for Shared<Str> {
     fn set_text(&self, text: impl Into<Str>) {
         self.set(text.into());
     }
+
+    fn get_text(&self) -> Str {
+        self.get().clone()
+    }
 }
 
 impl Str {
     pub fn as_str(&self) -> &str {
         &self.inner
+    }
+
+    pub fn into_text<V: crate::view::View>(self) -> V::Text {
+        V::Text::new(self)
     }
 }

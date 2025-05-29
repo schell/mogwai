@@ -7,6 +7,8 @@ use wasm_bindgen_futures::wasm_bindgen::{JsCast, JsValue, prelude::Closure};
 
 use crate::Str;
 
+use super::{Web, prelude::EventListenerBuilder};
+
 type Callback = Rc<Closure<dyn FnMut(JsValue)>>;
 
 #[derive(Clone, Default)]
@@ -65,6 +67,12 @@ impl Drop for EventListener {
                 }
             }
         }
+    }
+}
+
+impl From<EventListenerBuilder> for EventListener {
+    fn from(value: EventListenerBuilder) -> Self {
+        Web::build_listener(value)
     }
 }
 

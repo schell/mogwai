@@ -10,13 +10,15 @@ ssr = ["dep:async-channel"]
 # tui = ["dep:ratatui", "dep:crossterm"]
 
 [dependencies]
-async-channel = { version = "2.3.1", optional = true }
+async-channel = { workspace = true, optional = true }
 futures-core = "0.3.31"
-log = "0.4.27"
+futures-lite.workspace = true
+log.workspace = true
 mogwai-future-rsx = { version = "0.1.0", path = "../mogwai-future-rsx", optional = true }
-serde = { version = "1.0", features = ["derive"] }
+serde.workspace = true
 send_wrapper = "0.6"
-wasm-bindgen-futures = { version = "0.4", optional = true }
+wasm-bindgen.workspace = true
+wasm-bindgen-futures = { workspace = true, optional = true }
 
 [dependencies.web-sys]
 version = "0.3"
@@ -28,6 +30,7 @@ features = [
   "Event",
   "EventTarget",
   "HtmlElement",
+  "HtmlInputElement",
   "MessageChannel",
   "MessagePort",
   "Node",

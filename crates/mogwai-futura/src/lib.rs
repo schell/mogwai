@@ -48,7 +48,7 @@
 pub mod builder;
 mod str;
 pub mod sync;
-pub mod tuple;
+pub mod time;
 pub mod view;
 #[cfg(feature = "web")]
 pub mod web;

@@ -1,0 +1,27 @@
+<html>
+    <head>
+        <title>Mogwai • Benchmarks</title>
+        <style>
+            .change-red {
+                font-weight: bold;
+                color: red;
+            }
+            .change-green {
+                font-weight: bold;
+                color: green;
+            }
+        </style>
+        
+<script type="module">
+import init, * as bindings from '/mogwai-benches-bb43b483133a1358.js';
+const wasm = await init({ module_or_path: '/mogwai-benches-bb43b483133a1358_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+    <link rel="modulepreload" href="/mogwai-benches-bb43b483133a1358.js" crossorigin="anonymous" integrity="sha384-ByfAmQPVb9Z0bZpVhOk9Iltp4RpkMHk/FvRcgOB44grTtGadB7zeIPrlNOvsnDwc"><link rel="preload" href="/mogwai-benches-bb43b483133a1358_bg.wasm" crossorigin="anonymous" integrity="sha384-+Hi7bfvDSvbZpKxRlB+Fk1Q7Y0EiISB1W+JIxOwLg3fk80qOaraENZyjEc0hy2UW" as="fetch" type="application/wasm"></head>
+</html>

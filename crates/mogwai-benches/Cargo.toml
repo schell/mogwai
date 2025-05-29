@@ -8,22 +8,17 @@ crate-type = ["cdylib", "rlib"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[features]
-default = ["keyed"]
-keyed = ["mogwai-js-framework-benchmark/keyed"]
-
 [dependencies]
 anyhow = { version = "^1.0" }
-console_error_panic_hook = { version = "0.1.6" }
-console_log = "^0.1"
-mogwai-js-framework-benchmark = { path = "../mogwai-js-framework-benchmark" }
-log = "^0.4"
-mogwai-dom = { version = "0.2.2", path = "../mogwai-dom" }
-rand = { version = "0.8.5", features = ["small_rng"] }
-serde_json = "1.0.91"
-serde = { version = "1.0.152", features = ["derive"]}
-wasm-bindgen = { version = "^0.2" }
-wasm-bindgen-futures = "0.4.33"
+console_error_panic_hook.workspace = true
+console_log.workspace = true
+mogwai-js-framework-benchmark = { path = "../mogwai-js-framework-benchmark", default-features = false }
+log.workspace = true
+mogwai-futura = { path = "../mogwai-futura" }
+serde_json.workspace = true
+serde.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
 
 [dependencies.web-sys]
 version = "^0.3"

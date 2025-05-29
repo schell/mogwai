@@ -1,5 +1,5 @@
-use mogwai_js_framework_benchmark::App;
-use mogwai_dom::prelude::*;
+use mogwai_futura::web::prelude::*;
+use mogwai_js_framework_benchmark::{App, AppView};
 use std::{future::Future, panic, pin::Pin};
 use wasm_bindgen::prelude::*;
 
@@ -28,6 +28,18 @@ impl std::fmt::Display for Time {
     }
 }
 
+#[derive(ViewChild)]
+pub struct ChangeView<V: View = Builder> {
+    #[child]
+    wrapper: V::Element<web_sys::Element>,
+}
+
+#[derive(Clone, ViewChild, FromBuilder)]
+pub struct BenchView<V: View = Builder> {
+    #[child]
+    wrapper: V::Element<web_sys::Element>,
+}
+
 pub struct Bench<'a> {
     name: &'static str,
     // seconds
@@ -35,9 +47,10 @@ pub struct Bench<'a> {
     warmups: usize,
     iters: usize,
     routine: Box<dyn FnMut() -> Pin<Box<dyn Future<Output = ()> + 'a>> + 'a>,
+    maybe_prev: Option<store::StoredBench>,
 }
 
-impl<'a> Default for Bench<'a> {
+impl Default for Bench<'_> {
     fn default() -> Self {
         Self {
             name: "unknown",
@@ -45,8 +58,13 @@ impl<'a> Default for Bench<'a> {
             warmups: 3,
             iters: 10,
             routine: Box::new(|| Box::pin(async {})),
+            maybe_prev: Default::default(),
         }
     }
+}
+
+fn now() -> f64 {
+    web_sys::js_sys::Date::now()
 }
 
 impl<'a> Bench<'a> {
@@ -55,9 +73,7 @@ impl<'a> Bench<'a> {
         F: FnMut() -> Fut + 'a,
         Fut: Future<Output = ()> + 'a,
     {
-        Bench::default()
-            .with_name(name)
-            .with_routine(f)
+        Bench::default().with_name(name).with_routine(f)
     }
 
     pub fn with_warmups(mut self, warmups: usize) -> Self {
@@ -81,23 +97,28 @@ impl<'a> Bench<'a> {
 
     pub fn with_name(mut self, name: &'static str) -> Self {
         self.name = name;
+        self.maybe_prev = store::StoredBench::try_load(self.save_name()).expect("storage problem");
         self
     }
 
     pub async fn run(&mut self) {
+        log::info!("running bench '{}'", self.name);
         let num_samples = self.iters;
         let mut warmups = self.warmups;
         while self.samples.len() < num_samples {
-            let start_millis = mogwai_dom::core::time::now();
+            log::info!("  warmup: {warmups}");
+            log::info!("  sample: {}", self.samples.len());
+            let start_millis = now();
             let fut = (self.routine)();
             fut.await;
-            let end_millis = mogwai_dom::core::time::now();
+            let end_millis = now();
             if warmups > 0 {
                 warmups -= 1;
             } else {
                 self.samples.push((end_millis - start_millis) / 1000.0);
             }
         }
+        log::info!("  done.");
     }
 
     pub fn average(&self) -> f64 {
@@ -105,11 +126,15 @@ impl<'a> Bench<'a> {
     }
 
     fn save_name(&self) -> String {
-        format!("{}-{}", self.name, if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "release"
-        })
+        format!(
+            "{}-{}",
+            self.name,
+            if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            }
+        )
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
@@ -120,52 +145,67 @@ impl<'a> Bench<'a> {
         to_store.try_write()
     }
 
-    pub fn viewbuilder(&self) -> ViewBuilder {
+    pub fn change_view(&self, maybe_prev: Option<store::StoredBench>) -> ChangeView {
+        if let Some(prev) = maybe_prev {
+            let avg = self.average();
+            let prev_avg = prev.average();
+            let percent_change = 100.0 * (avg - prev_avg) / prev_avg;
+            let change_class = if percent_change.abs() > 3.0 {
+                if percent_change.signum() < 0.0 {
+                    "change-green"
+                } else {
+                    "change-red"
+                }
+            } else {
+                "change"
+            };
+            rsx! {
+                let wrapper = slot() {
+                    dt() { "Change" }
+                    dd(class = change_class) {
+                        {format!("{:0.03}%", percent_change).into_text::<Builder>()}
+                    }
+                }
+            }
+            ChangeView { wrapper }
+        } else {
+            ChangeView {
+                wrapper: ElementBuilder::new("slot"),
+            }
+        }
+    }
+
+    pub fn bench_view(&self) -> BenchView {
         rsx! {
-            fieldset() {
+            let wrapper = fieldset() {
                 legend() {
-                    {self.name}
-                    {" "}
+                    {self.name.into_text::<Builder>()}
+                    " "
                     {
                         if cfg!(debug_assertions) {
                             "(debug)"
                         } else {
                             "(release)"
-                        }
+                        }.into_text::<Builder>()
                     }
                 }
                 dl() {
                     dt() {"Average"}
-                    dd() { {format!("{}", Time(self.average()))} }
-                    {
-                        store::StoredBench::try_load(self.save_name()).expect("storage problem").map(|prev| {
-                            let avg = self.average();
-                            let prev_avg = prev.average();
-                            let percent_change = 100.0 * (avg - prev_avg) / prev_avg;
-                            let change_class = if percent_change.abs() > 3.0 {
-                                if percent_change.signum() < 0.0 {
-                                    "change-green"
-                                } else {
-                                    "change-red"
-                                }
-                            } else {
-                                "change"
-                            };
-                            rsx!{
-                                slot() {
-                                    dt() { "Change" }
-                                    dd(class = change_class) {
-                                        {format!("{:0.03}%", percent_change)}
-                                    }
-                                }
-
-                            }
-                        })
-                    }
+                    dd() { {format!("{}", Time(self.average())).into_text::<Builder>()} }
+                    {self.change_view(self.maybe_prev.clone())}
                 }
             }
         }
+        BenchView { wrapper }
     }
+}
+
+#[derive(FromBuilder, ViewChild)]
+pub struct BenchSetView<V: View = Builder> {
+    #[child]
+    wrapper: V::Element<web_sys::Element>,
+    #[from(benches => benches.into_iter().map(From::from).collect())]
+    benches: Vec<BenchView<V>>,
 }
 
 #[derive(Default)]
@@ -174,6 +214,21 @@ pub struct BenchSet<'a> {
 }
 
 impl<'a> BenchSet<'a> {
+    pub fn view(&self) -> BenchSetView {
+        rsx! {
+            let wrapper = fieldset(id = "results") {
+                legend() { "Results" }
+                let benches = {
+                    self
+                        .benches
+                        .iter()
+                        .map(Bench::bench_view)
+                        .collect::<Vec<_>>()
+                }
+            }
+        }
+        BenchSetView { wrapper, benches }
+    }
     pub fn with_bench(mut self, bench: Bench<'a>) -> Self {
         self.benches.push(bench);
         self
@@ -182,17 +237,6 @@ impl<'a> BenchSet<'a> {
     pub async fn run(&mut self) {
         for bench in self.benches.iter_mut() {
             bench.run().await;
-        }
-    }
-
-    pub fn viewbuilder(&self) -> ViewBuilder {
-        rsx! {
-            fieldset(id = "results") {
-                legend() { "Results" }
-                {
-                    self.benches.iter().map(Bench::viewbuilder).collect::<Vec<_>>()
-                }
-            }
         }
     }
 
@@ -207,72 +251,42 @@ impl<'a> BenchSet<'a> {
 #[wasm_bindgen(start)]
 pub fn main() {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
-    console_log::init_with_level(log::Level::Trace).expect("could not init console_log");
+    console_log::init_with_level(log::Level::Info).expect("could not init console_log");
 
     wasm_bindgen_futures::spawn_local(async move {
-        let mdl = App::default();
-        let dom = JsDom::try_from(mdl.clone().viewbuilder()).unwrap();
-        dom.run().unwrap();
-        mogwai_dom::core::time::wait_millis(100).await;
-
-        let doc = mogwai_dom::utils::document();
+        log::info!("starting benches");
+        let doc = web_sys::window().unwrap().document().unwrap();
         let mut set = BenchSet::default()
-            //.with_bench(
-            //    Bench::new("my_select_all", || async {
-            //        let usizes = mogwai_dom::core::stream::iter(vec![0usize, 1, 2, 3]);
-            //        let floats = mogwai_dom::core::stream::iter(vec![0f32, 1.0, 2.0, 3.0]);
-            //        let chars = mogwai_dom::core::stream::iter(vec!['a', 'b', 'c', 'd']);
-            //        #[derive(Debug, PartialEq)]
-            //        enum X {
-            //            A(usize),
-            //            B(f32),
-            //            C(char),
-            //        }
-            //        let stream = mogwai_dom::core::stream::select_all(vec![
-            //            usizes.map(X::A).boxed(),
-            //            floats.map(X::B).boxed(),
-            //            chars.map(X::C).boxed(),
-            //        ]).unwrap();
-            //        //
-            //        stream.collect::<Vec<_>>().await;
-            //    })
-            //    .with_warmups(10)
-            //    .with_iters(10_000)
-            //);
-            .with_bench(
-                Bench::new("create_1000", || {
-                    let mut mdl = mdl.clone();
-                    let doc = &doc;
-                    async move {
-                        benches::create(&mut mdl, doc, 1000).await;
-                    }
-                })
-            )
-            .with_bench(
-                Bench::new("create_10_000", || {
-                    let mut mdl = mdl.clone();
-                    let doc = &doc;
-                    async move {
-                        benches::create(&mut mdl, doc, 10_000).await;
-                    }
-                })
-            );
+            .with_bench(Bench::new("create_1000", || async {
+                let mut app = App::default();
+                let view: AppView<Web> = AppView::default().into();
+                view.init();
+                benches::create(&mut app, &view, &doc, 1000).await;
+                view.deinit();
+            }))
+            .with_bench(Bench::new("create_10_000", || async {
+                let mut app = App::default();
+                let view: AppView<Web> = AppView::default().into();
+                view.init();
+                benches::create(&mut app, &view, &doc, 10_000).await;
+                view.deinit();
+            }));
         set.run().await;
-
-        let stats = JsDom::try_from(set.viewbuilder())
-            .expect("could not build stats");
-        stats.run().unwrap();
         set.save().expect("could not save");
+
+        let stats: BenchSetView<Web> = set.view().into();
+        let body = doc.body().unwrap();
+        body.append_child(&stats);
 
         log::info!("done!");
     });
 }
 
-#[cfg(test)]
-mod test {
-    #[test]
-    fn units_sanity() {
-        assert_eq!(3.0, 1000f32.log10());
-        assert_eq!(-3.0, 0.001f32.log10());
-    }
-}
+// #[cfg(test)]
+// mod test {
+//     #[test]
+//     fn units_sanity() {
+//         assert_eq!(3.0, 1000f32.log10());
+//         assert_eq!(-3.0, 0.001f32.log10());
+//     }
+// }

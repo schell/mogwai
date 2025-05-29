@@ -1,13 +1,17 @@
 //! Utilities for web (through web-sys).
 
 use std::{
+    cell::RefCell,
     fmt::Write,
     ops::{Deref, DerefMut},
+    rc::Rc,
     sync::{Arc, atomic::AtomicUsize},
+    task::Waker,
 };
 
 use event::EventListener;
 use send_wrapper::SendWrapper;
+use wasm_bindgen::{JsValue, UnwrapThrowExt, prelude::Closure};
 use web_sys::wasm_bindgen::JsCast;
 
 use crate::prelude::*;
@@ -24,45 +28,88 @@ pub mod prelude {
 impl ViewChild for web_sys::Node {
     type Node = web_sys::Node;
 
-    fn as_child(&self) -> Self::Node {
-        self.clone()
+    fn as_append_arg(&self) -> AppendArg<impl Iterator<Item = Self::Node>> {
+        AppendArg::new(std::iter::once(self.clone()))
     }
 }
 
 impl ViewParent for web_sys::Node {
     type Node = web_sys::Node;
 
-    fn append_child(&self, child: &impl ViewChild<Node = Self::Node>) {
-        let child = child.as_child();
-        self.append_child(&child).unwrap();
+    fn remove_child(&self, child: impl ViewChild<Node = Self::Node>) {
+        for child in child.as_append_arg() {
+            let _ = self.remove_child(&child);
+        }
+    }
+
+    fn append_child(&self, child: impl ViewChild<Node = Self::Node>) {
+        for child in child.as_append_arg() {
+            let _ = self.append_child(&child);
+        }
     }
 }
 
 macro_rules! node_impl {
-    ($ty:ty) => {
-        impl ViewChild for $ty {
+    ($ty:ident, $from:ty, $fn:ident) => {
+        impl ViewChild for web_sys::$ty {
             type Node = web_sys::Node;
 
-            fn as_child(&self) -> Self::Node {
-                let child: &web_sys::Node = self.as_ref();
-                child.clone()
+            fn as_append_arg(&self) -> AppendArg<impl Iterator<Item = Self::Node>> {
+                let node: &web_sys::Node = self.as_ref();
+                AppendArg::new(std::iter::once(node.clone()))
             }
         }
 
-        impl ViewParent for $ty {
+        impl ViewParent for web_sys::$ty {
             type Node = web_sys::Node;
 
-            fn append_child(&self, child: &impl ViewChild<Node = Self::Node>) {
-                let child = child.as_child();
-                web_sys::Node::append_child(&self.as_ref(), &child).unwrap();
+            fn remove_child(&self, child: impl ViewChild<Node = Self::Node>) {
+                for child in child.as_append_arg() {
+                    let _ = web_sys::Node::remove_child(self, &child);
+                }
+            }
+
+            fn append_child(&self, child: impl ViewChild<Node = Self::Node>) {
+                for child in child.as_append_arg() {
+                    let _ = web_sys::Node::append_child(self, &child);
+                }
+            }
+        }
+
+        impl From<$from> for web_sys::$ty {
+            fn from(builder: $from) -> Self {
+                Web::$fn(builder)
+            }
+        }
+    };
+
+    ($ty:ident, $from:ty, $fn:ident, props) => {
+        node_impl!($ty, $from, $fn);
+
+        impl ViewProperties for web_sys::$ty {
+            fn set_property(&self, key: impl Into<Str>, value: impl Into<Str>) {
+                let _ = self.set_attribute(key.into().as_str(), value.into().as_str());
+            }
+
+            fn has_property(&self, key: impl AsRef<str>) -> bool {
+                self.has_attribute(key.as_ref())
+            }
+
+            fn get_property(&self, key: impl AsRef<str>) -> Option<Str> {
+                self.get_attribute(key.as_ref()).map(|s| s.into())
+            }
+
+            fn remove_property(&self, key: impl AsRef<str>) {
+                let _ = self.remove_attribute(key.as_ref());
             }
         }
     };
 }
 
-node_impl!(web_sys::Text);
-node_impl!(web_sys::Element);
-node_impl!(web_sys::HtmlElement);
+node_impl!(Text, TextBuilder, build_text);
+node_impl!(Element, ElementBuilder, build_element, props);
+node_impl!(HtmlElement, ElementBuilder, build_element, props);
+node_impl!(HtmlInputElement, ElementBuilder, build_element, props);
 
 impl ViewText for web_sys::Text {
     fn new(text: impl Into<Str>) -> Self {
@@ -72,6 +119,10 @@ impl ViewText for web_sys::Text {
     fn set_text(&self, text: impl Into<Str>) {
         let text = text.into();
         self.set_data(text.as_str());
+    }
+
+    fn get_text(&self) -> Str {
+        self.data().into()
     }
 }
 
@@ -83,13 +134,14 @@ impl ViewEventListener for EventListener {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Web;
 
 impl View for Web {
     type Element<T>
         = T
     where
-        T: ViewParent + ViewChild;
+        T: ViewParent + ViewChild + ViewProperties;
     type Text = web_sys::Text;
     type EventListener = EventListener;
 }
@@ -272,5 +324,89 @@ impl Web {
         }
         log::trace!("{pad}built: {}", name);
         el.dyn_into::<T>().unwrap()
+    }
+}
+
+thread_local! {
+    pub static WINDOW: web_sys::Window = web_sys::window().unwrap_throw();
+    pub static DOCUMENT: web_sys::Document = WINDOW.with(|w| w.document().unwrap_throw());
+}
+
+/// Return the DOM [`web_sys::Window`].
+/// #### Panics
+/// Panics when the window cannot be returned.
+pub fn window() -> web_sys::Window {
+    WINDOW.with(|w| w.clone())
+}
+
+/// Return the document JsDom object [`web_sys::Document`]
+/// #### Panics
+/// Panics on non-wasm32 or when the document cannot be returned.
+pub fn document() -> web_sys::Document {
+    DOCUMENT.with(|d| d.clone())
+}
+
+/// Return the body Dom object.
+///
+/// ## Panics
+/// Panics on wasm32 if the body cannot be returned.
+pub fn body() -> web_sys::HtmlElement {
+    DOCUMENT.with(|d| d.body().expect("document does not have a body"))
+}
+
+fn req_animation_frame(f: &Closure<dyn FnMut(JsValue)>) {
+    WINDOW.with(|w| {
+        w.request_animation_frame(f.as_ref().unchecked_ref())
+            .expect("should register `requestAnimationFrame` OK")
+    });
+}
+
+#[derive(Clone, Default)]
+#[expect(clippy::type_complexity, reason = "not too complex")]
+pub struct NextFrame {
+    closure: Rc<RefCell<Option<Closure<dyn FnMut(JsValue)>>>>,
+    ts: Rc<RefCell<Option<f64>>>,
+    waker: Rc<RefCell<Option<Waker>>>,
+}
+
+/// Sets a static rust closure to be called with `window.requestAnimationFrame`.
+/// The given function may return whether or not this function should be
+/// rescheduled. If the function returns `true` it will be rescheduled.
+/// Otherwise it will not. The static rust closure takes one parameter which is
+/// a timestamp representing the number of milliseconds since the application's
+/// load. See <https://developer.mozilla.org/en-US/docs/Web/API/DOMHighResTimeStamp>
+/// for more info.
+pub fn request_animation_frame() -> NextFrame {
+    // https://rustwasm.github.io/wasm-bindgen/examples/request-animation-frame.html#srclibrs
+    let frame = NextFrame::default();
+
+    *frame.closure.borrow_mut() = Some(Closure::wrap(Box::new({
+        let frame = frame.clone();
+        move |ts_val: JsValue| {
+            *frame.ts.borrow_mut() = Some(ts_val.as_f64().unwrap_or(0.0));
+            if let Some(waker) = frame.waker.borrow_mut().take() {
+                waker.wake();
+            }
+        }
+    }) as Box<dyn FnMut(JsValue)>));
+
+    req_animation_frame(frame.closure.borrow().as_ref().unwrap_throw());
+
+    frame
+}
+
+impl Future for NextFrame {
+    type Output = f64;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        if let Some(ts) = self.ts.borrow_mut().take() {
+            std::task::Poll::Ready(ts)
+        } else {
+            *self.waker.borrow_mut() = Some(cx.waker().clone());
+            std::task::Poll::Pending
+        }
     }
 }

@@ -9,6 +9,12 @@ pub struct TextBuilder {
     pub built: Shared<Option<Box<dyn Any + Send + Sync + 'static>>>,
 }
 
+impl PartialEq for TextBuilder {
+    fn eq(&self, other: &Self) -> bool {
+        self.text == other.text
+    }
+}
+
 impl ViewText for TextBuilder {
     fn new(text: impl Into<Str>) -> Self {
         TextBuilder {
@@ -20,13 +26,17 @@ impl ViewText for TextBuilder {
     fn set_text(&self, text: impl Into<Str>) {
         self.text.set(text.into());
     }
+
+    fn get_text(&self) -> Str {
+        self.text.get().clone()
+    }
 }
 
 impl ViewChild for TextBuilder {
     type Node = NodeBuilder;
 
-    fn as_child(&self) -> Self::Node {
-        NodeBuilder::Text(self.clone())
+    fn as_append_arg(&self) -> AppendArg<impl Iterator<Item = Self::Node>> {
+        AppendArg::new(std::iter::once(NodeBuilder::Text(self.clone())))
     }
 }
 
@@ -41,19 +51,74 @@ pub struct ElementBuilder {
     pub children: Shared<Vec<NodeBuilder>>,
 }
 
+impl PartialEq for ElementBuilder {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.attributes == other.attributes
+            && self.styles == other.styles
+            && self.events == other.events
+            && self.children == other.children
+    }
+}
+
 impl ViewParent for ElementBuilder {
     type Node = NodeBuilder;
 
-    fn append_child(&self, child: &impl ViewChild<Node = Self::Node>) {
-        self.children.get_mut().push(child.as_child());
+    fn remove_child(&self, child: impl ViewChild<Node = Self::Node>) {
+        for child in child.as_append_arg() {
+            self.children.get_mut().retain(|kid| kid != &child);
+        }
+    }
+
+    fn append_child(&self, child: impl ViewChild<Node = Self::Node>) {
+        let mut children = self.children.get_mut();
+        children.extend(child.as_append_arg());
     }
 }
 
 impl ViewChild for ElementBuilder {
     type Node = NodeBuilder;
 
-    fn as_child(&self) -> Self::Node {
-        NodeBuilder::Element(self.clone())
+    fn as_append_arg(&self) -> AppendArg<impl Iterator<Item = Self::Node>> {
+        AppendArg::new(std::iter::once(NodeBuilder::Element(self.clone())))
+    }
+}
+
+impl ViewProperties for ElementBuilder {
+    fn set_property(&self, key: impl Into<Str>, value: impl Into<Str>) {
+        let mut attributes = self.attributes.get_mut();
+        let (k, v) = (key.into(), value.into());
+        for (k_prev, v_prev) in attributes.iter_mut() {
+            if k_prev.as_str() == k.as_str() {
+                *v_prev = Some(v);
+                return;
+            }
+        }
+        attributes.push((k, Some(v)));
+    }
+
+    fn has_property(&self, key: impl AsRef<str>) -> bool {
+        for (pkey, _pval) in self.attributes.get().iter() {
+            if pkey.as_str() == key.as_ref() {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn get_property(&self, key: impl AsRef<str>) -> Option<Str> {
+        for (pkey, pval) in self.attributes.get().iter() {
+            if pkey.as_str() == key.as_ref() {
+                return pval.clone();
+            }
+        }
+        None
+    }
+
+    fn remove_property(&self, key: impl AsRef<str>) {
+        self.attributes
+            .get_mut()
+            .retain_mut(|p| p.0.as_str() != key.as_ref());
     }
 }
 
@@ -78,55 +143,6 @@ impl ElementBuilder {
         };
         self.events.get_mut().push(event_listener.clone());
         event_listener
-    }
-
-    /// Add an attribute.
-    pub fn set_property(&self, key: impl Into<Str>, value: impl Into<Str>) {
-        let mut attributes = self.attributes.get_mut();
-        let (k, v) = (key.into(), value.into());
-        for (k_prev, v_prev) in attributes.iter_mut() {
-            if k_prev.as_str() == k.as_str() {
-                *v_prev = Some(v);
-                return;
-            }
-        }
-        attributes.push((k, Some(v)));
-    }
-
-    /// Get the value of an attribute.
-    pub fn has_property(&self, key: impl AsRef<str>) -> bool {
-        for (pkey, _pval) in self.attributes.get().iter() {
-            if pkey.as_str() == key.as_ref() {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Get the value of an attribute.
-    pub fn get_property(&self, key: impl AsRef<str>) -> Option<Str> {
-        for (pkey, pval) in self.attributes.get().iter() {
-            if pkey.as_str() == key.as_ref() {
-                return pval.clone();
-            }
-        }
-        None
-    }
-
-    /// Remove an attribute.
-    ///
-    /// Returns the previous value, if any.
-    pub fn remove_attrib(&self, key: impl AsRef<str>) -> Option<Str> {
-        let mut value = None;
-        self.attributes.get_mut().retain_mut(|p| {
-            if p.0.as_str() == key.as_ref() {
-                value = p.1.take();
-                false
-            } else {
-                true
-            }
-        });
-        value
     }
 
     /// Add a style property.
@@ -275,13 +291,25 @@ impl ElementBuilder {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum NodeBuilder {
     Element(ElementBuilder),
     Text(TextBuilder),
 }
 
-#[derive(Clone)]
+impl From<TextBuilder> for NodeBuilder {
+    fn from(value: TextBuilder) -> Self {
+        NodeBuilder::Text(value)
+    }
+}
+
+impl From<ElementBuilder> for NodeBuilder {
+    fn from(value: ElementBuilder) -> Self {
+        NodeBuilder::Element(value)
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub enum EventTargetBuilder {
     Node(NodeBuilder),
     Window,
@@ -294,6 +322,12 @@ pub struct EventListenerBuilder {
     pub target: EventTargetBuilder,
     pub channel: Shared<Option<(async_channel::Sender<()>, async_channel::Receiver<()>)>>,
     pub built: Shared<Option<Box<dyn Any + Send + Sync + 'static>>>,
+}
+
+impl PartialEq for EventListenerBuilder {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.target == other.target
+    }
 }
 
 impl ViewEventListener for EventListenerBuilder {
@@ -349,7 +383,7 @@ impl View for Builder {
     type Element<T>
         = ElementBuilder
     where
-        T: ViewParent + ViewChild;
+        T: ViewParent + ViewChild + ViewProperties;
     type Text = TextBuilder;
     type EventListener = EventListenerBuilder;
 }

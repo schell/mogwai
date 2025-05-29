@@ -41,8 +41,9 @@ impl ButtonClicks {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, ViewChild)]
 pub struct Label<V: View = Builder> {
+    #[child]
     wrapper: V::Element<web_sys::HtmlElement>,
     title: V::Text,
 }
@@ -53,17 +54,6 @@ impl Default for Label {
         let title = TextBuilder::new("Label");
         wrapper.append_child(&title);
         Label { wrapper, title }
-    }
-}
-
-impl<V> ViewChild for Label<V>
-where
-    V: View,
-{
-    type Node = <V::Element<web_sys::HtmlElement> as ViewChild>::Node;
-
-    fn as_child(&self) -> Self::Node {
-        self.wrapper.as_child()
     }
 }
 
