@@ -44,25 +44,28 @@ impl ButtonClicks {
 #[derive(Clone, ViewChild)]
 pub struct Label<V: View = Builder> {
     #[child]
-    wrapper: V::Element<web_sys::HtmlElement>,
+    wrapper: V::Element<Web, web_sys::HtmlElement>,
     title: V::Text,
 }
 
-impl Default for Label {
-    fn default() -> Self {
-        let wrapper = ElementBuilder::new("h2");
-        let title = TextBuilder::new("Label");
+mod bloh {
+    use super::*;
+    impl<V: View> Default for Label<V> {
+        fn default() -> Self {
+            rsx! {
+                let wrapper = h2() {
+                    let title = "Label"
+                }
+            }
+            Label { wrapper, title }
+        }
+    }
+
+    fn default<V: View>() -> Label<V> {
+        let wrapper = V::Element::new("h2");
+        let title = V::Text::new("Label");
         wrapper.append_child(&title);
         Label { wrapper, title }
-    }
-}
-
-impl From<Label> for Label<Web> {
-    fn from(value: Label) -> Self {
-        Label {
-            wrapper: Web::build_element(value.wrapper),
-            title: Web::build_text(value.title),
-        }
     }
 }
 
@@ -89,17 +92,6 @@ impl<V: View> ButtonClicksInterface for ButtonClicksView<V> {
     }
 }
 
-impl From<ButtonClicksView> for ButtonClicksView<Web> {
-    fn from(value: ButtonClicksView) -> Self {
-        Self {
-            wrapper: Web::build_element(value.wrapper),
-            text: Web::build_text(value.text),
-            label: value.label.into(),
-            button_click: Web::build_listener(value.button_click),
-        }
-    }
-}
-
 impl ButtonClicksView<Web> {
     pub fn web(mut model: ButtonClicks) -> Result<(), wasm_bindgen::JsValue> {
         log::info!("building the view");
@@ -117,7 +109,7 @@ impl ButtonClicksView<Web> {
     }
 }
 
-impl Default for ButtonClicksView {
+impl<V: View> Default for ButtonClicksView<V> {
     fn default() -> Self {
         rsx! {
             let wrapper = div(id = "buttonwrapper") {

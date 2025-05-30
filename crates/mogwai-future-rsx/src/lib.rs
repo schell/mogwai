@@ -3,14 +3,13 @@
 
 use quote::{ToTokens, quote};
 use syn::spanned::Spanned;
-use tokens::{ViewTokenOutput, WebFlavor};
 
 mod tokens;
 
 #[proc_macro]
 pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match syn::parse::<tokens::ViewToken>(input) {
-        Ok(view_token) => ViewTokenOutput::<WebFlavor>::new(&view_token).into_token_stream(),
+        Ok(view_token) => view_token.into_token_stream(),
         Err(error) => error.to_compile_error(),
     }
     .into()
@@ -23,11 +22,35 @@ pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 pub fn impl_derive_viewchild(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input: syn::DeriveInput = syn::parse_macro_input!(input);
     let ident = input.ident.clone();
-    let all_ty_params = input
-        .generics
-        .type_params()
-        .map(|typ| typ.ident.clone())
-        .collect::<Vec<_>>();
+    let (all_ty_params, maybe_view_ty_param) =
+        input
+            .generics
+            .type_params()
+            .fold((vec![], None), |(mut all, mut found), typ| {
+                all.push(typ.ident.clone());
+
+                for bound in typ.bounds.iter() {
+                    if let syn::TypeParamBound::Trait(t) = bound {
+                        if let Some(last) = t.path.segments.last() {
+                            if last.ident == "View" {
+                                found = Some(typ.ident.clone());
+                            }
+                        }
+                    }
+                }
+
+                (all, found)
+            });
+    let view_ty_param = if let Some(p) = maybe_view_ty_param {
+        p
+    } else {
+        return syn::Error::new(
+            input.generics.span(),
+            "Type must contain a type parameter constrained by View",
+        )
+        .into_compile_error()
+        .into();
+    };
     let generics = input
         .generics
         .type_params()
@@ -42,13 +65,10 @@ pub fn impl_derive_viewchild(input: proc_macro::TokenStream) -> proc_macro::Toke
         for field in data.fields.iter() {
             let has_child_annotation = field.attrs.iter().any(|attr| attr.path().is_ident("child"));
             if has_child_annotation {
-                let ty = &field.ty;
                 let field = &field.ident;
                 output = quote! {
-                    impl <#(#generics),*> mogwai_futura::prelude::ViewChild for #ident<#(#all_ty_params),*> {
-                        type Node = <#ty as mogwai_futura::prelude::ViewChild>::Node;
-
-                        fn as_append_arg(&self) -> mogwai_futura::prelude::AppendArg<impl Iterator<Item = Self::Node>> {
+                    impl <#(#generics),*> mogwai_futura::prelude::ViewChild<#view_ty_param> for #ident<#(#all_ty_params),*> {
+                        fn as_append_arg(&self) -> mogwai_futura::prelude::AppendArg<#view_ty_param, impl Iterator<Item = #view_ty_param::Node>> {
                             self.#field.as_append_arg()
                         }
                     }

@@ -6,6 +6,7 @@ use crate::{Str, sync::Shared, view::*};
 #[derive(Clone)]
 pub struct TextBuilder {
     pub text: Shared<Str>,
+    pub events: Shared<Vec<EventListenerBuilder>>,
     pub built: Shared<Option<Box<dyn Any + Send + Sync + 'static>>>,
 }
 
@@ -19,6 +20,7 @@ impl ViewText for TextBuilder {
     fn new(text: impl Into<Str>) -> Self {
         TextBuilder {
             text: text.into().into(),
+            events: Default::default(),
             built: Default::default(),
         }
     }
@@ -32,11 +34,18 @@ impl ViewText for TextBuilder {
     }
 }
 
-impl ViewChild for TextBuilder {
-    type Node = NodeBuilder;
-
-    fn as_append_arg(&self) -> AppendArg<impl Iterator<Item = Self::Node>> {
+impl ViewChild<Builder> for TextBuilder {
+    fn as_append_arg(&self) -> AppendArg<Builder, impl Iterator<Item = NodeBuilder>> {
         AppendArg::new(std::iter::once(NodeBuilder::Text(self.clone())))
+    }
+}
+
+impl ViewEventTarget<Builder> for TextBuilder {
+    fn listen(&self, event_name: impl Into<Str>) -> <Builder as View>::EventListener {
+        let listener =
+            EventListenerBuilder::new(EventTargetBuilder::Node(self.clone().into()), event_name);
+        self.events.get_mut().push(listener.clone());
+        listener
     }
 }
 
@@ -61,25 +70,38 @@ impl PartialEq for ElementBuilder {
     }
 }
 
-impl ViewParent for ElementBuilder {
-    type Node = NodeBuilder;
+impl ViewParent<Builder> for ElementBuilder {
+    fn new(name: impl Into<Str>) -> Self {
+        Self {
+            name: name.into(),
+            built: Default::default(),
+            attributes: Default::default(),
+            styles: Default::default(),
+            events: Default::default(),
+            children: Default::default(),
+        }
+    }
 
-    fn remove_child(&self, child: impl ViewChild<Node = Self::Node>) {
+    fn new_namespace(name: impl Into<Str>, ns: impl Into<Str>) -> Self {
+        let s = Self::new(name);
+        s.set_property("xmlns", ns);
+        s
+    }
+
+    fn remove_child(&self, child: impl ViewChild<Builder>) {
         for child in child.as_append_arg() {
             self.children.get_mut().retain(|kid| kid != &child);
         }
     }
 
-    fn append_child(&self, child: impl ViewChild<Node = Self::Node>) {
+    fn append_child(&self, child: impl ViewChild<Builder>) {
         let mut children = self.children.get_mut();
         children.extend(child.as_append_arg());
     }
 }
 
-impl ViewChild for ElementBuilder {
-    type Node = NodeBuilder;
-
-    fn as_append_arg(&self) -> AppendArg<impl Iterator<Item = Self::Node>> {
+impl ViewChild<Builder> for ElementBuilder {
+    fn as_append_arg(&self) -> AppendArg<Builder, impl Iterator<Item = NodeBuilder>> {
         AppendArg::new(std::iter::once(NodeBuilder::Element(self.clone())))
     }
 }
@@ -120,33 +142,9 @@ impl ViewProperties for ElementBuilder {
             .get_mut()
             .retain_mut(|p| p.0.as_str() != key.as_ref());
     }
-}
-
-impl ElementBuilder {
-    pub fn new(name: impl Into<Str>) -> Self {
-        Self {
-            name: name.into(),
-            built: Default::default(),
-            attributes: Default::default(),
-            styles: Default::default(),
-            events: Default::default(),
-            children: Default::default(),
-        }
-    }
-
-    pub fn listen(&self, event_name: impl Into<Str>) -> EventListenerBuilder {
-        let event_listener = EventListenerBuilder {
-            name: event_name.into(),
-            channel: Default::default(),
-            target: EventTargetBuilder::Node(NodeBuilder::Element(self.clone())),
-            built: Default::default(),
-        };
-        self.events.get_mut().push(event_listener.clone());
-        event_listener
-    }
 
     /// Add a style property.
-    pub fn set_style(&self, key: impl Into<Str>, value: impl Into<Str>) {
+    fn set_style(&self, key: impl Into<Str>, value: impl Into<Str>) {
         let mut styles = self.styles.get_mut();
         let key = key.into();
         for (pkey, pval) in styles.iter_mut() {
@@ -161,19 +159,25 @@ impl ElementBuilder {
     /// Remove a style property.
     ///
     /// Returns the previous style value, if any.
-    pub fn remove_style(&self, key: impl AsRef<str>) -> Option<Str> {
-        let mut value = None;
-        self.styles.get_mut().retain_mut(|p| {
-            if p.0.as_str() == key.as_ref() {
-                value = Some(std::mem::replace(&mut p.1, "".into()));
-                false
-            } else {
-                true
-            }
-        });
-        value
+    fn remove_style(&self, key: impl AsRef<str>) {
+        self.styles
+            .get_mut()
+            .retain_mut(|p| p.0.as_str() != key.as_ref());
     }
+}
 
+impl ViewEventTarget<Builder> for ElementBuilder {
+    fn listen(&self, event_name: impl Into<Str>) -> EventListenerBuilder {
+        let event_listener = EventListenerBuilder::new(
+            EventTargetBuilder::Node(NodeBuilder::Element(self.clone())),
+            event_name,
+        );
+        self.events.get_mut().push(event_listener.clone());
+        event_listener
+    }
+}
+
+impl ElementBuilder {
     // /// Add a child.
     // pub fn append_child(&self, child: impl Into<NodeBuilder>) {
     //     self.children.get_mut().push(child.into());
@@ -330,7 +334,7 @@ impl PartialEq for EventListenerBuilder {
     }
 }
 
-impl ViewEventListener for EventListenerBuilder {
+impl ViewEventListener<Builder> for EventListenerBuilder {
     type Event = ();
 
     fn next(&self) -> impl Future<Output = Self::Event> {
@@ -361,6 +365,15 @@ impl EventListenerBuilder {
         }
     }
 
+    pub fn new(target: EventTargetBuilder, name: impl Into<Str>) -> Self {
+        EventListenerBuilder {
+            name: name.into(),
+            channel: Default::default(),
+            target,
+            built: Default::default(),
+        }
+    }
+
     fn ensure_channel(&self) {
         if self.channel.get().is_none() {
             *self.channel.get_mut() = Some(async_channel::bounded(1));
@@ -380,10 +393,8 @@ impl EventListenerBuilder {
 pub struct Builder;
 
 impl View for Builder {
-    type Element<T>
-        = ElementBuilder
-    where
-        T: ViewParent + ViewChild + ViewProperties;
+    type Element = ElementBuilder;
     type Text = TextBuilder;
+    type Node = NodeBuilder;
     type EventListener = EventListenerBuilder;
 }

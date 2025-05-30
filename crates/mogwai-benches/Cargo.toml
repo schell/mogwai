@@ -21,7 +21,7 @@ wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
 
 [dependencies.web-sys]
-version = "^0.3"
+version = "0.3"
 features = [
   "Element",
   "Document",

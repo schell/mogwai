@@ -1,5 +1,5 @@
 //! Contains parsing an RSX node into various data types.
-use std::{collections::HashMap, marker::PhantomData, str::FromStr};
+use std::{collections::HashMap, str::FromStr};
 
 use quote::{ToTokens, quote};
 use syn::{Expr, Ident, Token, parse::Parse};
@@ -102,59 +102,30 @@ impl Parse for ViewToken {
     }
 }
 
-/// A trait for specifying the output of ViewToken.
-///
-/// This allows separating the output of an rsx! style macro into N separate
-/// paths, all with the same structure.
-trait Flavor {
-    fn create_text(ident: &syn::Ident, expr: &syn::Expr) -> proc_macro2::TokenStream;
-    fn create_element(el: &str) -> proc_macro2::TokenStream;
-    fn create_element_ns(el: &str, ns: &syn::Expr) -> proc_macro2::TokenStream;
-    fn cast_creation(
-        ident: &syn::Ident,
-        expr: &syn::Type,
-        creation: proc_macro2::TokenStream,
-    ) -> proc_macro2::TokenStream;
-    fn append_child(ident: &syn::Ident, child_id: &syn::Ident) -> proc_macro2::TokenStream;
-    fn set_style_property(
-        ident: &syn::Ident,
-        key: &str,
-        expr: &syn::Expr,
-    ) -> proc_macro2::TokenStream;
-    fn set_attribute(ident: &syn::Ident, key: &str, expr: &syn::Expr) -> proc_macro2::TokenStream;
-    fn create_listener(
-        ident: &syn::Ident,
-        listener: &syn::Expr,
-        event: &str,
-    ) -> proc_macro2::TokenStream;
-    fn create_window_listener(listener: &syn::Expr, event: &str) -> proc_macro2::TokenStream;
-    fn create_document_listener(listener: &syn::Expr, event: &str) -> proc_macro2::TokenStream;
-}
-
 pub struct WebFlavor;
 
-impl Flavor for WebFlavor {
+impl WebFlavor {
     fn create_text(ident: &syn::Ident, expr: &syn::Expr) -> proc_macro2::TokenStream {
-        quote! { let #ident = mogwai_futura::builder::TextBuilder::new(#expr); }
+        quote! { let #ident = V::Text::new(#expr); }
     }
-    fn create_element_ns(el: &str, ns: &syn::Expr) -> proc_macro2::TokenStream {
-        quote! { {
-            let __el = mogwai_futura::builder::ElementBuilder::new(#el);
-            __el.set_property("xmlns", #ns);
-            __el
-        }}
-    }
-
-    fn create_element(el: &str) -> proc_macro2::TokenStream {
-        quote! { mogwai_futura::builder::ElementBuilder::new(#el) }
-    }
-
-    fn cast_creation(
-        ident: &syn::Ident,
-        cast_expr: &syn::Type,
-        creation: proc_macro2::TokenStream,
+    fn create_element_ns(
+        el: &str,
+        ns: &syn::Expr,
+        cast_ty: Option<&syn::Type>,
     ) -> proc_macro2::TokenStream {
-        quote! { let #ident: mogwai_futura::builder::ElementBuilder::<#cast_expr> = #creation; }
+        if let Some(ty) = cast_ty {
+            quote! { V::Element::<#ty>::new_namespace(#el, #ns) }
+        } else {
+            quote! { V::Element::new_namespace(#el, #ns) }
+        }
+    }
+
+    fn create_element(el: &str, cast_ty: Option<&syn::Type>) -> proc_macro2::TokenStream {
+        if let Some(ty) = cast_ty {
+            quote! { V::Element::<#ty>::new(#el) }
+        } else {
+            quote! { V::Element::new(#el) }
+        }
     }
 
     fn append_child(ident: &syn::Ident, child_id: &syn::Ident) -> proc_macro2::TokenStream {
@@ -182,31 +153,17 @@ impl Flavor for WebFlavor {
     }
 
     fn create_window_listener(listener: &syn::Expr, event: &str) -> proc_macro2::TokenStream {
-        quote! { let #listener = mogwai_futura::builder::EventListenerBuilder::on_window( #event ); }
+        quote! { let #listener = V::EventListener::on_window( #event ); }
     }
 
     fn create_document_listener(listener: &syn::Expr, event: &str) -> proc_macro2::TokenStream {
-        quote! { let #listener = mogwai_futura::builder::EventListenerBuilder::on_document( #event ); }
+        quote! { let #listener = V::EventListener::on_document( #event ); }
     }
 }
 
-pub struct ViewTokenOutput<'a, T> {
-    view: &'a ViewToken,
-    _phantom: PhantomData<T>,
-}
-
-impl<'a, T> ViewTokenOutput<'a, T> {
-    pub fn new(view: &'a ViewToken) -> Self {
-        Self {
-            view,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<T: Flavor> quote::ToTokens for ViewTokenOutput<'_, T> {
+impl quote::ToTokens for ViewToken {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        self.view.to_named_tokens::<T>(None::<String>, 0, tokens);
+        self.to_named_tokens(None::<String>, 0, tokens);
     }
 }
 
@@ -219,7 +176,7 @@ impl ViewToken {
         }
     }
 
-    fn to_named_tokens<T: Flavor>(
+    fn to_named_tokens(
         &self,
         parent_name: Option<impl AsRef<str>>,
         index: usize,
@@ -247,26 +204,28 @@ impl ViewToken {
                 attributes,
                 children,
             } => {
-                let let_ident = ident.clone().unwrap_or(generic_id);
-                let LetIdent { ident, cast } = let_ident.clone();
+                let (ident, cast) = match ident {
+                    None => (
+                        quote::format_ident!("_{name}"),
+                        Some(syn::parse_str("web_sys::Element").unwrap()),
+                    ),
+                    Some(LetIdent { ident, cast }) => (ident.clone(), cast.clone()),
+                };
+
                 let creation = attributes
                     .iter()
                     .find_map(|att| {
                         if let AttributeToken::Xmlns(ns) = att {
-                            Some(T::create_element_ns(el, ns))
+                            Some(WebFlavor::create_element_ns(el, ns, cast.as_ref()))
                         } else {
                             None
                         }
                     })
-                    .unwrap_or_else(|| T::create_element(el));
-                if let Some(cast_expr) = cast {
-                    T::cast_creation(&ident, &cast_expr, creation).to_tokens(tokens);
-                } else {
-                    quote! {
-                        let #ident = #creation;
-                    }
-                    .to_tokens(tokens);
+                    .unwrap_or_else(|| WebFlavor::create_element(el, cast.as_ref()));
+                quote! {
+                    let #ident = #creation;
                 }
+                .to_tokens(tokens);
 
                 let mut indices = HashMap::<&str, usize>::new();
                 for child in children.iter() {
@@ -277,9 +236,9 @@ impl ViewToken {
                         })
                         .or_insert(0);
                     let child_id = child
-                        .to_named_tokens::<T>(Some(name.as_str()), *index, tokens)
+                        .to_named_tokens(Some(name.as_str()), *index, tokens)
                         .ident;
-                    T::append_child(&ident, &child_id).to_tokens(tokens);
+                    WebFlavor::append_child(&ident, &child_id).to_tokens(tokens);
                 }
                 for att in attributes.iter() {
                     match att {
@@ -287,31 +246,31 @@ impl ViewToken {
                             quote! { #outside_id = #ident; }.to_tokens(tokens);
                         }
                         AttributeToken::StyleSingle(key, expr) => {
-                            T::set_style_property(&ident, key, expr).to_tokens(tokens);
+                            WebFlavor::set_style_property(&ident, key, expr).to_tokens(tokens);
                         }
                         AttributeToken::Attrib(key, expr) => {
-                            T::set_attribute(&ident, key, expr).to_tokens(tokens);
+                            WebFlavor::set_attribute(&ident, key, expr).to_tokens(tokens);
                         }
                         AttributeToken::On(event, listener) => {
-                            T::create_listener(&ident, listener, event).to_tokens(tokens);
+                            WebFlavor::create_listener(&ident, listener, event).to_tokens(tokens);
                         }
                         AttributeToken::Xmlns(_) => {
                             // handled elsewhere
                         }
                         AttributeToken::Window(event, listener) => {
-                            T::create_window_listener(listener, event).to_tokens(tokens);
+                            WebFlavor::create_window_listener(listener, event).to_tokens(tokens);
                         }
                         AttributeToken::Document(event, listener) => {
-                            T::create_document_listener(listener, event).to_tokens(tokens);
+                            WebFlavor::create_document_listener(listener, event).to_tokens(tokens);
                         }
                     }
                 }
-                let_ident
+                LetIdent { ident, cast }
             }
             ViewToken::Text { ident, expr } => {
                 let let_ident = ident.clone().unwrap_or(generic_id);
                 let id = let_ident.ident.clone();
-                T::create_text(&id, expr).to_tokens(tokens);
+                WebFlavor::create_text(&id, expr).to_tokens(tokens);
                 let_ident
             }
             ViewToken::Block { ident, expr } => {

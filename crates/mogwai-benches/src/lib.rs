@@ -97,7 +97,7 @@ impl<'a> Bench<'a> {
 
     pub fn with_name(mut self, name: &'static str) -> Self {
         self.name = name;
-        self.maybe_prev = store::StoredBench::try_load(self.save_name()).expect("storage problem");
+        self.maybe_prev = store::StoredBench::get_previous(self.save_name());
         self
     }
 
@@ -137,12 +137,12 @@ impl<'a> Bench<'a> {
         )
     }
 
-    pub fn save(&self) -> anyhow::Result<()> {
+    pub fn save(&self) {
         let to_store = store::StoredBench {
             name: self.save_name(),
             samples: self.samples.clone(),
         };
-        to_store.try_write()
+        to_store.write();
     }
 
     pub fn change_view(&self, maybe_prev: Option<store::StoredBench>) -> ChangeView {
@@ -242,7 +242,7 @@ impl<'a> BenchSet<'a> {
 
     pub fn save(&self) -> anyhow::Result<()> {
         for bench in self.benches.iter() {
-            bench.save()?;
+            bench.save();
         }
         Ok(())
     }

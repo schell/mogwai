@@ -10,7 +10,7 @@ struct AppBtn<V: View = Builder> {
     wrapper: V::Element<web_sys::HtmlElement>,
 }
 
-impl AppBtn {
+impl<V: View> AppBtn<V> {
     fn new(id: impl Into<Str>, label: impl Into<Str>) -> Self {
         rsx! {
              let wrapper = div(class="col-sm-6 smallpad") {
@@ -19,7 +19,7 @@ impl AppBtn {
                     class="btn btn-primary btn-block",
                     id = id,
                 ) {
-                    {label.into().into_text::<Builder>()}
+                    {label.into().into_text()}
                 }
             }
         }
@@ -136,7 +136,7 @@ impl App {
                 let row = self
                     .cache
                     .pop()
-                    .unwrap_or_else(|| RowView::default().into());
+                    .unwrap_or_else(|| RowView::<Web>::default());
                 row.set_model(&model);
                 row
             })

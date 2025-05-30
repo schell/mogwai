@@ -80,8 +80,4 @@ impl Str {
     pub fn as_str(&self) -> &str {
         &self.inner
     }
-
-    pub fn into_text<V: crate::view::View>(self) -> V::Text {
-        V::Text::new(self)
-    }
 }

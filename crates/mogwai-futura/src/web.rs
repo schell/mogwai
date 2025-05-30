@@ -2,10 +2,8 @@
 
 use std::{
     cell::RefCell,
-    fmt::Write,
     ops::{Deref, DerefMut},
     rc::Rc,
-    sync::{Arc, atomic::AtomicUsize},
     task::Waker,
 };
 
@@ -25,51 +23,91 @@ pub mod prelude {
     pub use crate::prelude::*;
 }
 
-impl ViewChild for web_sys::Node {
-    type Node = web_sys::Node;
-
-    fn as_append_arg(&self) -> AppendArg<impl Iterator<Item = Self::Node>> {
+impl ViewChild<Web> for web_sys::Node {
+    fn as_append_arg(&self) -> AppendArg<Web, impl Iterator<Item = web_sys::Node>> {
         AppendArg::new(std::iter::once(self.clone()))
     }
 }
 
-impl ViewParent for web_sys::Node {
-    type Node = web_sys::Node;
-
-    fn remove_child(&self, child: impl ViewChild<Node = Self::Node>) {
+impl ViewParent<Web> for web_sys::Node {
+    fn remove_child(&self, child: impl ViewChild<Web>) {
         for child in child.as_append_arg() {
             let _ = self.remove_child(&child);
         }
     }
 
-    fn append_child(&self, child: impl ViewChild<Node = Self::Node>) {
+    fn append_child(&self, child: impl ViewChild<Web>) {
         for child in child.as_append_arg() {
             let _ = self.append_child(&child);
         }
+    }
+
+    fn new(name: impl Into<Str>) -> Self {
+        let name = name.into();
+        DOCUMENT.with(|d| {
+            d.create_element(name.as_str())
+                .unwrap_throw()
+                .dyn_into()
+                .unwrap()
+        })
+    }
+
+    fn new_namespace(name: impl Into<Str>, ns: impl Into<Str>) -> Self {
+        let name = name.into();
+        let ns = ns.into();
+        DOCUMENT.with(|d| {
+            d.create_element_ns(Some(ns.as_str()), name.as_str())
+                .unwrap_throw()
+                .dyn_into()
+                .unwrap()
+        })
     }
 }
 
 macro_rules! node_impl {
     ($ty:ident, $from:ty, $fn:ident) => {
-        impl ViewChild for web_sys::$ty {
-            type Node = web_sys::Node;
+        impl ViewEventTarget<Web> for web_sys::$ty {
+            fn listen(&self, event_name: impl Into<Str>) -> EventListener {
+                EventListener::new(self, event_name)
+            }
+        }
 
-            fn as_append_arg(&self) -> AppendArg<impl Iterator<Item = Self::Node>> {
+        impl ViewChild<Web> for web_sys::$ty {
+            fn as_append_arg(&self) -> AppendArg<Web, impl Iterator<Item = web_sys::Node>> {
                 let node: &web_sys::Node = self.as_ref();
                 AppendArg::new(std::iter::once(node.clone()))
             }
         }
 
-        impl ViewParent for web_sys::$ty {
-            type Node = web_sys::Node;
+        impl ViewParent<Web> for web_sys::$ty {
+            fn new(name: impl Into<Str>) -> Self {
+                let name = name.into();
+                DOCUMENT.with(|d| {
+                    d.create_element(name.as_str())
+                        .unwrap_throw()
+                        .dyn_into()
+                        .unwrap()
+                })
+            }
 
-            fn remove_child(&self, child: impl ViewChild<Node = Self::Node>) {
+            fn new_namespace(name: impl Into<Str>, ns: impl Into<Str>) -> Self {
+                let name = name.into();
+                let ns = ns.into();
+                DOCUMENT.with(|d| {
+                    d.create_element_ns(Some(ns.as_str()), name.as_str())
+                        .unwrap_throw()
+                        .dyn_into()
+                        .unwrap()
+                })
+            }
+
+            fn remove_child(&self, child: impl ViewChild<Web>) {
                 for child in child.as_append_arg() {
                     let _ = web_sys::Node::remove_child(self, &child);
                 }
             }
 
-            fn append_child(&self, child: impl ViewChild<Node = Self::Node>) {
+            fn append_child(&self, child: impl ViewChild<Web>) {
                 for child in child.as_append_arg() {
                     let _ = web_sys::Node::append_child(self, &child);
                 }
@@ -102,6 +140,22 @@ macro_rules! node_impl {
             fn remove_property(&self, key: impl AsRef<str>) {
                 let _ = self.remove_attribute(key.as_ref());
             }
+
+            fn set_style(&self, key: impl Into<Str>, value: impl Into<Str>) {
+                if let Some(el) = self.dyn_ref::<web_sys::HtmlElement>() {
+                    let style = el.style();
+                    let key = key.into();
+                    let value = value.into();
+                    let _ = style.set_property(key.as_str(), value.as_str());
+                }
+            }
+
+            fn remove_style(&self, key: impl AsRef<str>) {
+                if let Some(el) = self.dyn_ref::<web_sys::HtmlElement>() {
+                    let style = el.style();
+                    let _ = style.remove_property(key.as_ref());
+                }
+            }
         }
     };
 }
@@ -126,7 +180,7 @@ impl ViewText for web_sys::Text {
     }
 }
 
-impl ViewEventListener for EventListener {
+impl ViewEventListener<Web> for EventListener {
     type Event = web_sys::Event;
 
     fn next(&self) -> impl Future<Output = Self::Event> {
@@ -138,46 +192,25 @@ impl ViewEventListener for EventListener {
 pub struct Web;
 
 impl View for Web {
-    type Element<T>
-        = T
-    where
-        T: ViewParent + ViewChild + ViewProperties;
+    type Element = web_sys::Element;
     type Text = web_sys::Text;
+    type Node = web_sys::Node;
     type EventListener = EventListener;
-}
+    type El<T> = T;
 
-static PAD: std::sync::LazyLock<Arc<AtomicUsize>> = std::sync::LazyLock::new(|| Arc::new(0.into()));
-
-struct Pad(usize);
-
-impl Drop for Pad {
-    fn drop(&mut self) {
-        PAD.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-    }
-}
-
-impl core::fmt::Display for Pad {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for _ in 0..2 * self.0 {
-            f.write_char(' ')?;
-        }
-        Ok(())
-    }
-}
-
-impl Pad {
-    fn new() -> Self {
-        let n = PAD.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        Pad(n)
+    fn cast_element<T>(element: Self::Element) -> Self::El<T>
+    where
+        T: JsCast,
+    {
+        element
+            .dyn_into::<T>()
+            .expect_throw("could not cast element")
     }
 }
 
 impl Web {
     pub fn build_text(builder: TextBuilder) -> web_sys::Text {
-        let pad = Pad::new();
-        log::trace!("{pad}building text: {}", builder.text.get().deref());
         if let Some(already_built) = builder.built.get().as_ref() {
-            log::trace!("{pad}already built");
             // UNWRAP: safe because only this function ever sets `built`
             already_built
                 .downcast_ref::<SendWrapper<web_sys::Text>>()
@@ -185,7 +218,6 @@ impl Web {
                 .deref()
                 .clone()
         } else {
-            log::trace!("{pad}fresh build of text");
             let built = web_sys::Text::new_with_data(builder.text.get().as_str()).unwrap();
             builder
                 .built
@@ -195,34 +227,26 @@ impl Web {
     }
 
     pub fn build_listener(builder: EventListenerBuilder) -> EventListener {
-        let pad = Pad::new();
-        log::trace!("{pad}building listener: {}", builder.name);
         if let Some(already_built) = builder.built.get().as_ref() {
-            log::trace!("{pad}already built listener");
             already_built
                 .downcast_ref::<SendWrapper<EventListener>>()
                 .unwrap()
                 .deref()
                 .clone()
         } else {
-            log::trace!("{pad}fresh build of listener");
             let listener = match builder.target {
                 EventTargetBuilder::Window => {
-                    log::trace!("{pad}must first get the window");
                     EventListener::new(web_sys::window().unwrap(), builder.name)
                 }
                 EventTargetBuilder::Document => {
-                    log::trace!("{pad}must first get the document");
                     EventListener::new(web_sys::window().unwrap().document().unwrap(), builder.name)
                 }
                 EventTargetBuilder::Node(node) => match node {
                     NodeBuilder::Element(element_builder) => {
-                        log::trace!("{pad}must first build the element target");
                         let element = Self::build_element::<web_sys::Element>(element_builder);
                         EventListener::new(&element, builder.name)
                     }
                     NodeBuilder::Text(text_builder) => {
-                        log::trace!("{pad}must first build the text target");
                         let text = Self::build_text(text_builder);
                         EventListener::new(&text, builder.name)
                     }
@@ -231,14 +255,11 @@ impl Web {
             builder
                 .built
                 .set(Some(Box::new(SendWrapper::new(listener.clone()))));
-            log::trace!("{pad}built listener");
             listener
         }
     }
 
     pub fn build_element<T: Clone + JsCast + 'static>(builder: ElementBuilder) -> T {
-        let pad = Pad::new();
-        log::trace!("{pad}building element: {}", builder.name);
         let ElementBuilder {
             name,
             built,
@@ -248,7 +269,6 @@ impl Web {
             children,
         } = builder;
         if let Some(already_built) = built.get().as_ref() {
-            log::trace!("{pad}already built element");
             let element = already_built
                 .downcast_ref::<SendWrapper<web_sys::Element>>()
                 .unwrap()
@@ -257,7 +277,6 @@ impl Web {
             return element.dyn_into::<T>().unwrap();
         }
 
-        log::trace!("{pad}fresh build of element");
         let mut maybe_ns = None;
         attributes.get_mut().retain_mut(|(k, may_v)| {
             if k.as_str() == "xmlns" {
@@ -268,25 +287,17 @@ impl Web {
             }
         });
         let el = if let Some(ns) = maybe_ns {
-            web_sys::window()
-                .unwrap()
-                .document()
-                .unwrap()
-                .create_element_ns(Some(ns.as_str()), name.as_str())
-                .unwrap()
+            DOCUMENT.with(|d| {
+                d.create_element_ns(Some(ns.as_str()), name.as_str())
+                    .unwrap_throw()
+            })
         } else {
-            web_sys::window()
-                .unwrap()
-                .document()
-                .unwrap()
-                .create_element(name.as_str())
-                .unwrap()
+            DOCUMENT.with(|d| d.create_element(name.as_str()).unwrap_throw())
         };
         // Set the built element first, so we don't recurse when building event targets.
         built.set(Some(Box::new(SendWrapper::new(el.clone()))));
 
         for (k, may_v) in std::mem::take(attributes.get_mut().deref_mut()).into_iter() {
-            log::trace!("{pad}set att {k} = {}", may_v.as_deref().unwrap_or("none"));
             let value = may_v.unwrap_or_else(|| "".into());
             el.dyn_ref::<web_sys::Element>()
                 .unwrap()
@@ -294,20 +305,14 @@ impl Web {
                 .unwrap();
         }
         for (k, v) in std::mem::take(styles.get_mut().deref_mut()).into_iter() {
-            log::trace!("{pad}set style {k} = {v}");
             let style = el.dyn_ref::<web_sys::HtmlElement>().unwrap().style();
             style.set_property(k.as_str(), v.as_str()).unwrap();
         }
         for event_builder in std::mem::take(events.get_mut().deref_mut()).into_iter() {
-            log::trace!("{pad}listener");
             // We don't have to do anything with the listener except build it.
             let _listener = Self::build_listener(event_builder);
         }
-        for (i, child) in std::mem::take(children.get_mut().deref_mut())
-            .into_iter()
-            .enumerate()
-        {
-            log::trace!("{pad}child {i}");
+        for child in std::mem::take(children.get_mut().deref_mut()).into_iter() {
             let node = match child {
                 NodeBuilder::Text(text_builder) => {
                     let text = Self::build_text(text_builder);
@@ -322,7 +327,6 @@ impl Web {
                 .append_child(&node)
                 .unwrap();
         }
-        log::trace!("{pad}built: {}", name);
         el.dyn_into::<T>().unwrap()
     }
 }
