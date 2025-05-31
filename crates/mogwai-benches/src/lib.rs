@@ -29,15 +29,15 @@ impl std::fmt::Display for Time {
 }
 
 #[derive(ViewChild)]
-pub struct ChangeView<V: View = Builder> {
+pub struct ChangeView<V: View> {
     #[child]
-    wrapper: V::Element<web_sys::Element>,
+    wrapper: V::Element,
 }
 
-#[derive(Clone, ViewChild, FromBuilder)]
+#[derive(Clone, ViewChild)]
 pub struct BenchView<V: View = Builder> {
     #[child]
-    wrapper: V::Element<web_sys::Element>,
+    wrapper: V::Element,
 }
 
 pub struct Bench<'a> {
@@ -145,7 +145,7 @@ impl<'a> Bench<'a> {
         to_store.write();
     }
 
-    pub fn change_view(&self, maybe_prev: Option<store::StoredBench>) -> ChangeView {
+    pub fn change_view<V: View>(&self, maybe_prev: Option<store::StoredBench>) -> ChangeView<V> {
         if let Some(prev) = maybe_prev {
             let avg = self.average();
             let prev_avg = prev.average();
@@ -163,35 +163,35 @@ impl<'a> Bench<'a> {
                 let wrapper = slot() {
                     dt() { "Change" }
                     dd(class = change_class) {
-                        {format!("{:0.03}%", percent_change).into_text::<Builder>()}
+                        {format!("{:0.03}%", percent_change).into_text::<V>()}
                     }
                 }
             }
             ChangeView { wrapper }
         } else {
             ChangeView {
-                wrapper: ElementBuilder::new("slot"),
+                wrapper: V::Element::new("slot"),
             }
         }
     }
 
-    pub fn bench_view(&self) -> BenchView {
+    pub fn bench_view<V: View>(&self) -> BenchView<V> {
         rsx! {
             let wrapper = fieldset() {
                 legend() {
-                    {self.name.into_text::<Builder>()}
+                    {self.name.into_text::<V>()}
                     " "
                     {
                         if cfg!(debug_assertions) {
                             "(debug)"
                         } else {
                             "(release)"
-                        }.into_text::<Builder>()
+                        }.into_text::<V>()
                     }
                 }
                 dl() {
                     dt() {"Average"}
-                    dd() { {format!("{}", Time(self.average())).into_text::<Builder>()} }
+                    dd() { {format!("{}", Time(self.average())).into_text::<V>()} }
                     {self.change_view(self.maybe_prev.clone())}
                 }
             }
@@ -200,11 +200,10 @@ impl<'a> Bench<'a> {
     }
 }
 
-#[derive(FromBuilder, ViewChild)]
-pub struct BenchSetView<V: View = Builder> {
+#[derive(ViewChild)]
+pub struct BenchSetView<V: View> {
     #[child]
-    wrapper: V::Element<web_sys::Element>,
-    #[from(benches => benches.into_iter().map(From::from).collect())]
+    wrapper: V::Element,
     benches: Vec<BenchView<V>>,
 }
 
@@ -214,7 +213,7 @@ pub struct BenchSet<'a> {
 }
 
 impl<'a> BenchSet<'a> {
-    pub fn view(&self) -> BenchSetView {
+    pub fn view<V: View>(&self) -> BenchSetView<V> {
         rsx! {
             let wrapper = fieldset(id = "results") {
                 legend() { "Results" }
@@ -259,14 +258,14 @@ pub fn main() {
         let mut set = BenchSet::default()
             .with_bench(Bench::new("create_1000", || async {
                 let mut app = App::default();
-                let view: AppView<Web> = AppView::default().into();
+                let view = AppView::<Web>::default();
                 view.init();
                 benches::create(&mut app, &view, &doc, 1000).await;
                 view.deinit();
             }))
             .with_bench(Bench::new("create_10_000", || async {
                 let mut app = App::default();
-                let view: AppView<Web> = AppView::default().into();
+                let view = AppView::<Web>::default();
                 view.init();
                 benches::create(&mut app, &view, &doc, 10_000).await;
                 view.deinit();
@@ -274,7 +273,7 @@ pub fn main() {
         set.run().await;
         set.save().expect("could not save");
 
-        let stats: BenchSetView<Web> = set.view().into();
+        let stats = set.view::<Web>();
         let body = doc.body().unwrap();
         body.append_child(&stats);
 

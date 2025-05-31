@@ -108,24 +108,12 @@ impl WebFlavor {
     fn create_text(ident: &syn::Ident, expr: &syn::Expr) -> proc_macro2::TokenStream {
         quote! { let #ident = V::Text::new(#expr); }
     }
-    fn create_element_ns(
-        el: &str,
-        ns: &syn::Expr,
-        cast_ty: Option<&syn::Type>,
-    ) -> proc_macro2::TokenStream {
-        if let Some(ty) = cast_ty {
-            quote! { V::Element::<#ty>::new_namespace(#el, #ns) }
-        } else {
-            quote! { V::Element::new_namespace(#el, #ns) }
-        }
+    fn create_element_ns(el: &str, ns: &syn::Expr) -> proc_macro2::TokenStream {
+        quote! { V::Element::new_namespace(#el, #ns) }
     }
 
-    fn create_element(el: &str, cast_ty: Option<&syn::Type>) -> proc_macro2::TokenStream {
-        if let Some(ty) = cast_ty {
-            quote! { V::Element::<#ty>::new(#el) }
-        } else {
-            quote! { V::Element::new(#el) }
-        }
+    fn create_element(el: &str) -> proc_macro2::TokenStream {
+        quote! { V::Element::new(#el) }
     }
 
     fn append_child(ident: &syn::Ident, child_id: &syn::Ident) -> proc_macro2::TokenStream {
@@ -216,12 +204,12 @@ impl ViewToken {
                     .iter()
                     .find_map(|att| {
                         if let AttributeToken::Xmlns(ns) = att {
-                            Some(WebFlavor::create_element_ns(el, ns, cast.as_ref()))
+                            Some(WebFlavor::create_element_ns(el, ns))
                         } else {
                             None
                         }
                     })
-                    .unwrap_or_else(|| WebFlavor::create_element(el, cast.as_ref()));
+                    .unwrap_or_else(|| WebFlavor::create_element(el));
                 quote! {
                     let #ident = #creation;
                 }

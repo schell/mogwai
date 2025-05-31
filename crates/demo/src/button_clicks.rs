@@ -42,36 +42,26 @@ impl ButtonClicks {
 }
 
 #[derive(Clone, ViewChild)]
-pub struct Label<V: View = Builder> {
+pub struct Label<V: View> {
     #[child]
-    wrapper: V::Element<Web, web_sys::HtmlElement>,
+    wrapper: V::Element,
     title: V::Text,
 }
 
-mod bloh {
-    use super::*;
-    impl<V: View> Default for Label<V> {
-        fn default() -> Self {
-            rsx! {
-                let wrapper = h2() {
-                    let title = "Label"
-                }
+impl<V: View> Default for Label<V> {
+    fn default() -> Self {
+        rsx! {
+            let wrapper = h2() {
+                let title = "Label"
             }
-            Label { wrapper, title }
         }
-    }
-
-    fn default<V: View>() -> Label<V> {
-        let wrapper = V::Element::new("h2");
-        let title = V::Text::new("Label");
-        wrapper.append_child(&title);
         Label { wrapper, title }
     }
 }
 
 #[derive(Clone)]
-pub struct ButtonClicksView<V: View = Builder> {
-    pub wrapper: V::Element<web_sys::HtmlElement>,
+pub struct ButtonClicksView<V: View> {
+    pub wrapper: V::Element,
     text: V::Text,
     label: Label<V>,
     pub button_click: V::EventListener,
@@ -95,7 +85,7 @@ impl<V: View> ButtonClicksInterface for ButtonClicksView<V> {
 impl ButtonClicksView<Web> {
     pub fn web(mut model: ButtonClicks) -> Result<(), wasm_bindgen::JsValue> {
         log::info!("building the view");
-        let view: ButtonClicksView<Web> = ButtonClicksView::default().into();
+        let view: ButtonClicksView<Web> = ButtonClicksView::default();
         log::info!("adding the view");
         let body = web_sys::window()
             .unwrap()
@@ -109,23 +99,27 @@ impl ButtonClicksView<Web> {
     }
 }
 
-impl<V: View> Default for ButtonClicksView<V> {
-    fn default() -> Self {
-        rsx! {
-            let wrapper = div(id = "buttonwrapper") {
-                let label = {Label::default()}
-                button(style:cursor = "pointer", on:click = button_click) {
-                    p() {
-                        let text = "Click me."
+mod blah {
+    use super::*;
+
+    impl<V: View> Default for ButtonClicksView<V> {
+        fn default() -> Self {
+            rsx! {
+                let wrapper = div(id = "buttonwrapper") {
+                    let label = {Label::default()}
+                    button(style:cursor = "pointer", on:click = button_click) {
+                        p() {
+                            let text = "Click me."
+                        }
                     }
                 }
             }
-        }
-        Self {
-            wrapper,
-            text,
-            label,
-            button_click,
+            Self {
+                wrapper,
+                text,
+                label,
+                button_click,
+            }
         }
     }
 }

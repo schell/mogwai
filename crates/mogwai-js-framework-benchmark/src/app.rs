@@ -7,7 +7,7 @@ use crate::{data::*, row::*};
 #[derive(ViewChild)]
 struct AppBtn<V: View = Builder> {
     #[child]
-    wrapper: V::Element<web_sys::HtmlElement>,
+    wrapper: V::Element,
 }
 
 impl<V: View> AppBtn<V> {
@@ -19,7 +19,7 @@ impl<V: View> AppBtn<V> {
                     class="btn btn-primary btn-block",
                     id = id,
                 ) {
-                    {label.into().into_text()}
+                    {label.into().into_text::<V>()}
                 }
             }
         }
@@ -27,17 +27,14 @@ impl<V: View> AppBtn<V> {
     }
 }
 
-#[derive(FromBuilder)]
-pub struct AppView<V: View = Builder> {
-    pub wrapper: V::Element<web_sys::Element>,
+pub struct AppView<V: View> {
+    pub wrapper: V::Element,
     pub on_click_main: V::EventListener,
-    pub rows_tbody: V::Element<web_sys::Element>,
-
-    #[from(rows_cache => rows_cache.into_iter().map(|r| r.into()).collect())]
+    pub rows_tbody: V::Element,
     pub rows_cache: Vec<RowView<V>>,
 }
 
-impl Default for AppView {
+impl<V: View> Default for AppView<V> {
     fn default() -> Self {
         rsx! {
             let wrapper = div(id="main", on:click = on_click_main) {
@@ -133,10 +130,7 @@ impl App {
     fn dequeue(&mut self, rows: impl IntoIterator<Item = RowModel>) -> Vec<RowView<Web>> {
         rows.into_iter()
             .map(|model| {
-                let row = self
-                    .cache
-                    .pop()
-                    .unwrap_or_else(|| RowView::<Web>::default());
+                let row = self.cache.pop().unwrap_or_default();
                 row.set_model(&model);
                 row
             })
@@ -207,37 +201,49 @@ impl App {
                 .expect("target not an element");
 
             if target.matches("#add").expect("can't match") {
+                log::trace!("add");
                 e.prevent_default();
                 self.append(&view, 1000);
             } else if target.matches("#run").expect("can't match") {
+                log::trace!("create 1000");
                 e.prevent_default();
                 self.create(&view, 1000);
             } else if target.matches("#update").expect("can't match") {
+                log::trace!("update 10");
                 e.prevent_default();
                 self.update(10);
             } else if target.matches("#hideall").expect("can't match")
                 || target.matches("#showall").expect("can't match")
             {
+                log::trace!("hide/show");
                 e.prevent_default();
             } else if target.matches("#runlots").expect("can't match") {
+                log::trace!("create 10,000");
                 e.prevent_default();
                 self.create(&view, 10_000);
             } else if target.matches("#clear").expect("can't match") {
+                log::trace!("clear");
                 e.prevent_default();
                 self.clear(&view);
             } else if target.matches("#swaprows").expect("can't match") {
+                log::trace!("swaprows");
                 e.prevent_default();
                 self.swap();
             } else if target.matches(".remove").expect("can't match") {
+                log::trace!("remove");
                 e.prevent_default();
                 let el: &web_sys::Element = &target;
-                if let Some(key) = el.get_attribute("key") {
+                let maybe_key = el.get_attribute("key");
+                log::trace!("maybe_key: {maybe_key:?}");
+                if let Some(key) = maybe_key {
                     self.remove(&key);
                 }
             } else if target.matches(".lbl").expect("can't match") {
+                log::trace!("select");
                 e.prevent_default();
                 let el: &web_sys::Element = &target;
                 let key = el.get_attribute("key");
+                log::trace!("  key: {key:?}");
                 let mut found: Option<RowView<Web>> = None;
                 if let Some(key) = key {
                     for row in self.rows.iter() {
@@ -248,12 +254,9 @@ impl App {
                     }
                 }
                 self.select(found);
+            } else {
+                log::trace!("none");
             }
         }
-    }
-
-    pub fn init() {
-        let app = App::default();
-        wasm_bindgen_futures::spawn_local(app.run(AppView::default().into()));
     }
 }

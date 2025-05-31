@@ -1,9 +1,10 @@
 //! Server-side rendering demo.
 use demo::button_clicks::{ButtonClicks, ButtonClicksView};
+use mogwai_futura::prelude::*;
 
 fn main() {
     let mut button_clicks = ButtonClicks { clicks: 0 };
-    let view = ButtonClicksView::default();
+    let view = ButtonClicksView::<Builder>::default();
     let click = view.button_click.clone();
 
     std::thread::spawn({
@@ -19,6 +20,6 @@ fn main() {
     });
     let final_html_string = view.wrapper.html_string();
     println!("init: {init_html_string}");
-    println!("");
+    println!();
     println!("final: {final_html_string}");
 }

@@ -1,9 +1,9 @@
 //! Traits for building cross-platform views.
-use std::{marker::PhantomData, ops::Deref};
+use std::marker::PhantomData;
 
 use crate::Str;
 
-pub use mogwai_future_rsx::{FromBuilder, ViewChild};
+pub use mogwai_future_rsx::ViewChild;
 
 pub trait ViewText {
     fn new(text: impl Into<Str>) -> Self;
@@ -15,21 +15,9 @@ pub trait ViewTextExt {
     fn into_text<V: View>(self) -> V::Text;
 }
 
-impl ViewTextExt for String {
+impl<T: Into<Str>> ViewTextExt for T {
     fn into_text<V: View>(self) -> V::Text {
-        ViewText::new(Str::from(self))
-    }
-}
-
-impl ViewTextExt for &String {
-    fn into_text<V: View>(self) -> V::Text {
-        ViewText::new(Str::from(self))
-    }
-}
-
-impl ViewTextExt for &str {
-    fn into_text<V: View>(self) -> V::Text {
-        ViewText::new(Str::from(self.to_owned()))
+        ViewText::new(self)
     }
 }
 
@@ -124,19 +112,14 @@ pub trait ViewEventTarget<V: View> {
     fn listen(&self, event_name: impl Into<Str>) -> V::EventListener;
 }
 
-pub trait ViewCast<V: View> {
-    fn cast_element<T>(element: V::Element) -> V::El<T>;
-}
-
 // TODO: split this into types and ops
 pub trait View: Sized + 'static {
+    type Node;
     type Element: ViewParent<Self>
         + ViewChild<Self>
         + ViewProperties
         + ViewEventTarget<Self>
         + 'static;
     type Text: ViewText + ViewChild<Self> + ViewEventTarget<Self> + Clone + 'static;
-    type Node;
     type EventListener: ViewEventListener<Self>;
-    type El<T: ViewCast<Self>>;
 }

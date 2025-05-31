@@ -70,12 +70,6 @@ impl Drop for EventListener {
     }
 }
 
-impl From<EventListenerBuilder> for EventListener {
-    fn from(value: EventListenerBuilder) -> Self {
-        Web::build_listener(value)
-    }
-}
-
 impl EventListener {
     pub fn new(target: impl AsRef<web_sys::EventTarget>, event_name: impl Into<Str>) -> Self {
         let event_name = event_name.into();

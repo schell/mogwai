@@ -1,13 +1,10 @@
 //! Builder patterns for views.
-use std::any::Any;
-
 use crate::{Str, sync::Shared, view::*};
 
 #[derive(Clone)]
 pub struct TextBuilder {
     pub text: Shared<Str>,
     pub events: Shared<Vec<EventListenerBuilder>>,
-    pub built: Shared<Option<Box<dyn Any + Send + Sync + 'static>>>,
 }
 
 impl PartialEq for TextBuilder {
@@ -21,7 +18,6 @@ impl ViewText for TextBuilder {
         TextBuilder {
             text: text.into().into(),
             events: Default::default(),
-            built: Default::default(),
         }
     }
 
@@ -53,7 +49,6 @@ impl ViewEventTarget<Builder> for TextBuilder {
 #[derive(Clone)]
 pub struct ElementBuilder {
     pub name: Str,
-    pub built: Shared<Option<Box<dyn Any + Send + Sync + 'static>>>,
     pub attributes: Shared<Vec<(Str, Option<Str>)>>,
     pub styles: Shared<Vec<(Str, Str)>>,
     pub events: Shared<Vec<EventListenerBuilder>>,
@@ -74,7 +69,6 @@ impl ViewParent<Builder> for ElementBuilder {
     fn new(name: impl Into<Str>) -> Self {
         Self {
             name: name.into(),
-            built: Default::default(),
             attributes: Default::default(),
             styles: Default::default(),
             events: Default::default(),
@@ -83,7 +77,7 @@ impl ViewParent<Builder> for ElementBuilder {
     }
 
     fn new_namespace(name: impl Into<Str>, ns: impl Into<Str>) -> Self {
-        let s = Self::new(name);
+        let s = <ElementBuilder as ViewParent<Builder>>::new(name);
         s.set_property("xmlns", ns);
         s
     }
@@ -325,7 +319,6 @@ pub struct EventListenerBuilder {
     pub name: Str,
     pub target: EventTargetBuilder,
     pub channel: Shared<Option<(async_channel::Sender<()>, async_channel::Receiver<()>)>>,
-    pub built: Shared<Option<Box<dyn Any + Send + Sync + 'static>>>,
 }
 
 impl PartialEq for EventListenerBuilder {
@@ -352,7 +345,6 @@ impl EventListenerBuilder {
             name: name.into(),
             target: EventTargetBuilder::Window,
             channel: Default::default(),
-            built: Default::default(),
         }
     }
 
@@ -361,7 +353,6 @@ impl EventListenerBuilder {
             name: name.into(),
             target: EventTargetBuilder::Document,
             channel: Default::default(),
-            built: Default::default(),
         }
     }
 
@@ -370,7 +361,6 @@ impl EventListenerBuilder {
             name: name.into(),
             channel: Default::default(),
             target,
-            built: Default::default(),
         }
     }
 

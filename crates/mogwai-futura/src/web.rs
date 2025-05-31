@@ -1,14 +1,8 @@
 //! Utilities for web (through web-sys).
 
-use std::{
-    cell::RefCell,
-    ops::{Deref, DerefMut},
-    rc::Rc,
-    task::Waker,
-};
+use std::{cell::RefCell, ops::Deref, rc::Rc, task::Waker};
 
 use event::EventListener;
-use send_wrapper::SendWrapper;
 use wasm_bindgen::{JsValue, UnwrapThrowExt, prelude::Closure};
 use web_sys::wasm_bindgen::JsCast;
 
@@ -65,7 +59,7 @@ impl ViewParent<Web> for web_sys::Node {
 }
 
 macro_rules! node_impl {
-    ($ty:ident, $from:ty, $fn:ident) => {
+    ($ty:ident) => {
         impl ViewEventTarget<Web> for web_sys::$ty {
             fn listen(&self, event_name: impl Into<Str>) -> EventListener {
                 EventListener::new(self, event_name)
@@ -113,16 +107,10 @@ macro_rules! node_impl {
                 }
             }
         }
-
-        impl From<$from> for web_sys::$ty {
-            fn from(builder: $from) -> Self {
-                Web::$fn(builder)
-            }
-        }
     };
 
-    ($ty:ident, $from:ty, $fn:ident, props) => {
-        node_impl!($ty, $from, $fn);
+    ($ty:ident, props) => {
+        node_impl!($ty);
 
         impl ViewProperties for web_sys::$ty {
             fn set_property(&self, key: impl Into<Str>, value: impl Into<Str>) {
@@ -160,10 +148,10 @@ macro_rules! node_impl {
     };
 }
 
-node_impl!(Text, TextBuilder, build_text);
-node_impl!(Element, ElementBuilder, build_element, props);
-node_impl!(HtmlElement, ElementBuilder, build_element, props);
-node_impl!(HtmlInputElement, ElementBuilder, build_element, props);
+node_impl!(Text);
+node_impl!(Element, props);
+node_impl!(HtmlElement, props);
+node_impl!(HtmlInputElement, props);
 
 impl ViewText for web_sys::Text {
     fn new(text: impl Into<Str>) -> Self {
@@ -188,6 +176,18 @@ impl ViewEventListener<Web> for EventListener {
     }
 }
 
+pub struct WebWrapper<T> {
+    inner: T,
+}
+
+impl<T: Deref> Deref for WebWrapper<T> {
+    type Target = T::Target;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.deref()
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Web;
 
@@ -196,139 +196,6 @@ impl View for Web {
     type Text = web_sys::Text;
     type Node = web_sys::Node;
     type EventListener = EventListener;
-    type El<T> = T;
-
-    fn cast_element<T>(element: Self::Element) -> Self::El<T>
-    where
-        T: JsCast,
-    {
-        element
-            .dyn_into::<T>()
-            .expect_throw("could not cast element")
-    }
-}
-
-impl Web {
-    pub fn build_text(builder: TextBuilder) -> web_sys::Text {
-        if let Some(already_built) = builder.built.get().as_ref() {
-            // UNWRAP: safe because only this function ever sets `built`
-            already_built
-                .downcast_ref::<SendWrapper<web_sys::Text>>()
-                .unwrap()
-                .deref()
-                .clone()
-        } else {
-            let built = web_sys::Text::new_with_data(builder.text.get().as_str()).unwrap();
-            builder
-                .built
-                .set(Some(Box::new(SendWrapper::new(built.clone()))));
-            built
-        }
-    }
-
-    pub fn build_listener(builder: EventListenerBuilder) -> EventListener {
-        if let Some(already_built) = builder.built.get().as_ref() {
-            already_built
-                .downcast_ref::<SendWrapper<EventListener>>()
-                .unwrap()
-                .deref()
-                .clone()
-        } else {
-            let listener = match builder.target {
-                EventTargetBuilder::Window => {
-                    EventListener::new(web_sys::window().unwrap(), builder.name)
-                }
-                EventTargetBuilder::Document => {
-                    EventListener::new(web_sys::window().unwrap().document().unwrap(), builder.name)
-                }
-                EventTargetBuilder::Node(node) => match node {
-                    NodeBuilder::Element(element_builder) => {
-                        let element = Self::build_element::<web_sys::Element>(element_builder);
-                        EventListener::new(&element, builder.name)
-                    }
-                    NodeBuilder::Text(text_builder) => {
-                        let text = Self::build_text(text_builder);
-                        EventListener::new(&text, builder.name)
-                    }
-                },
-            };
-            builder
-                .built
-                .set(Some(Box::new(SendWrapper::new(listener.clone()))));
-            listener
-        }
-    }
-
-    pub fn build_element<T: Clone + JsCast + 'static>(builder: ElementBuilder) -> T {
-        let ElementBuilder {
-            name,
-            built,
-            attributes,
-            styles,
-            events,
-            children,
-        } = builder;
-        if let Some(already_built) = built.get().as_ref() {
-            let element = already_built
-                .downcast_ref::<SendWrapper<web_sys::Element>>()
-                .unwrap()
-                .deref()
-                .clone();
-            return element.dyn_into::<T>().unwrap();
-        }
-
-        let mut maybe_ns = None;
-        attributes.get_mut().retain_mut(|(k, may_v)| {
-            if k.as_str() == "xmlns" {
-                maybe_ns = may_v.take();
-                false
-            } else {
-                true
-            }
-        });
-        let el = if let Some(ns) = maybe_ns {
-            DOCUMENT.with(|d| {
-                d.create_element_ns(Some(ns.as_str()), name.as_str())
-                    .unwrap_throw()
-            })
-        } else {
-            DOCUMENT.with(|d| d.create_element(name.as_str()).unwrap_throw())
-        };
-        // Set the built element first, so we don't recurse when building event targets.
-        built.set(Some(Box::new(SendWrapper::new(el.clone()))));
-
-        for (k, may_v) in std::mem::take(attributes.get_mut().deref_mut()).into_iter() {
-            let value = may_v.unwrap_or_else(|| "".into());
-            el.dyn_ref::<web_sys::Element>()
-                .unwrap()
-                .set_attribute(k.as_str(), value.as_str())
-                .unwrap();
-        }
-        for (k, v) in std::mem::take(styles.get_mut().deref_mut()).into_iter() {
-            let style = el.dyn_ref::<web_sys::HtmlElement>().unwrap().style();
-            style.set_property(k.as_str(), v.as_str()).unwrap();
-        }
-        for event_builder in std::mem::take(events.get_mut().deref_mut()).into_iter() {
-            // We don't have to do anything with the listener except build it.
-            let _listener = Self::build_listener(event_builder);
-        }
-        for child in std::mem::take(children.get_mut().deref_mut()).into_iter() {
-            let node = match child {
-                NodeBuilder::Text(text_builder) => {
-                    let text = Self::build_text(text_builder);
-                    text.dyn_into::<web_sys::Node>().unwrap()
-                }
-                NodeBuilder::Element(element_builder) => {
-                    Self::build_element::<web_sys::Node>(element_builder)
-                }
-            };
-            el.dyn_ref::<web_sys::Node>()
-                .unwrap()
-                .append_child(&node)
-                .unwrap();
-        }
-        el.dyn_into::<T>().unwrap()
-    }
 }
 
 thread_local! {
