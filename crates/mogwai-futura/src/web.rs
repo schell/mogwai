@@ -1,6 +1,12 @@
 //! Utilities for web (through web-sys).
 
-use std::{cell::RefCell, ops::Deref, rc::Rc, task::Waker};
+use std::{
+    cell::{LazyCell, RefCell},
+    mem::ManuallyDrop,
+    ops::Deref,
+    rc::Rc,
+    task::Waker,
+};
 
 use event::EventListener;
 use wasm_bindgen::{JsValue, UnwrapThrowExt, prelude::Closure};
@@ -37,21 +43,19 @@ impl ViewParent<Web> for web_sys::Node {
     }
 
     fn new(name: impl AsRef<str>) -> Self {
-        DOCUMENT.with(|d| {
-            d.create_element(name.as_ref())
-                .unwrap_throw()
-                .dyn_into()
-                .unwrap()
-        })
+        DOCUMENT
+            .create_element(name.as_ref())
+            .unwrap_throw()
+            .dyn_into()
+            .unwrap()
     }
 
     fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self {
-        DOCUMENT.with(|d| {
-            d.create_element_ns(Some(ns.as_ref()), name.as_ref())
-                .unwrap_throw()
-                .dyn_into()
-                .unwrap()
-        })
+        DOCUMENT
+            .create_element_ns(Some(ns.as_ref()), name.as_ref())
+            .unwrap_throw()
+            .dyn_into()
+            .unwrap()
     }
 }
 
@@ -72,21 +76,19 @@ macro_rules! node_impl {
 
         impl ViewParent<Web> for web_sys::$ty {
             fn new(name: impl AsRef<str>) -> Self {
-                DOCUMENT.with(|d| {
-                    d.create_element(name.as_ref())
-                        .unwrap_throw()
-                        .dyn_into()
-                        .unwrap()
-                })
+                DOCUMENT
+                    .create_element(name.as_ref())
+                    .unwrap_throw()
+                    .dyn_into()
+                    .unwrap()
             }
 
             fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self {
-                DOCUMENT.with(|d| {
-                    d.create_element_ns(Some(ns.as_ref()), name.as_ref())
-                        .unwrap_throw()
-                        .dyn_into()
-                        .unwrap()
-                })
+                DOCUMENT
+                    .create_element_ns(Some(ns.as_ref()), name.as_ref())
+                    .unwrap_throw()
+                    .dyn_into()
+                    .unwrap()
             }
 
             fn remove_child(&self, child: impl ViewChild<Web>) {
@@ -189,23 +191,44 @@ impl View for Web {
     type EventListener = EventListener;
 }
 
-thread_local! {
-    pub static WINDOW: web_sys::Window = web_sys::window().unwrap_throw();
-    pub static DOCUMENT: web_sys::Document = WINDOW.with(|w| w.document().unwrap_throw());
+struct Global<T> {
+    data: ManuallyDrop<LazyCell<T>>,
 }
+
+impl<T> Global<T> {
+    pub const fn new(create_fn: fn() -> T) -> Self {
+        Global {
+            data: ManuallyDrop::new(LazyCell::new(create_fn)),
+        }
+    }
+}
+
+unsafe impl<T> Send for Global<T> {}
+unsafe impl<T> Sync for Global<T> {}
+
+impl<T> Deref for Global<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+static WINDOW: Global<web_sys::Window> = Global::new(|| web_sys::window().unwrap_throw());
+static DOCUMENT: Global<web_sys::Document> = Global::new(|| WINDOW.document().unwrap_throw());
 
 /// Return the DOM [`web_sys::Window`].
 /// #### Panics
 /// Panics when the window cannot be returned.
-pub fn window() -> web_sys::Window {
-    WINDOW.with(|w| w.clone())
+pub fn window() -> &'static web_sys::Window {
+    WINDOW.deref()
 }
 
 /// Return the document JsDom object [`web_sys::Document`]
 /// #### Panics
 /// Panics on non-wasm32 or when the document cannot be returned.
-pub fn document() -> web_sys::Document {
-    DOCUMENT.with(|d| d.clone())
+pub fn document() -> &'static web_sys::Document {
+    DOCUMENT.deref()
 }
 
 /// Return the body Dom object.
@@ -213,14 +236,15 @@ pub fn document() -> web_sys::Document {
 /// ## Panics
 /// Panics on wasm32 if the body cannot be returned.
 pub fn body() -> web_sys::HtmlElement {
-    DOCUMENT.with(|d| d.body().expect("document does not have a body"))
+    DOCUMENT
+        .body()
+        .expect_throw("document does not have a body")
 }
 
 fn req_animation_frame(f: &Closure<dyn FnMut(JsValue)>) {
-    WINDOW.with(|w| {
-        w.request_animation_frame(f.as_ref().unchecked_ref())
-            .expect("should register `requestAnimationFrame` OK")
-    });
+    WINDOW
+        .request_animation_frame(f.as_ref().unchecked_ref())
+        .expect_throw("should register `requestAnimationFrame` OK");
 }
 
 #[derive(Clone, Default)]
