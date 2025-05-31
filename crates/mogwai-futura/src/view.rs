@@ -1,13 +1,13 @@
 //! Traits for building cross-platform views.
-use std::marker::PhantomData;
+use std::{borrow::Cow, marker::PhantomData};
 
 use crate::Str;
 
 pub use mogwai_future_rsx::ViewChild;
 
 pub trait ViewText {
-    fn new(text: impl Into<Str>) -> Self;
-    fn set_text(&self, text: impl Into<Str>);
+    fn new(text: impl AsRef<str>) -> Self;
+    fn set_text(&self, text: impl AsRef<str>);
     fn get_text(&self) -> Str;
 }
 
@@ -15,7 +15,7 @@ pub trait ViewTextExt {
     fn into_text<V: View>(self) -> V::Text;
 }
 
-impl<T: Into<Str>> ViewTextExt for T {
+impl<T: AsRef<str>> ViewTextExt for T {
     fn into_text<V: View>(self) -> V::Text {
         ViewText::new(self)
     }
@@ -62,24 +62,24 @@ impl<V: View, I: Iterator> Iterator for AppendArg<V, I> {
 }
 
 pub trait ViewParent<V: View> {
-    fn new(name: impl Into<Str>) -> Self;
-    fn new_namespace(name: impl Into<Str>, ns: impl Into<Str>) -> Self;
+    fn new(name: impl AsRef<str>) -> Self;
+    fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self;
     fn append_child(&self, child: impl ViewChild<V>);
     fn remove_child(&self, child: impl ViewChild<V>);
 }
 
 pub trait ViewChild<V: View> {
-    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = V::Node>>;
+    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = V::Node<'_>>>;
 }
 
 impl<V: View, T: ViewChild<V> + 'static> ViewChild<V> for &T {
-    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = V::Node>> {
+    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = V::Node<'_>>> {
         (*self).as_append_arg()
     }
 }
 
 impl<V: View, T: ViewChild<V>> ViewChild<V> for Vec<T> {
-    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = V::Node>> {
+    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = V::Node<'_>>> {
         AppendArg::new(self.iter().flat_map(|t| t.as_append_arg()))
     }
 }
@@ -90,12 +90,12 @@ pub trait ViewProperties {
     /// Get the value of the given property, if any.
     fn get_property(&self, property: impl AsRef<str>) -> Option<Str>;
     /// Sets the property on the view.
-    fn set_property(&self, property: impl Into<Str>, value: impl Into<Str>);
+    fn set_property(&self, property: impl AsRef<str>, value: impl AsRef<str>);
     /// Remove an attribute.
     fn remove_property(&self, property: impl AsRef<str>);
 
     /// Add a style property.
-    fn set_style(&self, key: impl Into<Str>, value: impl Into<Str>);
+    fn set_style(&self, key: impl AsRef<str>, value: impl AsRef<str>);
     /// Remove a style property.
     ///
     /// Returns the previous style value, if any.
@@ -109,12 +109,12 @@ pub trait ViewEventListener<V: View> {
 }
 
 pub trait ViewEventTarget<V: View> {
-    fn listen(&self, event_name: impl Into<Str>) -> V::EventListener;
+    fn listen(&self, event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
 }
 
 // TODO: split this into types and ops
 pub trait View: Sized + 'static {
-    type Node;
+    type Node<'a>;
     type Element: ViewParent<Self>
         + ViewChild<Self>
         + ViewProperties

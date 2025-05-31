@@ -55,7 +55,7 @@ impl<V: View> RowView<V> {
         self.id_text.get_text()
     }
 
-    pub fn set_label(&self, text: impl Into<Str>) {
+    pub fn set_label(&self, text: impl AsRef<str>) {
         self.model_text.set_text(text);
     }
 

@@ -1,4 +1,6 @@
 //! Builder patterns for views.
+use std::borrow::Cow;
+
 use crate::{Str, sync::Shared, view::*};
 
 #[derive(Clone)]
@@ -14,15 +16,16 @@ impl PartialEq for TextBuilder {
 }
 
 impl ViewText for TextBuilder {
-    fn new(text: impl Into<Str>) -> Self {
+    fn new(text: impl AsRef<str>) -> Self {
         TextBuilder {
-            text: text.into().into(),
+            text: Shared::from_str(text),
             events: Default::default(),
         }
     }
 
-    fn set_text(&self, text: impl Into<Str>) {
-        self.text.set(text.into());
+    fn set_text(&self, text: impl AsRef<str>) {
+        let cow = Cow::from(text.as_ref().to_owned());
+        self.text.set(cow);
     }
 
     fn get_text(&self) -> Str {
@@ -66,9 +69,9 @@ impl PartialEq for ElementBuilder {
 }
 
 impl ViewParent<Builder> for ElementBuilder {
-    fn new(name: impl Into<Str>) -> Self {
+    fn new(name: impl AsRef<str>) -> Self {
         Self {
-            name: name.into(),
+            name: name.as_ref().to_owned().into(),
             attributes: Default::default(),
             styles: Default::default(),
             events: Default::default(),
@@ -76,7 +79,7 @@ impl ViewParent<Builder> for ElementBuilder {
         }
     }
 
-    fn new_namespace(name: impl Into<Str>, ns: impl Into<Str>) -> Self {
+    fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self {
         let s = <ElementBuilder as ViewParent<Builder>>::new(name);
         s.set_property("xmlns", ns);
         s
@@ -101,11 +104,14 @@ impl ViewChild<Builder> for ElementBuilder {
 }
 
 impl ViewProperties for ElementBuilder {
-    fn set_property(&self, key: impl Into<Str>, value: impl Into<Str>) {
+    fn set_property(&self, key: impl AsRef<str>, value: impl AsRef<str>) {
         let mut attributes = self.attributes.get_mut();
-        let (k, v) = (key.into(), value.into());
+        let (k, v) = (
+            key.as_ref().to_owned().into(),
+            value.as_ref().to_owned().into(),
+        );
         for (k_prev, v_prev) in attributes.iter_mut() {
-            if k_prev.as_str() == k.as_str() {
+            if k_prev == &k {
                 *v_prev = Some(v);
                 return;
             }
@@ -115,7 +121,7 @@ impl ViewProperties for ElementBuilder {
 
     fn has_property(&self, key: impl AsRef<str>) -> bool {
         for (pkey, _pval) in self.attributes.get().iter() {
-            if pkey.as_str() == key.as_ref() {
+            if pkey == key.as_ref() {
                 return true;
             }
         }
@@ -124,7 +130,7 @@ impl ViewProperties for ElementBuilder {
 
     fn get_property(&self, key: impl AsRef<str>) -> Option<Str> {
         for (pkey, pval) in self.attributes.get().iter() {
-            if pkey.as_str() == key.as_ref() {
+            if pkey == key.as_ref() {
                 return pval.clone();
             }
         }
@@ -134,29 +140,28 @@ impl ViewProperties for ElementBuilder {
     fn remove_property(&self, key: impl AsRef<str>) {
         self.attributes
             .get_mut()
-            .retain_mut(|p| p.0.as_str() != key.as_ref());
+            .retain_mut(|p| p.0 != key.as_ref());
     }
 
     /// Add a style property.
-    fn set_style(&self, key: impl Into<Str>, value: impl Into<Str>) {
+    fn set_style(&self, key: impl AsRef<str>, value: impl AsRef<str>) {
         let mut styles = self.styles.get_mut();
-        let key = key.into();
+        let key = key.as_ref().to_owned().into();
+        let value = value.as_ref().to_owned().into();
         for (pkey, pval) in styles.iter_mut() {
-            if pkey.as_str() == key.as_str() {
-                *pval = value.into();
+            if pkey == &key {
+                *pval = value;
                 return;
             }
         }
-        styles.push((key, value.into()));
+        styles.push((key, value));
     }
 
     /// Remove a style property.
     ///
     /// Returns the previous style value, if any.
     fn remove_style(&self, key: impl AsRef<str>) {
-        self.styles
-            .get_mut()
-            .retain_mut(|p| p.0.as_str() != key.as_ref());
+        self.styles.get_mut().retain_mut(|p| p.0 != key.as_ref());
     }
 }
 
@@ -233,9 +238,10 @@ impl ElementBuilder {
 
             let mut style_added = false;
             for (key, value) in attributes.iter_mut() {
-                if key.as_str() == "style" {
-                    if let Some(prev_style) = value.as_mut() {
-                        *prev_style = [prev_style.as_str(), styles.as_str()].join(" ").into();
+                if key == "style" {
+                    if let Some(prev_style) = value.take() {
+                        let spaced = (prev_style + " " + styles.as_str()).into_owned();
+                        *value = Some(spaced.into());
                         style_added = true;
                         break;
                     }
@@ -260,12 +266,12 @@ impl ElementBuilder {
 
         if children.is_empty() {
             if attributes.is_empty() {
-                if tag_is_voidable(name.as_str()) {
+                if tag_is_voidable(name) {
                     format!("<{} />", name)
                 } else {
                     format!("<{}></{}>", name, name)
                 }
-            } else if tag_is_voidable(name.as_str()) {
+            } else if tag_is_voidable(name) {
                 format!("<{} {} />", name, atts)
             } else {
                 format!("<{} {}></{}>", name, atts, name)
@@ -340,17 +346,17 @@ impl ViewEventListener<Builder> for EventListenerBuilder {
 }
 
 impl EventListenerBuilder {
-    pub fn on_window(name: impl Into<Str>) -> Self {
+    pub fn on_window(name: impl AsRef<str>) -> Self {
         Self {
-            name: name.into(),
+            name: name.as_ref().to_owned().into(),
             target: EventTargetBuilder::Window,
             channel: Default::default(),
         }
     }
 
-    pub fn on_document(name: impl Into<Str>) -> Self {
+    pub fn on_document(name: impl AsRef<str>) -> Self {
         Self {
-            name: name.into(),
+            name: name.as_ref().to_owned().into(),
             target: EventTargetBuilder::Document,
             channel: Default::default(),
         }
@@ -385,6 +391,6 @@ pub struct Builder;
 impl View for Builder {
     type Element = ElementBuilder;
     type Text = TextBuilder;
-    type Node = NodeBuilder;
+    type Node<'a> = NodeBuilder;
     type EventListener = EventListenerBuilder;
 }

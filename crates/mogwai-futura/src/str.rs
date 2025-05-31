@@ -1,83 +1,21 @@
 //! String type wrapping [`Cow<'static, str>`].
-use std::{borrow::Cow, ops::Deref};
+use std::borrow::Cow;
 
 use crate::{sync::Shared, view::ViewText};
 
 /// A transparent wrapper around [`Cow<'static, str>`].
-#[repr(transparent)]
-#[derive(Clone, Default, PartialEq)]
-pub struct Str {
-    inner: Cow<'static, str>,
-}
-
-impl core::fmt::Display for Str {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.inner)
-    }
-}
-
-impl From<&'static str> for Str {
-    fn from(s: &'static str) -> Self {
-        Str { inner: s.into() }
-    }
-}
-
-impl From<String> for Str {
-    fn from(s: String) -> Self {
-        Str { inner: s.into() }
-    }
-}
-
-impl<'a> From<&'a String> for Str {
-    fn from(s: &'a String) -> Self {
-        Str {
-            inner: s.clone().into(),
-        }
-    }
-}
-
-impl From<Cow<'static, str>> for Str {
-    fn from(inner: Cow<'static, str>) -> Self {
-        Str { inner }
-    }
-}
-
-impl<'a> From<&'a Cow<'static, str>> for Str {
-    fn from(s: &'a Cow<'static, str>) -> Self {
-        Str { inner: s.clone() }
-    }
-}
-
-impl<'a> From<&'a Str> for Str {
-    fn from(value: &'a Str) -> Self {
-        value.clone()
-    }
-}
-
-impl Deref for Str {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_str()
-    }
-}
+pub type Str = Cow<'static, str>;
 
 impl ViewText for Shared<Str> {
-    fn new(text: impl Into<Str>) -> Self {
-        Shared::from(text.into())
+    fn new(text: impl AsRef<str>) -> Self {
+        Shared::from_str(text)
     }
 
-    fn set_text(&self, text: impl Into<Str>) {
-        self.set(text.into());
+    fn set_text(&self, text: impl AsRef<str>) {
+        self.set(text.as_ref().to_owned().into());
     }
 
     fn get_text(&self) -> Str {
         self.get().clone()
-    }
-}
-
-impl Str {
-    pub fn as_str(&self) -> &str {
-        &self.inner
     }
 }

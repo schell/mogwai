@@ -68,7 +68,7 @@ pub fn impl_derive_viewchild(input: proc_macro::TokenStream) -> proc_macro::Toke
                 let field = &field.ident;
                 output = quote! {
                     impl <#(#generics),*> mogwai_futura::prelude::ViewChild<#view_ty_param> for #ident<#(#all_ty_params),*> {
-                        fn as_append_arg(&self) -> mogwai_futura::prelude::AppendArg<#view_ty_param, impl Iterator<Item = #view_ty_param::Node>> {
+                        fn as_append_arg(&self) -> mogwai_futura::prelude::AppendArg<#view_ty_param, impl Iterator<Item = #view_ty_param::Node<'_>>> {
                             self.#field.as_append_arg()
                         }
                     }

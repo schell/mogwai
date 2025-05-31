@@ -1,6 +1,11 @@
 //! Synchronization primitives.
 
-use std::ops::{Deref, DerefMut};
+use std::{
+    borrow::Cow,
+    ops::{Deref, DerefMut},
+};
+
+use crate::Str;
 
 /// A "shared" value.
 ///
@@ -78,5 +83,12 @@ impl<T> Shared<T> {
     /// Returns the previous value.
     pub fn set(&self, value: T) -> T {
         std::mem::replace(self.get_mut().deref_mut(), value)
+    }
+}
+
+impl Shared<Str> {
+    pub fn from_str(s: impl AsRef<str>) -> Self {
+        let cow = Cow::from(s.as_ref().to_owned());
+        Shared::from(cow)
     }
 }

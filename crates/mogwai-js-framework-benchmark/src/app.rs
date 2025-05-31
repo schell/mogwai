@@ -11,7 +11,7 @@ struct AppBtn<V: View = Builder> {
 }
 
 impl<V: View> AppBtn<V> {
-    fn new(id: impl Into<Str>, label: impl Into<Str>) -> Self {
+    fn new(id: impl AsRef<str>, label: impl AsRef<str>) -> Self {
         rsx! {
              let wrapper = div(class="col-sm-6 smallpad") {
                 button(
@@ -19,7 +19,7 @@ impl<V: View> AppBtn<V> {
                     class="btn btn-primary btn-block",
                     id = id,
                 ) {
-                    {label.into().into_text::<V>()}
+                    {label.into_text::<V>()}
                 }
             }
         }
@@ -126,22 +126,25 @@ impl App {
         }
     }
 
-    /// Dequeue a number of rows from the view cache.
-    fn dequeue(&mut self, rows: impl IntoIterator<Item = RowModel>) -> Vec<RowView<Web>> {
-        rows.into_iter()
-            .map(|model| {
-                let row = self.cache.pop().unwrap_or_default();
+    /// Append some number of rows to the view.
+    fn append(&mut self, view: &AppView<Web>, count: usize) {
+        let Self {
+            selected: _,
+            cache,
+            rows,
+        } = self;
+
+        let new_rows = {
+            let rows = build_data(count);
+            rows.into_iter().map(|model| {
+                let row = cache.pop().unwrap_or_default();
                 row.set_model(&model);
                 row
             })
-            .collect()
-    }
-
-    /// Append some number of rows to the view.
-    fn append(&mut self, view: &AppView<Web>, count: usize) {
-        for row in self.dequeue(build_data(count)) {
+        };
+        for row in new_rows {
             view.rows_tbody.append_child(row.node());
-            self.rows.push(row);
+            rows.push(row);
         }
     }
 

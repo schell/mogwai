@@ -1,13 +1,11 @@
 //! A stream API for event callbacks.
 //!
 //! This uses [`futures-lite::Stream`] to send events to downstream listeners.
-use std::{cell::RefCell, ops::DerefMut, pin::Pin, rc::Rc, task::Waker};
+use std::{borrow::Cow, cell::RefCell, ops::DerefMut, pin::Pin, rc::Rc, task::Waker};
 
 use wasm_bindgen_futures::wasm_bindgen::{JsCast, JsValue, prelude::Closure};
 
 use crate::Str;
-
-use super::{Web, prelude::EventListenerBuilder};
 
 type Callback = Rc<Closure<dyn FnMut(JsValue)>>;
 
@@ -55,7 +53,7 @@ impl Drop for EventListener {
                     // This is the last clone of the callback, meaning this listener can be removed.
                     self.target
                         .remove_event_listener_with_callback(
-                            self.event_name.as_str(),
+                            &self.event_name,
                             callback.as_ref().unchecked_ref(),
                         )
                         .unwrap();
@@ -71,8 +69,10 @@ impl Drop for EventListener {
 }
 
 impl EventListener {
-    pub fn new(target: impl AsRef<web_sys::EventTarget>, event_name: impl Into<Str>) -> Self {
-        let event_name = event_name.into();
+    pub fn new(
+        target: impl AsRef<web_sys::EventTarget>,
+        event_name: impl Into<Cow<'static, str>>,
+    ) -> Self {
         let events: Rc<RefCell<FutureEventOccurrence>> = Default::default();
         let callback = Closure::wrap({
             let events = events.clone();
@@ -95,12 +95,10 @@ impl EventListener {
             }) as Box<dyn FnMut(JsValue)>
         });
 
+        let event_name = event_name.into();
         let target = target.as_ref().clone();
         target
-            .add_event_listener_with_callback(
-                event_name.as_str(),
-                callback.as_ref().unchecked_ref(),
-            )
+            .add_event_listener_with_callback(&event_name, callback.as_ref().unchecked_ref())
             .unwrap();
 
         Self {

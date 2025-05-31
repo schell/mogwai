@@ -18,39 +18,36 @@ pub mod prelude {
 }
 
 impl ViewChild<Web> for web_sys::Node {
-    fn as_append_arg(&self) -> AppendArg<Web, impl Iterator<Item = web_sys::Node>> {
-        AppendArg::new(std::iter::once(self.clone()))
+    fn as_append_arg(&self) -> AppendArg<Web, impl Iterator<Item = &'_ web_sys::Node>> {
+        AppendArg::new(std::iter::once(self))
     }
 }
 
 impl ViewParent<Web> for web_sys::Node {
     fn remove_child(&self, child: impl ViewChild<Web>) {
         for child in child.as_append_arg() {
-            let _ = self.remove_child(&child);
+            let _ = self.remove_child(child);
         }
     }
 
     fn append_child(&self, child: impl ViewChild<Web>) {
         for child in child.as_append_arg() {
-            let _ = self.append_child(&child);
+            let _ = self.append_child(child);
         }
     }
 
-    fn new(name: impl Into<Str>) -> Self {
-        let name = name.into();
+    fn new(name: impl AsRef<str>) -> Self {
         DOCUMENT.with(|d| {
-            d.create_element(name.as_str())
+            d.create_element(name.as_ref())
                 .unwrap_throw()
                 .dyn_into()
                 .unwrap()
         })
     }
 
-    fn new_namespace(name: impl Into<Str>, ns: impl Into<Str>) -> Self {
-        let name = name.into();
-        let ns = ns.into();
+    fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self {
         DOCUMENT.with(|d| {
-            d.create_element_ns(Some(ns.as_str()), name.as_str())
+            d.create_element_ns(Some(ns.as_ref()), name.as_ref())
                 .unwrap_throw()
                 .dyn_into()
                 .unwrap()
@@ -67,28 +64,25 @@ macro_rules! node_impl {
         }
 
         impl ViewChild<Web> for web_sys::$ty {
-            fn as_append_arg(&self) -> AppendArg<Web, impl Iterator<Item = web_sys::Node>> {
+            fn as_append_arg(&self) -> AppendArg<Web, impl Iterator<Item = &'_ web_sys::Node>> {
                 let node: &web_sys::Node = self.as_ref();
-                AppendArg::new(std::iter::once(node.clone()))
+                AppendArg::new(std::iter::once(node))
             }
         }
 
         impl ViewParent<Web> for web_sys::$ty {
-            fn new(name: impl Into<Str>) -> Self {
-                let name = name.into();
+            fn new(name: impl AsRef<str>) -> Self {
                 DOCUMENT.with(|d| {
-                    d.create_element(name.as_str())
+                    d.create_element(name.as_ref())
                         .unwrap_throw()
                         .dyn_into()
                         .unwrap()
                 })
             }
 
-            fn new_namespace(name: impl Into<Str>, ns: impl Into<Str>) -> Self {
-                let name = name.into();
-                let ns = ns.into();
+            fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self {
                 DOCUMENT.with(|d| {
-                    d.create_element_ns(Some(ns.as_str()), name.as_str())
+                    d.create_element_ns(Some(ns.as_ref()), name.as_ref())
                         .unwrap_throw()
                         .dyn_into()
                         .unwrap()
@@ -113,8 +107,8 @@ macro_rules! node_impl {
         node_impl!($ty);
 
         impl ViewProperties for web_sys::$ty {
-            fn set_property(&self, key: impl Into<Str>, value: impl Into<Str>) {
-                let _ = self.set_attribute(key.into().as_str(), value.into().as_str());
+            fn set_property(&self, key: impl AsRef<str>, value: impl AsRef<str>) {
+                let _ = self.set_attribute(key.as_ref(), value.as_ref());
             }
 
             fn has_property(&self, key: impl AsRef<str>) -> bool {
@@ -129,12 +123,10 @@ macro_rules! node_impl {
                 let _ = self.remove_attribute(key.as_ref());
             }
 
-            fn set_style(&self, key: impl Into<Str>, value: impl Into<Str>) {
+            fn set_style(&self, key: impl AsRef<str>, value: impl AsRef<str>) {
                 if let Some(el) = self.dyn_ref::<web_sys::HtmlElement>() {
                     let style = el.style();
-                    let key = key.into();
-                    let value = value.into();
-                    let _ = style.set_property(key.as_str(), value.as_str());
+                    let _ = style.set_property(key.as_ref(), value.as_ref());
                 }
             }
 
@@ -154,13 +146,12 @@ node_impl!(HtmlElement, props);
 node_impl!(HtmlInputElement, props);
 
 impl ViewText for web_sys::Text {
-    fn new(text: impl Into<Str>) -> Self {
-        web_sys::Text::new_with_data(text.into().as_str()).unwrap()
+    fn new(text: impl AsRef<str>) -> Self {
+        web_sys::Text::new_with_data(text.as_ref()).unwrap()
     }
 
-    fn set_text(&self, text: impl Into<Str>) {
-        let text = text.into();
-        self.set_data(text.as_str());
+    fn set_text(&self, text: impl AsRef<str>) {
+        self.set_data(text.as_ref());
     }
 
     fn get_text(&self) -> Str {
@@ -194,7 +185,7 @@ pub struct Web;
 impl View for Web {
     type Element = web_sys::Element;
     type Text = web_sys::Text;
-    type Node = web_sys::Node;
+    type Node<'a> = &'a web_sys::Node;
     type EventListener = EventListener;
 }
 
