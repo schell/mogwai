@@ -119,6 +119,7 @@ pub trait View: Sized + 'static {
         + ViewChild<Self>
         + ViewProperties
         + ViewEventTarget<Self>
+        + Clone
         + 'static;
     type Text: ViewText + ViewChild<Self> + ViewEventTarget<Self> + Clone + 'static;
     type EventListener: ViewEventListener<Self>;

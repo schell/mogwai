@@ -232,7 +232,7 @@ pub fn document() -> &'static web_sys::Document {
     DOCUMENT.deref()
 }
 
-/// Return the body Dom object.
+/// Return the document's body Dom object.
 ///
 /// ## Panics
 /// Panics on wasm32 if the body cannot be returned.
@@ -246,6 +246,20 @@ fn req_animation_frame(f: &Closure<dyn FnMut(JsValue)>) {
     WINDOW
         .request_animation_frame(f.as_ref().unchecked_ref())
         .expect_throw("should register `requestAnimationFrame` OK");
+}
+
+pub fn request_animation_frame(mut f: impl FnMut(JsValue) + 'static) {
+    let wrapper = Rc::new(RefCell::new(None));
+    let callback = Box::new({
+        let wrapper = wrapper.clone();
+        move |jsval| {
+            f(jsval);
+            wrapper.borrow_mut().take();
+        }
+    }) as Box<dyn FnMut(JsValue)>;
+    let closure: Closure<dyn FnMut(JsValue)> = Closure::wrap(callback);
+    *wrapper.borrow_mut() = Some(closure);
+    req_animation_frame(wrapper.borrow().as_ref().unwrap_throw());
 }
 
 #[derive(Clone, Default)]
@@ -263,7 +277,7 @@ pub struct NextFrame {
 /// a timestamp representing the number of milliseconds since the application's
 /// load. See <https://developer.mozilla.org/en-US/docs/Web/API/DOMHighResTimeStamp>
 /// for more info.
-pub fn request_animation_frame() -> NextFrame {
+pub fn next_animation_frame() -> NextFrame {
     // https://rustwasm.github.io/wasm-bindgen/examples/request-animation-frame.html#srclibrs
     let frame = NextFrame::default();
 
@@ -295,5 +309,101 @@ impl Future for NextFrame {
             *self.waker.borrow_mut() = Some(cx.waker().clone());
             std::task::Poll::Pending
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{
+        marker::PhantomData,
+        ops::{Deref, DerefMut},
+    };
+
+    use crate as mogwai_futura;
+    use mogwai_futura::web::prelude::*;
+
+    #[derive(Default)]
+    struct Proxy<V: View, T> {
+        model: T,
+        update: Option<Box<dyn FnMut(&T) + 'static>>,
+        _phantom: PhantomData<V>,
+    }
+
+    impl<V: View, T> Deref for Proxy<V, T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            &self.model
+        }
+    }
+
+    impl<V: View, T: PartialEq> Proxy<V, T> {
+        pub fn new(model: T) -> Self {
+            Self {
+                model,
+                update: None,
+                _phantom: PhantomData,
+            }
+        }
+
+        pub fn on_update(&mut self, f: impl FnMut(&T) + 'static) {
+            self.update = Some(Box::new(f))
+        }
+
+        pub fn set(&mut self, t: T) {
+            if t != self.model {
+                self.model = t;
+                if let Some(update) = self.update.as_mut() {
+                    update(&self.model);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn proxy() {
+        #[derive(PartialEq)]
+        struct Model {
+            id: usize,
+            href: crate::str::Str,
+            link_text: crate::str::Str,
+        }
+
+        struct MyView<V: View> {
+            wrapper: V::Element,
+            proxy: Proxy<V, Model>,
+        }
+
+        fn create_view<V: View>() -> MyView<V> {
+            let mut proxy = Proxy::<V, _>::new(Model {
+                id: 666,
+                href: "localhost:8080".into(),
+                link_text: "Go home.".into(),
+            });
+
+            rsx! {
+                let wrapper = div(id = proxy.id.to_string()) {
+                    let link = a(href = &proxy.href) {
+                        let link_text = {(&proxy.link_text).into_text::<V>()}
+                    }
+                }
+            }
+
+            proxy.on_update({
+                let wrapper = wrapper.clone();
+                let link = link.clone();
+                let link_text = link_text.clone();
+
+                move |model| {
+                    wrapper.set_property("id", model.id.to_string());
+                    link.set_property("href", &model.href);
+                    link_text.set_text(&model.link_text);
+                }
+            });
+
+            MyView { wrapper, proxy }
+        }
+
+        let _view = create_view::<Web>();
     }
 }

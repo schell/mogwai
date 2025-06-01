@@ -109,10 +109,11 @@ impl App {
 
     /// Clear all rows, adding them to the cache.
     pub fn clear(&mut self, view: &AppView<Web>) {
-        view.rows_tbody.set_text_content(None);
         self.selected = None;
         self.cache.extend(std::mem::take(&mut self.rows));
         self.select(None);
+
+        view.rows_tbody.clone().set_text_content(None);
     }
 
     /// Append some number of rows to the view.
