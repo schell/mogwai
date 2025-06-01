@@ -1,6 +1,6 @@
 //! App type.
 use mogwai_futura::web::prelude::*;
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, UnwrapThrowExt};
 
 use crate::{data::*, row::*};
 
@@ -31,7 +31,7 @@ pub struct AppView<V: View> {
     pub wrapper: V::Element,
     pub on_click_main: V::EventListener,
     pub rows_tbody: V::Element,
-    pub rows_cache: Vec<RowView<V>>,
+    pub rows_cache: Vec<RowView>,
 }
 
 impl<V: View> Default for AppView<V> {
@@ -76,36 +76,26 @@ impl<V: View> Default for AppView<V> {
 
 impl AppView<Web> {
     pub fn init(&self) {
-        let body = web_sys::window()
-            .unwrap()
-            .document()
-            .unwrap()
-            .body()
-            .unwrap();
+        let body = mogwai_futura::web::body();
         web_sys::Node::append_child(&body, &self.wrapper).unwrap();
     }
 
     pub fn deinit(&self) {
-        let body = web_sys::window()
-            .unwrap()
-            .document()
-            .unwrap()
-            .body()
-            .unwrap();
+        let body = mogwai_futura::web::body();
         web_sys::Node::remove_child(&body, &self.wrapper).unwrap();
     }
 }
 
 #[derive(Default)]
 pub struct App {
-    selected: Option<RowView<Web>>,
-    cache: Vec<RowView<Web>>,
-    rows: Vec<RowView<Web>>,
+    selected: Option<RowView>,
+    cache: Vec<RowView>,
+    rows: Vec<RowView>,
 }
 
 impl App {
     /// Select a new row, deselecting the old row if needed.
-    fn select(&mut self, row: Option<RowView<Web>>) {
+    fn select(&mut self, row: Option<RowView>) {
         if let Some(row) = row.as_ref() {
             log::trace!("selecting row: {}", row.id());
             row.set_selected(true);
@@ -165,10 +155,10 @@ impl App {
     fn swap(&mut self) {
         if self.rows.len() > 998 {
             let row1 = &self.rows[1];
-            let row1_id = row1.fast_id();
+            let row1_id = row1.id();
             let row1_label = row1.fast_label();
             let row998 = &self.rows[998];
-            let row998_id = row998.fast_id();
+            let row998_id = row998.id();
             let row998_label = row998.fast_label();
 
             row1.set_id(row998_id);
@@ -180,10 +170,12 @@ impl App {
     }
 
     /// Removes one row.
-    fn remove(&mut self, id: &str) {
+    fn remove(&mut self, id: &str, view: &AppView<Web>) {
         self.rows.retain_mut(|row| {
-            if row.fast_id() == id {
-                self.cache.push(row.clone());
+            if row.id() == id {
+                let row = row.clone();
+                web_sys::Node::remove_child(&view.rows_tbody, row.node()).unwrap_throw();
+                self.cache.push(row);
                 false
             } else {
                 true
@@ -239,7 +231,7 @@ impl App {
                 let maybe_key = el.get_attribute("key");
                 log::trace!("maybe_key: {maybe_key:?}");
                 if let Some(key) = maybe_key {
-                    self.remove(&key);
+                    self.remove(&key, &view);
                 }
             } else if target.matches(".lbl").expect("can't match") {
                 log::trace!("select");
@@ -247,10 +239,10 @@ impl App {
                 let el: &web_sys::Element = &target;
                 let key = el.get_attribute("key");
                 log::trace!("  key: {key:?}");
-                let mut found: Option<RowView<Web>> = None;
+                let mut found: Option<RowView> = None;
                 if let Some(key) = key {
                     for row in self.rows.iter() {
-                        if row.fast_id() == key {
+                        if row.id() == key {
                             found = Some(row.clone());
                             break;
                         }

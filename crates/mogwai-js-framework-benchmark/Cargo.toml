@@ -23,6 +23,7 @@ console_log.workspace = true
 futures-lite.workspace = true
 log.workspace = true
 mogwai-futura = { path = "../mogwai-futura" }
+rustc-hash = "2.1.1"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"]}
 wasm-bindgen = { version = "0.2" }
@@ -33,10 +34,12 @@ version = "^0.3"
 features = [
   "Element",
   "Document",
+  "DocumentFragment",
   "HtmlBodyElement",
   "HtmlCollection",
   "HtmlElement",
   "HtmlInputElement",
+  "HtmlTemplateElement",
   "NodeList",
   "Storage"
 ]

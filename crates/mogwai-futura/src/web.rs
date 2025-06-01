@@ -5,6 +5,7 @@ use std::{
     mem::ManuallyDrop,
     ops::Deref,
     rc::Rc,
+    sync::LazyLock,
     task::Waker,
 };
 
@@ -169,18 +170,6 @@ impl ViewEventListener<Web> for EventListener {
     }
 }
 
-pub struct WebWrapper<T> {
-    inner: T,
-}
-
-impl<T: Deref> Deref for WebWrapper<T> {
-    type Target = T::Target;
-
-    fn deref(&self) -> &Self::Target {
-        self.inner.deref()
-    }
-}
-
 #[derive(Clone, Copy)]
 pub struct Web;
 
@@ -191,14 +180,26 @@ impl View for Web {
     type EventListener = EventListener;
 }
 
-struct Global<T> {
+pub struct Global<T> {
+    #[cfg(target_arch = "wasm32")]
     data: ManuallyDrop<LazyCell<T>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    data: LazyLock<T>,
 }
 
 impl<T> Global<T> {
     pub const fn new(create_fn: fn() -> T) -> Self {
-        Global {
-            data: ManuallyDrop::new(LazyCell::new(create_fn)),
+        #[cfg(target_arch = "wasm32")]
+        {
+            Global {
+                data: ManuallyDrop::new(LazyCell::new(create_fn)),
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            Global {
+                data: LazyLock::new(create_fn),
+            }
         }
     }
 }
