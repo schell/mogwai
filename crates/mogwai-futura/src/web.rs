@@ -382,24 +382,28 @@ mod test {
             });
 
             rsx! {
-                let wrapper = div(id = proxy.id.to_string()) {
-                    let link = a(href = &proxy.href) {
-                        let link_text = {(&proxy.link_text).into_text::<V>()}
+                let wrapper = div(
+                    id = proxy(model) => model.id.to_string()
+                ) {
+                    a(
+                        href = proxy(model) => &model.href
+                    ) {
+                        { proxy(model) => &model.link_text }
                     }
                 }
             }
 
-            proxy.on_update({
-                let wrapper = wrapper.clone();
-                let link = link.clone();
-                let link_text = link_text.clone();
+            // proxy.on_update({
+            //     let wrapper = wrapper.clone();
+            //     let link = link.clone();
+            //     let link_text = link_text.clone();
 
-                move |model| {
-                    wrapper.set_property("id", model.id.to_string());
-                    link.set_property("href", &model.href);
-                    link_text.set_text(&model.link_text);
-                }
-            });
+            //     move |model| {
+            //         wrapper.set_property("id", model.id.to_string());
+            //         link.set_property("href", &model.href);
+            //         link_text.set_text(&model.link_text);
+            //     }
+            // });
 
             MyView { wrapper, proxy }
         }
