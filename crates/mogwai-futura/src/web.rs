@@ -393,18 +393,6 @@ mod test {
                 }
             }
 
-            // proxy.on_update({
-            //     let wrapper = wrapper.clone();
-            //     let link = link.clone();
-            //     let link_text = link_text.clone();
-
-            //     move |model| {
-            //         wrapper.set_property("id", model.id.to_string());
-            //         link.set_property("href", &model.href);
-            //         link_text.set_text(&model.link_text);
-            //     }
-            // });
-
             MyView { wrapper, proxy }
         }
 
