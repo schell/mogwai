@@ -1,6 +1,6 @@
 //! Utilities for web (through web-sys).
 
-use std::{cell::RefCell, ops::Deref, rc::Rc, task::Waker};
+use std::{borrow::Cow, cell::RefCell, ops::Deref, rc::Rc, task::Waker};
 
 use event::EventListener;
 use wasm_bindgen::{JsValue, UnwrapThrowExt, prelude::Closure};
@@ -25,21 +25,12 @@ pub mod prelude {
 // }
 
 impl ViewChild<Web> for web_sys::Node {
-    fn as_append_arg(&self) -> AppendArg<Web, impl Iterator<Item = &'_ web_sys::Node>> {
-        AppendArg::new(std::iter::once(self))
+    fn as_append_arg(&self) -> AppendArg<Web, impl Iterator<Item = Cow<'_, web_sys::Node>>> {
+        AppendArg::new(std::iter::once(Cow::Borrowed(self)))
     }
 }
 
 impl ViewParent<Web> for web_sys::Node {
-    fn remove_node(&self, node: &&web_sys::Node) {
-        let node = *node;
-        web_sys::Node::remove_child(self, node).unwrap_throw();
-    }
-
-    fn append_node(&self, node: &web_sys::Node) {
-        web_sys::Node::append_child(self, node).unwrap_throw();
-    }
-
     fn new(name: impl AsRef<str>) -> Self {
         DOCUMENT
             .create_element(name.as_ref())
@@ -55,6 +46,31 @@ impl ViewParent<Web> for web_sys::Node {
             .dyn_into()
             .unwrap()
     }
+
+    fn append_node(&self, node: std::borrow::Cow<'_, <Web as View>::Node>) {
+        web_sys::Node::append_child(self, node.as_ref()).unwrap_throw();
+    }
+
+    fn remove_node(&self, node: std::borrow::Cow<'_, <Web as View>::Node>) {
+        web_sys::Node::remove_child(self, node.as_ref()).unwrap_throw();
+    }
+
+    fn replace_node(
+        &self,
+        new_node: std::borrow::Cow<'_, <Web as View>::Node>,
+        old_node: std::borrow::Cow<'_, <Web as View>::Node>,
+    ) {
+        web_sys::Node::replace_child(self, new_node.as_ref(), old_node.as_ref()).unwrap_throw();
+    }
+
+    fn insert_node_before(
+        &self,
+        new_node: std::borrow::Cow<'_, <Web as View>::Node>,
+        before_node: Option<std::borrow::Cow<'_, <Web as View>::Node>>,
+    ) {
+        web_sys::Node::insert_before(self, new_node.as_ref(), before_node.as_deref())
+            .unwrap_throw();
+    }
 }
 
 macro_rules! node_impl {
@@ -66,9 +82,10 @@ macro_rules! node_impl {
         }
 
         impl ViewChild<Web> for web_sys::$ty {
-            fn as_append_arg(&self) -> AppendArg<Web, impl Iterator<Item = &'_ web_sys::Node>> {
-                let node: &web_sys::Node = self.as_ref();
-                AppendArg::new(std::iter::once(node))
+            fn as_append_arg(
+                &self,
+            ) -> AppendArg<Web, impl Iterator<Item = std::borrow::Cow<'_, web_sys::Node>>> {
+                AppendArg::new(std::iter::once(std::borrow::Cow::Borrowed(self.as_ref())))
             }
         }
 
@@ -89,13 +106,30 @@ macro_rules! node_impl {
                     .unwrap()
             }
 
-            fn remove_node(&self, node: &&web_sys::Node) {
-                let node = *node;
-                web_sys::Node::remove_child(self, node).unwrap_throw();
+            fn append_node(&self, node: std::borrow::Cow<'_, <Web as View>::Node>) {
+                web_sys::Node::append_child(self, node.as_ref()).unwrap_throw();
             }
 
-            fn append_node(&self, node: &web_sys::Node) {
-                web_sys::Node::append_child(self, node).unwrap_throw();
+            fn remove_node(&self, node: std::borrow::Cow<'_, <Web as View>::Node>) {
+                web_sys::Node::remove_child(self, node.as_ref()).unwrap_throw();
+            }
+
+            fn replace_node(
+                &self,
+                new_node: std::borrow::Cow<'_, <Web as View>::Node>,
+                old_node: std::borrow::Cow<'_, <Web as View>::Node>,
+            ) {
+                web_sys::Node::replace_child(self, new_node.as_ref(), old_node.as_ref())
+                    .unwrap_throw();
+            }
+
+            fn insert_node_before(
+                &self,
+                new_node: std::borrow::Cow<'_, <Web as View>::Node>,
+                before_node: Option<std::borrow::Cow<'_, <Web as View>::Node>>,
+            ) {
+                web_sys::Node::insert_before(self, new_node.as_ref(), before_node.as_deref())
+                    .unwrap_throw();
             }
         }
     };
@@ -170,7 +204,7 @@ pub struct Web;
 impl View for Web {
     type Element = web_sys::Element;
     type Text = web_sys::Text;
-    type Node<'a> = &'a web_sys::Node;
+    type Node = web_sys::Node;
     type EventListener = EventListener;
 }
 

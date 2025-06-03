@@ -65,10 +65,10 @@ pub trait ViewParent<V: View> {
     fn new(name: impl AsRef<str>) -> Self;
     fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self;
 
-    fn append_node(&self, node: V::Node<'_>);
-    fn remove_node(&self, node: &V::Node<'_>);
-    fn replace_node(&self, new_node: &V::Node<'_>, old_node: &V::Node<'_>);
-    fn insert_node_before(&self, new_node: &V::Node<'_>, before_node: Option<&V::Node<'_>>);
+    fn append_node(&self, node: Cow<'_, V::Node>);
+    fn remove_node(&self, node: Cow<'_, V::Node>);
+    fn replace_node(&self, new_node: Cow<'_, V::Node>, old_node: Cow<'_, V::Node>);
+    fn insert_node_before(&self, new_node: Cow<'_, V::Node>, before_node: Option<Cow<'_, V::Node>>);
 
     fn append_child(&self, child: impl ViewChild<V>) {
         for node in child.as_append_arg() {
@@ -77,23 +77,23 @@ pub trait ViewParent<V: View> {
     }
     fn remove_child(&self, child: impl ViewChild<V>) {
         for node in child.as_append_arg() {
-            self.remove_node(&node);
+            self.remove_node(node);
         }
     }
 }
 
 pub trait ViewChild<V: View> {
-    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = V::Node<'_>>>;
+    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = Cow<'_, V::Node>>>;
 }
 
 impl<V: View, T: ViewChild<V> + 'static> ViewChild<V> for &T {
-    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = V::Node<'_>>> {
+    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = Cow<'_, V::Node>>> {
         (*self).as_append_arg()
     }
 }
 
 impl<V: View, T: ViewChild<V>> ViewChild<V> for Vec<T> {
-    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = V::Node<'_>>> {
+    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = Cow<'_, V::Node>>> {
         AppendArg::new(self.iter().flat_map(|t| t.as_append_arg()))
     }
 }
@@ -128,7 +128,7 @@ pub trait ViewEventTarget<V: View> {
 
 // TODO: split this into types and ops
 pub trait View: Sized + 'static {
-    type Node<'a>: Clone;
+    type Node: Clone;
     type Element: ViewParent<Self>
         + ViewChild<Self>
         + ViewProperties

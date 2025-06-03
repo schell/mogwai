@@ -5,7 +5,7 @@
 //! When a [`Proxy`] is updated, it propogates to the views that it was
 //! created with.
 
-use std::{marker::PhantomData, ops::Deref};
+use std::{borrow::Cow, marker::PhantomData, ops::Deref};
 
 use crate::view::{View, ViewChild, ViewParent};
 
@@ -60,15 +60,15 @@ impl<V: View, T: PartialEq> Proxy<V, T> {
 
 pub struct ProxyChild<V: View> {
     _phantom: PhantomData<V>,
-    nodes: Vec<V::Node<'static>>,
+    nodes: Vec<V::Node>,
 }
 
 impl<V: View> ProxyChild<V> {
     pub fn new(parent: &V::Element, child: impl ViewChild<V>) -> Self {
-        let mut nodes: Vec<V::Node<'static>> = vec![];
+        let mut nodes: Vec<V::Node> = vec![];
         for child in child.as_append_arg() {
-            parent.append_node(child.clone());
-            nodes.push(child);
+            nodes.push(child.as_ref().clone());
+            parent.append_node(child);
         }
         Self {
             _phantom: PhantomData,
@@ -78,27 +78,34 @@ impl<V: View> ProxyChild<V> {
 
     pub fn replace(&mut self, parent: &V::Element, child: impl ViewChild<V>) {
         let mut previous_nodes = std::mem::take(&mut self.nodes).into_iter().rev();
-        let mut new_nodes = child.as_append_arg().rev();
-        let mut last_new_node = None;
-        let mut push_new = |new_node| {
-            last_new_node = Some(&new_node);
-            self.nodes.push(new_node);
-        };
+        let mut new_nodes = child
+            .as_append_arg()
+            .map(Cow::into_owned)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev();
         loop {
             match (previous_nodes.next(), new_nodes.next()) {
                 (Some(prev), Some(new)) => {
-                    parent.replace_node(&new, &prev);
-                    push_new(new);
+                    // Easiest case, both exist so we simply replace them.
+                    parent.replace_node(Cow::Borrowed(&new), Cow::Borrowed(&prev));
+                    self.nodes.push(new);
                 }
                 (Some(prev), None) => {
                     // We've run out of new nodes, remove the rest of the old nodes
-                    parent.remove_node(&prev);
+                    parent.remove_node(Cow::Borrowed(&prev));
                 }
                 (None, Some(new)) => {
                     // We've run out of old nodes, add the new one before the last
                     // new one.
-                    parent.insert_node_before(&new, last_new_node);
-                    push_new(new);
+                    //
+                    // Here the "last" new one is actually the head of the list, since
+                    // we're iterating over the reverse.
+                    parent.insert_node_before(
+                        Cow::Borrowed(&new),
+                        self.nodes.last().map(Cow::Borrowed),
+                    );
+                    self.nodes.push(new);
                 }
                 (None, None) => {
                     self.nodes.reverse();
