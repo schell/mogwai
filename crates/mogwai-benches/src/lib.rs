@@ -35,7 +35,7 @@ pub struct ChangeView<V: View> {
 }
 
 #[derive(Clone, ViewChild)]
-pub struct BenchView<V: View = Builder> {
+pub struct BenchView<V: View> {
     #[child]
     wrapper: V::Element,
 }

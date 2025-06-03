@@ -1,23 +1,28 @@
-//! Builder patterns for views.
+//! Server-side rendered views.
 use std::borrow::Cow;
 
 use crate::{Str, sync::Shared, view::*};
 
-#[derive(Clone)]
-pub struct TextBuilder {
-    pub text: Shared<Str>,
-    pub events: Shared<Vec<EventListenerBuilder>>,
+pub mod prelude {
+    pub use super::{Ssr, SsrElement, SsrEventListener, SsrEventTarget, SsrText};
+    pub use crate::prelude::*;
 }
 
-impl PartialEq for TextBuilder {
+#[derive(Clone)]
+pub struct SsrText {
+    pub text: Shared<Str>,
+    pub events: Shared<Vec<SsrEventListener>>,
+}
+
+impl PartialEq for SsrText {
     fn eq(&self, other: &Self) -> bool {
         self.text == other.text
     }
 }
 
-impl ViewText for TextBuilder {
+impl ViewText for SsrText {
     fn new(text: impl AsRef<str>) -> Self {
-        TextBuilder {
+        SsrText {
             text: Shared::from_str(text),
             events: Default::default(),
         }
@@ -33,16 +38,15 @@ impl ViewText for TextBuilder {
     }
 }
 
-impl ViewChild<Builder> for TextBuilder {
-    fn as_append_arg(&self) -> AppendArg<Builder, impl Iterator<Item = NodeBuilder>> {
-        AppendArg::new(std::iter::once(NodeBuilder::Text(self.clone())))
+impl ViewChild<Ssr> for SsrText {
+    fn as_append_arg(&self) -> AppendArg<Ssr, impl Iterator<Item = SsrNode>> {
+        AppendArg::new(std::iter::once(SsrNode::Text(self.clone())))
     }
 }
 
-impl ViewEventTarget<Builder> for TextBuilder {
-    fn listen(&self, event_name: impl Into<Str>) -> <Builder as View>::EventListener {
-        let listener =
-            EventListenerBuilder::new(EventTargetBuilder::Node(self.clone().into()), event_name);
+impl ViewEventTarget<Ssr> for SsrText {
+    fn listen(&self, event_name: impl Into<Str>) -> <Ssr as View>::EventListener {
+        let listener = SsrEventListener::new(SsrEventTarget::Node(self.clone().into()), event_name);
         self.events.get_mut().push(listener.clone());
         listener
     }
@@ -50,15 +54,15 @@ impl ViewEventTarget<Builder> for TextBuilder {
 
 /// Builder for runtime views.
 #[derive(Clone)]
-pub struct ElementBuilder {
+pub struct SsrElement {
     pub name: Str,
     pub attributes: Shared<Vec<(Str, Option<Str>)>>,
     pub styles: Shared<Vec<(Str, Str)>>,
-    pub events: Shared<Vec<EventListenerBuilder>>,
-    pub children: Shared<Vec<NodeBuilder>>,
+    pub events: Shared<Vec<SsrEventListener>>,
+    pub children: Shared<Vec<SsrNode>>,
 }
 
-impl PartialEq for ElementBuilder {
+impl PartialEq for SsrElement {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
             && self.attributes == other.attributes
@@ -68,7 +72,7 @@ impl PartialEq for ElementBuilder {
     }
 }
 
-impl ViewParent<Builder> for ElementBuilder {
+impl ViewParent<Ssr> for SsrElement {
     fn new(name: impl AsRef<str>) -> Self {
         Self {
             name: name.as_ref().to_owned().into(),
@@ -80,30 +84,27 @@ impl ViewParent<Builder> for ElementBuilder {
     }
 
     fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self {
-        let s = <ElementBuilder as ViewParent<Builder>>::new(name);
+        let s = <SsrElement as ViewParent<Ssr>>::new(name);
         s.set_property("xmlns", ns);
         s
     }
 
-    fn remove_child(&self, child: impl ViewChild<Builder>) {
-        for child in child.as_append_arg() {
-            self.children.get_mut().retain(|kid| kid != &child);
-        }
+    fn remove_node(&self, node: &SsrNode) {
+        self.children.get_mut().retain(|kid| kid != node);
     }
 
-    fn append_child(&self, child: impl ViewChild<Builder>) {
-        let mut children = self.children.get_mut();
-        children.extend(child.as_append_arg());
+    fn append_node(&self, node: SsrNode) {
+        self.children.get_mut().push(node);
     }
 }
 
-impl ViewChild<Builder> for ElementBuilder {
-    fn as_append_arg(&self) -> AppendArg<Builder, impl Iterator<Item = NodeBuilder>> {
-        AppendArg::new(std::iter::once(NodeBuilder::Element(self.clone())))
+impl ViewChild<Ssr> for SsrElement {
+    fn as_append_arg(&self) -> AppendArg<Ssr, impl Iterator<Item = SsrNode>> {
+        AppendArg::new(std::iter::once(SsrNode::Element(self.clone())))
     }
 }
 
-impl ViewProperties for ElementBuilder {
+impl ViewProperties for SsrElement {
     fn set_property(&self, key: impl AsRef<str>, value: impl AsRef<str>) {
         let mut attributes = self.attributes.get_mut();
         let (k, v) = (
@@ -165,10 +166,10 @@ impl ViewProperties for ElementBuilder {
     }
 }
 
-impl ViewEventTarget<Builder> for ElementBuilder {
-    fn listen(&self, event_name: impl Into<Str>) -> EventListenerBuilder {
-        let event_listener = EventListenerBuilder::new(
-            EventTargetBuilder::Node(NodeBuilder::Element(self.clone())),
+impl ViewEventTarget<Ssr> for SsrElement {
+    fn listen(&self, event_name: impl Into<Str>) -> SsrEventListener {
+        let event_listener = SsrEventListener::new(
+            SsrEventTarget::Node(SsrNode::Element(self.clone())),
             event_name,
         );
         self.events.get_mut().push(event_listener.clone());
@@ -176,12 +177,7 @@ impl ViewEventTarget<Builder> for ElementBuilder {
     }
 }
 
-impl ElementBuilder {
-    // /// Add a child.
-    // pub fn append_child(&self, child: impl Into<NodeBuilder>) {
-    //     self.children.get_mut().push(child.into());
-    // }
-
+impl SsrElement {
     pub fn html_string(&self) -> String {
         // Only certain nodes can be "void" - which means written as <tag /> when
         // the node contains no children. Writing non-void nodes in void notation
@@ -280,8 +276,8 @@ impl ElementBuilder {
             let mut kids = vec![];
             for kid in children.iter() {
                 let node = match kid {
-                    NodeBuilder::Element(element_builder) => element_builder.html_string(),
-                    NodeBuilder::Text(text_builder) => text_builder.text.get().to_string(),
+                    SsrNode::Element(element_builder) => element_builder.html_string(),
+                    SsrNode::Text(text_builder) => text_builder.text.get().to_string(),
                 };
                 kids.push(node);
             }
@@ -296,44 +292,51 @@ impl ElementBuilder {
 }
 
 #[derive(Clone, PartialEq)]
-pub enum NodeBuilder {
-    Element(ElementBuilder),
-    Text(TextBuilder),
+pub enum SsrNode {
+    Element(SsrElement),
+    Text(SsrText),
 }
 
-impl From<TextBuilder> for NodeBuilder {
-    fn from(value: TextBuilder) -> Self {
-        NodeBuilder::Text(value)
+// impl ViewNode for SsrNode {
+//     type Owned = Self;
+//     fn owned_node(self) -> Self {
+//         self
+//     }
+// }
+
+impl From<SsrText> for SsrNode {
+    fn from(value: SsrText) -> Self {
+        SsrNode::Text(value)
     }
 }
 
-impl From<ElementBuilder> for NodeBuilder {
-    fn from(value: ElementBuilder) -> Self {
-        NodeBuilder::Element(value)
+impl From<SsrElement> for SsrNode {
+    fn from(value: SsrElement) -> Self {
+        SsrNode::Element(value)
     }
 }
 
 #[derive(Clone, PartialEq)]
-pub enum EventTargetBuilder {
-    Node(NodeBuilder),
+pub enum SsrEventTarget {
+    Node(SsrNode),
     Window,
     Document,
 }
 
 #[derive(Clone)]
-pub struct EventListenerBuilder {
+pub struct SsrEventListener {
     pub name: Str,
-    pub target: EventTargetBuilder,
+    pub target: SsrEventTarget,
     pub channel: Shared<Option<(async_channel::Sender<()>, async_channel::Receiver<()>)>>,
 }
 
-impl PartialEq for EventListenerBuilder {
+impl PartialEq for SsrEventListener {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name && self.target == other.target
     }
 }
 
-impl ViewEventListener<Builder> for EventListenerBuilder {
+impl ViewEventListener<Ssr> for SsrEventListener {
     type Event = ();
 
     fn next(&self) -> impl Future<Output = Self::Event> {
@@ -345,11 +348,11 @@ impl ViewEventListener<Builder> for EventListenerBuilder {
     }
 }
 
-impl EventListenerBuilder {
+impl SsrEventListener {
     pub fn on_window(name: impl AsRef<str>) -> Self {
         Self {
             name: name.as_ref().to_owned().into(),
-            target: EventTargetBuilder::Window,
+            target: SsrEventTarget::Window,
             channel: Default::default(),
         }
     }
@@ -357,13 +360,13 @@ impl EventListenerBuilder {
     pub fn on_document(name: impl AsRef<str>) -> Self {
         Self {
             name: name.as_ref().to_owned().into(),
-            target: EventTargetBuilder::Document,
+            target: SsrEventTarget::Document,
             channel: Default::default(),
         }
     }
 
-    pub fn new(target: EventTargetBuilder, name: impl Into<Str>) -> Self {
-        EventListenerBuilder {
+    pub fn new(target: SsrEventTarget, name: impl Into<Str>) -> Self {
+        SsrEventListener {
             name: name.into(),
             channel: Default::default(),
             target,
@@ -386,11 +389,11 @@ impl EventListenerBuilder {
 }
 
 #[derive(Clone)]
-pub struct Builder;
+pub struct Ssr;
 
-impl View for Builder {
-    type Element = ElementBuilder;
-    type Text = TextBuilder;
-    type Node<'a> = NodeBuilder;
-    type EventListener = EventListenerBuilder;
+impl View for Ssr {
+    type Element = SsrElement;
+    type Text = SsrText;
+    type Node<'a> = SsrNode;
+    type EventListener = SsrEventListener;
 }

@@ -1,10 +1,10 @@
 //! Server-side rendering demo.
 use demo::button_clicks::{ButtonClicks, ButtonClicksView};
-use mogwai_futura::prelude::*;
+use mogwai_futura::ssr::prelude::*;
 
 fn main() {
     let mut button_clicks = ButtonClicks { clicks: 0 };
-    let view = ButtonClicksView::<Builder>::default();
+    let view = ButtonClicksView::<Ssr>::default();
     let click = view.button_click.clone();
 
     std::thread::spawn({

@@ -2,7 +2,7 @@
 use std::{collections::HashMap, str::FromStr};
 
 use quote::{ToTokens, quote};
-use syn::{Expr, Ident, Token, parse::Parse};
+use syn::{Expr, Ident, Token, parse::Parse, spanned::Spanned};
 
 fn under_to_dash(s: impl AsRef<str>) -> String {
     s.as_ref().trim_matches('_').replace('_', "-")
@@ -16,23 +16,19 @@ fn under_to_dash(s: impl AsRef<str>) -> String {
 pub struct ProxyUpdate {
     proxy_ident: syn::Ident,
     update_ident: Option<syn::Ident>,
-    pattern: syn::Ident,
+    pattern: syn::Pat,
     expr: syn::Expr,
 }
 
 impl Parse for ProxyUpdate {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        println!("proxy");
         let proxy_ident: syn::Ident = input.parse()?;
-        println!("  ident: {proxy_ident}");
         let content;
         let _ = syn::parenthesized!(content in input);
-        let pattern: syn::Ident = content.parse()?;
-        println!("  pattern: {pattern}");
-        let _ = input.parse::<Token![=]>()?;
-        let _ = input.parse::<Token![>]>()?;
-        let expr: syn::Expr = input.parse()?;
-        println!("  expr: {}", expr.to_token_stream());
+        let pattern = syn::Pat::parse_single(&content)?;
+        let _ = content.parse::<Token![=]>()?;
+        let _ = content.parse::<Token![>]>()?;
+        let expr: syn::Expr = content.parse()?;
         Ok(ProxyUpdate {
             proxy_ident,
             update_ident: None,
@@ -45,7 +41,10 @@ impl Parse for ProxyUpdate {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum ProxyUpdateKey {
     Attrib(String),
-    Block(syn::Ident),
+    Block {
+        parent: syn::Ident,
+        block: syn::Ident,
+    },
 }
 
 /// Used to create a proxy "on_update" call at the end of an rsx macro.
@@ -78,13 +77,12 @@ impl ToTokens for ProxyOnUpdate {
                             #ident.set_property(#name, #expr);
                     }}
                 }
-                ProxyUpdateKey::Block(_id) => {
-                    let ident = &update.update_ident;
+                ProxyUpdateKey::Block { parent, block } => {
                     let pat = &update.pattern;
                     let expr = &update.expr;
                     quote! {{
                             let #pat = model;
-                            #ident.set_text(#expr);
+                            #block.replace(#parent, #expr);
                     }}
                 }
             })
@@ -282,13 +280,17 @@ impl WebFlavor {
         quote! { let #listener = V::EventListener::on_document( #event ); }
     }
 
-    fn text_proxy(ident: &syn::Ident, proxy: &ProxyUpdate) -> proc_macro2::TokenStream {
+    fn proxy_child(
+        parent: &syn::Ident,
+        ident: &syn::Ident,
+        proxy: &ProxyUpdate,
+    ) -> proc_macro2::TokenStream {
         let proxy_ident = &proxy.proxy_ident;
         let pattern = &proxy.pattern;
         let expr = &proxy.expr;
         quote! { let #ident = {
             let #pattern = &#proxy_ident;
-            V::Text::new(#expr)
+            mogwai_futura::proxy::ProxyChild::new(#parent, #expr)
         };}
     }
 }
@@ -296,7 +298,7 @@ impl WebFlavor {
 impl quote::ToTokens for ViewToken {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let mut proxies = HashMap::default();
-        self.to_named_tokens(None::<String>, 0, tokens, &mut proxies);
+        self.to_named_tokens(None, 0, tokens, &mut proxies);
         for (proxy, updates) in proxies.into_iter() {
             quote! {
                 #proxy.on_update(#updates);
@@ -318,7 +320,7 @@ impl ViewToken {
 
     fn to_named_tokens(
         &self,
-        parent_name: Option<impl AsRef<str>>,
+        parent_name: Option<syn::Ident>,
         index: usize,
         tokens: &mut proc_macro2::TokenStream,
         proxies: &mut HashMap<syn::Ident, ProxyOnUpdate>,
@@ -329,10 +331,11 @@ impl ViewToken {
             format!("{index}")
         };
 
-        let parent_name = parent_name
-            .map(|name| format!("{}_", name.as_ref()))
+        let spaced_parent_name = parent_name
+            .as_ref()
+            .map(|name| format!("{}_", name))
             .unwrap_or_default();
-        let name = format!("{parent_name}{}{n}", self.leaf_name());
+        let name = format!("{spaced_parent_name}{}{n}", self.leaf_name());
         let generic_id = LetIdent {
             ident: quote::format_ident!("_{name}"),
             cast: None,
@@ -377,7 +380,7 @@ impl ViewToken {
                         })
                         .or_insert(0);
                     let child_id = child
-                        .to_named_tokens(Some(name.as_str()), *index, tokens, proxies)
+                        .to_named_tokens(Some(ident.clone()), *index, tokens, proxies)
                         .ident;
                     WebFlavor::append_child(&ident, &child_id).to_tokens(tokens);
                 }
@@ -432,8 +435,35 @@ impl ViewToken {
             ViewToken::BlockProxy { ident, proxy } => {
                 let let_ident = ident.clone().unwrap_or(generic_id);
                 let id = let_ident.ident.clone();
-                insert_proxy(proxies, &id, ProxyUpdateKey::Block(id.clone()), proxy);
-                WebFlavor::text_proxy(&id, proxy).to_tokens(tokens);
+                if let Some(parent) = parent_name.as_ref() {
+                    insert_proxy(
+                        proxies,
+                        &id,
+                        ProxyUpdateKey::Block {
+                            parent: if let Some(parent) = parent_name.as_ref() {
+                                parent.clone()
+                            } else {
+                                syn::Error::new(
+                                    proxy.update_ident.span(),
+                                    "Cannot use child block pattern for the outer-most block",
+                                )
+                                .into_compile_error()
+                                .to_tokens(tokens);
+                                quote::format_ident!("unknown")
+                            },
+                            block: id.clone(),
+                        },
+                        proxy,
+                    );
+                    WebFlavor::proxy_child(parent, &id, proxy).to_tokens(tokens);
+                } else {
+                    syn::Error::new(
+                        proxy.update_ident.span(),
+                        "Cannot use child block pattern for the outer-most block",
+                    )
+                    .into_compile_error()
+                    .to_tokens(tokens);
+                }
                 let_ident
             }
         }

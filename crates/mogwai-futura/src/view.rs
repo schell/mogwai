@@ -64,8 +64,22 @@ impl<V: View, I: Iterator> Iterator for AppendArg<V, I> {
 pub trait ViewParent<V: View> {
     fn new(name: impl AsRef<str>) -> Self;
     fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self;
-    fn append_child(&self, child: impl ViewChild<V>);
-    fn remove_child(&self, child: impl ViewChild<V>);
+
+    fn append_node(&self, node: V::Node<'_>);
+    fn remove_node(&self, node: &V::Node<'_>);
+    fn replace_node(&self, new_node: &V::Node<'_>, old_node: &V::Node<'_>);
+    fn insert_node_before(&self, new_node: &V::Node<'_>, before_node: Option<&V::Node<'_>>);
+
+    fn append_child(&self, child: impl ViewChild<V>) {
+        for node in child.as_append_arg() {
+            self.append_node(node);
+        }
+    }
+    fn remove_child(&self, child: impl ViewChild<V>) {
+        for node in child.as_append_arg() {
+            self.remove_node(&node);
+        }
+    }
 }
 
 pub trait ViewChild<V: View> {
@@ -114,7 +128,7 @@ pub trait ViewEventTarget<V: View> {
 
 // TODO: split this into types and ops
 pub trait View: Sized + 'static {
-    type Node<'a>;
+    type Node<'a>: Clone;
     type Element: ViewParent<Self>
         + ViewChild<Self>
         + ViewProperties

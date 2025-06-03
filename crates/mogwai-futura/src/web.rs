@@ -1,13 +1,6 @@
 //! Utilities for web (through web-sys).
 
-use std::{
-    cell::{LazyCell, RefCell},
-    mem::ManuallyDrop,
-    ops::Deref,
-    rc::Rc,
-    sync::LazyLock,
-    task::Waker,
-};
+use std::{cell::RefCell, ops::Deref, rc::Rc, task::Waker};
 
 use event::EventListener;
 use wasm_bindgen::{JsValue, UnwrapThrowExt, prelude::Closure};
@@ -19,10 +12,17 @@ pub mod event;
 pub use mogwai_future_rsx::rsx;
 
 pub mod prelude {
-    pub use super::rsx;
-    pub use super::{Web, event::*};
+    pub use super::{Web, event::*, rsx};
     pub use crate::prelude::*;
 }
+
+// impl ViewNode for &web_sys::Node {
+//     type Owned = web_sys::Node;
+
+//     fn owned_node(self) -> Self::Owned {
+//         self.clone()
+//     }
+// }
 
 impl ViewChild<Web> for web_sys::Node {
     fn as_append_arg(&self) -> AppendArg<Web, impl Iterator<Item = &'_ web_sys::Node>> {
@@ -31,16 +31,13 @@ impl ViewChild<Web> for web_sys::Node {
 }
 
 impl ViewParent<Web> for web_sys::Node {
-    fn remove_child(&self, child: impl ViewChild<Web>) {
-        for child in child.as_append_arg() {
-            let _ = self.remove_child(child);
-        }
+    fn remove_node(&self, node: &&web_sys::Node) {
+        let node = *node;
+        web_sys::Node::remove_child(self, node).unwrap_throw();
     }
 
-    fn append_child(&self, child: impl ViewChild<Web>) {
-        for child in child.as_append_arg() {
-            let _ = self.append_child(child);
-        }
+    fn append_node(&self, node: &web_sys::Node) {
+        web_sys::Node::append_child(self, node).unwrap_throw();
     }
 
     fn new(name: impl AsRef<str>) -> Self {
@@ -92,16 +89,13 @@ macro_rules! node_impl {
                     .unwrap()
             }
 
-            fn remove_child(&self, child: impl ViewChild<Web>) {
-                for child in child.as_append_arg() {
-                    let _ = web_sys::Node::remove_child(self, &child);
-                }
+            fn remove_node(&self, node: &&web_sys::Node) {
+                let node = *node;
+                web_sys::Node::remove_child(self, node).unwrap_throw();
             }
 
-            fn append_child(&self, child: impl ViewChild<Web>) {
-                for child in child.as_append_arg() {
-                    let _ = web_sys::Node::append_child(self, &child);
-                }
+            fn append_node(&self, node: &web_sys::Node) {
+                web_sys::Node::append_child(self, node).unwrap_throw();
             }
         }
     };
@@ -182,9 +176,9 @@ impl View for Web {
 
 pub struct Global<T> {
     #[cfg(target_arch = "wasm32")]
-    data: ManuallyDrop<LazyCell<T>>,
+    data: std::mem::ManuallyDrop<std::cell::LazyCell<T>>,
     #[cfg(not(target_arch = "wasm32"))]
-    data: LazyLock<T>,
+    data: std::sync::LazyLock<T>,
 }
 
 impl<T> Global<T> {
@@ -192,13 +186,13 @@ impl<T> Global<T> {
         #[cfg(target_arch = "wasm32")]
         {
             Global {
-                data: ManuallyDrop::new(LazyCell::new(create_fn)),
+                data: std::mem::ManuallyDrop::new(std::cell::LazyCell::new(create_fn)),
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
             Global {
-                data: LazyLock::new(create_fn),
+                data: std::sync::LazyLock::new(create_fn),
             }
         }
     }
@@ -314,54 +308,99 @@ impl Future for NextFrame {
 
 #[cfg(test)]
 mod test {
-    use std::{
-        marker::PhantomData,
-        ops::{Deref, DerefMut},
-    };
-
-    use crate as mogwai_futura;
+    use crate::{self as mogwai_futura, proxy::Proxy};
     use mogwai_futura::web::prelude::*;
 
-    #[derive(Default)]
-    struct Proxy<V: View, T> {
-        model: T,
-        update: Option<Box<dyn FnMut(&T) + 'static>>,
-        _phantom: PhantomData<V>,
-    }
+    #[test]
+    /// ```compile_fail
+    /// fn rsx_proxy_on_outermost_block_is_compiler_error() {
+    ///     fn view<V: View>() {
+    ///         let proxy = Proxy::<Web, ()>::default();
+    ///         rsx! {
+    ///             {proxy(() => "Erroring text node.".into_text::<Web>())}
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    fn rsx_doc_proxy_on_outermost_block_is_compiler_error() {}
 
-    impl<V: View, T> Deref for Proxy<V, T> {
-        type Target = T;
-
-        fn deref(&self) -> &Self::Target {
-            &self.model
-        }
-    }
-
-    impl<V: View, T: PartialEq> Proxy<V, T> {
-        pub fn new(model: T) -> Self {
-            Self {
-                model,
-                update: None,
-                _phantom: PhantomData,
-            }
+    #[test]
+    fn rsx_unique_names() {
+        struct MyView<V: View> {
+            wrapper: V::Element,
         }
 
-        pub fn on_update(&mut self, f: impl FnMut(&T) + 'static) {
-            self.update = Some(Box::new(f))
-        }
-
-        pub fn set(&mut self, t: T) {
-            if t != self.model {
-                self.model = t;
-                if let Some(update) = self.update.as_mut() {
-                    update(&self.model);
+        fn view<V: View>() -> MyView<V> {
+            rsx! {
+                let wrapper = main() {
+                    div() {
+                        "Text one."
+                        "Text two."
+                        "Text three."
+                        p() {
+                            "Inside p one."
+                        }
+                        p() {
+                            "Inside p two."
+                        }
+                    }
                 }
+            }
+            MyView { wrapper }
+        }
+    }
+
+    #[test]
+    fn rsx_block_nesting() {
+        struct MyView<V: View> {
+            wrapper: V::Element,
+            child: MyChild<V>,
+            text: V::Text,
+            node_proxy: Proxy<V, Str>,
+        }
+
+        #[derive(ViewChild)]
+        struct MyChild<V: View> {
+            #[child]
+            wrapper: V::Element,
+        }
+
+        fn view<V: View>() -> MyView<V> {
+            rsx! {
+                let wrapper = p() {
+                    "Here lies davey jones."
+                }
+            }
+
+            let child = MyChild { wrapper };
+
+            let proxy = Proxy::<V, Str>::default();
+
+            rsx! {
+                let wrapper = div(id = "wrapper") {
+                    let child = {child}
+
+                    "Constant text can live inline."
+
+                    let text = {"Rust expressions in a block must evaluate to some kind of node.".into_text::<V>()}
+
+                    h3() { "Here we'll list some values" }
+                    ul() {
+                        { proxy(s => s) }
+                    }
+                }
+            }
+
+            MyView {
+                wrapper,
+                child,
+                text,
             }
         }
     }
 
     #[test]
-    fn proxy() {
+    fn rsx_proxy() {
         #[derive(PartialEq)]
         struct Model {
             id: usize,
@@ -383,12 +422,10 @@ mod test {
 
             rsx! {
                 let wrapper = div(
-                    id = proxy(model) => model.id.to_string()
+                    id = proxy(m => m.id.to_string())
                 ) {
-                    a(
-                        href = proxy(model) => &model.href
-                    ) {
-                        { proxy(model) => &model.link_text }
+                    a( href = proxy(model => &model.href) ) {
+                        { proxy(model => &model.link_text) }
                     }
                 }
             }

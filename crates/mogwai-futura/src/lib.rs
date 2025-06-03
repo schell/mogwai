@@ -45,7 +45,8 @@
 //! developer in modelling the UI using traits, and then providing the developer with
 //! tools and wrappers to make fullfilling those traits on specific platforms as easy
 //! as possible.
-pub mod builder;
+pub mod proxy;
+pub mod ssr;
 mod str;
 pub mod sync;
 pub mod time;
@@ -54,7 +55,7 @@ pub mod view;
 pub mod web;
 
 pub mod prelude {
-    pub use crate::{builder::*, str::*, view::*};
+    pub use crate::{str::*, view::*};
 }
 
 pub use str::Str;

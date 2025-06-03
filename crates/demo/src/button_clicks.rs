@@ -87,39 +87,30 @@ impl ButtonClicksView<Web> {
         log::info!("building the view");
         let view: ButtonClicksView<Web> = ButtonClicksView::default();
         log::info!("adding the view");
-        let body = web_sys::window()
-            .unwrap()
-            .document()
-            .unwrap()
-            .body()
-            .unwrap();
+        let body = mogwai_futura::web::body();
         web_sys::Node::append_child(&body, &view.wrapper).unwrap();
         wasm_bindgen_futures::spawn_local(async move { model.run(view).await });
         Ok(())
     }
 }
 
-mod blah {
-    use super::*;
-
-    impl<V: View> Default for ButtonClicksView<V> {
-        fn default() -> Self {
-            rsx! {
-                let wrapper = div(id = "buttonwrapper") {
-                    let label = {Label::default()}
-                    button(style:cursor = "pointer", on:click = button_click) {
-                        p() {
-                            let text = "Click me."
-                        }
+impl<V: View> Default for ButtonClicksView<V> {
+    fn default() -> Self {
+        rsx! {
+            let wrapper = div(id = "buttonwrapper") {
+                let label = {Label::default()}
+                button(style:cursor = "pointer", on:click = button_click) {
+                    p() {
+                        let text = "Click me."
                     }
                 }
             }
-            Self {
-                wrapper,
-                text,
-                label,
-                button_click,
-            }
+        }
+        Self {
+            wrapper,
+            text,
+            label,
+            button_click,
         }
     }
 }

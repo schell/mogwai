@@ -5,7 +5,7 @@ use wasm_bindgen::{JsCast, UnwrapThrowExt};
 use crate::{data::*, row::*};
 
 #[derive(ViewChild)]
-struct AppBtn<V: View = Builder> {
+struct AppBtn<V: View> {
     #[child]
     wrapper: V::Element,
 }
