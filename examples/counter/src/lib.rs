@@ -1,6 +1,5 @@
-#![allow(unused_braces)]
 use log::Level;
-use mogwai_dom::prelude::*;
+use mogwai_futura::web::prelude::*;
 use std::panic;
 use wasm_bindgen::prelude::*;
 
@@ -10,54 +9,62 @@ use wasm_bindgen::prelude::*;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
+#[derive(ViewChild)]
+pub struct ButtonClick<V: View> {
+    #[child]
+    wrapper: V::Element,
+    on_click: V::EventListener,
+    clicks: Proxy<V, u32>,
+}
+
+impl<V: View> Default for ButtonClick<V> {
+    fn default() -> Self {
+        let proxy = Proxy::default();
+
+        rsx! {
+            let wrapper = button(
+                style:cursor = "pointer",
+                on:click = on_click
+            ) {
+                {proxy(clicks => match *clicks {
+                    1 => "Click again.".into_text::<V>(),
+                    n => format!("Clicked {n} times.").into_text::<V>(),
+                })}
+            }
+        }
+
+        Self {
+            wrapper,
+            clicks: proxy,
+            on_click,
+        }
+    }
+}
+
 #[wasm_bindgen]
-pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
+pub fn run(parent_id: Option<String>) {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    let clicked = Output::<()>::default();
-    let mut message = Input::<String>::default();
-
-    let bldr: ViewBuilder = rsx! {
-        button(
-            style:cursor = "pointer",
-            on:click = clicked.sink().contra_map(|_: JsDomEvent| ())
-        ) {
-            {("Click me!", message.stream().unwrap())}
-        }
+    let mut view = ButtonClick::<Web>::default();
+    if let Some(id) = parent_id {
+        mogwai_futura::web::document()
+            .get_element_by_id(&id)
+            .unwrap_throw()
+            .append_child(&view);
+    } else {
+        mogwai_futura::web::body().append_child(&view);
     }
-    .with_task(async move {
-        let mut clicks: u32 = 0;
+
+    wasm_bindgen_futures::spawn_local(async move {
         loop {
-            match clicked.get().await {
-                Some(_ev) => {
-                    clicks += 1;
-                    message
-                        .set(match clicks {
-                            1 => "Click again.".to_string(),
-                            n => format!("Clicked {} times", n),
-                        })
-                        .await
-                        .unwrap();
-                }
-                None => break,
-            }
+            let _ev = view.on_click.next().await;
+            view.clicks.set(*view.clicks + 1);
         }
     });
+}
 
-    let view = JsDom::try_from(bldr).unwrap();
-    if let Some(id) = parent_id {
-        let doc = mogwai_dom::utils::document();
-        let parent = doc
-            .visit_as::<web_sys::Document, JsDom>(|doc| {
-                JsDom::from_jscast(&doc.get_element_by_id(&id).unwrap())
-            })
-            .unwrap();
-        view.run_in_container(parent)
-    } else {
-        view.run()
-    }
-    .unwrap();
-
-    Ok(())
+#[wasm_bindgen(start)]
+pub fn main() {
+    run(None)
 }

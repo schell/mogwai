@@ -7,7 +7,7 @@
 
 use std::{borrow::Cow, marker::PhantomData, ops::Deref};
 
-use crate::view::{View, ViewChild, ViewParent};
+use crate::view::{AppendArg, View, ViewChild, ViewParent};
 
 /// A proxy type that connects a view to some data that updates the view.
 pub struct Proxy<V: View, T> {
@@ -61,6 +61,14 @@ impl<V: View, T: PartialEq> Proxy<V, T> {
 pub struct ProxyChild<V: View> {
     _phantom: PhantomData<V>,
     nodes: Vec<V::Node>,
+}
+
+impl<V: View> ViewChild<V> for ProxyChild<V> {
+    fn as_append_arg(
+        &self,
+    ) -> crate::prelude::AppendArg<V, impl Iterator<Item = Cow<'_, <V as View>::Node>>> {
+        AppendArg::new(self.nodes.iter().map(Cow::Borrowed))
+    }
 }
 
 impl<V: View> ProxyChild<V> {

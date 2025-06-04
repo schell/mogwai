@@ -14,15 +14,10 @@ pub use mogwai_future_rsx::rsx;
 pub mod prelude {
     pub use super::{Web, event::*, rsx};
     pub use crate::prelude::*;
+    pub extern crate wasm_bindgen;
+    pub extern crate wasm_bindgen_futures;
+    pub extern crate web_sys;
 }
-
-// impl ViewNode for &web_sys::Node {
-//     type Owned = web_sys::Node;
-
-//     fn owned_node(self) -> Self::Owned {
-//         self.clone()
-//     }
-// }
 
 impl ViewChild<Web> for web_sys::Node {
     fn as_append_arg(&self) -> AppendArg<Web, impl Iterator<Item = Cow<'_, web_sys::Node>>> {
@@ -390,13 +385,66 @@ mod test {
             wrapper: V::Element,
             child: MyChild<V>,
             text: V::Text,
-            node_proxy: Proxy<V, Str>,
+            proxy: Proxy<V, Str>,
         }
 
         #[derive(ViewChild)]
         struct MyChild<V: View> {
             #[child]
             wrapper: V::Element,
+        }
+
+        fn view2<V: View>() -> MyView<V> {
+            let wrapper = V::Element::new("p");
+            let _wrapper_text = V::Text::new("Here lies davey jones.");
+            wrapper.append_child(&_wrapper_text);
+            let child = MyChild { wrapper };
+            let proxy = Proxy::<V, Str>::default();
+            let wrapper = V::Element::new("div");
+            let child = child;
+            wrapper.append_child(&child);
+            let _wrapper_text = V::Text::new("Constant text can live inline.");
+            wrapper.append_child(&_wrapper_text);
+            let text = "But Rust expressions in a block must evaluate to some kind of node."
+                .into_text::<V>();
+            wrapper.append_child(&text);
+            let _wrapper_ul = V::Element::new("ul");
+            let __wrapper_ul_li = V::Element::new("li");
+            let ___wrapper_ul_li_text =
+                V::Text::new("And you can use `Proxy` to insert a variable number of nodes...");
+            __wrapper_ul_li.append_child(&___wrapper_ul_li_text);
+            _wrapper_ul.append_child(&__wrapper_ul_li);
+            let mut __wrapper_ul_block_proxy = {
+                let s = &proxy;
+                mogwai_futura::proxy::ProxyChild::new(
+                    &_wrapper_ul,
+                    (std::ops::Deref::deref(s)).into_text::<V>(),
+                )
+            };
+            _wrapper_ul.append_child(&__wrapper_ul_block_proxy);
+            let __wrapper_ul_li1 = V::Element::new("li");
+            let ___wrapper_ul_li1_text =
+                V::Text::new("That updates every time a new value is set on the `Proxy`");
+            __wrapper_ul_li1.append_child(&___wrapper_ul_li1_text);
+            _wrapper_ul.append_child(&__wrapper_ul_li1);
+            wrapper.append_child(&_wrapper_ul);
+            wrapper.set_property("id", "wrapper");
+            let proxy = {
+                let mut proxy = proxy;
+                proxy.on_update({
+                    move |model| {
+                        let s = model;
+                        __wrapper_ul_block_proxy.replace(&_wrapper_ul, s.into_text::<V>());
+                    }
+                });
+                proxy
+            };
+            MyView {
+                wrapper,
+                child,
+                text,
+                proxy,
+            }
         }
 
         fn view<V: View>() -> MyView<V> {
@@ -412,15 +460,24 @@ mod test {
 
             rsx! {
                 let wrapper = div(id = "wrapper") {
+                    // You can nest view structs
                     let child = {child}
 
                     "Constant text can live inline."
 
-                    let text = {"Rust expressions in a block must evaluate to some kind of node.".into_text::<V>()}
+                    // You can use Rust expressions inside a block...
+                    let text = {
+                        "But Rust expressions in a block must evaluate to some kind of node.".into_text::<V>()
+                    }
 
-                    h3() { "Here we'll list some values" }
                     ul() {
-                        { proxy(s => s) }
+                        li() {
+                            "And you can use `Proxy` to insert a variable number of nodes..."
+                        }
+                        { proxy(s => s.into_text::<V>()) }
+                        li() {
+                            "That updates every time a new value is set on the `Proxy`"
+                        }
                     }
                 }
             }
@@ -429,6 +486,7 @@ mod test {
                 wrapper,
                 child,
                 text,
+                proxy,
             }
         }
     }
@@ -448,7 +506,7 @@ mod test {
         }
 
         fn create_view<V: View>() -> MyView<V> {
-            let mut proxy = Proxy::<V, _>::new(Model {
+            let proxy = Proxy::<V, _>::new(Model {
                 id: 666,
                 href: "localhost:8080".into(),
                 link_text: "Go home.".into(),
@@ -459,7 +517,7 @@ mod test {
                     id = proxy(m => m.id.to_string())
                 ) {
                     a( href = proxy(model => &model.href) ) {
-                        { proxy(model => &model.link_text) }
+                        { proxy(model => (&model.link_text).into_text::<V>()) }
                     }
                 }
             }

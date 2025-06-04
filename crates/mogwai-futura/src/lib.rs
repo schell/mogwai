@@ -55,7 +55,7 @@ pub mod view;
 pub mod web;
 
 pub mod prelude {
-    pub use crate::{str::*, view::*};
+    pub use crate::{proxy::*, str::*, view::*};
 }
 
 pub use str::Str;

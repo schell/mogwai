@@ -39,8 +39,8 @@ impl ViewText for SsrText {
 }
 
 impl ViewChild<Ssr> for SsrText {
-    fn as_append_arg(&self) -> AppendArg<Ssr, impl Iterator<Item = SsrNode>> {
-        AppendArg::new(std::iter::once(SsrNode::Text(self.clone())))
+    fn as_append_arg(&self) -> AppendArg<Ssr, impl Iterator<Item = Cow<'_, SsrNode>>> {
+        AppendArg::new(std::iter::once(Cow::Owned(SsrNode::Text(self.clone()))))
     }
 }
 
@@ -89,18 +89,56 @@ impl ViewParent<Ssr> for SsrElement {
         s
     }
 
-    fn remove_node(&self, node: &SsrNode) {
-        self.children.get_mut().retain(|kid| kid != node);
+    fn append_node(&self, node: Cow<'_, <Ssr as View>::Node>) {
+        self.children.get_mut().push(node.into_owned());
     }
 
-    fn append_node(&self, node: SsrNode) {
-        self.children.get_mut().push(node);
+    fn remove_node(&self, node: Cow<'_, <Ssr as View>::Node>) {
+        self.children
+            .get_mut()
+            .retain(|child| child != node.as_ref());
+    }
+
+    fn replace_node(
+        &self,
+        new_node: Cow<'_, <Ssr as View>::Node>,
+        old_node: Cow<'_, <Ssr as View>::Node>,
+    ) {
+        let mut children = self.children.get_mut();
+        let found = children
+            .iter_mut()
+            .find(|child| *child == old_node.as_ref());
+        if let Some(node) = found {
+            *node = new_node.into_owned();
+        }
+    }
+
+    fn insert_node_before(
+        &self,
+        new_node: Cow<'_, <Ssr as View>::Node>,
+        before_node: Option<Cow<'_, <Ssr as View>::Node>>,
+    ) {
+        if let Some(before_node) = before_node {
+            let mut children = self.children.get_mut();
+            let found = children.iter().enumerate().find_map(|(i, child)| {
+                if child == before_node.as_ref() {
+                    Some(i)
+                } else {
+                    None
+                }
+            });
+            if let Some(index) = found {
+                children.insert(index, new_node.into_owned());
+            }
+        } else {
+            self.append_node(new_node);
+        }
     }
 }
 
 impl ViewChild<Ssr> for SsrElement {
-    fn as_append_arg(&self) -> AppendArg<Ssr, impl Iterator<Item = SsrNode>> {
-        AppendArg::new(std::iter::once(SsrNode::Element(self.clone())))
+    fn as_append_arg(&self) -> AppendArg<Ssr, impl Iterator<Item = Cow<'_, SsrNode>>> {
+        AppendArg::new(std::iter::once(Cow::Owned(SsrNode::Element(self.clone()))))
     }
 }
 
@@ -394,6 +432,6 @@ pub struct Ssr;
 impl View for Ssr {
     type Element = SsrElement;
     type Text = SsrText;
-    type Node<'a> = SsrNode;
+    type Node = SsrNode;
     type EventListener = SsrEventListener;
 }

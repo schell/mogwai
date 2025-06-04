@@ -82,7 +82,7 @@ impl ToTokens for ProxyOnUpdate {
                     let expr = &update.expr;
                     quote! {{
                             let #pat = model;
-                            #block.replace(#parent, #expr);
+                            #block.replace(&#parent, #expr);
                     }}
                 }
             })
@@ -100,6 +100,8 @@ impl ToTokens for ProxyOnUpdate {
 fn insert_proxy(
     proxies: &mut HashMap<syn::Ident, ProxyOnUpdate>,
     ident: &syn::Ident,
+    should_clone: bool,
+    parent: Option<&syn::Ident>,
     key: ProxyUpdateKey,
     proxy_update: &ProxyUpdate,
 ) {
@@ -111,7 +113,12 @@ fn insert_proxy(
             updated_idents: vec![],
             updates: HashMap::default(),
         });
-    proxy_on_update.updated_idents.push(ident.clone());
+    if should_clone {
+        proxy_on_update.updated_idents.push(ident.clone());
+    }
+    if let Some(parent) = parent {
+        proxy_on_update.updated_idents.push(parent.clone());
+    }
     proxy_on_update.updates.insert(key, proxy_update);
 }
 
@@ -288,9 +295,9 @@ impl WebFlavor {
         let proxy_ident = &proxy.proxy_ident;
         let pattern = &proxy.pattern;
         let expr = &proxy.expr;
-        quote! { let #ident = {
-            let #pattern = &#proxy_ident;
-            mogwai_futura::proxy::ProxyChild::new(#parent, #expr)
+        quote! { let mut #ident = {
+            let #pattern = (std::ops::Deref::deref(&#proxy_ident));
+            mogwai_futura::proxy::ProxyChild::new(&#parent, #expr)
         };}
     }
 }
@@ -301,7 +308,11 @@ impl quote::ToTokens for ViewToken {
         self.to_named_tokens(None, 0, tokens, &mut proxies);
         for (proxy, updates) in proxies.into_iter() {
             quote! {
-                #proxy.on_update(#updates);
+                let #proxy = {
+                    let mut #proxy = #proxy;
+                    #proxy.on_update(#updates);
+                    #proxy
+                };
             }
             .to_tokens(tokens);
         }
@@ -411,6 +422,8 @@ impl ViewToken {
                             insert_proxy(
                                 proxies,
                                 &ident,
+                                true,
+                                None,
                                 ProxyUpdateKey::Attrib(key.clone()),
                                 proxy_update,
                             );
@@ -433,12 +446,18 @@ impl ViewToken {
                 let_ident
             }
             ViewToken::BlockProxy { ident, proxy } => {
-                let let_ident = ident.clone().unwrap_or(generic_id);
+                let mut should_clone = true;
+                let let_ident = ident.clone().unwrap_or_else(|| {
+                    should_clone = false;
+                    generic_id
+                });
                 let id = let_ident.ident.clone();
                 if let Some(parent) = parent_name.as_ref() {
                     insert_proxy(
                         proxies,
                         &id,
+                        should_clone,
+                        Some(parent),
                         ProxyUpdateKey::Block {
                             parent: if let Some(parent) = parent_name.as_ref() {
                                 parent.clone()
