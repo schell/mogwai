@@ -1,5 +1,6 @@
+use futures::future::FutureExt;
 use log::Level;
-use mogwai_dom::prelude::*;
+use mogwai_futura::web::prelude::*;
 use std::panic;
 use wasm_bindgen::prelude::*;
 
@@ -9,57 +10,88 @@ use wasm_bindgen::prelude::*;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-#[derive(Clone)]
-enum CounterMsg {
-    Click,
-    Reset,
+// ANCHOR: cookbook_components_counter
+#[derive(ViewChild)]
+struct Counter<V: View> {
+    #[child]
+    wrapper: V::Element,
+    on_click: V::EventListener,
+    text: V::Text,
+    clicks: usize,
 }
 
-// ANCHOR: cookbook_components_counter
-fn counter(recv_parent_msg: impl Stream<Item = CounterMsg> + Send + 'static) -> ViewBuilder {
-    let clicked = Output::<CounterMsg>::default();
-    let mut num_clicks = Input::<u32>::default();
-    let click_stream = clicked.get_stream();
-
-    rsx! (
-        button(on:click = clicked.sink().contra_map(|_: JsDomEvent| CounterMsg::Click)) {
-            {(
-                "clicks = 0",
-                num_clicks.stream().unwrap().map(|n| format!("clicks = {}", n))
-            )}
-        }
-    )
-    .with_task(async move {
-        let mut msg = click_stream.boxed().or(recv_parent_msg.boxed());
-        let mut clicks: u32 = 0;
-        loop {
-            match msg.next().await {
-                Some(CounterMsg::Click) => {
-                    clicks += 1;
-                }
-                Some(CounterMsg::Reset) => {
-                    clicks = 0;
-                }
-                None => break,
+impl<V: View> Default for Counter<V> {
+    fn default() -> Self {
+        rsx! {
+            let wrapper = button(on:click = on_click, style:cursor = "pointer") {
+                let text = "Click me."
             }
-
-            num_clicks.set(clicks).await.unwrap();
         }
-    })
+        Self {
+            wrapper,
+            on_click,
+            text,
+            clicks: 0,
+        }
+    }
+}
+
+impl<V: View> Counter<V> {
+    fn update_text(&self) {
+        self.text.set_text(match self.clicks {
+            1 => "Clicked one time.".into(),
+            n => format!("Clicked {n} times."),
+        });
+    }
+
+    async fn run_until_click(&mut self) {
+        let _event = self.on_click.next().await;
+        self.clicks += 1;
+        self.update_text();
+    }
+
+    fn reset(&mut self) {
+        self.clicks = 0;
+        self.update_text();
+    }
 }
 // ANCHOR_END: cookbook_components_counter
 
 // ANCHOR: cookbook_components_app
-fn app() -> ViewBuilder {
-    let reset_clicked = Output::<CounterMsg>::default();
+#[derive(ViewChild)]
+struct App<V: View> {
+    #[child]
+    wrapper: V::Element,
+    counter: Counter<V>,
+    on_click_reset: V::EventListener,
+}
 
-    rsx! {
-        div() {
-            "Application"
-            br(){}
-            {counter(reset_clicked.get_stream())}
-            button(on:click = reset_clicked.sink().contra_map(|_:JsDomEvent| CounterMsg::Reset)){
-                "Click to reset"
+impl<V: View> Default for App<V> {
+    fn default() -> Self {
+        rsx! {
+            let wrapper = div() {
+                "Application"
+                br(){}
+                let counter = {Counter::default()}
+                button(on:click = on_click_reset, style:cursor = "pointer") {
+                    "Click to reset."
+                }
+            }
+        }
+        Self {
+            wrapper,
+            counter,
+            on_click_reset,
+        }
+    }
+}
+
+impl<V: View> App<V> {
+    async fn run_until_event(&mut self) {
+        futures::select! {
+            _counter_clicked = self.counter.run_until_click().fuse() => {}
+            _reset_clicked = self.on_click_reset.next().fuse() => {
+                self.counter.reset();
             }
         }
     }
@@ -67,25 +99,26 @@ fn app() -> ViewBuilder {
 // ANCHOR_END: cookbook_components_app
 
 #[wasm_bindgen]
-pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
+pub fn run(parent_id: Option<String>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    // ANCHOR: cookbook_components_app_build
-    let view = JsDom::try_from(app()).unwrap();
-    // ANCHOR_END: cookbook_components_app_build
+    let mut app = App::<Web>::default();
 
     if let Some(id) = parent_id {
-        let parent = mogwai_dom::utils::document()
-            .visit_as::<web_sys::Document, JsDom>(|doc| {
-                JsDom::from_jscast(&doc.get_element_by_id(&id).unwrap())
-            })
-            .unwrap();
-        view.run_in_container(parent)
+        let parent = mogwai_futura::web::document()
+            .get_element_by_id(&id)
+            .unwrap_throw();
+        parent.append_child(&app);
     } else {
-        view.run()
+        mogwai_futura::web::body().append_child(&app);
     }
-    .unwrap();
+
+    wasm_bindgen_futures::spawn_local(async move {
+        loop {
+            app.run_until_event().await;
+        }
+    });
 
     Ok(())
 }

@@ -8,3 +8,4 @@ book_examples
 .aider*
 **/*.wasm
 **/*.js
+**/dist

@@ -63,8 +63,3 @@ pub fn run(parent_id: Option<String>) {
         }
     });
 }
-
-#[wasm_bindgen(start)]
-pub fn main() {
-    run(None)
-}
