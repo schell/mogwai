@@ -138,3 +138,13 @@ pub trait View: Sized + 'static {
     type Text: ViewText + ViewChild<Self> + ViewEventTarget<Self> + Clone + 'static;
     type EventListener: ViewEventListener<Self>;
 }
+
+pub fn try_cast_ref<V: View, W: View>(element: &V::Element) -> Option<&W::Element> {
+    // Pay no attention to the man behind the curtain.
+    if std::any::TypeId::of::<W>() == std::any::TypeId::of::<V>() {
+        // Nothing to see here!
+        Some(unsafe { &*(element as *const V::Element as *const W::Element) })
+    } else {
+        None
+    }
+}

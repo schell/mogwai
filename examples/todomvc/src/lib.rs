@@ -1,4 +1,4 @@
-use mogwai_dom::prelude::*;
+use mogwai_futura::web::prelude::*;
 use std::panic;
 use wasm_bindgen::prelude::*;
 
@@ -19,10 +19,7 @@ pub fn main() -> Result<(), JsValue> {
     console_log::init_with_level(log::Level::Trace).expect("could not init console_log");
 
     let items = app::Items::default();
-    JsDom::try_from(items.viewbuilder())
-        .unwrap()
-        .run()
-        .unwrap();
+    JsDom::try_from(items.viewbuilder()).unwrap().run().unwrap();
 
     Ok(())
 }

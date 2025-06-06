@@ -1,0 +1,18 @@
+<html>
+  <head>
+    <title>list-of-gizmos | mogwai</title>
+    <link href="style.css" rel="stylesheet" />
+    
+<script type="module">
+import init, * as bindings from '/list-of-gizmos-c7002720acad6a4d.js';
+const wasm = await init({ module_or_path: '/list-of-gizmos-c7002720acad6a4d_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+  <link rel="modulepreload" href="/list-of-gizmos-c7002720acad6a4d.js" crossorigin="anonymous" integrity="sha384-s6ca8uj4cmxcvh1iXQVcuRDAHnwR5hewaT+/Vdmny1c+ZEdW0alP4iMYO7LQBfUr"><link rel="preload" href="/list-of-gizmos-c7002720acad6a4d_bg.wasm" crossorigin="anonymous" integrity="sha384-9ax4ypsGuuoViX50Qerx7LQ7drlG5ct6M7L1DWNIZ6lyMvutuBOZPZvHUy43hp+Z" as="fetch" type="application/wasm"></head>
+</html>

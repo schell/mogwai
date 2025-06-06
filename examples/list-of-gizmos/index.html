@@ -1,18 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <title>list-of-gizmos</title>
-        <link rel="stylesheet" href="style.css">
-    </head>
-    <body>
-        <div id="app" >App should be inside this div</div>
-        <script type="module">
-         import init, { main } from './pkg/list_of_gizmos.js';
-         window.addEventListener('load', async () => {
-             await init();
-             await main("app");
-         });
-        </script>
-    </body>
+<html>
+  <head>
+    <title>list-of-gizmos | mogwai</title>
+    <link href="style.css" rel="stylesheet" />
+    <link data-trunk rel="rust" data-wasm-opt=4 />
+  </head>
 </html>

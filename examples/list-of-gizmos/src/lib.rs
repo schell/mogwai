@@ -1,12 +1,8 @@
 // ANCHOR: cookbook_list_full
-#![allow(unused_braces)]
+use futures::future::FutureExt;
 use log::Level;
-use mogwai_dom::core::{
-    model::{ListPatchModel, Model},
-    patch::ListPatch,
-};
-use mogwai_dom::prelude::*;
-use std::panic;
+use mogwai_futura::web::prelude::*;
+use std::{collections::HashMap, panic};
 use wasm_bindgen::prelude::*;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -16,152 +12,207 @@ use wasm_bindgen::prelude::*;
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 // ANCHOR: cookbook_list_item
-/// An id to keep track of item nodes
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct ItemId(usize);
+#[derive(ViewChild)]
+pub struct Item<V: View> {
+    #[child]
+    wrapper: V::Element,
+    on_click_increment: V::EventListener,
+    on_click_remove: V::EventListener,
+    clicks: Proxy<V, u32>,
+    id: usize,
+}
 
-/// Creates an individual item.
-///
-/// Takes the id of the item (which will be unique) and an `Output` to send
-/// "remove item" click events (so the item itself can inform the parent when
-/// it should be removed).
-fn item(id: ItemId, remove_item_clicked: Output<ItemId>) -> ViewBuilder {
-    let increment_item_clicked = Output::<()>::default();
-    let num_clicks = Model::<u32>::new(0u32);
-    // ANCHOR: cookbook_list_item_view
-    rsx! {
-        li() {
-            button(
-                style:cursor = "pointer",
-                on:click = increment_item_clicked.sink().contra_map(|_: JsDomEvent| ())
-            ) {
-                "Increment"
+impl<V: View> Item<V> {
+    /// Creates an item from a unique identifier.
+    fn new(id: usize) -> Self {
+        let clicks = Proxy::default();
+
+        rsx! {
+            let wrapper = li() {
+                button(
+                    style:cursor = "pointer",
+                    on:click = on_click_increment
+                ) {
+                    "Increment"
+                }
+                button(
+                    style:cursor = "pointer",
+                    on:click = on_click_remove
+                ) {
+                    "Remove"
+                }
+                " "
+                span() {
+                    {clicks(n => match n {
+                        1 => "1 click".into_text::<V>(),
+                        n => format!("{} clicks", n).into_text::<V>(),
+                    })}
+                }
             }
-            button(
-                style:cursor = "pointer",
-                // every time the user clicks, we'll send the id as output
-                on:click = remove_item_clicked.sink().contra_map(move |_: JsDomEvent| id)
-            ) {
-                "Remove"
-            }
-            {" "}
-            span() {
-                {
-                    ("", num_clicks.stream().map(|clicks| match clicks {
-                        1 => "1 click".to_string(),
-                        n => format!("{} clicks", n),
-                    }))
+        }
+
+        Self {
+            wrapper,
+            on_click_increment,
+            on_click_remove,
+            clicks,
+            id,
+        }
+    }
+}
+
+impl<V: View> Item<V> {
+    async fn run_until_removal_request(&mut self) -> usize {
+        loop {
+            futures::select! {
+                _ = self.on_click_increment.next().fuse() => {
+                    self.clicks.set(*self.clicks + 1);
+                }
+                _ = self.on_click_remove.next().fuse() => {
+                    return self.id;
                 }
             }
         }
     }
-    // ANCHOR_END: cookbook_list_item_view
-    .with_task(async move {
-        while let Some(_) = increment_item_clicked.get().await {
-            num_clicks.visit_mut(|n| *n += 1).await;
-        }
-        log::info!("item {} loop is done", id.0);
-    })
 }
 // ANCHOR_END: cookbook_list_item
 
-// ANCHOR: cookbook_list
-// Maps a patch of ItemId into a patch of ViewBuilder
-fn map_item_patch(
-    patch: ListPatch<ItemId>,
-    remove_item_clicked: Output<ItemId>,
-) -> ListPatch<ViewBuilder> {
-    patch.map(|id| item(id, remove_item_clicked.clone()))
+#[derive(ViewChild)]
+pub struct ItemSet<V: View> {
+    #[child]
+    fieldset: V::Element,
+    ol: V::Element,
+    items: HashMap<usize, Item<V>>,
+    next_item: usize,
 }
 
-/// Our list of items.
-///
-/// Set up our communication from items to this logic loop by
-/// * giving each created item a clone of a shared `Output<ItemId>` to send events from
-/// * creating a list patch model to update from two separate async tasks (one to create, one to remove)
-/// * receive output "removal" messages and patch the list patch model
-/// * receive output "create" messages and patch the list patch model
-fn list() -> ViewBuilder {
-    let remove_item_clicked = Output::<ItemId>::default();
-    let remove_item_clicked_patch = remove_item_clicked.clone();
-
-    let new_item_clicked = Output::<()>::default();
-
-    let items: ListPatchModel<ItemId> = ListPatchModel::new();
-    let items_remove_loop = items.clone();
-
-    // ANCHOR: cookbook_list_view
-    rsx! {
-        fieldset() {
-            legend(){ "A List of Gizmos" }
-            button(
-                style:cursor = "pointer",
-                on:click = new_item_clicked.sink().contra_map(|_: JsDomEvent| ())
-            ) {
-                "Create a new item"
-            }
-            fieldset() {
+impl<V: View> Default for ItemSet<V> {
+    fn default() -> Self {
+        rsx! {
+            let fieldset = fieldset() {
                 legend(){ "Items" }
-                ol(
-                    patch:children = items
-                        .stream()
-                        .map(move |patch| map_item_patch(patch, remove_item_clicked_patch.clone()))
-                ){}
+                let ol = ol(){ }
+            }
+        }
+
+        Self {
+            fieldset,
+            ol,
+            items: Default::default(),
+            next_item: 0,
+        }
+    }
+}
+
+impl<V: View> ItemSet<V> {
+    async fn next_removed_item(&mut self) -> usize {
+        let all_items = self
+            .items
+            .values_mut()
+            .map(|item| Box::pin(item.run_until_removal_request()))
+            .collect::<Vec<_>>();
+
+        if all_items.is_empty() {
+            // select_all will panic if there are no items, so we just stall here,
+            // as nothing can happen until items are added
+            futures::future::pending::<()>().await;
+        }
+
+        let (id, _, _) = futures::future::select_all(all_items).await;
+        id
+    }
+
+    fn add_item(&mut self) {
+        let id = self.next_item;
+        self.next_item += 1;
+        let item = Item::new(id);
+        self.ol.append_child(&item);
+        self.items.insert(id, item);
+    }
+
+    fn remove_item(&mut self, id: usize) {
+        if let Some(item) = self.items.remove(&id) {
+            self.ol.remove_child(&item);
+        }
+    }
+}
+
+// ANCHOR: cookbook_list_view
+#[derive(ViewChild)]
+pub struct List<V: View> {
+    #[child]
+    wrapper: V::Element,
+    on_click_new_item: V::EventListener,
+    item_set: ItemSet<V>,
+}
+
+impl<V: View> Default for List<V> {
+    fn default() -> Self {
+        rsx! {
+            let wrapper = fieldset() {
+                legend(){ "A List of Gizmos" }
+                button(
+                    style:cursor = "pointer",
+                    on:click = on_click_new_item
+                ) {
+                    "Create a new item"
+                }
+                let item_set = {ItemSet::default()}
+            }
+        }
+        Self {
+            wrapper,
+            on_click_new_item,
+            item_set,
+        }
+    }
+}
+// ANCHOR_END: cookbook_list_view
+
+impl<V: View> List<V> {
+    pub async fn run_until_next_event(&mut self) {
+        let Self {
+            wrapper: _,
+            on_click_new_item,
+            item_set,
+        } = self;
+        futures::select! {
+            remove_item_id  =  item_set.next_removed_item().fuse() => {
+                item_set.remove_item(remove_item_id);
+            }
+            _new_item_clicked = on_click_new_item.next().fuse() => {
+                item_set.add_item();
             }
         }
     }
-    // ANCHOR_END: cookbook_list_view
-    .with_task(async move {
-        // add new items
-        let mut next_id = 0;
-        while let Some(_) = new_item_clicked.get().await {
-            log::info!("creating item {}", next_id);
-            let id = ItemId(next_id);
-            next_id += 1;
-            let patch = ListPatch::push(id);
-            items.patch(patch).await.expect("could not patch");
-        }
-        log::info!("list 'add' loop is done - should never happen");
-    }).with_task(async move {
-        // remove items
-        while let Some(remove_id) = remove_item_clicked.get().await {
-            let items_read = items_remove_loop.read().await;
-            let index = items_read.iter().enumerate().find_map(|(i, id)| if id == &remove_id {
-                Some(i)
-            } else {
-                None
-            }).unwrap();
-            drop(items_read);
-            log::info!("removing item {} at index {}", remove_id.0, index);
-            let patch = ListPatch::remove(index);
-            items_remove_loop.patch(patch).await.expect("could not patch");
-        }
-        log::info!("list 'remove' loop is done - should never happen");
-    })
 }
-// ANCHOR_END: cookbook_list
 
 #[wasm_bindgen]
-pub fn main(parent_id: Option<String>) {
+pub fn run(parent_id: Option<String>) {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    let component = list();
-    let view = JsDom::try_from(component).unwrap();
+    let mut list = List::<Web>::default();
+
+    if let Some(id) = parent_id {
+        let parent = mogwai_futura::web::document()
+            .get_element_by_id(&id)
+            .unwrap_throw();
+        parent.append_child(&list);
+    } else {
+        mogwai_futura::web::body().append_child(&list);
+    }
 
     log::info!("built");
-    if let Some(id) = parent_id {
-        let parent = mogwai_dom::utils::document()
-            .visit_as::<web_sys::Document, JsDom>(|doc| {
-                JsDom::from_jscast(&doc.get_element_by_id(&id).unwrap())
-            })
-            .unwrap();
-        view.run_in_container(parent)
-    } else {
-        view.run()
-    }
-    .unwrap();
+    wasm_bindgen_futures::spawn_local(async move {
+        loop {
+            list.run_until_next_event().await;
+        }
+    });
+}
 
-    log::info!("done!");
+#[wasm_bindgen(start)]
+pub fn main() {
+    run(None)
 }
 // ANCHOR_END: cookbook_list_full

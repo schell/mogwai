@@ -337,7 +337,7 @@ impl Future for NextFrame {
 
 #[cfg(test)]
 mod test {
-    use crate::{self as mogwai_futura, proxy::Proxy};
+    use crate::{self as mogwai_futura, proxy::Proxy, ssr::Ssr};
     use mogwai_futura::web::prelude::*;
 
     #[test]
@@ -492,39 +492,27 @@ mod test {
     }
 
     #[test]
-    fn rsx_proxy() {
-        #[derive(PartialEq)]
-        struct Model {
-            id: usize,
-            href: crate::str::Str,
-            link_text: crate::str::Str,
-        }
-
+    fn view_cast() {
         struct MyView<V: View> {
             wrapper: V::Element,
-            proxy: Proxy<V, Model>,
         }
 
         fn create_view<V: View>() -> MyView<V> {
-            let proxy = Proxy::<V, _>::new(Model {
-                id: 666,
-                href: "localhost:8080".into(),
-                link_text: "Go home.".into(),
-            });
-
             rsx! {
-                let wrapper = div(
-                    id = proxy(m => m.id.to_string())
-                ) {
-                    a( href = proxy(model => &model.href) ) {
-                        { proxy(model => (&model.link_text).into_text::<V>()) }
+                let wrapper = div() {
+                    a() {
+                        "Hello"
                     }
                 }
             }
 
-            MyView { wrapper, proxy }
+            MyView { wrapper }
         }
 
-        let _view = create_view::<Web>();
+        let view = create_view::<Ssr>();
+        let cast = try_cast_ref::<Ssr, Web>(&view.wrapper);
+        assert!(cast.is_none());
+        let cast = try_cast_ref::<Ssr, Ssr>(&view.wrapper);
+        assert!(cast.is_some());
     }
 }

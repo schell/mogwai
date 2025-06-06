@@ -1,16 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
+<html>
     <head>
-        <meta charset="utf-8">
         <title>Mogwai • TodoMVC</title>
         <link rel="stylesheet" href="style.css">
+        <link data-trunk rel="rust" data-wasm-opt=4 />
     </head>
-    <body>
-        <script type=module>
-        import init from './pkg/todomvc.js';
-            window.addEventListener('load', async () => {
-            await init();
-            });
-        </script>
-    </body>
 </html>

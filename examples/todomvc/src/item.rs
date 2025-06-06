@@ -1,9 +1,6 @@
 //! Provides a todo line-item that can be edited by double clicking,
 //! marked as complete or removed.
-use mogwai_dom::{
-    core::{model::Model, stream, either::Either},
-    prelude::*,
-};
+use mogwai_futura::web::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlInputElement, KeyboardEvent};
 
@@ -58,15 +55,13 @@ enum ListItemMsg {
 }
 
 #[derive(Clone)]
-pub struct TodoItem {
+pub struct TodoItem<V: View> {
     pub id: usize,
-    pub complete: Model<bool>,
-    pub name: Model<String>,
-    output_to_list: Output<TodoItemMsg>,
-    input_to_item: FanInput<ListItemMsg>,
+    pub complete: Proxy<V, bool>,
+    pub name: Proxy<V, String>,
 }
 
-impl TodoItem {
+impl<V: View> TodoItem<V> {
     pub fn new(
         id: usize,
         name: impl Into<String>,
