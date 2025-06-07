@@ -109,8 +109,8 @@ impl<V: View> ViewChild<V> for String {
         let text = self.into_text::<V>();
         let mut arg = text.as_append_arg();
         // UNWRAP: safe because we created the text.
-        let node: Cow<'_, V::Node> = arg.next().unwrap();
-        AppendArg::new(std::iter::once(Cow::Owned(node.into_owned())))
+        let node: V::Node = arg.next().unwrap().into_owned();
+        AppendArg::new(std::iter::once(Cow::Owned(node)))
     }
 }
 
