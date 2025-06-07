@@ -1,7 +1,15 @@
 <html>
     <head>
-        <title>Mogwai • TodoMVC</title>
-        <link rel="stylesheet" href="style.css">
+        <title>todomvc | mogwai</title>
+        <link data-trunk rel="css" href="style.css" />
         <link data-trunk rel="rust" data-wasm-opt=4 />
     </head>
+  <body>
+    <div id = "app"></div>
+    <script type="module">
+         addEventListener("TrunkApplicationStarted", (event) => {
+            window.wasmBindings.run("app");
+        })
+    </script>
+  </body>
 </html>

@@ -23,7 +23,6 @@ impl std::future::Future for FutureEventOccurrence {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         if let Some(event) = self.event.borrow().as_ref() {
-            log::trace!("event proc'd");
             std::task::Poll::Ready(event.clone())
         } else {
             // Store the waker for later.

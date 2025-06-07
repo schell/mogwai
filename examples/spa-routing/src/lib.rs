@@ -164,7 +164,7 @@ struct App<V: View> {
 
 impl<V: View> Default for App<V> {
     fn default() -> Self {
-        let proxy_route = Proxy::<V, Route>::default();
+        let mut proxy_route = Proxy::<V, Route>::default();
 
         rsx! {
             let wrapper = slot(window:hashchange = on_window_hashchange) {

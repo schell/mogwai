@@ -1,312 +1,215 @@
 //! Provides a todo line-item that can be edited by double clicking,
 //! marked as complete or removed.
+use futures::FutureExt;
 use mogwai::web::prelude::*;
-use wasm_bindgen::JsCast;
-use web_sys::{HtmlInputElement, KeyboardEvent};
+use web_sys::wasm_bindgen::{JsCast, UnwrapThrowExt};
 
-/// Used to set the todo item's `<li>` class
-pub enum ItemClass {
-    None,
-    Editing,
-    Completed,
+use crate::app::FilterShow;
+
+#[derive(Default)]
+pub struct ItemState {
+    pub is_editing: bool,
+    pub is_completed: bool,
+    pub is_visible: bool,
+    pub name: String,
 }
 
-impl ItemClass {
-    fn is_done(is_done: bool) -> Self {
-        if is_done {
-            ItemClass::Completed
-        } else {
-            ItemClass::None
-        }
-    }
-
+impl ItemState {
     // see as_list_class
-    fn to_string(self) -> String {
-        match self {
-            ItemClass::None => "",
-            ItemClass::Editing => "editing",
-            ItemClass::Completed => "completed",
+    fn as_list_class(&self) -> &'static str {
+        if self.is_editing {
+            "editing"
+        } else if self.is_completed {
+            "completed"
+        } else {
+            ""
         }
-        .to_string()
     }
 }
 
-/// Determines the source of a "stop editing" event.
-#[derive(Clone, Debug)]
-enum StopEditingEvent {
-    Enter,
-    Escape,
-    Blur,
-}
-
-/// Messages that come out of the todo item and out to the list.
-#[derive(Clone)]
-pub enum TodoItemMsg {
-    Completion,
-    Remove(usize),
-}
-
-/// Messages that come from the list into the todo item via
-/// pub async functions exposed on [`TodoItem`].
-#[derive(Clone, PartialEq)]
-enum ListItemMsg {
-    SetComplete(bool),
-    SetVisible(bool),
-}
-
-#[derive(Clone)]
+#[derive(ViewChild)]
 pub struct TodoItem<V: View> {
-    pub id: usize,
-    pub complete: Proxy<V, bool>,
-    pub name: Proxy<V, String>,
+    id: usize,
+    #[child]
+    wrapper: V::Element,
+    completed_input: V::Element,
+
+    input_edit: V::Element,
+
+    on_click_completed_toggle: V::EventListener,
+    on_dblclick_name: V::EventListener,
+    on_click_destroy: V::EventListener,
+    on_blur_edit: V::EventListener,
+    on_keyup_edit: V::EventListener,
+
+    state: Proxy<V, ItemState>,
 }
 
 impl<V: View> TodoItem<V> {
-    pub fn new(
-        id: usize,
-        name: impl Into<String>,
-        complete: bool,
-        output_to_list: Output<TodoItemMsg>,
-    ) -> Self {
-        let input_to_item = FanInput::default();
-        TodoItem {
-            name: Model::new(name.into()),
-            complete: Model::new(complete),
-            id,
-            output_to_list,
-            input_to_item,
-        }
-    }
+    pub fn new(id: usize, name: impl AsRef<str>, complete: bool) -> Self {
+        let mut state = Proxy::<V, ItemState>::new(ItemState {
+            name: name.as_ref().into(),
+            is_editing: false,
+            is_completed: complete,
+            is_visible: true,
+        });
 
-    pub async fn set_complete(&self, complete: bool) {
-        self.input_to_item
-            .set(ListItemMsg::SetComplete(complete))
-            .await
-            .expect("could not set complete");
-    }
-
-    pub async fn set_visible(&self, visible: bool) {
-        self.input_to_item
-            .set(ListItemMsg::SetVisible(visible))
-            .await
-            .expect("could not set visible")
-    }
-
-    fn stream_of_is_visible_display(&self) -> impl Stream<Item = String> {
-        stream::iter(std::iter::once("block".to_string())).chain(
-            self.input_to_item.stream().filter_map(|msg| match msg {
-                ListItemMsg::SetVisible(is_visible) => {
-                    Some(if is_visible { "block" } else { "none" }.to_string())
-                }
-                _ => None,
-            }),
-        )
-    }
-
-    async fn task_start_editing(
-        self,
-        captured_edit_input: Captured<JsDom>,
-        input_item_class: Input<ItemClass>,
-        output_label_double_clicked: Output<()>,
-    ) {
-        let edit_input: JsDom = captured_edit_input.get().await;
-        let starting_name: String = self.name.read().await.clone();
-        edit_input.visit_as(|el: &HtmlInputElement| el.set_value(&starting_name));
-        while let Some(()) = output_label_double_clicked.get().await {
-            // set the input to "editing"
-            input_item_class
-                .set(ItemClass::Editing)
-                .await
-                .expect("can't set editing class");
-            // give a moment for the class to update and make the input editable
-            mogwai_dom::core::time::wait_millis(10).await;
-            // focus the input
-            edit_input.visit_as(|el: &HtmlInputElement| el.focus().expect("can't focus"));
-        }
-    }
-
-    async fn task_stop_editing(
-        self,
-        captured_edit_input: Captured<JsDom>,
-        input_item_class: Input<ItemClass>,
-        output_edit_onkeyup: Output<JsDomEvent>,
-        output_edit_onblur: Output<()>,
-    ) {
-        let edit_input = captured_edit_input.get().await;
-        let on_keyup = output_edit_onkeyup.get_stream().map(Either::Left);
-        let on_blur = output_edit_onblur.get_stream().map(Either::Right);
-        let mut events = on_keyup.boxed().or(on_blur.boxed());
-        while let Some(e) = events.next().await {
-            log::info!("stop editing event");
-            let may_edit_event = match e {
-                // keyup
-                Either::Left(ev) => {
-                    log::info!("  keyup");
-                    // Get the browser event or filter on non-wasm targets.
-                    let ev = ev.browser_event().expect("can't get keyup event");
-                    // This came from a key event
-                    let kev = ev.unchecked_ref::<KeyboardEvent>();
-                    let key = kev.key();
-                    if key == "Enter" {
-                        Some(StopEditingEvent::Enter)
-                    } else if key == "Escape" {
-                        Some(StopEditingEvent::Escape)
-                    } else {
-                        None
-                    }
-                }
-                // blur
-                Either::Right(()) => {
-                    log::info!("  blur");
-                    Some(StopEditingEvent::Blur)
-                }
-            };
-
-            if let Some(ev) = may_edit_event {
-                match ev {
-                    StopEditingEvent::Enter | StopEditingEvent::Blur => {
-                        let input_name = edit_input
-                            .visit_as(|i: &HtmlInputElement| crate::utils::input_value(i).unwrap());
-                        if let Some(s) = input_name {
-                            self.name
-                                .visit_mut(|name| {
-                                    *name = s;
-                                })
-                                .await;
-                        }
-                    }
-                    StopEditingEvent::Escape => {
-                        let name = self.name.read().await.clone();
-                        edit_input
-                            .visit_as(|i: &HtmlInputElement| i.set_value(&name))
-                            .unwrap();
-                    }
-                }
-                input_item_class
-                    .set(ItemClass::None)
-                    .await
-                    .expect("can't set editing class");
-            }
-        }
-    }
-
-    async fn task_toggle_complete(
-        self,
-        captured_complete_toggle: Captured<JsDom>,
-        output_complete_toggle_clicked: Output<()>,
-    ) {
-        let toggle_input_element = captured_complete_toggle.get().await;
-        let done = *self.complete.read().await;
-        toggle_input_element.visit_as(|el: &HtmlInputElement| el.set_checked(done));
-
-        let mut events = self.input_to_item.stream().map(Either::Left).boxed().or(
-            output_complete_toggle_clicked
-                .get_stream()
-                .map(Either::Right)
-                .boxed(),
-        );
-        while let Some(ev) = events.next().await {
-            match ev {
-                Either::Left(ListItemMsg::SetComplete(done)) => {
-                    toggle_input_element
-                        .visit_as(|el: &HtmlInputElement| el.set_checked(done))
-                        .expect("could not set checked");
-                    self.complete.visit_mut(|c| *c = done).await;
-                }
-                Either::Left(_) => {}
-                Either::Right(()) => {
-                    let done = toggle_input_element
-                        .visit_as(|el: &HtmlInputElement| el.checked())
-                        .unwrap_or_default();
-                    let _ = self.complete.visit_mut(|d| *d = done).await;
-                    let _ = self.output_to_list.send(TodoItemMsg::Completion).await;
-                }
-            }
-        }
-    }
-
-    async fn task_remove_item(self, output_remove_button_clicked: Output<()>) {
-        while let Some(()) = output_remove_button_clicked.get().await {
-            self.output_to_list
-                .send(TodoItemMsg::Remove(self.id))
-                .await
-                .expect("could not send removal");
-        }
-    }
-
-    pub fn viewbuilder(self) -> ViewBuilder {
-        let captured_complete_toggle_dom = Captured::<JsDom>::default();
-        let captured_edit_input = Captured::<JsDom>::default();
-
-        let mut input_item_class = Input::<ItemClass>::default();
-
-        let output_complete_toggle_clicked = Output::<()>::default();
-        let output_remove_button_clicked = Output::<()>::default();
-        let output_label_double_clicked = Output::<()>::default();
-        let output_edit_onblur = Output::<()>::default();
-        let output_edit_onkeyup = Output::<JsDomEvent>::default();
-
-        let builder = rsx! {
-            li(
-                class = (
-                    ItemClass::is_done(self.complete.current().expect("could not read complete")).to_string(),
-                    input_item_class.stream().unwrap()
-                        .map(ItemClass::to_string).boxed()
-                        .or(
-                            self.complete.stream().map(|done| ItemClass::is_done(done).to_string()).boxed()
-                        )
-                ),
-                style:display = self.stream_of_is_visible_display()
+        rsx! {
+            let wrapper = li(
+                class = state(s => s.as_list_class()),
+                style:display = state(s => if s.is_visible { "block" } else { "none" })
             ) {
                 div(class="view") {
-                    input(
+                    let completed_input = input(
                         class = "toggle",
                         type_ = "checkbox",
                         style:cursor = "pointer",
-                        capture:view = captured_complete_toggle_dom.sink(),
-                        on:click = output_complete_toggle_clicked.sink().contra_map(|_:JsDomEvent| ())
+                        on:click = on_click_completed_toggle
                     ){}
 
-                    label(on:dblclick = output_label_double_clicked.sink().contra_map(|_:JsDomEvent| ())) {
-                        {(
-                            self.name.current().expect("current name"),
-                            self.name.stream()
-                        )}
+                    label(on:dblclick = on_dblclick_name) {
+                        {state(s => &s.name)}
                     }
 
                     button(
                         class = "destroy",
                         style = "cursor: pointer;",
-                        on:click = output_remove_button_clicked.sink().contra_map(|_:JsDomEvent| ()),
+                        on:click = on_click_destroy,
                     ){}
                 }
-
-                input(
+                let input_edit = input(
                     class = "edit",
-                    capture:view = captured_edit_input.sink(),
-                    on:blur = output_edit_onblur.sink().contra_map(|_:JsDomEvent| ()),
-                    on:keyup = output_edit_onkeyup.sink()
-                ){}
+                    on:blur = on_blur_edit,
+                    on:keyup = on_keyup_edit
+                ) {}
             }
-        };
-        builder
-            .with_task(self.clone().task_start_editing(
-                captured_edit_input.clone(),
-                input_item_class.clone(),
-                output_label_double_clicked,
-            ))
-            .with_task(self.clone().task_stop_editing(
-                captured_edit_input,
-                input_item_class,
-                output_edit_onkeyup,
-                output_edit_onblur,
-            ))
-            .with_task(
-                self.clone().task_toggle_complete(
-                    captured_complete_toggle_dom,
-                    output_complete_toggle_clicked,
-                ),
-            )
-            .with_task(self.task_remove_item(output_remove_button_clicked))
+        }
+
+        Self {
+            id,
+            wrapper,
+            completed_input,
+            input_edit,
+            on_click_completed_toggle,
+            on_dblclick_name,
+            on_click_destroy,
+            on_blur_edit,
+            on_keyup_edit,
+            state,
+        }
+    }
+
+    pub fn filter(&mut self, filter: FilterShow) {
+        match filter {
+            FilterShow::All => self.state.modify(|s| s.is_visible = true),
+            FilterShow::Completed => self.state.modify(|s| s.is_visible = s.is_completed),
+            FilterShow::Active => self.state.modify(|s| s.is_visible = !s.is_completed),
+        }
+    }
+
+    pub fn set_completed(&mut self, complete: bool) {
+        self.state.modify(|s| s.is_completed = complete);
+        self.completed_input.when_element::<Web, _>(|el| {
+            let input = el.dyn_ref::<web_sys::HtmlInputElement>().unwrap_throw();
+            input.set_checked(complete);
+        });
+    }
+
+    pub fn get_completed(&self) -> bool {
+        self.state.is_completed
+    }
+
+    pub fn get_name(&self) -> String {
+        self.state.name.clone()
+    }
+
+    /// Run the item until an event occurs, possibly returning the id of the item
+    /// if it's set for destruction.
+    pub async fn run_step(&mut self) -> Option<usize> {
+        enum Step<V: View> {
+            StartEditing,
+            StopEditingBlur(V::Event),
+            StopEditingKeyup(V::Event),
+            Destroy,
+            None,
+        }
+
+        let mut step = Step::<V>::None;
+        if self.state.is_editing {
+            // Editing mode, in which we wait for editing to end
+            futures::select! {
+                ev = self.on_blur_edit.next().fuse() => {
+                    step = Step::StopEditingBlur(ev);
+
+                }
+                ev = self.on_keyup_edit.next().fuse() => {
+                    step = Step::StopEditingKeyup(ev);
+                }
+            }
+        } else {
+            // Default mode
+            futures::select! {
+                _ = self.on_click_completed_toggle.next().fuse() => {
+                    self.state.modify(|s| s.is_completed = !s.is_completed);
+                }
+                _ = self.on_dblclick_name.next().fuse() => {
+                    step = Step::StartEditing;
+                }
+                _ = self.on_click_destroy.next().fuse() => {
+                    step = Step::Destroy;
+                }
+            }
+        }
+
+        let mut destroy = None;
+        match step {
+            Step::StartEditing => {
+                log::info!("started editing");
+                self.state.modify(|s| s.is_editing = true);
+                self.input_edit
+                    .dyn_el::<web_sys::HtmlInputElement, _>(|input| {
+                        input.focus().unwrap_throw();
+                    });
+            }
+            Step::StopEditingBlur(ev) => {
+                log::info!("stop editing blur");
+                let name = ev
+                    .dyn_ev(crate::utils::event_input_value)
+                    .flatten()
+                    .unwrap_or_else(|| self.state.name.clone());
+                self.state.modify(|s| {
+                    s.is_editing = false;
+                    s.name = name;
+                });
+            }
+            Step::StopEditingKeyup(ev) => {
+                ev.dyn_ev::<web_sys::KeyboardEvent, _>(|ev| {
+                    let key = ev.key();
+                    match key.as_str() {
+                        "Enter" => {
+                            let name = crate::utils::event_input_value(ev)
+                                .unwrap_or_else(|| self.state.name.clone());
+                            self.state.modify(|s| {
+                                s.is_editing = false;
+                                s.name = name;
+                            });
+                        }
+                        "Escape" => {
+                            self.input_edit
+                                .dyn_el::<web_sys::HtmlInputElement, _>(|input| {
+                                    input.set_value("")
+                                });
+                            self.state.modify(|s| s.is_editing = false);
+                        }
+                        _ => {}
+                    }
+                });
+            }
+            Step::Destroy => {
+                destroy = Some(self.id);
+            }
+            Step::None => {}
+        }
+        destroy
     }
 }

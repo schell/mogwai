@@ -8,13 +8,10 @@ members = [
   "crates/mogwai-macros",
   "examples/counter",
   "examples/nested-components",
-  #"examples/focus-follower",
   "examples/list-of-gizmos",
-  #"examples/multipage",
-  #"examples/sandbox",
   "examples/spa-routing",
   "examples/svg",
-  #"examples/todomvc",
+  "examples/todomvc",
   "crates/xtask",
 ]
 

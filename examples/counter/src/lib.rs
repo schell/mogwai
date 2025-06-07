@@ -19,7 +19,7 @@ pub struct ButtonClick<V: View> {
 
 impl<V: View> Default for ButtonClick<V> {
     fn default() -> Self {
-        let proxy = Proxy::default();
+        let mut proxy = Proxy::default();
 
         rsx! {
             let wrapper = button(

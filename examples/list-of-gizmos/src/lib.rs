@@ -25,7 +25,7 @@ pub struct Item<V: View> {
 impl<V: View> Item<V> {
     /// Creates an item from a unique identifier.
     fn new(id: usize) -> Self {
-        let clicks = Proxy::default();
+        let mut clicks = Proxy::default();
 
         rsx! {
             let wrapper = li() {

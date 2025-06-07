@@ -10,7 +10,7 @@ use crate::prelude::*;
 pub mod event;
 
 pub mod prelude {
-    pub use super::{Web, event::*};
+    pub use super::{Web, WebElement, WebEvent, event::*};
     pub use crate::prelude::*;
     pub extern crate wasm_bindgen;
     pub extern crate wasm_bindgen_futures;
@@ -184,9 +184,7 @@ impl ViewText for web_sys::Text {
 }
 
 impl ViewEventListener<Web> for EventListener {
-    type Event = web_sys::Event;
-
-    fn next(&self) -> impl Future<Output = Self::Event> {
+    fn next(&self) -> impl Future<Output = web_sys::Event> {
         self.next()
     }
 
@@ -207,6 +205,15 @@ impl View for Web {
     type Text = web_sys::Text;
     type Node = web_sys::Node;
     type EventListener = EventListener;
+    type Event = web_sys::Event;
+}
+
+impl ViewElement for web_sys::Element {
+    type View = Web;
+}
+
+impl ViewEvent for web_sys::Event {
+    type View = Web;
 }
 
 pub struct Global<T> {
@@ -341,6 +348,32 @@ impl Future for NextFrame {
     }
 }
 
+pub trait WebElement: ViewElement {
+    fn dyn_el<T: JsCast, X>(&self, f: impl FnOnce(&T) -> X) -> Option<X> {
+        let opt_x = self.when_element::<Web, _>(|el: &web_sys::Element| -> Option<X> {
+            let el = el.dyn_ref::<T>()?;
+            let x = f(el);
+            Some(x)
+        });
+        opt_x.flatten()
+    }
+}
+
+impl<T: ViewElement> WebElement for T {}
+
+pub trait WebEvent: ViewEvent {
+    fn dyn_ev<T: JsCast, X>(&self, f: impl FnOnce(&T) -> X) -> Option<X> {
+        let opt_x = self.when_event::<Web, _>(|el: &web_sys::Event| -> Option<X> {
+            let el = el.dyn_ref::<T>()?;
+            let x = f(el);
+            Some(x)
+        });
+        opt_x.flatten()
+    }
+}
+
+impl<T: ViewEvent> WebEvent for T {}
+
 #[cfg(test)]
 mod test {
     use crate::{self as mogwai, proxy::Proxy, ssr::Ssr};
@@ -360,6 +393,7 @@ mod test {
     fn rsx_doc_proxy_on_outermost_block_is_compiler_error() {}
 
     #[test]
+    #[allow(dead_code)]
     fn rsx_unique_names() {
         struct MyView<V: View> {
             wrapper: V::Element,
@@ -386,6 +420,7 @@ mod test {
     }
 
     #[test]
+    #[allow(dead_code)]
     fn rsx_block_nesting() {
         struct MyView<V: View> {
             wrapper: V::Element,
@@ -409,7 +444,7 @@ mod test {
 
             let child = MyChild { wrapper };
 
-            let proxy = Proxy::<V, Str>::default();
+            let mut proxy = Proxy::<V, Str>::default();
 
             rsx! {
                 let wrapper = div(id = "wrapper") {
@@ -463,9 +498,26 @@ mod test {
         }
 
         let view = create_view::<Ssr>();
-        let cast = try_cast_el::<Ssr, Web>(&view.wrapper);
+        let cast = view.wrapper.when_element::<Web, _>(|el| Some(el.clone()));
         assert!(cast.is_none());
-        let cast = try_cast_el::<Ssr, Ssr>(&view.wrapper);
+        let cast = view.wrapper.when_element::<Ssr, _>(|el| Some(el.clone()));
         assert!(cast.is_some());
+    }
+
+    #[test]
+    #[allow(dead_code)]
+    fn rsx_proxy_attribute() {
+        fn view<V: View>() {
+            let mut proxy = Proxy::<V, String>::default();
+
+            rsx! {
+                let wrapper = div() {
+                    fieldset(
+                        id = "blah",
+                        style:display = proxy(s => s)
+                    ) {}
+                }
+            }
+        }
     }
 }

@@ -375,9 +375,7 @@ impl PartialEq for SsrEventListener {
 }
 
 impl ViewEventListener<Ssr> for SsrEventListener {
-    type Event = ();
-
-    fn next(&self) -> impl Future<Output = Self::Event> {
+    fn next(&self) -> impl Future<Output = ()> {
         self.ensure_channel();
         let channel = self.channel.get();
         let (_, rx) = channel.as_ref().unwrap();
@@ -426,4 +424,13 @@ impl View for Ssr {
     type Text = SsrText;
     type Node = SsrNode;
     type EventListener = SsrEventListener;
+    type Event = ();
+}
+
+impl ViewElement for SsrElement {
+    type View = Ssr;
+}
+
+impl ViewEvent for () {
+    type View = Ssr;
 }

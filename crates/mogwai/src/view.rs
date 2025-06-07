@@ -88,7 +88,13 @@ pub trait ViewChild<V: View> {
 
 impl<V: View, T: ViewChild<V> + 'static> ViewChild<V> for &T {
     fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = Cow<'_, V::Node>>> {
-        (*self).as_append_arg()
+        T::as_append_arg(self)
+    }
+}
+
+impl<V: View, T: ViewChild<V> + 'static> ViewChild<V> for &mut T {
+    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = Cow<'_, V::Node>>> {
+        T::as_append_arg(self)
     }
 }
 
@@ -133,9 +139,7 @@ pub trait ViewProperties {
 }
 
 pub trait ViewEventListener<V: View> {
-    type Event;
-
-    fn next(&self) -> impl Future<Output = Self::Event>;
+    fn next(&self) -> impl Future<Output = V::Event>;
     fn on_window(event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
     fn on_document(event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
 }
@@ -144,10 +148,30 @@ pub trait ViewEventTarget<V: View> {
     fn listen(&self, event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
 }
 
-// TODO: split this into types and ops
+pub trait ViewElement {
+    type View: View<Element = Self>;
+
+    fn when_element<V: View, T>(&self, f: impl FnOnce(&V::Element) -> T) -> Option<T> {
+        let el = try_cast_el::<Self::View, V>(self)?;
+        let t = f(el);
+        Some(t)
+    }
+}
+
+pub trait ViewEvent {
+    type View: View<Event = Self>;
+
+    fn when_event<V: View, T>(&self, f: impl FnOnce(&V::Event) -> T) -> Option<T> {
+        let el = try_cast_ev::<Self::View, V>(self)?;
+        let t = f(el);
+        Some(t)
+    }
+}
+
 pub trait View: Sized + 'static {
     type Node: Clone;
-    type Element: ViewParent<Self>
+    type Element: ViewElement
+        + ViewParent<Self>
         + ViewChild<Self>
         + ViewProperties
         + ViewEventTarget<Self>
@@ -155,9 +179,10 @@ pub trait View: Sized + 'static {
         + 'static;
     type Text: ViewText + ViewChild<Self> + ViewEventTarget<Self> + Clone + 'static;
     type EventListener: ViewEventListener<Self>;
+    type Event: ViewEvent;
 }
 
-pub fn try_cast_el<V: View, W: View>(element: &V::Element) -> Option<&W::Element> {
+fn try_cast_el<V: View, W: View>(element: &V::Element) -> Option<&W::Element> {
     // Pay no attention to the man behind the curtain.
     if std::any::TypeId::of::<W>() == std::any::TypeId::of::<V>() {
         // Nothing to see here!
@@ -167,15 +192,10 @@ pub fn try_cast_el<V: View, W: View>(element: &V::Element) -> Option<&W::Element
     }
 }
 
-pub fn try_cast_ev<V: View, W: View>(
-    event: &<V::EventListener as ViewEventListener<V>>::Event,
-) -> Option<&<W::EventListener as ViewEventListener<W>>::Event> {
+fn try_cast_ev<V: View, W: View>(event: &V::Event) -> Option<&W::Event> {
     if std::any::TypeId::of::<W>() == std::any::TypeId::of::<V>() {
         // Nothing to see here!
-        Some(unsafe {
-            &*(event as *const <V::EventListener as ViewEventListener<V>>::Event
-                as *const <W::EventListener as ViewEventListener<W>>::Event)
-        })
+        Some(unsafe { &*(event as *const V::Event as *const W::Event) })
     } else {
         None
     }

@@ -35,7 +35,24 @@ impl<V: View, T> Deref for Proxy<V, T> {
     }
 }
 
+impl<V: View, T> AsRef<T> for Proxy<V, T> {
+    fn as_ref(&self) -> &T {
+        &self.model
+    }
+}
+
 impl<V: View, T: PartialEq> Proxy<V, T> {
+    pub fn set(&mut self, t: T) {
+        if t != self.model {
+            self.model = t;
+            if let Some(update) = self.update.as_mut() {
+                update(&self.model);
+            }
+        }
+    }
+}
+
+impl<V: View, T> Proxy<V, T> {
     pub fn new(model: T) -> Self {
         Self {
             model,
@@ -48,12 +65,10 @@ impl<V: View, T: PartialEq> Proxy<V, T> {
         self.update = Some(Box::new(f))
     }
 
-    pub fn set(&mut self, t: T) {
-        if t != self.model {
-            self.model = t;
-            if let Some(update) = self.update.as_mut() {
-                update(&self.model);
-            }
+    pub fn modify(&mut self, f: impl FnOnce(&mut T)) {
+        f(&mut self.model);
+        if let Some(update) = self.update.as_mut() {
+            update(&self.model);
         }
     }
 }

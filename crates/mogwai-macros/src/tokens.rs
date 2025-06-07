@@ -1,7 +1,7 @@
 //! Contains parsing an RSX node into various data types.
 use std::{collections::HashMap, str::FromStr};
 
-use quote::{ToTokens, quote};
+use quote::{ToTokens, format_ident, quote};
 use syn::{Expr, Ident, Token, parse::Parse, spanned::Spanned};
 
 fn under_to_dash(s: impl AsRef<str>) -> String {
@@ -39,8 +39,42 @@ impl Parse for ProxyUpdate {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
+pub struct ProxyAttribute {
+    element_ident: syn::Ident,
+    fn_ident: syn::Ident,
+    param: String,
+    expr: syn::Expr,
+}
+
+impl ProxyAttribute {
+    fn new(
+        element_ident: syn::Ident,
+        keys: &[String],
+        proxy_update: &ProxyUpdate,
+    ) -> Result<Self, syn::Error> {
+        let ks = keys.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+        let (fn_ident, param) = match ks.as_slice() {
+            ["style", style] => (format_ident!("set_style"), style.to_string()),
+            [prop] => (format_ident!("set_property"), prop.to_string()),
+            _ => {
+                return Err(syn::Error::new(
+                    proxy_update.pattern.span(),
+                    "unsupported proxy update attribute",
+                ));
+            }
+        };
+        Ok(ProxyAttribute {
+            element_ident,
+            fn_ident,
+            param,
+            expr: proxy_update.expr.clone(),
+        })
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum ProxyUpdateKey {
-    Attrib(String),
+    Attrib(ProxyAttribute),
     Block {
         parent: syn::Ident,
         block: syn::Ident,
@@ -68,13 +102,16 @@ impl ToTokens for ProxyOnUpdate {
             .updates
             .iter()
             .map(|(key, update)| match key {
-                ProxyUpdateKey::Attrib(name) => {
-                    let ident = &update.update_ident;
+                ProxyUpdateKey::Attrib(ProxyAttribute {
+                    element_ident,
+                    fn_ident,
+                    param,
+                    expr,
+                }) => {
                     let pat = &update.pattern;
-                    let expr = &update.expr;
                     quote! {{
                             let #pat = model;
-                            #ident.set_property(#name, #expr);
+                            #element_ident.#fn_ident(#param, #expr);
                     }}
                 }
                 ProxyUpdateKey::Block { parent, block } => {
@@ -258,17 +295,20 @@ impl WebFlavor {
     }
 
     fn set_attribute_proxy(
-        ident: &syn::Ident,
-        key: &str,
+        ProxyAttribute {
+            element_ident,
+            fn_ident,
+            param,
+            expr,
+        }: &ProxyAttribute,
         proxy: &ProxyUpdate,
     ) -> proc_macro2::TokenStream {
         let proxy_ident = &proxy.proxy_ident;
         let pattern = &proxy.pattern;
-        let expr = &proxy.expr;
-        quote! { #ident.set_property(#key, {
-            let #pattern = #proxy_ident;
-            #expr
-        })}
+        quote! {{
+            let #pattern = #proxy_ident.as_ref();
+            #element_ident.#fn_ident(#param, #expr);
+        }}
     }
 
     fn create_listener(
@@ -308,11 +348,7 @@ impl quote::ToTokens for ViewToken {
         self.to_named_tokens(None, 0, tokens, &mut proxies);
         for (proxy, updates) in proxies.into_iter() {
             quote! {
-                let #proxy = {
-                    let mut #proxy = #proxy;
-                    #proxy.on_update(#updates);
-                    #proxy
-                };
+                #proxy.on_update(#updates);
             }
             .to_tokens(tokens);
         }
@@ -418,16 +454,22 @@ impl ViewToken {
                         AttributeToken::Document(event, listener) => {
                             WebFlavor::create_document_listener(listener, event).to_tokens(tokens);
                         }
-                        AttributeToken::AttribProxy(key, proxy_update) => {
-                            insert_proxy(
-                                proxies,
-                                &ident,
-                                true,
-                                None,
-                                ProxyUpdateKey::Attrib(key.clone()),
-                                proxy_update,
-                            );
-                            WebFlavor::set_attribute_proxy(&ident, key, proxy_update);
+                        AttributeToken::AttribProxy(keys, proxy_update) => {
+                            match ProxyAttribute::new(ident.clone(), keys, proxy_update) {
+                                Err(e) => e.to_compile_error().to_tokens(tokens),
+                                Ok(att) => {
+                                    WebFlavor::set_attribute_proxy(&att, proxy_update)
+                                        .to_tokens(tokens);
+                                    insert_proxy(
+                                        proxies,
+                                        &ident,
+                                        true,
+                                        None,
+                                        ProxyUpdateKey::Attrib(att),
+                                        proxy_update,
+                                    );
+                                }
+                            }
                         }
                     }
                 }
@@ -500,7 +542,7 @@ pub enum AttributeToken {
     Window(String, syn::Expr),
     Document(String, syn::Expr),
     Attrib(String, syn::Expr),
-    AttribProxy(String, ProxyUpdate),
+    AttribProxy(Vec<String>, ProxyUpdate),
 }
 
 impl Parse for AttributeToken {
@@ -524,9 +566,9 @@ impl Parse for AttributeToken {
             keys.push(key_segment);
         }
         if input.parse::<Token![=]>().is_ok() {
-            if keys.len() == 1 && input.fork().parse::<ProxyUpdate>().is_ok() {
+            if input.fork().parse::<ProxyUpdate>().is_ok() {
                 let update = input.parse::<ProxyUpdate>()?;
-                Ok(AttributeToken::AttribProxy(keys[0].clone(), update))
+                Ok(AttributeToken::AttribProxy(keys.clone(), update))
             } else {
                 let expr = input.parse::<Expr>()?;
                 Ok(AttributeToken::from_keys_expr_pair(&keys, expr))
