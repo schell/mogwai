@@ -98,6 +98,22 @@ impl<V: View, T: ViewChild<V>> ViewChild<V> for Vec<T> {
     }
 }
 
+impl<V: View, T: ViewChild<V>> ViewChild<V> for Option<T> {
+    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = Cow<'_, V::Node>>> {
+        AppendArg::new(self.iter().flat_map(|t| t.as_append_arg()))
+    }
+}
+
+impl<V: View> ViewChild<V> for String {
+    fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = Cow<'_, V::Node>>> {
+        let text = self.into_text::<V>();
+        let mut arg = text.as_append_arg();
+        // UNWRAP: safe because we created the text.
+        let node: Cow<'_, V::Node> = arg.next().unwrap();
+        AppendArg::new(std::iter::once(Cow::Owned(node.into_owned())))
+    }
+}
+
 pub trait ViewProperties {
     /// Returns whether this view has a property with the given name set.
     fn has_property(&self, property: impl AsRef<str>) -> bool;

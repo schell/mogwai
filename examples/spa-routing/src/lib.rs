@@ -84,53 +84,50 @@ impl From<Route> for String {
     }
 }
 
-#[derive(ViewChild)]
-struct RouteView<V: View> {
-    #[child]
-    wrapper: V::Element,
-    proxy_route: Proxy<V, Route>,
-}
-
-impl<V: View> Default for RouteView<V> {
-    fn default() -> Self {
-        let proxy_route = Proxy::<V, Route>::default();
-        rsx! {
-            let wrapper = main() {
-                h1() {
-                    {proxy_route(route => match route {
-                        Route::Home => "Welcome to the homepage".into_text::<V>(),
-                        Route::Settings => "Update your settings".into_text::<V>(),
-                        Route::Profile{username, is_favorites:_} => format!("{username}'s Profile").into_text::<V>(),
-                    })}
+impl Route {
+    fn view<V: View>(&self) -> V::Element {
+        match self {
+            Route::Home => {
+                rsx! {
+                    let el = main() {
+                        h1() { "Welcome to the homepage" }
+                    }
                 }
-
-                {proxy_route(route => match route {
-                    Route::Profile{username:_, is_favorites} if *is_favorites => {
-                        rsx!{
-                            let h2 = h2() {
-                                "Favorites"
-                            }
-                        }
-                        h2
+                el
+            }
+            Route::Settings => {
+                rsx! {
+                    let el = main() {
+                        h1() { "Update your settings" }
                     }
-                    _ => {
-                        rsx!{
-                            let slot = slot(){}
+                }
+                el
+            }
+            Route::Profile {
+                username,
+                is_favorites,
+            } => {
+                let favorites = if *is_favorites {
+                    Some({
+                        rsx! {
+                            let h = h2() { "Favorites" }
                         }
-                        slot
+                        h
+                    })
+                } else {
+                    None
+                };
+                rsx! {
+                    let el = main() {
+                        h1() {{ format!("{username}'s Profile") }}
+                        {favorites}
                     }
-                })}
+                }
+                el
             }
         }
-        Self {
-            wrapper,
-            proxy_route,
-        }
     }
-}
 
-/// Here we'll define some helpers for displaying information about the current route.
-impl Route {
     pub fn nav_home_class(&self) -> String {
         match self {
             Route::Home => "nav-link active",
@@ -163,7 +160,6 @@ struct App<V: View> {
     on_window_hashchange: V::EventListener,
     error_text: V::Text,
     proxy_route: Proxy<V, Route>,
-    route_view: RouteView<V>,
 }
 
 impl<V: View> Default for App<V> {
@@ -191,7 +187,7 @@ impl<V: View> Default for App<V> {
                 pre() {
                     let error_text = ""
                 }
-                let route_view = {RouteView::default()}
+                {proxy_route(route => route.view::<V>())}
             }
         }
 
@@ -199,7 +195,6 @@ impl<V: View> Default for App<V> {
             wrapper,
             on_window_hashchange,
             error_text,
-            route_view,
             proxy_route,
         }
     }
@@ -223,7 +218,6 @@ impl App<Web> {
             Ok(new_route) => {
                 trace!("got new route: {:?}", new_route);
                 self.proxy_route.set(new_route.clone());
-                self.route_view.proxy_route.set(new_route);
 
                 // ...and clear any existing error message
                 String::new()
