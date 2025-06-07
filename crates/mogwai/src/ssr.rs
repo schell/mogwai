@@ -384,25 +384,17 @@ impl ViewEventListener<Ssr> for SsrEventListener {
         let rx = rx.clone();
         async move { rx.recv().await.unwrap() }
     }
+
+    fn on_window(event_name: impl Into<Cow<'static, str>>) -> <Ssr as View>::EventListener {
+        SsrEventListener::new(SsrEventTarget::Window, event_name)
+    }
+
+    fn on_document(event_name: impl Into<Cow<'static, str>>) -> <Ssr as View>::EventListener {
+        SsrEventListener::new(SsrEventTarget::Document, event_name)
+    }
 }
 
 impl SsrEventListener {
-    pub fn on_window(name: impl AsRef<str>) -> Self {
-        Self {
-            name: name.as_ref().to_owned().into(),
-            target: SsrEventTarget::Window,
-            channel: Default::default(),
-        }
-    }
-
-    pub fn on_document(name: impl AsRef<str>) -> Self {
-        Self {
-            name: name.as_ref().to_owned().into(),
-            target: SsrEventTarget::Document,
-            channel: Default::default(),
-        }
-    }
-
     pub fn new(target: SsrEventTarget, name: impl Into<Str>) -> Self {
         SsrEventListener {
             name: name.into(),

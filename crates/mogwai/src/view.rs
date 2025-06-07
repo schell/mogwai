@@ -120,6 +120,8 @@ pub trait ViewEventListener<V: View> {
     type Event;
 
     fn next(&self) -> impl Future<Output = Self::Event>;
+    fn on_window(event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
+    fn on_document(event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
 }
 
 pub trait ViewEventTarget<V: View> {
@@ -139,11 +141,25 @@ pub trait View: Sized + 'static {
     type EventListener: ViewEventListener<Self>;
 }
 
-pub fn try_cast_ref<V: View, W: View>(element: &V::Element) -> Option<&W::Element> {
+pub fn try_cast_el<V: View, W: View>(element: &V::Element) -> Option<&W::Element> {
     // Pay no attention to the man behind the curtain.
     if std::any::TypeId::of::<W>() == std::any::TypeId::of::<V>() {
         // Nothing to see here!
         Some(unsafe { &*(element as *const V::Element as *const W::Element) })
+    } else {
+        None
+    }
+}
+
+pub fn try_cast_ev<V: View, W: View>(
+    event: &<V::EventListener as ViewEventListener<V>>::Event,
+) -> Option<&<W::EventListener as ViewEventListener<W>>::Event> {
+    if std::any::TypeId::of::<W>() == std::any::TypeId::of::<V>() {
+        // Nothing to see here!
+        Some(unsafe {
+            &*(event as *const <V::EventListener as ViewEventListener<V>>::Event
+                as *const <W::EventListener as ViewEventListener<W>>::Event)
+        })
     } else {
         None
     }

@@ -12,7 +12,7 @@ members = [
   "examples/list-of-gizmos",
   #"examples/multipage",
   #"examples/sandbox",
-  #"examples/spa-routing",
+  "examples/spa-routing",
   "examples/svg",
   #"examples/todomvc",
   "crates/xtask",

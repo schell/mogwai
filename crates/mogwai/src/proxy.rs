@@ -63,6 +63,15 @@ pub struct ProxyChild<V: View> {
     nodes: Vec<V::Node>,
 }
 
+impl<V: View> Clone for ProxyChild<V> {
+    fn clone(&self) -> Self {
+        Self {
+            _phantom: PhantomData,
+            nodes: self.nodes.clone(),
+        }
+    }
+}
+
 impl<V: View> ViewChild<V> for ProxyChild<V> {
     fn as_append_arg(
         &self,

@@ -1,18 +1,14 @@
 #![allow(unused_braces)]
 use log::{trace, Level};
-//use mogwai_dom::core::channel::{broadcast, mpsc};
-use mogwai_dom::prelude::*;
+use mogwai::web::prelude::*;
 use std::{convert::TryFrom, panic};
 use wasm_bindgen::{prelude::*, JsCast};
 use web_sys::HashChangeEvent;
 
-#[cfg(feature = "wee_alloc")]
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-
 /// Here we enumerate all our app's routes.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum Route {
+    #[default]
     Home,
     Settings,
     Profile {
@@ -88,38 +84,47 @@ impl From<Route> for String {
     }
 }
 
-/// We can convert a route into a ViewBuilder in order to embed it in a component.
-/// This is just a suggestion for this specific example. The general idea is
-/// to use the route to inform your app that it needs to change the page. This
-/// is just one of many ways to accomplish that.
-impl From<&Route> for ViewBuilder {
-    fn from(route: &Route) -> Self {
-        match route {
-            Route::Home => html! {
-                <main>
-                    <h1>"Welcome to the homepage"</h1>
-                </main>
-            },
-            Route::Settings => html! {
-                <main>
-                    <h1>"Update your settings"</h1>
-                </main>
-            },
-            Route::Profile {
-                username,
-                is_favorites,
-            } => html! {
-                <main>
-                    <h1>{username}"'s Profile"</h1>
-                    {if *is_favorites {
-                        Some(html!{
-                            <h2>"Favorites"</h2>
-                        })
-                    } else {
-                        None
-                    }}
-                </main>
-            },
+#[derive(ViewChild)]
+struct RouteView<V: View> {
+    #[child]
+    wrapper: V::Element,
+    proxy_route: Proxy<V, Route>,
+}
+
+impl<V: View> Default for RouteView<V> {
+    fn default() -> Self {
+        let proxy_route = Proxy::<V, Route>::default();
+        rsx! {
+            let wrapper = main() {
+                h1() {
+                    {proxy_route(route => match route {
+                        Route::Home => "Welcome to the homepage".into_text::<V>(),
+                        Route::Settings => "Update your settings".into_text::<V>(),
+                        Route::Profile{username, is_favorites:_} => format!("{username}'s Profile").into_text::<V>(),
+                    })}
+                }
+
+                {proxy_route(route => match route {
+                    Route::Profile{username:_, is_favorites} if *is_favorites => {
+                        rsx!{
+                            let h2 = h2() {
+                                "Favorites"
+                            }
+                        }
+                        h2
+                    }
+                    _ => {
+                        rsx!{
+                            let slot = slot(){}
+                        }
+                        slot
+                    }
+                })}
+            }
+        }
+        Self {
+            wrapper,
+            proxy_route,
         }
     }
 }
@@ -136,7 +141,7 @@ impl Route {
 
     pub fn nav_settings_class(&self) -> String {
         match self {
-            Route::Settings { .. } => "nav-link active",
+            Route::Settings => "nav-link active",
             _ => "nav-link",
         }
         .to_string()
@@ -151,98 +156,103 @@ impl Route {
     }
 }
 
-fn app(starting_route: Route) -> ViewBuilder {
-    let username: String = "Reasonable-Human".into();
+#[derive(ViewChild)]
+struct App<V: View> {
+    #[child]
+    wrapper: V::Element,
+    on_window_hashchange: V::EventListener,
+    error_text: V::Text,
+    proxy_route: Proxy<V, Route>,
+    route_view: RouteView<V>,
+}
 
-    let mut input_route = Input::<Route>::default();
-    let mut input_error_msg = Input::<String>::default();
+impl<V: View> Default for App<V> {
+    fn default() -> Self {
+        let proxy_route = Proxy::<V, Route>::default();
 
-    let output_window_hashchange = Output::<JsDomEvent>::default();
-
-    let builder = rsx! {
-        slot(
-            //window:hashchange = tx_logic.contra_filter_map(|ev: JsDomEvent| {
-            //}),
-            window:hashchange = output_window_hashchange.sink(),
-            patch:children = input_route
-                .stream()
-                .unwrap()
-                .map(|r| ListPatch::replace(2, ViewBuilder::from(&r)))
-        ) {
-            nav() {
-                ul() {
-                    li(class = starting_route.nav_home_class()) {
-                        a(href = String::from(Route::Home)) { "Home" }
-                    }
-                    li(class = starting_route.nav_settings_class()) {
-                        a(href = String::from(Route::Settings)) { "Settings" }
-                    }
-                    li(class = starting_route.nav_settings_class()) {
-                        a(href = String::from(Route::Profile {
-                            username: username.clone(),
-                            is_favorites: true
-                        })) {
-                            {format!("{}'s Profile", username)}
+        rsx! {
+            let wrapper = slot(window:hashchange = on_window_hashchange) {
+                nav() {
+                    ul() {
+                        li(class = proxy_route(route => route.nav_home_class())) {
+                            a(href = String::from(Route::Home)) { "Home" }
+                        }
+                        li(class = proxy_route(route => route.nav_settings_class())) {
+                            a(href = String::from(Route::Settings)) { "Settings" }
+                        }
+                        li(class = proxy_route(route => route.nav_profile_class())) {
+                            a(href = String::from(Route::Profile {
+                                username: "Decent-Human".into(),
+                                is_favorites: true
+                            })) { "Profile" }
                         }
                     }
                 }
-            }
-            pre() { {("", input_error_msg.stream().unwrap())} }
-            {&starting_route}
-        }
-    };
-    builder.with_task(async move {
-        let mut route = starting_route;
-        while let Some(ev) = output_window_hashchange.get().await {
-            let hash = {
-                let ev = ev.browser_event().expect("not a browser event");
-                let hev = ev.dyn_ref::<HashChangeEvent>().unwrap().clone();
-                hev.new_url()
-            };
-            // When we get a hash change, attempt to convert it into one of our routes
-            let msg = match Route::try_from(hash.as_str()) {
-                // If we can't, let's send an error message to the view
-                Err(msg) => msg,
-                // If we _can_, create a new view from the route and send a patch message to
-                // the view
-                Ok(new_route) => {
-                    trace!("got new route: {:?}", new_route);
-                    if new_route != route {
-                        route = new_route;
-                        input_route.set(route.clone()).await.expect("could not set route");
-                    }
-                    // ...and clear any existing error message
-                    String::new()
+                pre() {
+                    let error_text = ""
                 }
-            };
-            input_error_msg
-                .set(msg)
-                .await
-                .expect("could not set error msg");
+                let route_view = {RouteView::default()}
+            }
         }
-    })
+
+        Self {
+            wrapper,
+            on_window_hashchange,
+            error_text,
+            route_view,
+            proxy_route,
+        }
+    }
+}
+
+impl App<Web> {
+    async fn run_until_next(&mut self) {
+        let ev = self.on_window_hashchange.next().await;
+
+        let hash = {
+            let hev = ev.dyn_ref::<HashChangeEvent>().unwrap().clone();
+            hev.new_url()
+        };
+
+        // When we get a hash change, attempt to convert it into one of our routes
+        let err_msg = match Route::try_from(hash.as_str()) {
+            // If we can't, let's send an error message to the view
+            Err(msg) => msg,
+            // If we _can_, create a new view from the route and set the route on the
+            // view(s)
+            Ok(new_route) => {
+                trace!("got new route: {:?}", new_route);
+                self.proxy_route.set(new_route.clone());
+                self.route_view.proxy_route.set(new_route);
+
+                // ...and clear any existing error message
+                String::new()
+            }
+        };
+
+        self.error_text.set_data(&err_msg);
+    }
 }
 
 #[wasm_bindgen]
-pub fn main(parent_id: Option<String>) -> Result<(), JsValue> {
+pub fn run(parent_id: Option<String>) {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
-    console_log::init_with_level(Level::Trace).unwrap();
+    console_log::init_with_level(Level::Trace).unwrap_throw();
 
-    // TODO: instantiate the route from the window location
-    let route = Route::Home;
-    let view = JsDom::try_from(app(route)).unwrap();
+    let mut app = App::<Web>::default();
 
     if let Some(id) = parent_id {
-        let parent = mogwai_dom::utils::document()
-            .visit_as(|doc: &web_sys::Document| {
-                JsDom::from_jscast(&doc.get_element_by_id(&id).unwrap())
-            })
-            .unwrap();
-        view.run_in_container(parent)
+        let parent = mogwai::web::document()
+            .get_element_by_id(&id)
+            .unwrap_throw();
+        parent.append_child(&app);
     } else {
-        view.run()
+        mogwai::web::body().append_child(&app);
     }
-    .unwrap();
 
-    Ok(())
+    wasm_bindgen_futures::spawn_local(async move {
+        loop {
+            app.run_until_next().await;
+        }
+    });
 }

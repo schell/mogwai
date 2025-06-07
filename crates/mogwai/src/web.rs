@@ -189,6 +189,14 @@ impl ViewEventListener<Web> for EventListener {
     fn next(&self) -> impl Future<Output = Self::Event> {
         self.next()
     }
+
+    fn on_window(event_name: impl Into<Str>) -> EventListener {
+        EventListener::new(window(), event_name)
+    }
+
+    fn on_document(event_name: impl Into<Str>) -> EventListener {
+        EventListener::new(document(), event_name)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -455,9 +463,9 @@ mod test {
         }
 
         let view = create_view::<Ssr>();
-        let cast = try_cast_ref::<Ssr, Web>(&view.wrapper);
+        let cast = try_cast_el::<Ssr, Web>(&view.wrapper);
         assert!(cast.is_none());
-        let cast = try_cast_ref::<Ssr, Ssr>(&view.wrapper);
+        let cast = try_cast_el::<Ssr, Ssr>(&view.wrapper);
         assert!(cast.is_some());
     }
 }
