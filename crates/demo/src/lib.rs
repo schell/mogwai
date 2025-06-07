@@ -13,8 +13,8 @@ fn web_run() -> Result<(), wasm_bindgen::JsValue> {
 
 #[cfg(feature = "tui")]
 pub mod tui {
-    use mogwai_futura::prelude::*;
-    use mogwai_futura::{Str, sync::Shared};
+    use mogwai::prelude::*;
+    use mogwai::{Str, sync::Shared};
 
     use crossterm::event::{self, EnableMouseCapture, Event};
     use ratatui::{

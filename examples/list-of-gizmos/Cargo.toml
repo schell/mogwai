@@ -30,7 +30,7 @@ console_error_panic_hook = { workspace = true, optional = true }
 # Unfortunately, `wee_alloc` requires nightly Rust when targeting wasm for now.
 wee_alloc = { version = "0.4.2", optional = true }
 
-mogwai-futura = { path = "../../crates/mogwai-futura" }
+mogwai = { path = "../../crates/mogwai" }
 
 [dependencies.web-sys]
 workspace = true

@@ -1,4 +1,4 @@
-use mogwai_futura::web::prelude::*;
+use mogwai::web::prelude::*;
 use mogwai_js_framework_benchmark::{App, AppView};
 use std::{future::Future, panic, pin::Pin};
 use wasm_bindgen::prelude::*;

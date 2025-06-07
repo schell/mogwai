@@ -9,10 +9,8 @@ use web_sys::wasm_bindgen::JsCast;
 use crate::prelude::*;
 pub mod event;
 
-pub use mogwai_future_rsx::rsx;
-
 pub mod prelude {
-    pub use super::{Web, event::*, rsx};
+    pub use super::{Web, event::*};
     pub use crate::prelude::*;
     pub extern crate wasm_bindgen;
     pub extern crate wasm_bindgen_futures;
@@ -337,8 +335,8 @@ impl Future for NextFrame {
 
 #[cfg(test)]
 mod test {
-    use crate::{self as mogwai_futura, proxy::Proxy, ssr::Ssr};
-    use mogwai_futura::web::prelude::*;
+    use crate::{self as mogwai, proxy::Proxy, ssr::Ssr};
+    use mogwai::web::prelude::*;
 
     #[test]
     /// ```compile_fail
@@ -392,59 +390,6 @@ mod test {
         struct MyChild<V: View> {
             #[child]
             wrapper: V::Element,
-        }
-
-        fn view2<V: View>() -> MyView<V> {
-            let wrapper = V::Element::new("p");
-            let _wrapper_text = V::Text::new("Here lies davey jones.");
-            wrapper.append_child(&_wrapper_text);
-            let child = MyChild { wrapper };
-            let proxy = Proxy::<V, Str>::default();
-            let wrapper = V::Element::new("div");
-            let child = child;
-            wrapper.append_child(&child);
-            let _wrapper_text = V::Text::new("Constant text can live inline.");
-            wrapper.append_child(&_wrapper_text);
-            let text = "But Rust expressions in a block must evaluate to some kind of node."
-                .into_text::<V>();
-            wrapper.append_child(&text);
-            let _wrapper_ul = V::Element::new("ul");
-            let __wrapper_ul_li = V::Element::new("li");
-            let ___wrapper_ul_li_text =
-                V::Text::new("And you can use `Proxy` to insert a variable number of nodes...");
-            __wrapper_ul_li.append_child(&___wrapper_ul_li_text);
-            _wrapper_ul.append_child(&__wrapper_ul_li);
-            let mut __wrapper_ul_block_proxy = {
-                let s = &proxy;
-                mogwai_futura::proxy::ProxyChild::new(
-                    &_wrapper_ul,
-                    (std::ops::Deref::deref(s)).into_text::<V>(),
-                )
-            };
-            _wrapper_ul.append_child(&__wrapper_ul_block_proxy);
-            let __wrapper_ul_li1 = V::Element::new("li");
-            let ___wrapper_ul_li1_text =
-                V::Text::new("That updates every time a new value is set on the `Proxy`");
-            __wrapper_ul_li1.append_child(&___wrapper_ul_li1_text);
-            _wrapper_ul.append_child(&__wrapper_ul_li1);
-            wrapper.append_child(&_wrapper_ul);
-            wrapper.set_property("id", "wrapper");
-            let proxy = {
-                let mut proxy = proxy;
-                proxy.on_update({
-                    move |model| {
-                        let s = model;
-                        __wrapper_ul_block_proxy.replace(&_wrapper_ul, s.into_text::<V>());
-                    }
-                });
-                proxy
-            };
-            MyView {
-                wrapper,
-                child,
-                text,
-                proxy,
-            }
         }
 
         fn view<V: View>() -> MyView<V> {

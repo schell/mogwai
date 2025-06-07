@@ -1,11 +1,19 @@
 [package]
-name = "mogwai-futura"
-version = "0.1.0"
+name = "mogwai"
+version = "0.7.0"
 edition = "2024"
+authors = ["Schell Scivally <efsubenovex@gmail.com>"]
+license = "MIT"
+description = "The minimal, obvious, graphical, widget application interface."
+documentation = "https://docs.rs/mogwai/"
+repository = "https://github.com/schell/mogwai"
+readme = "../../README.md"
+keywords = ["ui", "dom", "frontend"]
+categories = ["gui", "asynchronous"]
 
 [features]
 default = ["web", "ssr"]
-web = ["dep:wasm-bindgen-futures", "dep:web-sys", "dep:mogwai-future-rsx"]
+web = ["dep:wasm-bindgen-futures", "dep:web-sys"]
 ssr = ["dep:async-channel"]
 # tui = ["dep:ratatui", "dep:crossterm"]
 
@@ -14,9 +22,8 @@ async-channel = { workspace = true, optional = true }
 futures-core = "0.3.31"
 futures-lite.workspace = true
 log.workspace = true
-mogwai-future-rsx = { version = "0.1.0", path = "../mogwai-future-rsx", optional = true }
+mogwai-macros = { version = "0.2.0", path = "../mogwai-macros" }
 serde.workspace = true
-send_wrapper = "0.6"
 wasm-bindgen.workspace = true
 wasm-bindgen-futures = { workspace = true, optional = true }
 

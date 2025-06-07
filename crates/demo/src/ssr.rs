@@ -1,6 +1,6 @@
 //! Server-side rendering demo.
 use demo::button_clicks::{ButtonClicks, ButtonClicksView};
-use mogwai_futura::ssr::prelude::*;
+use mogwai::ssr::prelude::*;
 
 fn main() {
     let mut button_clicks = ButtonClicks { clicks: 0 };

@@ -1,5 +1,5 @@
 //! The "button clicks" UI.
-use mogwai_futura::web::prelude::*;
+use mogwai::web::prelude::*;
 
 pub enum ButtonClickEvent {
     Clicked,
@@ -87,7 +87,7 @@ impl ButtonClicksView<Web> {
         log::info!("building the view");
         let view: ButtonClicksView<Web> = ButtonClicksView::default();
         log::info!("adding the view");
-        let body = mogwai_futura::web::body();
+        let body = mogwai::web::body();
         web_sys::Node::append_child(&body, &view.wrapper).unwrap();
         wasm_bindgen_futures::spawn_local(async move { model.run(view).await });
         Ok(())

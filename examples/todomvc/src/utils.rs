@@ -1,4 +1,4 @@
-use mogwai_futura::web::prelude::*;
+use mogwai::web::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{Event, HtmlElement, HtmlInputElement};
 

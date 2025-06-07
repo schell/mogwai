@@ -14,7 +14,7 @@ default = ["console_error_panic_hook"]
 console_log.workspace = true
 futures.workspace = true
 log.workspace = true
-mogwai-futura = { path = "../../crates/mogwai-futura" }
+mogwai = { path = "../../crates/mogwai" }
 serde.workspace = true
 serde_json.workspace = true
 
@@ -32,7 +32,7 @@ console_error_panic_hook = { workspace = true, optional = true }
 wee_alloc = { version = "0.4.2", optional = true }
 
 [dependencies.web-sys]
-version = "^0.3"
+workspace = true
 # Add more web-sys API's as you need them
 features = [
   "HtmlInputElement",

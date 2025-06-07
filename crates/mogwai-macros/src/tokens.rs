@@ -297,7 +297,7 @@ impl WebFlavor {
         let expr = &proxy.expr;
         quote! { let mut #ident = {
             let #pattern = (std::ops::Deref::deref(&#proxy_ident));
-            mogwai_futura::proxy::ProxyChild::new(&#parent, #expr)
+            mogwai::proxy::ProxyChild::new(&#parent, #expr)
         };}
     }
 }

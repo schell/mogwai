@@ -1,6 +1,6 @@
 //! Provides a todo line-item that can be edited by double clicking,
 //! marked as complete or removed.
-use mogwai_futura::web::prelude::*;
+use mogwai::web::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlInputElement, KeyboardEvent};
 

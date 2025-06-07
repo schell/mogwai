@@ -1,25 +1,21 @@
 [workspace]
 
 members = [
-  "cookbook",
+  #"cookbook",
   "crates/mogwai",
   "crates/mogwai-benches",
-  "crates/mogwai-dom",
   "crates/mogwai-js-framework-benchmark",
   "crates/mogwai-macros",
-  "crates/mogwai-futura",
   "examples/counter",
   "examples/nested-components",
   #"examples/focus-follower",
   "examples/list-of-gizmos",
   #"examples/multipage",
   #"examples/sandbox",
-  "examples/spa-routing",
-  "examples/svg",
+  #"examples/spa-routing",
+  #"examples/svg",
   #"examples/todomvc",
   "crates/xtask",
-  "crates/mogwai-future-rsx",
-  "crates/demo",
 ]
 
 exclude = [
@@ -29,6 +25,7 @@ exclude = [
 resolver = "2"
 
 [workspace.dependencies]
+anyhow = "1.0"
 async-channel = "2.3.1"
 console_error_panic_hook = { version = "0.1.6" }
 console_log = "1.0"

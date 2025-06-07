@@ -1,6 +1,6 @@
 use futures::future::FutureExt;
 use log::Level;
-use mogwai_futura::web::prelude::*;
+use mogwai::web::prelude::*;
 use std::panic;
 use wasm_bindgen::prelude::*;
 
@@ -106,12 +106,12 @@ pub fn run(parent_id: Option<String>) -> Result<(), JsValue> {
     let mut app = App::<Web>::default();
 
     if let Some(id) = parent_id {
-        let parent = mogwai_futura::web::document()
+        let parent = mogwai::web::document()
             .get_element_by_id(&id)
             .unwrap_throw();
         parent.append_child(&app);
     } else {
-        mogwai_futura::web::body().append_child(&app);
+        mogwai::web::body().append_child(&app);
     }
 
     wasm_bindgen_futures::spawn_local(async move {

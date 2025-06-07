@@ -1,7 +1,7 @@
 //! The row.
 use std::ops::Deref;
 
-use mogwai_futura::web::{prelude::*, Global};
+use mogwai::web::{prelude::*, Global};
 use wasm_bindgen::{JsCast, UnwrapThrowExt};
 
 pub struct RowModel {
@@ -53,7 +53,7 @@ impl Default for RowView {
     fn default() -> Self {
         let template: &web_sys::Element = ROW_VIEW_TEMPLATE.deref();
         let wrapper = template.clone_node_with_deep(true).expect_throw("1");
-        mogwai_futura::web::body().append_child(&wrapper);
+        mogwai::web::body().append_child(&wrapper);
         let wrapper = wrapper.dyn_into::<web_sys::Element>().expect_throw("2.1");
         let wrapper = wrapper.dyn_into::<web_sys::Element>().expect_throw("2.2");
         let key_attrs = wrapper

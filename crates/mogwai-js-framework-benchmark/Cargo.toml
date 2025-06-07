@@ -16,18 +16,16 @@ default = ["entrypoint"]
 entrypoint = []
 
 [dependencies]
-anyhow = "1.0.68"
+anyhow.workspace = true
 async-channel.workspace = true
 console_error_panic_hook.workspace = true
 console_log.workspace = true
 futures-lite.workspace = true
 log.workspace = true
-mogwai-futura = { path = "../mogwai-futura" }
+mogwai = { path = "../mogwai" }
 rustc-hash = "2.1.1"
-serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"]}
-wasm-bindgen = { version = "0.2" }
-wasm-bindgen-futures = "0.4"
+serde_json.workspace = true
+serde.workspace = true
 
 [dependencies.web-sys]
 version = "^0.3"

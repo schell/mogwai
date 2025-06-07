@@ -1,4 +1,4 @@
-use mogwai_futura::web::prelude::*;
+use mogwai::web::prelude::*;
 use std::panic;
 use wasm_bindgen::prelude::*;
 

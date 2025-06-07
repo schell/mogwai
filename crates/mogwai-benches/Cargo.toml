@@ -9,19 +9,19 @@ crate-type = ["cdylib", "rlib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = { version = "^1.0" }
+anyhow.workspace = true
 console_error_panic_hook.workspace = true
 console_log.workspace = true
 mogwai-js-framework-benchmark = { path = "../mogwai-js-framework-benchmark", default-features = false }
 log.workspace = true
-mogwai-futura = { path = "../mogwai-futura" }
+mogwai = { path = "../mogwai", version = "0.7" }
 serde_json.workspace = true
 serde.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
 
 [dependencies.web-sys]
-version = "0.3"
+workspace = true
 features = [
   "Element",
   "Document",

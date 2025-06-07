@@ -1,5 +1,5 @@
 use log::Level;
-use mogwai_futura::web::prelude::*;
+use mogwai::web::prelude::*;
 use std::panic;
 use wasm_bindgen::prelude::*;
 
@@ -48,12 +48,12 @@ pub fn run(parent_id: Option<String>) {
 
     let mut view = ButtonClick::<Web>::default();
     if let Some(id) = parent_id {
-        mogwai_futura::web::document()
+        mogwai::web::document()
             .get_element_by_id(&id)
             .unwrap_throw()
             .append_child(&view);
     } else {
-        mogwai_futura::web::body().append_child(&view);
+        mogwai::web::body().append_child(&view);
     }
 
     wasm_bindgen_futures::spawn_local(async move {

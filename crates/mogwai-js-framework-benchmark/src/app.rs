@@ -1,5 +1,5 @@
 //! App type.
-use mogwai_futura::web::prelude::*;
+use mogwai::web::prelude::*;
 use wasm_bindgen::{JsCast, UnwrapThrowExt};
 
 use crate::{data::*, row::*};
@@ -76,12 +76,12 @@ impl<V: View> Default for AppView<V> {
 
 impl AppView<Web> {
     pub fn init(&self) {
-        let body = mogwai_futura::web::body();
+        let body = mogwai::web::body();
         web_sys::Node::append_child(&body, &self.wrapper).unwrap();
     }
 
     pub fn deinit(&self) {
-        let body = mogwai_futura::web::body();
+        let body = mogwai::web::body();
         web_sys::Node::remove_child(&body, &self.wrapper).unwrap();
     }
 }

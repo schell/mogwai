@@ -3,7 +3,7 @@ use std::{borrow::Cow, marker::PhantomData};
 
 use crate::Str;
 
-pub use mogwai_future_rsx::ViewChild;
+pub use mogwai_macros::{ViewChild, rsx};
 
 pub trait ViewText {
     fn new(text: impl AsRef<str>) -> Self;

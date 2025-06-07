@@ -67,8 +67,8 @@ pub fn impl_derive_viewchild(input: proc_macro::TokenStream) -> proc_macro::Toke
             if has_child_annotation {
                 let field = &field.ident;
                 output = quote! {
-                    impl <#(#generics),*> mogwai_futura::prelude::ViewChild<#view_ty_param> for #ident<#(#all_ty_params),*> {
-                        fn as_append_arg(&self) -> mogwai_futura::prelude::AppendArg<#view_ty_param, impl Iterator<Item = std::borrow::Cow<'_, #view_ty_param::Node>>> {
+                    impl <#(#generics),*> mogwai::prelude::ViewChild<#view_ty_param> for #ident<#(#all_ty_params),*> {
+                        fn as_append_arg(&self) -> mogwai::prelude::AppendArg<#view_ty_param, impl Iterator<Item = std::borrow::Cow<'_, #view_ty_param::Node>>> {
                             self.#field.as_append_arg()
                         }
                     }
