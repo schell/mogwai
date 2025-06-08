@@ -122,9 +122,9 @@ pub struct App<V: View> {
     todo_input: V::Element,
     todo_list: TodoList<V>,
 
-    should_show_todo_list: Proxy<V, bool>,
-    todo_count: Proxy<V, usize>,
-    filter_show: Proxy<V, FilterShow>,
+    should_show_todo_list: Proxy<bool>,
+    todo_count: Proxy<usize>,
+    filter_show: Proxy<FilterShow>,
 
     on_change_new_todo: V::EventListener,
     on_click_toggle_all: V::EventListener,
@@ -136,9 +136,9 @@ pub struct App<V: View> {
 
 impl<V: View> Default for App<V> {
     fn default() -> Self {
-        let mut should_show_todo_list = Proxy::<V, bool>::new(false);
-        let mut todo_count = Proxy::<V, usize>::new(0);
-        let mut filter_show = Proxy::<V, FilterShow>::new(FilterShow::All);
+        let mut should_show_todo_list = Proxy::<bool>::new(false);
+        let mut todo_count = Proxy::<usize>::new(0);
+        let mut filter_show = Proxy::<FilterShow>::new(FilterShow::All);
         rsx! {
             let wrapper = section(id="todo_main", class="todoapp") {
                 header(class = "header") {

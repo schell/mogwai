@@ -42,12 +42,12 @@ pub struct TodoItem<V: View> {
     on_blur_edit: V::EventListener,
     on_keyup_edit: V::EventListener,
 
-    state: Proxy<V, ItemState>,
+    state: Proxy<ItemState>,
 }
 
 impl<V: View> TodoItem<V> {
     pub fn new(id: usize, name: impl AsRef<str>, complete: bool) -> Self {
-        let mut state = Proxy::<V, ItemState>::new(ItemState {
+        let mut state = Proxy::<ItemState>::new(ItemState {
             name: name.as_ref().into(),
             is_editing: false,
             is_completed: complete,

@@ -10,24 +10,14 @@ use std::{borrow::Cow, marker::PhantomData, ops::Deref};
 use crate::view::{AppendArg, View, ViewChild, ViewParent};
 
 /// A proxy type that connects a view to some data that updates the view.
-pub struct Proxy<V: View, T> {
+#[derive(Default)]
+pub struct Proxy<T> {
     model: T,
     #[expect(clippy::type_complexity, reason = "not that complex")]
     update: Option<Box<dyn FnMut(&T) + 'static>>,
-    _phantom: PhantomData<V>,
 }
 
-impl<V: View, T: Default> Default for Proxy<V, T> {
-    fn default() -> Self {
-        Self {
-            model: Default::default(),
-            update: Default::default(),
-            _phantom: Default::default(),
-        }
-    }
-}
-
-impl<V: View, T> Deref for Proxy<V, T> {
+impl<T> Deref for Proxy<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -35,13 +25,13 @@ impl<V: View, T> Deref for Proxy<V, T> {
     }
 }
 
-impl<V: View, T> AsRef<T> for Proxy<V, T> {
+impl<T> AsRef<T> for Proxy<T> {
     fn as_ref(&self) -> &T {
         &self.model
     }
 }
 
-impl<V: View, T: PartialEq> Proxy<V, T> {
+impl<T: PartialEq> Proxy<T> {
     pub fn set(&mut self, t: T) {
         if t != self.model {
             self.model = t;
@@ -52,12 +42,11 @@ impl<V: View, T: PartialEq> Proxy<V, T> {
     }
 }
 
-impl<V: View, T> Proxy<V, T> {
+impl<T> Proxy<T> {
     pub fn new(model: T) -> Self {
         Self {
             model,
             update: None,
-            _phantom: PhantomData,
         }
     }
 

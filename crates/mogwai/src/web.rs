@@ -426,7 +426,7 @@ mod test {
             wrapper: V::Element,
             child: MyChild<V>,
             text: V::Text,
-            proxy: Proxy<V, Str>,
+            proxy: Proxy<Str>,
         }
 
         #[derive(ViewChild)]
@@ -444,7 +444,7 @@ mod test {
 
             let child = MyChild { wrapper };
 
-            let mut proxy = Proxy::<V, Str>::default();
+            let mut proxy = Proxy::<Str>::default();
 
             rsx! {
                 let wrapper = div(id = "wrapper") {
@@ -508,7 +508,7 @@ mod test {
     #[allow(dead_code)]
     fn rsx_proxy_attribute() {
         fn view<V: View>() {
-            let mut proxy = Proxy::<V, String>::default();
+            let mut proxy = Proxy::<String>::default();
 
             rsx! {
                 let wrapper = div() {

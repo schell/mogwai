@@ -159,12 +159,12 @@ struct App<V: View> {
     wrapper: V::Element,
     on_window_hashchange: V::EventListener,
     error_text: V::Text,
-    proxy_route: Proxy<V, Route>,
+    proxy_route: Proxy<Route>,
 }
 
 impl<V: View> Default for App<V> {
     fn default() -> Self {
-        let mut proxy_route = Proxy::<V, Route>::default();
+        let mut proxy_route = Proxy::<Route>::default();
 
         rsx! {
             let wrapper = slot(window:hashchange = on_window_hashchange) {

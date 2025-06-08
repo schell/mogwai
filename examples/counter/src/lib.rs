@@ -14,7 +14,7 @@ pub struct ButtonClick<V: View> {
     #[child]
     wrapper: V::Element,
     on_click: V::EventListener,
-    clicks: Proxy<V, u32>,
+    clicks: Proxy<u32>,
 }
 
 impl<V: View> Default for ButtonClick<V> {
@@ -26,9 +26,10 @@ impl<V: View> Default for ButtonClick<V> {
                 style:cursor = "pointer",
                 on:click = on_click
             ) {
+                // When `proxy` is updated
                 {proxy(clicks => match *clicks {
-                    1 => "Click again.".into_text::<V>(),
-                    n => format!("Clicked {n} times.").into_text::<V>(),
+                    1 => "Click again.".to_string(),
+                    n => format!("Clicked {n} times."),
                 })}
             }
         }
