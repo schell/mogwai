@@ -13,11 +13,13 @@
 [ci]: https://img.shields.io/crates/v/mogwai.svg
 [cl]: https://crates.io/crates/mogwai/
 
-`mogwai` is a Rust crate for building GUI applications, primarily in the browser, with cross-platform capabilities.
+`mogwai` is a Rust crate for building GUI applications, primarily in the
+browser, with cross-platform capabilities.
 
 ## Overview
 
-`mogwai` simplifies web app development by addressing challenges with [`web-sys`](https://crates.io/crates/web-sys), focusing on:
+`mogwai` simplifies web app development by addressing challenges with
+[`web-sys`](https://crates.io/crates/web-sys), focusing on:
 
 - Element creation and styling
 - Event handling
@@ -113,8 +115,11 @@ trunk serve --config Trunk.toml
 
 ## Community
 
-Join the conversation on [Element](https://app.element.io/#/room/#mogwai:matrix.org) or via [Matrix](https://matrix.to/#/!iABugogSTxJNzlrcMW:matrix.org?via=matrix.org).
+Join the conversation on
+[Element](https://app.element.io/#/room/#mogwai:matrix.org) or via
+[Matrix](https://matrix.to/#/!iABugogSTxJNzlrcMW:matrix.org?via=matrix.org).
 
 ## Support
 
-Consider [sponsoring on GitHub](https://github.com/sponsors/schell/) to support development.
+Consider [sponsoring on GitHub](https://github.com/sponsors/schell/) to support
+development.
