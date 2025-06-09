@@ -7,6 +7,27 @@ use syn::spanned::Spanned;
 mod tokens;
 
 #[proc_macro]
+/// The `rsx!` macro facilitates the creation of UI components using a syntax
+/// similar to JSX, allowing for a more intuitive and declarative way to define
+/// views in Rust.
+///
+/// This macro transforms a tree of HTML-like syntax into Rust code that constructs
+/// the corresponding UI elements. It supports embedding Rust expressions and
+/// handling events, making it a powerful tool for building dynamic interfaces.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// rsx! {
+///     div(class = "container") {
+///         h1 { "Hello, World!" }
+///         button(on:click = handle_click) { "Click me" }
+///     }
+/// }
+/// ```
+///
+/// In this example, `rsx!` is used to create a `div` with a class and two child
+/// elements: an `h1` and a `button` with an event listener.
 pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match syn::parse::<tokens::ViewToken>(input) {
         Ok(view_token) => view_token.into_token_stream(),
