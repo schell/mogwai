@@ -46,19 +46,20 @@ pub struct ButtonClick<V: View> {
     #[child]
     wrapper: V::Element,
     on_click: V::EventListener,
-    clicks: Proxy<u32>,
+    num_clicks: Proxy<u32>,
 }
 
 impl<V: View> Default for ButtonClick<V> {
     fn default() -> Self {
-        let mut proxy = Proxy::<u32>::default();
+        let mut num_clicks = Proxy::<u32>::default();
 
         rsx! {
             let wrapper = button(
                 style:cursor = "pointer",
                 on:click = on_click
             ) {
-                {proxy(clicks => match *clicks {
+                // When the `num_clicks` proxy is updated it will replace this node.
+                {num_clicks(n => match *n {
                     1 => "Click again.".to_string(),
                     n => format!("Clicked {n} times."),
                 })}
@@ -67,8 +68,8 @@ impl<V: View> Default for ButtonClick<V> {
 
         Self {
             wrapper,
-            clicks: proxy,
             on_click,
+            num_clicks,
         }
     }
 }
@@ -76,8 +77,7 @@ impl<V: View> Default for ButtonClick<V> {
 impl<V: View> ButtonClick<V> {
     pub async fn step(&mut self) {
         let _ev = self.on_click.next().await;
-        let current_clicks = self.clicks;
-        self.clicks.set(current_clicks + 1);
+        self.num_clicks.modify(|n| *n += 1);
     }
 }
 
@@ -85,7 +85,6 @@ impl<V: View> ButtonClick<V> {
 pub fn main() {
     let mut view = ButtonClick::<Web>::default();
     mogwai::web::body().append_child(&view);
-
     wasm_bindgen_futures::spawn_local(async move {
         loop {
             view.step().await;

@@ -26,7 +26,7 @@ impl<V: View> Default for ButtonClick<V> {
                 style:cursor = "pointer",
                 on:click = on_click
             ) {
-                // When `proxy` is updated
+                // When `proxy` is updated, this node will automatically update.
                 {proxy(clicks => match *clicks {
                     1 => "Click again.".to_string(),
                     n => format!("Clicked {n} times."),
@@ -60,7 +60,7 @@ pub fn run(parent_id: Option<String>) {
     wasm_bindgen_futures::spawn_local(async move {
         loop {
             let _ev = view.on_click.next().await;
-            view.clicks.set(*view.clicks + 1);
+            view.clicks.modify(|n| *n += 1);
         }
     });
 }
