@@ -1,32 +1,16 @@
-//! # Mogwai: A Minimal Cross-Platform UI Library
+//! # Mogwai: Cross-Platform UI Library
 //!
-//! ## Overview
+//! Mogwai is a Rust framework for building UI components that work across platforms.
+//! It uses a model-view architecture to separate concerns, enhancing reusability and maintainability.
 //!
-//! Mogwai is a Rust-based framework designed to streamline the development of UI components
-//! that can be rendered consistently across various platforms. By leveraging a model-view
-//! architecture, Mogwai separates concerns, enhancing both reusability and maintainability
-//! of UI components.
+//! ## Key Concepts
 //!
-//! ### Core Concepts
+//! - **Model**: Manages state and logic.
+//! - **View Interface**: Connects model and view for cross-platform compatibility.
+//! - **Logic**: Processes input and updates the model.
+//! - **View**: Renders UI and handles events, adaptable to platforms like web, TUI, and SSR.
 //!
-//! - **Model**: Defines the state and logic of a UI component, ensuring consistency
-//!   across different platforms.
-//!
-//! - **View Interface**: A trait that facilitates interaction between the model and the view,
-//!   ensuring cross-platform compatibility.
-//!
-//! - **Logic**: Handles the processing of input from the view, updates the model, and
-//!   reflects changes back to the view.
-//!
-//! - **View**: Manages the rendering of the UI and event handling, with implementations
-//!   tailored to specific platforms (e.g., web, TUI, SSR).
-//!
-//! ## Approach
-//!
-//! Mogwai offers a flexible approach to UI rendering, allowing developers to model their
-//! UI using traits. It provides tools and wrappers to efficiently implement these traits
-//! on specific platforms, promoting disciplined development and maximizing control over
-//! UI design.
+//! Mogwai provides tools to implement these concepts efficiently, promoting flexible and controlled UI design.
 pub mod proxy;
 pub mod ssr;
 mod str;
