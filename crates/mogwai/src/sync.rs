@@ -1,4 +1,16 @@
-//! Synchronization primitives.
+//! # Synchronization Primitives
+//!
+//! This module provides synchronization primitives for managing shared state
+//! across different parts of an application. It includes the `Shared` type,
+//! which is a thread-safe wrapper around data, allowing for concurrent access
+//! and modification.
+//!
+//! ## Key Component
+//!
+//! - **Shared**: A type that wraps data in a reference-counted pointer, providing
+//!   safe concurrent access. On non-wasm32 targets, it uses `Arc<RwLock<T>>` for
+//!   thread safety. On wasm32 targets, it uses `Rc<RefCell<T>>` due to the single-threaded
+//!   nature of WebAssembly, which simplifies the concurrency model.
 
 use std::{
     borrow::Cow,
