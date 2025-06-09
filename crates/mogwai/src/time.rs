@@ -214,6 +214,15 @@ pub async fn wait_one_frame() {
 }
 
 #[derive(Clone)]
+/// Represents the result of a successful wait operation.
+///
+/// The `Found` struct is used to encapsulate the result of a wait operation
+/// that successfully finds a value within a specified timeout period.
+///
+/// # Fields
+///
+/// - `found`: The value that was found.
+/// - `elapsed_seconds`: The time in seconds that elapsed before the value was found.
 pub struct Found<T> {
     pub found: T,
     pub elapsed_seconds: f64,
