@@ -1,50 +1,32 @@
-//! Future of mogwai.
+//! # Mogwai: A Cross-Platform UI Framework
 //!
-//! ## Impetus
+//! ## Overview
 //!
-//! What I want is the ability to define a UI element and then render it
-//! with various different platforms and have it behave similarly.
+//! Mogwai is designed to facilitate the creation of UI elements that can be rendered
+//! across multiple platforms while maintaining consistent behavior. This framework
+//! allows developers to define UI components in Rust, leveraging a model-view
+//! architecture to separate concerns and enhance reusability.
 //!
-//! An example of this would be creating a button that shows the number of
-//! times it has been clicked, and then deploying that on the web, as a server-side
-//! rendered string (after appying some number of artificial clicks) and also deploying
-//! it in a terminal as a TUI.
+//! ### Key Concepts
 //!
-//! We might accomplish this with bare-bones Rust by defining the element in terms of a
-//! model and a view interface. The model encodes the local state of the element
-//! and its runtime logic, while the view interface determines how the runtime
-//! logic can affect the view.
+//! - **Model**: Represents the state and logic of a UI component. It is a concrete
+//!   type that remains consistent across different platforms.
 //!
-//! The model is some concrete type, like `struct ButtonClicks {..}` and the view interface
-//! would be a trait, `pub trait ButtonClicksInterface {..}`.
+//! - **View Interface**: A trait that defines how the model interacts with the view,
+//!   enabling cross-platform compatibility.
 //!
-//! Then each view platform ("web", "tui" and "ssr" in our case) could implement the view
-//! interface and define the entry point.
+//! - **Logic**: The computation that processes input from the view, updates the model,
+//!   and reflects changes back to the view.
 //!
-//! Model+logic and view.
-//!
-//! ### Model
-//! Model is some concrete data that is used to update the view.
-//! The type of the model cannot change from platform to platform.
-//!
-//! ### View Interface
-//! A trait for interacting with the view in a cross-platform way.
-//!
-//! ### Logic
-//! The logic is the computation that takes changes from the view through the interface,
-//! updates the model and applies changes back through the interface.
-//!
-//! ### View
-//! The view itself is responsible for rendering and providing events to the logic.
-//! The type of the view changes depending on the platform.
+//! - **View**: Responsible for rendering the UI and handling events. The view's
+//!   implementation varies depending on the target platform (e.g., web, TUI, SSR).
 //!
 //! ## Strategy
 //!
-//! Mogwai's strategy towards solving the problem of cross-platform UI is not to offer
-//! a one-size fits all view solution. Instead, `mogwai` aims to aid a _disciplined_
-//! developer in modelling the UI using traits, and then providing the developer with
-//! tools and wrappers to make fullfilling those traits on specific platforms as easy
-//! as possible.
+//! Mogwai does not provide a one-size-fits-all solution for UI rendering. Instead, it
+//! empowers developers to model their UI using traits, offering tools and wrappers to
+//! implement these traits on specific platforms efficiently. This approach encourages
+//! disciplined development and maximizes flexibility and control over the UI design.
 pub mod proxy;
 pub mod ssr;
 mod str;
