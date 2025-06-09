@@ -17,7 +17,9 @@ mod tokens;
 /// the corresponding UI elements. It supports embedding Rust expressions and
 /// handling events, making it a powerful tool for building dynamic interfaces.
 ///
-/// # Example
+/// # Examples
+///
+/// ## Basic Usage
 ///
 /// ```rust
 /// rsx! {
@@ -30,6 +32,30 @@ mod tokens;
 ///
 /// In this example, `rsx!` is used to create a `div` with a class and two child
 /// elements: an `h1` and a `button` with an event listener `handle_click`.
+///
+/// ## Attributes
+///
+/// - **style:** Used to set inline styles. For example, `style:color = "red"` sets the text color to red.
+/// - **on:** Used to attach event listeners. For example, `on:click = handle_click` attaches a click event listener.
+/// - **window:** Used to attach event listeners to the window object. For example, `window:resize = handle_resize`.
+/// - **document:** Used to attach event listeners to the document object. For example, `document:keydown = handle_keydown`.
+///
+/// ## Using `Proxy`
+///
+/// The `rsx!` macro supports `Proxy` for dynamic updates:
+///
+/// ```rust
+/// let mut count = Proxy::new(0);
+/// rsx! {
+///     let root = div() {
+///         button(on:click = |_| count.modify(|c| *c += 1)) { "Increment" }
+///         p() { {count(|c| format!("Count: {}", c))} }
+///     }
+/// }
+/// ```
+///
+/// In this example, clicking the button increments the count, and the paragraph
+/// text updates automatically to reflect the new count.
 pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match syn::parse::<tokens::ViewToken>(input) {
         Ok(view_token) => view_token.into_token_stream(),
