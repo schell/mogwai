@@ -1,15 +1,11 @@
-//! # Proxy: Data Update Mechanism
+//! # Data update mechanism
 //!
-//! The `Proxy` module provides a mechanism similar to JavaScript's Proxy object,
-//! allowing for data updates that automatically propagate to associated views.
+//! `Proxy` provides a mechanism similar to JavaScript's Proxy object,
+//! allowing for data updates in a single location to mutate multiple locations within
+//! the view.
 //!
-//! ## Overview
-//!
-//! - **Proxy**: Acts as an intermediary for data, ensuring that any updates
-//!   are reflected in the views it is linked with.
-//!
-//! This module facilitates dynamic UI updates by connecting data changes directly
-//! to the view layer, promoting a reactive programming model.
+//! The [`rsx!`](crate::view::rsx) macro has special support for `Proxy` that make
+//! mutating views easy.
 
 use std::{borrow::Cow, marker::PhantomData, ops::Deref};
 
