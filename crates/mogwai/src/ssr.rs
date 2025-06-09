@@ -1,4 +1,29 @@
-//! Server-side rendered views.
+//! # Server-Side Rendering (SSR) Module
+//!
+//! This module provides the implementation for server-side rendering of views
+//! using the Mogwai framework. It defines the structures and traits necessary
+//! to create and manipulate views on the server side, allowing for the generation
+//! of HTML content that can be sent to clients.
+//!
+//! ## Key Components
+//!
+//! - **SsrText**: Represents text nodes in the SSR context, allowing for text
+//!   content manipulation and event handling.
+//!
+//! - **SsrElement**: Represents HTML elements in the SSR context, providing
+//!   methods for managing attributes, styles, and child nodes.
+//!
+//! - **SsrNode**: An enumeration of possible node types (elements and text)
+//!   used in SSR.
+//!
+//! - **SsrEventListener**: Handles event listening in the SSR context, enabling
+//!   asynchronous event handling.
+//!
+//! ## Usage
+//!
+//! This module is intended for use in environments where server-side rendering
+//! is required, providing a way to generate HTML content dynamically based on
+//! application state and logic.
 use std::borrow::Cow;
 
 use crate::{Str, sync::Shared, view::*};
