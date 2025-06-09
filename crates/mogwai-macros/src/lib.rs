@@ -36,26 +36,45 @@ mod tokens;
 /// ## Attributes
 ///
 /// - **style:** Used to set inline styles. For example, `style:color = "red"` sets the text color to red.
-/// - **on:** Used to attach event listeners. For example, `on:click = handle_click` attaches a click event listener.
-/// - **window:** Used to attach event listeners to the window object. For example, `window:resize = handle_resize`.
-/// - **document:** Used to attach event listeners to the document object. For example, `document:keydown = handle_keydown`.
+/// - **on:** Used to attach event listeners.
+///   For example, `on:click = handle_click` attaches a click event listener named `handle_click`.
+/// - **window:** Used to attach event listeners to the window object.
+///   For example, `window:resize = handle_resize`.
+/// - **document:** Used to attach event listeners to the document object.
+///   For example, `document:keydown = handle_keydown`.
 ///
 /// ## Using `Proxy`
 ///
-/// The `rsx!` macro supports `Proxy` for dynamic updates:
+/// The `rsx!` macro supports `Proxy` for dynamic updates in both attribute and node positions.
 ///
 /// ```rust
-/// let mut count = Proxy::new(0);
+/// struct Status {
+///     color: String,
+///     message: String,
+/// }
+/// let mut state = Proxy::new(Status {
+///     color: "black".to_string(),
+///     message: "Hello".to_string()
+/// });
+///
+/// // We start out with a `div` element bound to `root`, containing a nested `p` tag
+/// // with the message "Hello" in black.
 /// rsx! {
 ///     let root = div() {
-///         button(on:click = |_| count.modify(|c| *c += 1)) { "Increment" }
-///         p() { {count(|c| format!("Count: {}", c))} }
+///         p(
+///             id = "message_wrapper"
+///             // proxy use in attribute position
+///             style:color = state(s => &s.color)
+///         ) {
+///             // proxy use in node position
+///             {state(s => format!("message: {}", s.message))}
+///         }
 ///     }
 /// }
-/// ```
 ///
-/// In this example, clicking the button increments the count, and the paragraph
-/// text updates automatically to reflect the new count.
+/// // Then later we change the message to show "Goodbye." in red.
+/// message.set(Status{ color: "red".to_string(), message: "Goodbye".to_string()});
+/// ```
 pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match syn::parse::<tokens::ViewToken>(input) {
         Ok(view_token) => view_token.into_token_stream(),
@@ -66,7 +85,7 @@ pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 /// Derives `ViewChild` for a type.
 ///
-/// The type must contain a field annotated with #[child].
+/// The type must contain a field annotated with `#[child]`.
 #[proc_macro_derive(ViewChild, attributes(child))]
 pub fn impl_derive_viewchild(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input: syn::DeriveInput = syn::parse_macro_input!(input);
