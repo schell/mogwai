@@ -228,24 +228,24 @@ pub struct Found<T> {
     pub elapsed_seconds: f64,
 }
 
-    /// Waits for a condition to be met within a specified timeout period.
-    ///
-    /// This function repeatedly evaluates a provided closure until it returns `Some(T)`,
-    /// indicating that the desired condition has been met. If the condition is not met
-    /// within the given `timeout_seconds`, the function returns an `Err` with the elapsed
-    /// time in seconds.
-    ///
-    /// # Arguments
-    ///
-    /// * `timeout_seconds` - The maximum time to wait for the condition, in seconds.
-    /// * `f` - A closure that returns an `Option<T>`. The function will continue to wait
-    ///   until this closure returns `Some(T)`.
-    ///
-    /// # Returns
-    ///
-    /// A `Result` containing a `Found<T>` if the condition is met, or an `Err` with the
-    /// elapsed time if the timeout is reached.
-    pub async fn wait_for<'a, T: 'a>(
+/// Waits for a condition to be met within a specified timeout period.
+///
+/// This function repeatedly evaluates a provided closure until it returns `Some(T)`,
+/// indicating that the desired condition has been met. If the condition is not met
+/// within the given `timeout_seconds`, the function returns an `Err` with the elapsed
+/// time in seconds.
+///
+/// # Arguments
+///
+/// * `timeout_seconds` - The maximum time to wait for the condition, in seconds.
+/// * `f` - A closure that returns an `Option<T>`. The function will continue to wait
+///   until this closure returns `Some(T)`.
+///
+/// # Returns
+///
+/// A `Result` containing a `Found<T>` if the condition is met, or an `Err` with the
+/// elapsed time if the timeout is reached.
+pub async fn wait_for<'a, T: 'a>(
     timeout_seconds: f64,
     mut f: impl FnMut() -> Option<T> + 'a,
 ) -> Result<Found<T>, f64> {

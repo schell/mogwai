@@ -1,16 +1,20 @@
-//! # Synchronization Primitives
+//! # Synchronization primitives
 //!
 //! This module provides synchronization primitives for managing shared state
 //! across different parts of an application. It includes the `Shared` type,
 //! which is a thread-safe wrapper around data, allowing for concurrent access
 //! and modification.
 //!
-//! ## Key Component
+//! ## Primitives
 //!
 //! - **Shared**: A type that wraps data in a reference-counted pointer, providing
 //!   safe concurrent access. On non-wasm32 targets, it uses `Arc<RwLock<T>>` for
 //!   thread safety. On wasm32 targets, it uses `Rc<RefCell<T>>` due to the single-threaded
 //!   nature of WebAssembly, which simplifies the concurrency model.
+//!
+//! Mogwai's event setup is geared towards managing UI in short lived steps, which allows for
+//! mutability, so for most cases [`Shared`] shouldn't be necessary.
+//! Sometimes this is unavoidable though, or prefered even, and so this module exists.
 
 use std::{
     borrow::Cow,

@@ -9,28 +9,23 @@ use crate::Str;
 
 pub use mogwai_macros::{ViewChild, rsx};
 
-    /// Trait for managing text content within a view.
-    ///
-    /// The `ViewText` trait provides methods for creating, setting, and retrieving
-    /// text content in a view-compatible format. It is designed to be implemented
-    /// by types that represent text nodes in a view, allowing for consistent
-    /// manipulation of text across different platforms.
-    ///
-    /// # Methods
-    ///
-    /// - `new`: Creates a new instance of the text node with the specified content.
-    /// - `set_text`: Updates the text content of the node.
-    /// - `get_text`: Retrieves the current text content of the node.
-    pub trait ViewText {
+/// Trait for managing text content within a view.
+///
+/// The `ViewText` trait provides methods for creating, setting, and retrieving
+/// text content in a view-compatible format. It is designed to be implemented
+/// by types that represent text nodes in a view, allowing for consistent
+/// manipulation of text across different platforms.
+pub trait ViewText {
+    /// Creates a new instance of the text node with the specified content.
     fn new(text: impl AsRef<str>) -> Self;
+    /// Updates the text content of the node.
     fn set_text(&self, text: impl AsRef<str>);
+    /// Retrieves the current text content of the node.
     fn get_text(&self) -> Str;
 }
 
-/// Provides extension methods for converting text into view-compatible formats.
-///
-/// This trait allows for seamless conversion of text into the appropriate
-/// format for use within a view.
+/// Marker trait providing extension methods for converting
+/// strings into view-compatible formats.
 pub trait ViewTextExt {
     fn into_text<V: View>(self) -> V::Text;
 }
@@ -118,6 +113,9 @@ pub trait ViewParent<V: View> {
 ///
 /// This trait provides a method for converting a node into an appendable
 /// format, allowing it to be added to a view.
+///
+/// Deriving `ViewChild` for a Rust type allows it to be included in the
+/// node position of an [`rsx!`] macro.
 pub trait ViewChild<V: View> {
     fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = Cow<'_, V::Node>>>;
 }

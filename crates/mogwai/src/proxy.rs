@@ -34,8 +34,10 @@ impl<T> AsRef<T> for Proxy<T> {
 }
 
 impl<T: PartialEq> Proxy<T> {
-    /// Sets the value of the proxy. If the new value is different from the current value,
-    /// it updates the model and triggers the update function if it exists.
+    /// Sets the value of the proxy.
+    ///
+    /// If the new value is different from the current value,
+    /// it the update function, if it exists.
     pub fn set(&mut self, t: T) {
         if t != self.model {
             self.model = t;
@@ -57,18 +59,15 @@ impl<T> Proxy<T> {
 
     /// Sets a function to be called whenever the model is updated.
     ///
-    /// # Arguments
-    ///
-    /// * `f` - A closure that takes a reference to the model and performs an action.
+    /// This function is used within the [`rsx!`](crate::view::rsx) macro to mutate the views the
+    /// proxy is associated with.
     pub fn on_update(&mut self, f: impl FnMut(&T) + 'static) {
         self.update = Some(Box::new(f))
     }
 
-    /// Modifies the model using the provided function and triggers the update function if it exists.
+    /// Modifies the inner value.
     ///
-    /// # Arguments
-    ///
-    /// * `f` - A closure that takes a mutable reference to the model and modifies it.
+    /// Triggers the update function if it exists.
     pub fn modify(&mut self, f: impl FnOnce(&mut T)) {
         f(&mut self.model);
         if let Some(update) = self.update.as_mut() {
@@ -77,6 +76,10 @@ impl<T> Proxy<T> {
     }
 }
 
+/// An internal type used by the [`rsx!`](crate::view::rsx) macro to replace nodes in
+/// response to proxy value changes.
+///
+/// You shouldn't have to use this type manually, but it is public in support of `rsx!`.
 pub struct ProxyChild<V: View> {
     _phantom: PhantomData<V>,
     nodes: Vec<V::Node>,

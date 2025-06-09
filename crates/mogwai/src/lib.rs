@@ -5,9 +5,10 @@
 //!
 //! ## Key Concepts
 //!
-//! - **View Construction**: Use the [`rsx!`](view::rsx) macro to reduce boilerplate.
-//! - **Event Handling**: Events are futures, not callbacks.
-//! - **Cross-Platform**: View traits ensure operations are cross-platform, with room for specialization.
+//! - **Low boilerplate view construction**: Use the [`rsx!`](view::rsx) macro to reduce boilerplate.
+//! - **Async event handling**: Events are futures, not callbacks.
+//! - **Cross-platform support**: [View traits](crate::view) ensure operations are cross-platform,
+//!   with room for specialization.
 //! - **Idiomatic Rust**: Widgets are Rust types
 //!
 //! Mogwai provides tools to implement these concepts efficiently, promoting flexibility and performance.

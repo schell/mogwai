@@ -3,7 +3,7 @@ use std::borrow::Cow;
 
 use crate::{sync::Shared, view::ViewText};
 
-/// A transparent wrapper around [`Cow<'static, str>`].
+/// An alias for [`Cow<'static, str>`](std::borrow::Cow).
 pub type Str = Cow<'static, str>;
 
 impl ViewText for Shared<Str> {

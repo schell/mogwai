@@ -1,22 +1,22 @@
-//! # Server-Side Rendering (SSR) Module
+//! # Server-Side Rendering (SSR)
 //!
-//! This module provides the implementation for server-side rendering of views
-//! using the Mogwai framework. It defines the structures and traits necessary
-//! to create and manipulate views on the server side, allowing for the generation
-//! of HTML content that can be sent to clients.
+//! This module provides the implementation for server-side rendering of views.
+//! It provides types and trait impls necessary to create and manipulate HTML
+//! on the server side, allowing for the generation of string content that can
+//! be sent to clients.
 //!
 //! ## Key Components
 //!
-//! - **SsrText**: Represents text nodes in the SSR context, allowing for text
+//! - **[`SsrText`]**: Represents text nodes in the SSR context, allowing for text
 //!   content manipulation and event handling.
 //!
-//! - **SsrElement**: Represents HTML elements in the SSR context, providing
+//! - **[`SsrElement`]**: Represents HTML elements in the SSR context, providing
 //!   methods for managing attributes, styles, and child nodes.
 //!
-//! - **SsrNode**: An enumeration of possible node types (elements and text)
+//! - **[`SsrNode`]**: An enumeration of possible node types (elements and text)
 //!   used in SSR.
 //!
-//! - **SsrEventListener**: Handles event listening in the SSR context, enabling
+//! - **[`SsrEventListener`]**: Handles event listening in the SSR context, enabling
 //!   asynchronous event handling.
 //!
 //! ## Usage
@@ -77,7 +77,6 @@ impl ViewEventTarget<Ssr> for SsrText {
     }
 }
 
-/// Builder for runtime views.
 #[derive(Clone)]
 pub struct SsrElement {
     pub name: Str,
@@ -359,13 +358,6 @@ pub enum SsrNode {
     Element(SsrElement),
     Text(SsrText),
 }
-
-// impl ViewNode for SsrNode {
-//     type Owned = Self;
-//     fn owned_node(self) -> Self {
-//         self
-//     }
-// }
 
 impl From<SsrText> for SsrNode {
     fn from(value: SsrText) -> Self {

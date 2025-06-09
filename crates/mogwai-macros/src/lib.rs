@@ -14,8 +14,8 @@ mod tokens;
 /// views in Rust.
 ///
 /// This macro transforms a tree of HTML-like syntax into Rust code that constructs
-/// the corresponding UI elements. It supports embedding Rust expressions and
-/// handling events, making it a powerful tool for building dynamic interfaces.
+/// the corresponding UI elements. It supports `let` binding, embedding Rust expressions,
+/// and handling events, making it a powerful tool for building dynamic interfaces.
 ///
 /// # Examples
 ///
@@ -31,57 +31,27 @@ mod tokens;
 /// ```
 ///
 /// In this example, `rsx!` is used to create a `div` with a class and two child
-/// elements: an `h1` and a `button` with an event listener `handle_click`.
+/// elements: an `h1` and a `button` with an event listener `handle_click`. The root
+/// `div` element is bound with a let binding to the name `root`.
 ///
 /// ## Attributes
 ///
-/// - **style:** Used to set inline styles. For example, `style:color = "red"` sets the text color to red.
+/// In addition to single-word attributes, view nodes support a few special attributes:
+///
 /// - **on:** Used to attach event listeners.
 ///   For example, `on:click = handle_click` attaches a click event listener named `handle_click`.
 /// - **window:** Used to attach event listeners to the window object.
 ///   For example, `window:resize = handle_resize`.
 /// - **document:** Used to attach event listeners to the document object.
 ///   For example, `document:keydown = handle_keydown`.
-#[proc_macro]
-/// View construction macro.
-///
-/// The `rsx!` macro facilitates the creation of UI components using a syntax
-/// similar to JSX, allowing for a more intuitive and declarative way to define
-/// views in Rust.
-///
-/// This macro transforms a tree of HTML-like syntax into Rust code that constructs
-/// the corresponding UI elements. It supports embedding Rust expressions and
-/// handling events, making it a powerful tool for building dynamic interfaces.
-///
-/// # Examples
-///
-/// ## Basic Usage
-///
-/// ```rust
-/// rsx! {
-///     let root = div(class = "container") {
-///         h1 { "Hello, World!" }
-///         button(on:click = handle_click) { "Click me" }
-///     }
-/// }
-/// ```
-///
-/// In this example, `rsx!` is used to create a `div` with a class and two child
-/// elements: an `h1` and a `button` with an event listener `handle_click`.
-///
-/// ## Attributes
-///
-/// - **style:** Used to set inline styles. For example, `style:color = "red"` sets the text color to red.
-/// - **on:** Used to attach event listeners.
-///   For example, `on:click = handle_click` attaches a click event listener named `handle_click`.
-/// - **window:** Used to attach event listeners to the window object.
-///   For example, `window:resize = handle_resize`.
-/// - **document:** Used to attach event listeners to the document object.
-///   For example, `document:keydown = handle_keydown`.
+/// - **style:** Shorthand used to set inline styles.
+///   For example, `style:color = "red"` sets the text color to red, and is equivalent to
+///   `style = "color: red;"`.
 ///
 /// ## Using `Proxy`
 ///
-/// The `rsx!` macro supports `Proxy` for dynamic updates in both attribute and node positions.
+/// The `rsx!` macro includes special shorthand syntax for dynamic updates using `Proxy`.
+/// This syntax is valid in both attribute and node positions.
 ///
 /// ```rust
 /// struct Status {
@@ -112,9 +82,9 @@ mod tokens;
 /// message.set(Status{ color: "red".to_string(), message: "Goodbye".to_string()});
 /// ```
 ///
-/// ## Using a Rust Type with `ViewChild`
+/// ## Nesting arbitrary Rust types as nodes using `ViewChild`
 ///
-/// You can also use custom Rust types that implement `ViewChild` within the `rsx!` macro:
+/// You can nest custom Rust types that implement `ViewChild` within the `rsx!` macro:
 ///
 /// ```rust
 /// use mogwai::prelude::*;
@@ -140,38 +110,9 @@ mod tokens;
 ///             {component} // Using the custom component within the view
 ///         }
 ///     }
+///
+///     root
 /// }
-/// ```
-///
-/// The `rsx!` macro supports `Proxy` for dynamic updates in both attribute and node positions.
-///
-/// ```rust
-/// struct Status {
-///     color: String,
-///     message: String,
-/// }
-/// let mut state = Proxy::new(Status {
-///     color: "black".to_string(),
-///     message: "Hello".to_string()
-/// });
-///
-/// // We start out with a `div` element bound to `root`, containing a nested `p` tag
-/// // with the message "Hello" in black.
-/// rsx! {
-///     let root = div() {
-///         p(
-///             id = "message_wrapper"
-///             // proxy use in attribute position
-///             style:color = state(s => &s.color)
-///         ) {
-///             // proxy use in node position
-///             {state(s => format!("message: {}", s.message))}
-///         }
-///     }
-/// }
-///
-/// // Then later we change the message to show "Goodbye." in red.
-/// message.set(Status{ color: "red".to_string(), message: "Goodbye".to_string()});
 /// ```
 pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match syn::parse::<tokens::ViewToken>(input) {
