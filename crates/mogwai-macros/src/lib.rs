@@ -86,6 +86,39 @@ pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// Derives `ViewChild` for a type.
 ///
 /// The type must contain a field annotated with `#[child]`.
+/// Derives `ViewChild` for a type.
+///
+/// The type must contain a field annotated with `#[child]`.
+///
+/// # Example
+///
+/// ```rust
+/// use mogwai::prelude::*;
+///
+/// #[derive(ViewChild)]
+/// struct MyComponent<V: View> {
+///     #[child]
+///     wrapper: V::Element,
+/// }
+///
+/// fn create_view<V: View>() -> V::Element {
+///     rsx! {
+///         let wrapper = div() {
+///             "Hello, world!"
+///         }
+///     }
+///     wrapper
+/// }
+///
+/// fn main() {
+///     let view = create_view::<Web>();
+///     // Use `view` in your application...
+/// }
+/// ```
+///
+/// In this example, `MyComponent` is a struct that derives `ViewChild`, allowing it to be used
+/// within the `rsx!` macro. The `wrapper` field is annotated with `#[child]`, indicating that it
+/// is the primary child node for the component.
 #[proc_macro_derive(ViewChild, attributes(child))]
 pub fn impl_derive_viewchild(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input: syn::DeriveInput = syn::parse_macro_input!(input);
