@@ -1,4 +1,4 @@
-//! # Mogwai: A Cross-Platform UI Framework
+//! # Mogwai: A Cross-Platform UI Library
 //!
 //! ## Overview
 //!
