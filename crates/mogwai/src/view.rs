@@ -1,4 +1,29 @@
-//! Traits for building cross-platform views.
+#![doc = r#"
+//! # Cross-Platform View Traits
+//!
+//! This module defines traits for building and managing views across different platforms.
+//! It provides a flexible interface for creating, updating, and interacting with UI components
+//! in a platform-agnostic manner.
+//!
+//! ## Key Traits
+//!
+//! - **ViewText**: Manages text content within a view.
+//! - **ViewTextExt**: Provides extension methods for converting text into view-compatible formats.
+//! - **ViewParent**: Defines methods for managing child nodes within a view.
+//! - **ViewChild**: Represents a node that can be appended to a view.
+//! - **ViewProperties**: Manages properties and styles of view elements.
+//! - **ViewEventListener**: Handles event listening for view elements.
+//! - **ViewEventTarget**: Defines methods for attaching event listeners to view elements.
+//! - **ViewElement**: Represents an element within a view, providing type-specific operations.
+//! - **ViewEvent**: Represents an event within a view, providing type-specific operations.
+//! - **View**: The core trait that defines the structure and behavior of a view.
+"#]
+````
+
+crates/mogwai/src/view.rs
+````rust
+<<<<<<< SEARCH
+pub trait ViewText {
 use std::{borrow::Cow, marker::PhantomData};
 
 use crate::Str;
@@ -11,7 +36,11 @@ pub trait ViewText {
     fn get_text(&self) -> Str;
 }
 
-pub trait ViewTextExt {
+    /// Provides extension methods for converting text into view-compatible formats.
+    ///
+    /// This trait allows for seamless conversion of text into the appropriate
+    /// format for use within a view.
+    pub trait ViewTextExt {
     fn into_text<V: View>(self) -> V::Text;
 }
 
@@ -61,7 +90,11 @@ impl<V: View, I: Iterator> Iterator for AppendArg<V, I> {
     }
 }
 
-pub trait ViewParent<V: View> {
+    /// Defines methods for managing child nodes within a view.
+    ///
+    /// This trait provides methods for appending, removing, and replacing child
+    /// nodes, as well as managing their order within the view.
+    pub trait ViewParent<V: View> {
     fn new(name: impl AsRef<str>) -> Self;
     fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self;
 
@@ -82,7 +115,11 @@ pub trait ViewParent<V: View> {
     }
 }
 
-pub trait ViewChild<V: View> {
+    /// Represents a node that can be appended to a view.
+    ///
+    /// This trait provides a method for converting a node into an appendable
+    /// format, allowing it to be added to a view.
+    pub trait ViewChild<V: View> {
     fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = Cow<'_, V::Node>>>;
 }
 
@@ -120,7 +157,11 @@ impl<V: View> ViewChild<V> for String {
     }
 }
 
-pub trait ViewProperties {
+    /// Manages properties and styles of view elements.
+    ///
+    /// This trait provides methods for setting, getting, and removing properties
+    /// and styles from view elements.
+    pub trait ViewProperties {
     /// Returns whether this view has a property with the given name set.
     fn has_property(&self, property: impl AsRef<str>) -> bool;
     /// Get the value of the given property, if any.
@@ -138,17 +179,29 @@ pub trait ViewProperties {
     fn remove_style(&self, key: impl AsRef<str>);
 }
 
-pub trait ViewEventListener<V: View> {
+    /// Handles event listening for view elements.
+    ///
+    /// This trait provides methods for attaching event listeners to view elements
+    /// and handling events in a platform-agnostic manner.
+    pub trait ViewEventListener<V: View> {
     fn next(&self) -> impl Future<Output = V::Event>;
     fn on_window(event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
     fn on_document(event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
 }
 
-pub trait ViewEventTarget<V: View> {
+    /// Defines methods for attaching event listeners to view elements.
+    ///
+    /// This trait provides a method for listening to events on a view element,
+    /// enabling interaction with user actions.
+    pub trait ViewEventTarget<V: View> {
     fn listen(&self, event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
 }
 
-pub trait ViewElement {
+    /// Represents an element within a view, providing type-specific operations.
+    ///
+    /// This trait allows for operations specific to elements, such as casting
+    /// and interacting with element-specific properties.
+    pub trait ViewElement {
     type View: View<Element = Self>;
 
     fn when_element<V: View, T>(&self, f: impl FnOnce(&V::Element) -> T) -> Option<T> {
@@ -158,7 +211,11 @@ pub trait ViewElement {
     }
 }
 
-pub trait ViewEvent {
+    /// Represents an event within a view, providing type-specific operations.
+    ///
+    /// This trait allows for operations specific to events, such as casting
+    /// and interacting with event-specific properties.
+    pub trait ViewEvent {
     type View: View<Event = Self>;
 
     fn when_event<V: View, T>(&self, f: impl FnOnce(&V::Event) -> T) -> Option<T> {
@@ -168,7 +225,12 @@ pub trait ViewEvent {
     }
 }
 
-pub trait View: Sized + 'static {
+    /// The core trait that defines the structure and behavior of a view.
+    ///
+    /// This trait outlines the essential components of a view, including nodes,
+    /// elements, text, event listeners, and events, providing a comprehensive
+    /// interface for building and managing views.
+    pub trait View: Sized + 'static {
     type Node: Clone;
     type Element: ViewElement
         + ViewParent<Self>
