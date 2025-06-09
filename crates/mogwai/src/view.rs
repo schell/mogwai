@@ -29,12 +29,15 @@ impl<T: AsRef<str>> ViewTextExt for T {
     }
 }
 
-    /// An internal type used for managing child nodes within a view.
-    ///
-    /// `AppendArg` is primarily for internal use within the framework, but it is
-    /// exposed to facilitate the implementation of view-related traits. It provides
-    /// a mechanism for iterating over nodes that can be appended to a view.
-    pub struct AppendArg<V: View, I> {
+/// An internal type used for managing child nodes within a view.
+///
+/// `AppendArg` abracts over an iterator of child nodes, allowing implementations
+/// of [`ViewChild`] to be written for iterators and single values alike.
+///
+/// `AppendArg` is primarily for internal use within the framework, but it is
+/// exposed to facilitate the implementation of view-related traits. It provides
+/// a mechanism for iterating over nodes that can be appended to a view.
+pub struct AppendArg<V: View, I> {
     pub iter: I,
     _phantom: PhantomData<V>,
 }
@@ -165,8 +168,11 @@ pub trait ViewProperties {
 
 /// Handles event listening for view elements.
 ///
-/// This trait provides methods for attaching event listeners to view elements
-/// and handling events in a platform-agnostic manner.
+/// This trait provides methods for attaching event listeners to global
+/// things (window and document) and handling events asynchronously.
+// TODO: maybe Window and Document be associated types methods on `View` that
+// impl ViewEventTarget<V>. Then `View` could define `window()` and `document()`
+// functions.
 pub trait ViewEventListener<V: View> {
     fn next(&self) -> impl Future<Output = V::Event>;
     fn on_window(event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
@@ -181,13 +187,11 @@ pub trait ViewEventTarget<V: View> {
     fn listen(&self, event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
 }
 
-/// Represents an element within a view, providing type-specific operations.
-///
-/// This trait allows for operations specific to elements, such as casting
-/// and interacting with element-specific properties.
+/// Represents an element within a view, providing platform-specific operations.
 pub trait ViewElement {
     type View: View<Element = Self>;
 
+    /// Attempt to perform a platform-specific operation on the given element.
     fn when_element<V: View, T>(&self, f: impl FnOnce(&V::Element) -> T) -> Option<T> {
         let el = try_cast_el::<Self::View, V>(self)?;
         let t = f(el);
@@ -195,13 +199,11 @@ pub trait ViewElement {
     }
 }
 
-/// Represents an event within a view, providing type-specific operations.
-///
-/// This trait allows for operations specific to events, such as casting
-/// and interacting with event-specific properties.
+/// Represents an event within a view, providing platform-specific operations.
 pub trait ViewEvent {
     type View: View<Event = Self>;
 
+    /// Attempt to perform a platform-specific operation with the given event.
     fn when_event<V: View, T>(&self, f: impl FnOnce(&V::Event) -> T) -> Option<T> {
         let el = try_cast_ev::<Self::View, V>(self)?;
         let t = f(el);
