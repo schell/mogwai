@@ -1,8 +1,8 @@
-//! # Event Stream API
+//! # Event Future API
 //!
-//! This module provides a stream-based API for handling event callbacks using
-//! [`futures-lite::Stream`]. It allows for asynchronous event handling by sending
-//! events to downstream listeners.
+//! This module provides a future-based API for handling event callbacks using
+//! [`futures-lite::Future`]. It allows for asynchronous event handling by resolving
+//! futures when events occur.
 //!
 //! ## Key Components
 //!
@@ -15,7 +15,8 @@
 //! The `EventListener` can be used to listen for events on DOM elements. When
 //! an `EventListener` is dropped, it automatically removes the associated event
 //! listener from the DOM element, ensuring that no memory leaks occur and that
-//! the event listener is properly cleaned up.
+//! the event listener is properly cleaned up. The future resolves when the event
+//! occurs, allowing for easy integration with asynchronous workflows.
 use std::{borrow::Cow, cell::RefCell, ops::DerefMut, pin::Pin, rc::Rc, task::Waker};
 
 use wasm_bindgen_futures::wasm_bindgen::{JsCast, JsValue, prelude::Closure};
