@@ -1,4 +1,21 @@
-//! Wait or sleep or delay future.
+#![doc = r#"
+//! # Time Utilities
+//!
+//! This module provides utilities for handling time-related operations such as
+//! waiting, sleeping, and delaying futures. It is designed to work across different
+//! platforms, including WebAssembly (wasm32) and non-wasm32 targets.
+//!
+//! ## Key Functions
+//!
+//! - **now**: Returns the current timestamp in milliseconds since an arbitrary start time.
+//! - **wait_millis**: Returns a future that waits for approximately the given number of milliseconds.
+//! - **wait_secs**: Returns a future that waits for approximately the given number of seconds.
+//! - **wait_for**: Waits for a condition to be met within a specified timeout period.
+//! - **set_immediate**: Schedules a closure to run as soon as possible.
+//!
+//! These utilities are essential for managing asynchronous operations that depend on timing,
+//! such as animations, timeouts, and intervals.
+"#]
 // use futures_lite::{FutureExt, Stream, StreamExt};
 use futures_lite::{Stream, StreamExt};
 #[cfg(target_arch = "wasm32")]
