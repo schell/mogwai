@@ -34,6 +34,8 @@ impl<T> AsRef<T> for Proxy<T> {
 }
 
 impl<T: PartialEq> Proxy<T> {
+    /// Sets the value of the proxy. If the new value is different from the current value,
+    /// it updates the model and triggers the update function if it exists.
     pub fn set(&mut self, t: T) {
         if t != self.model {
             self.model = t;
@@ -45,6 +47,7 @@ impl<T: PartialEq> Proxy<T> {
 }
 
 impl<T> Proxy<T> {
+    /// Creates a new `Proxy` with the given model.
     pub fn new(model: T) -> Self {
         Self {
             model,
@@ -52,10 +55,20 @@ impl<T> Proxy<T> {
         }
     }
 
+    /// Sets a function to be called whenever the model is updated.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A closure that takes a reference to the model and performs an action.
     pub fn on_update(&mut self, f: impl FnMut(&T) + 'static) {
         self.update = Some(Box::new(f))
     }
 
+    /// Modifies the model using the provided function and triggers the update function if it exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A closure that takes a mutable reference to the model and modifies it.
     pub fn modify(&mut self, f: impl FnOnce(&mut T)) {
         f(&mut self.model);
         if let Some(update) = self.update.as_mut() {
