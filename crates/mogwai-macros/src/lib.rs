@@ -7,6 +7,8 @@ use syn::spanned::Spanned;
 mod tokens;
 
 #[proc_macro]
+/// View construction macro.
+///
 /// The `rsx!` macro facilitates the creation of UI components using a syntax
 /// similar to JSX, allowing for a more intuitive and declarative way to define
 /// views in Rust.
@@ -17,9 +19,9 @@ mod tokens;
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// rsx! {
-///     div(class = "container") {
+///     let root = div(class = "container") {
 ///         h1 { "Hello, World!" }
 ///         button(on:click = handle_click) { "Click me" }
 ///     }
@@ -27,7 +29,7 @@ mod tokens;
 /// ```
 ///
 /// In this example, `rsx!` is used to create a `div` with a class and two child
-/// elements: an `h1` and a `button` with an event listener.
+/// elements: an `h1` and a `button` with an event listener `handle_click`.
 pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match syn::parse::<tokens::ViewToken>(input) {
         Ok(view_token) => view_token.into_token_stream(),
