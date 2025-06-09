@@ -9,7 +9,19 @@ use crate::Str;
 
 pub use mogwai_macros::{ViewChild, rsx};
 
-pub trait ViewText {
+    /// Trait for managing text content within a view.
+    ///
+    /// The `ViewText` trait provides methods for creating, setting, and retrieving
+    /// text content in a view-compatible format. It is designed to be implemented
+    /// by types that represent text nodes in a view, allowing for consistent
+    /// manipulation of text across different platforms.
+    ///
+    /// # Methods
+    ///
+    /// - `new`: Creates a new instance of the text node with the specified content.
+    /// - `set_text`: Updates the text content of the node.
+    /// - `get_text`: Retrieves the current text content of the node.
+    pub trait ViewText {
     fn new(text: impl AsRef<str>) -> Self;
     fn set_text(&self, text: impl AsRef<str>);
     fn get_text(&self) -> Str;
