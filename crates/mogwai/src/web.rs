@@ -1,4 +1,31 @@
-//! Utilities for web (through web-sys).
+#![doc = r#"
+//! # Web Utilities
+//!
+//! This module provides utilities for working with web technologies through the `web-sys` crate.
+//! It includes implementations of view traits for web elements, allowing for the creation and
+//! manipulation of DOM nodes in a web environment.
+//!
+//! ## Key Components
+//!
+//! - **ViewChild**: Implements the `ViewChild` trait for `web_sys::Node`, enabling nodes to be
+//!   appended to views.
+//!
+//! - **ViewParent**: Implements the `ViewParent` trait for `web_sys::Node`, providing methods
+//!   for managing child nodes within a view.
+//!
+//! - **ViewProperties**: Implements the `ViewProperties` trait for various web elements, allowing
+//!   for the manipulation of attributes and styles.
+//!
+//! - **ViewEventListener**: Implements the `ViewEventListener` trait for `EventListener`, enabling
+//!   asynchronous event handling.
+//!
+//! - **Global**: A utility for managing global state, such as the window and document objects.
+//!
+//! ## Usage
+//!
+//! This module is intended for use in web environments, providing a comprehensive set of tools
+//! for building and managing web-based user interfaces.
+"#]
 
 use std::{borrow::Cow, cell::RefCell, ops::Deref, rc::Rc, task::Waker};
 
