@@ -1,9 +1,15 @@
-//! Proxy for data updates.
+//! # Proxy: Data Update Mechanism
 //!
-//! [`Proxy`] is a little like Javascript's Proxy object.
+//! The `Proxy` module provides a mechanism similar to JavaScript's Proxy object,
+//! allowing for data updates that automatically propagate to associated views.
 //!
-//! When a [`Proxy`] is updated, it propogates to the views that it was
-//! created with.
+//! ## Overview
+//!
+//! - **Proxy**: Acts as an intermediary for data, ensuring that any updates
+//!   are reflected in the views it is linked with.
+//!
+//! This module facilitates dynamic UI updates by connecting data changes directly
+//! to the view layer, promoting a reactive programming model.
 
 use std::{borrow::Cow, marker::PhantomData, ops::Deref};
 
