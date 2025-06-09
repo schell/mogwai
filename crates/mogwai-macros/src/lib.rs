@@ -86,9 +86,9 @@ pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// Derives `ViewChild` for a type.
 ///
 /// The type must contain a field annotated with `#[child]`.
-/// Derives `ViewChild` for a type.
 ///
-/// The type must contain a field annotated with `#[child]`.
+/// Deriving `ViewChild` for an arbitrary Rust type allows you to use that type in the
+/// node position of an [`rsx!`] macro.
 ///
 /// # Example
 ///
@@ -101,18 +101,15 @@ pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 ///     wrapper: V::Element,
 /// }
 ///
-/// fn create_view<V: View>() -> V::Element {
+/// fn nest<V: View>(component: &MyComponent<V>) -> V::Element {
 ///     rsx! {
 ///         let wrapper = div() {
-///             "Hello, world!"
+///             h1(){ "Hello, world!" }
+///             {component} // <- here `component` is added to the view tree
 ///         }
 ///     }
-///     wrapper
-/// }
 ///
-/// fn main() {
-///     let view = create_view::<Web>();
-///     // Use `view` in your application...
+///     wrapper
 /// }
 /// ```
 ///
