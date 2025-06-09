@@ -18,7 +18,7 @@ pub struct Item<V: View> {
     wrapper: V::Element,
     on_click_increment: V::EventListener,
     on_click_remove: V::EventListener,
-    clicks: Proxy<V, u32>,
+    clicks: Proxy<u32>,
     id: usize,
 }
 

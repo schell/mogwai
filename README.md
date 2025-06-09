@@ -32,7 +32,7 @@ It offers a minimalistic and transparent approach, allowing you to structure you
 - **View Construction**: Use the `rsx!` macro for intuitive view building.
 - **Event Handling**: Events are futures, not callbacks.
 - **Cross-Platform**: Traits ensure operations are cross-platform, with room for specialization.
-- **Idiomatic Rust**: Widgets are Rust types, and events are futures.
+- **Idiomatic Rust**: Widgets are Rust types
 
 ## Example
 
