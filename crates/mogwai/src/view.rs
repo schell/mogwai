@@ -29,7 +29,12 @@ impl<T: AsRef<str>> ViewTextExt for T {
     }
 }
 
-pub struct AppendArg<V: View, I> {
+    /// An internal type used for managing child nodes within a view.
+    ///
+    /// `AppendArg` is primarily for internal use within the framework, but it is
+    /// exposed to facilitate the implementation of view-related traits. It provides
+    /// a mechanism for iterating over nodes that can be appended to a view.
+    pub struct AppendArg<V: View, I> {
     pub iter: I,
     _phantom: PhantomData<V>,
 }
