@@ -160,10 +160,6 @@
 //!     }
 //! }
 //! ```
-````
-
-crates/mogwai/src/an_introduction.rs
-````rust
 <<<<<<< SEARCH
 //! ```rust
 //! // TODO
