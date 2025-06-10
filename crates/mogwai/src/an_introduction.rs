@@ -140,6 +140,32 @@
 //! convenience functions:
 //!
 //! ```rust
+//! use mogwai::prelude::*;
+//!
+//! struct MyView<V: View> {
+//!     root: V::Element,
+//! }
+//!
+//! impl<V: View> MyView<V> {
+//!     fn new() -> Self {
+//!         rsx! {
+//!             let root = div(class = "my-view") {
+//!                 h1() { "Hello, Mogwai!" }
+//!                 button(on:click = |_| println!("Button clicked!")) {
+//!                     "Click me"
+//!                 }
+//!             }
+//!         }
+//!         Self { root }
+//!     }
+//! }
+//! ```
+````
+
+crates/mogwai/src/an_introduction.rs
+````rust
+<<<<<<< SEARCH
+//! ```rust
 //! // TODO
 //! ```
 //!
