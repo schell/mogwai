@@ -177,10 +177,8 @@ pub trait ViewProperties {
 ///
 /// This trait provides methods for attaching event listeners to global
 /// things (window and document) and handling events asynchronously.
-// TODO: maybe Window and Document be associated types methods on `View` that
-// impl ViewEventTarget<V>. Then `View` could define `window()` and `document()`
-// functions.
 pub trait ViewEventListener<V: View> {
+    /// Returns a future that resolves on the next event occurence.
     fn next(&self) -> impl Future<Output = V::Event>;
     fn on_window(event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
     fn on_document(event_name: impl Into<Cow<'static, str>>) -> V::EventListener;

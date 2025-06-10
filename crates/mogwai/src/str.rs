@@ -8,7 +8,7 @@ pub type Str = Cow<'static, str>;
 
 impl ViewText for Shared<Str> {
     fn new(text: impl AsRef<str>) -> Self {
-        Shared::from_str(text)
+        Shared::from_string(text)
     }
 
     fn set_text(&self, text: impl AsRef<str>) {

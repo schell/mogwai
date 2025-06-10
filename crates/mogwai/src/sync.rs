@@ -142,7 +142,7 @@ impl<T> Shared<T> {
 }
 
 impl Shared<Str> {
-    pub fn from_str(s: impl AsRef<str>) -> Self {
+    pub fn from_string(s: impl AsRef<str>) -> Self {
         let cow = Cow::from(s.as_ref().to_owned());
         Shared::from(cow)
     }

@@ -1,5 +1,7 @@
 #![allow(unused_braces)]
-//! An introduction to writing browser interfaces with mogwai.
+//! # Welcome!
+//!
+//! This is an introduction to writing user interfaces with the mogwai crate.
 //!
 //! <div align="center">
 //!   <h1>
@@ -9,8 +11,6 @@
 //!   </h1>
 //! </div>
 //!
-//! # Welcome!
-//! This is a library for building asynchronous user interfaces.
 //! The following is a short introduction to the library's basic concepts.
 //!
 //! ## Preludes
@@ -32,7 +32,7 @@
 //! ```
 //!
 //! The [web prelude](crate::web::prelude) also re-exports a few of the most commonly
-//! used WASM crates as a convenience, such as [`web-sys`], [`wasm_bindgen`] and
+//! used WASM crates as a convenience, such as [`web_sys`], [`wasm_bindgen`] and
 //! [`wasm_bindgen_futures`].
 //!
 //! ## View Construction
@@ -135,48 +135,80 @@
 //! * **EventListener**
 //! * **Event**
 //!
-//! They all work together with few interlocking traits to make your views cross-platform.
-//! But you can also specialize certain operations to specific platforms using some
-//! convenience functions:
+//! They all work together with few [interlocking traits](crate::view#traits)
+//! to make your views cross-platform. But you can also specialize certain
+//! operations to specific platforms using the convenience functions
+//! [`when_element`](crate::view::ViewElement::when_element)
+//! and [`when_event`](crate::view::ViewEvent::when_event):
 //!
-//! ```rust
-//! use mogwai::prelude::*;
-//!
-//! struct MyView<V: View> {
-//!     root: V::Element,
-//! }
-//!
-//! impl<V: View> MyView<V> {
-//!     fn new() -> Self {
-//!         rsx! {
-//!             let root = div(class = "my-view") {
-//!                 h1() { "Hello, Mogwai!" }
-//!                 button(on:click = |_| println!("Button clicked!")) {
-//!                     "Click me"
-//!                 }
-//!             }
-//!         }
-//!         Self { root }
-//!     }
-//! }
+//! ```rust                                                                                        
+//! use mogwai::web::prelude::*;                                                                        
+//!                                                                                                
+//! struct MyView<V: View> {                                                                       
+//!     root: V::Element,                                                                          
+//!     button: V::Element,
+//! }                                                                                              
+//!                                                                                                
+//! impl<V: View> MyView<V> {                                                                      
+//!     fn new() -> Self {                                                                         
+//!         rsx! {                                                                                 
+//!             let root = div(class = "my-view") {                                                
+//!                 h1() { "Hello, Mogwai!" }                                                      
+//!                 let button = button() {                           
+//!                     "Click me"                                                                 
+//!                 }                                                                              
+//!             }                                                                                  
+//!         }                                                                                      
+//!         Self { root, button }                                                                          
+//!     }                                                                                          
+//!                                                                                                
+//!     fn specialize_for_web(&self) {                                                             
+//!         self.button.when_element::<Web, _>(|el: &web_sys::Element| {                                                
+//!             el.set_property("data-special", "web");                                            
+//!         });                                                                                    
+//!     }                                                                                          
+//! }                                                                                              
 //! ```
-<<<<<<< SEARCH
-//! ```rust
-//! // TODO
-//! ```
 //!
-//! We can even go a step further when specializing for the web by using the [`WebElement`]
-//! and [`WebEvent`] extensions, which cast your elements and events to specific [`web-sys`]
-//! types.
+//! We can even go a step further when specializing for the web by using
+//! the [`dyn_el`](crate::web::WebElement::dyn_el) and
+//! [`dyn_ev`](crate::web::WebEvent::dyn_ev) extension methods, which cast your
+//! elements and events to specific [`web_sys`] types that implement
+//! [`JsCast`](wasm_bindgen::JsCast).
 //!
 //! ```rust
-//! // TODO
+//! use mogwai::web::prelude::*;                                                                        
+//!                                                                                                
+//! struct MyView<V: View> {                                                                       
+//!     root: V::Element,                                                                          
+//!     input: V::Element,
+//! }                                                                                              
+//!                                                                                                
+//! impl<V: View> MyView<V> {                                                                      
+//!     fn new() -> Self {                                                                         
+//!         rsx! {                                                                                 
+//!             let root = div(class = "my-view") {                                                
+//!                 h1() { "Use the input:" }                                                      
+//!                 let input = input(type_ = "text") {}                                                                              
+//!             }                                                                                  
+//!         }                                                                                      
+//!         Self { root, input }                                                                          
+//!     }                                                                                          
+//!                                                                                                
+//!     fn specialize_for_web(&self) {                                                             
+//!         self.input.dyn_el(|input: &web_sys::HtmlInputElement| {                                                
+//!             let value = input.value();
+//!             // do special stuff with the input value here...
+//!         });                                                                                    
+//!     }                                                                                          
+//! }
 //! ```
 //!
 //! ### Event handling
 //!
-//! The [`rsx!`] macro binds event listeners in attribute position to a name, which can
-//! then be used by platform-agnostic logic:
+//! The [`rsx!`] macro binds [event listeners](crate::view::ViewEventListener) in
+//! attribute position to a name, which can then be used by platform-agnostic
+//! logic:
 //!
 //! ```rust
 //! use mogwai::prelude::*;
@@ -184,6 +216,8 @@
 //! struct Widget<V:View> {
 //!     root: V::Element,
 //!     text: V::Text,
+//!     /// A cross-platform event listener, which responds to `.next()` to await the
+//!     /// next event occurence.
 //!     on_click: V::EventListener,
 //! }
 //!
@@ -192,7 +226,8 @@
 //!          rsx! {
 //!              let root = div(class = "my-div") {
 //!                  a(
-//!                      // Here an event listener is registered and then bound to the name `on_click`
+//!                      // Here an event listener is registered and then bound
+//!                      // to the name `on_click`
 //!                      on:click = on_click,
 //!                      href = "http://zyghost.com"
 //!                  ) {
@@ -216,16 +251,16 @@
 //! ```
 //!
 //! As you can see, the view platform is kept agnostic, and after the click event,
-//! updating the text an obvious, intentional action on the part of the logic inside
+//! updating the text is an obvious, intentional action on the part of the logic inside
 //! the `step` function.
 //!
 //! ### Using [`Proxy`] for updates
 //!
-//! Views in Mogwai are dynamic, but they are updated explicitly in response to events.
+//! Views in mogwai are dynamic, but they are updated explicitly in response to events.
 //! Sometimes, though, we'd like to hold little bits of state in our views, and when
 //! that state changes we want multiple parts of the view to "react".
 //!
-//! This doesn't violate Mogwai's goal of ensuring updates are explicit, in that the change must
+//! This doesn't violate mogwai's goal of ensuring updates are explicit, in that the change must
 //! be executed explicitly in logic, but the results of that change may occur in more
 //! than one place, by use of the [`Proxy`] type.
 //!
@@ -281,6 +316,17 @@
 //! In this example, clicking the button updates the state, which in turn updates
 //! the paragraph text. The `Proxy` type is used to manage the state and trigger
 //! updates to the view when the state changes.
+//!
+//! #### [`Proxy`] API notes
+//!
+//! Note that [`Proxy`] is not `Clone`, and that modifying a [`Proxy`] requires mutation.
+//! This is a purposeful design choice to make tracking down data updates easy.
+//!
+//! # Getting started
+//!
+//! That's it! Time to get started. If you're looking for a project template you can use
+//! the [`cargo-generate`](https://crates.io/crates/cargo-generate)
+//! [`mogwai-template`](https://github.com/schell/mogwai-template).
 
 #[allow(unused_imports)]
 use super::prelude::*;

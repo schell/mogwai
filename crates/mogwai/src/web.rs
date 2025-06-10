@@ -1,6 +1,6 @@
 //! # `web-sys` view implementation
 //!
-//! This module provides an implementation of [`View`] for [`web-sys`](crate::web_sys) types,
+//! This module provides an implementation of [`View`] for [`web-sys`] types,
 //! allowing for the creation and manipulation of DOM nodes in a browser environment.
 //!
 //! ## Key Components

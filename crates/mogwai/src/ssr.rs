@@ -60,7 +60,7 @@ impl ViewText for SsrText {
     fn new(text: impl AsRef<str>) -> Self {
         SsrText {
             id: next_id(),
-            text: Shared::from_str(text),
+            text: Shared::from_string(text),
             events: Default::default(),
         }
     }
