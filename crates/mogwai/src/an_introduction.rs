@@ -1,33 +1,49 @@
 #![allow(unused_braces)]
 //! An introduction to writing browser interfaces with mogwai.
 //!
+//! <div align="center">
+//!   <h1>
+//!     <img src="https://raw.githubusercontent.com/schell/mogwai/master/img/gizmo.svg" />
+//!     <br />
+//!     mogwai
+//!   </h1>
+//! </div>
+//!
 //! # Welcome!
 //! This is a library for building asynchronous user interfaces.
 //! The following is a short introduction to the library's basic concepts.
 //!
-//! ## Asynchronous Communication
+//! ## Preludes
 //!
-//! Mogwai uses asynchronous communication to manage interactions between views
-//! and logic. This is achieved through the use of futures and proxies, which
-//! allow for dynamic updates and event handling.
+//! There are a _few_ prelude modules that you can glob-import to make development easier:
 //!
-//! ### Futures
-//! Futures represent values that will be available at some point in the future.
-//! They are used extensively in Mogwai to handle events.
+//! The first is the common prelude, which contains cross-platform types and traits.
 //!
-//! ## Mutation and data updates
+//! ```rust
+//! use mogwai::prelude::*;
+//! ```
 //!
-//! The [`Proxy`] type is used to update multiple places in a view from a single
-//! data update. We'll talk more about this later.
+//! Then there are more domain-specific preludes for web and server-side rendering,
+//! both of which re-export the common prelude:
+//!
+//! ```rust
+//! use mogwai::web::prelude::*;
+//! use mogwai::ssr::prelude::*;
+//! ```
+//!
+//! The [web prelude](crate::web::prelude) also re-exports a few of the most commonly
+//! used WASM crates as a convenience, such as [`web-sys`], [`wasm_bindgen`] and
+//! [`wasm_bindgen_futures`].
 //!
 //! ## View Construction
 //!
 //! View construction is accomplished using a novel [`rsx!`] macro that reduces
-//! boilerplate and has special syntax for use with [`Proxy`].
+//! boilerplate and has special syntax for setting node attributes, text and nesting
+//! views.
 //!
 //! ### RSX
 //!
-//! [`rsx!`] is a lot like react.js's JSX, except that it uses type checked rust expressions.
+//! [`rsx!`] is a lot like react.js's JSX, except that it uses type checked Rust expressions.
 //!
 //! Let's start by writing a function that constructs a simple element:
 //!
@@ -58,9 +74,8 @@
 //! way, and then specialize at runtime:
 //!
 //! ```rust,no_run
-//! use mogwai::web::Web;
+//! # use mogwai::web::Web;
 //! # use mogwai::prelude::*;
-//!
 //! # struct Widget<V:View> {
 //! #     root: V::Element
 //! # }
@@ -73,24 +88,21 @@
 //! #                 }
 //! #             }
 //! #         };
-//!
 //! #         Self{ root }
 //! #     }
 //! # }
-//!
 //! let web_element = Widget::<Web>::new();
 //! ```
 //!
-//! [`Web`] is a type that implements [`View`]. It monomorphizes our struct
-//! to produce a view using [`web_sys`](web_sys) types.
+//! [`Web`](crate::web::Web) is a type that implements [`View`]. It monomorphizes our struct
+//! to produce a view using [`web_sys`] types.
 //!
-//! Also provided is the [`Ssr`] type, which implements [`View`] to produce
+//! Also provided is the [`Ssr`](crate::ssr::Ssr) type, which implements [`View`] to produce
 //! views that render to [`String`] for server-side rendering.
 //!
 //! ```rust
-//! use mogwai::ssr::Ssr;
+//! # use mogwai::ssr::Ssr;
 //! # use mogwai::prelude::*;
-//!
 //! # struct Widget<V:View> {
 //! #     root: V::Element
 //! # }
@@ -103,17 +115,17 @@
 //! #                 }
 //! #             }
 //! #         };
-//!
 //! #         Self{ root }
 //! #     }
 //! # }
-//!
 //! let ssr_element = Widget::<Ssr>::new();
 //! println!("{}", ssr_element.root.html_string());
 //! ```
 //!
-//! In this way server-side rendering is a separate view "platform" from the browser,
+//! In this way, server-side rendering is a separate view "platform" from the browser,
 //! but we can build the view all the same using our `V:View` parameterization.
+//!
+//! ### Cross-platform
 //!
 //! [`View`] has a number of associated types:
 //!
@@ -123,7 +135,21 @@
 //! * **EventListener**
 //! * **Event**
 //!
-//! They all work together to make your views cross-platform.
+//! They all work together with few interlocking traits to make your views cross-platform.
+//! But you can also specialize certain operations to specific platforms using some
+//! convenience functions:
+//!
+//! ```rust
+//! // TODO
+//! ```
+//!
+//! We can even go a step further when specializing for the web by using the [`WebElement`]
+//! and [`WebEvent`] extensions, which cast your elements and events to specific [`web-sys`]
+//! types.
+//!
+//! ```rust
+//! // TODO
+//! ```
 //!
 //! ### Event handling
 //!
