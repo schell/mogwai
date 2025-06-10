@@ -89,9 +89,6 @@ impl<V: View, I: Iterator> Iterator for AppendArg<V, I> {
 /// This trait provides methods for appending, removing, and replacing child
 /// nodes, as well as managing their order within the view.
 pub trait ViewParent<V: View> {
-    fn new(name: impl AsRef<str>) -> Self;
-    fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self;
-
     fn append_node(&self, node: Cow<'_, V::Node>);
     fn remove_node(&self, node: Cow<'_, V::Node>);
     fn replace_node(&self, new_node: Cow<'_, V::Node>, old_node: Cow<'_, V::Node>);
@@ -120,7 +117,7 @@ pub trait ViewChild<V: View> {
     fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = Cow<'_, V::Node>>>;
 }
 
-impl<V: View, T: ViewChild<V> + 'static> ViewChild<V> for &T {
+impl<V: View, T: ViewChild<V>> ViewChild<V> for &T {
     fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = Cow<'_, V::Node>>> {
         T::as_append_arg(self)
     }
@@ -197,9 +194,22 @@ pub trait ViewEventTarget<V: View> {
     fn listen(&self, event_name: impl Into<Cow<'static, str>>) -> V::EventListener;
 }
 
+/// Defines methods for creating and using elements.
+///
 /// Represents an element within a view, providing platform-specific operations.
 pub trait ViewElement {
     type View: View<Element = Self>;
+
+    fn new(name: impl AsRef<str>) -> Self;
+
+    fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self
+    where
+        Self: ViewProperties + Sized,
+    {
+        let el = Self::new(name);
+        el.set_property("xmlns", ns);
+        el
+    }
 
     /// Attempt to perform a platform-specific operation on the given element.
     fn when_element<V: View, T>(&self, f: impl FnOnce(&V::Element) -> T) -> Option<T> {

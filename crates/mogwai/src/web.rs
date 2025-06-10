@@ -1,96 +1,39 @@
-#![doc = r#"
-//! # Web Utilities
+//! # `web-sys` view implementation
 //!
-//! This module provides utilities for working with web technologies through the `web-sys` crate.
-//! It includes implementations of view traits for web elements, allowing for the creation and
-//! manipulation of DOM nodes in a web environment.
+//! This module provides an implementation of [`View`] for [`web-sys`](crate::web_sys) types,
+//! allowing for the creation and manipulation of DOM nodes in a browser environment.
 //!
 //! ## Key Components
 //!
-//! - **ViewChild**: Implements the `ViewChild` trait for `web_sys::Node`, enabling nodes to be
+//! - **ViewChild**: Implements the [`ViewChild`] trait for `web-sys` types, enabling them to be
 //!   appended to views.
 //!
-//! - **ViewParent**: Implements the `ViewParent` trait for `web_sys::Node`, providing methods
+//! - **ViewParent**: Implements the [`ViewParent`] trait for `web-sys` types, providing methods
 //!   for managing child nodes within a view.
 //!
-//! - **ViewProperties**: Implements the `ViewProperties` trait for various web elements, allowing
+//! - **ViewProperties**: Implements the [`ViewProperties`] trait for various web elements, allowing
 //!   for the manipulation of attributes and styles.
 //!
-//! - **ViewEventListener**: Implements the `ViewEventListener` trait for `EventListener`, enabling
+//! - **ViewEventListener**: Implements the [`ViewEventListener`] trait for [`EventListener`], enabling
 //!   asynchronous event handling.
 //!
-//! - **Global**: A utility for managing global state, such as the window and document objects.
-//!
-//! ## Usage
-//!
-//! This module is intended for use in web environments, providing a comprehensive set of tools
-//! for building and managing web-based user interfaces.
-"#]
-
-use std::{borrow::Cow, cell::RefCell, ops::Deref, rc::Rc, task::Waker};
+//! - **Extension traits**: [`WebElement`] and [`WebEvent`] make it easy to specialize on web views.
+use std::{cell::RefCell, ops::Deref, rc::Rc, task::Waker};
 
 use event::EventListener;
 use wasm_bindgen::{JsValue, UnwrapThrowExt, prelude::Closure};
 use web_sys::wasm_bindgen::JsCast;
 
-use crate::prelude::*;
+use crate::{prelude::*, sync::Global};
 pub mod event;
 
 pub mod prelude {
+    //! Re-export of the common prelude with browser specific extras.
     pub use super::{Web, WebElement, WebEvent, event::*};
     pub use crate::prelude::*;
     pub extern crate wasm_bindgen;
     pub extern crate wasm_bindgen_futures;
     pub extern crate web_sys;
-}
-
-impl ViewChild<Web> for web_sys::Node {
-    fn as_append_arg(&self) -> AppendArg<Web, impl Iterator<Item = Cow<'_, web_sys::Node>>> {
-        AppendArg::new(std::iter::once(Cow::Borrowed(self)))
-    }
-}
-
-impl ViewParent<Web> for web_sys::Node {
-    fn new(name: impl AsRef<str>) -> Self {
-        DOCUMENT
-            .create_element(name.as_ref())
-            .unwrap_throw()
-            .dyn_into()
-            .unwrap()
-    }
-
-    fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self {
-        DOCUMENT
-            .create_element_ns(Some(ns.as_ref()), name.as_ref())
-            .unwrap_throw()
-            .dyn_into()
-            .unwrap()
-    }
-
-    fn append_node(&self, node: std::borrow::Cow<'_, <Web as View>::Node>) {
-        web_sys::Node::append_child(self, node.as_ref()).unwrap_throw();
-    }
-
-    fn remove_node(&self, node: std::borrow::Cow<'_, <Web as View>::Node>) {
-        web_sys::Node::remove_child(self, node.as_ref()).unwrap_throw();
-    }
-
-    fn replace_node(
-        &self,
-        new_node: std::borrow::Cow<'_, <Web as View>::Node>,
-        old_node: std::borrow::Cow<'_, <Web as View>::Node>,
-    ) {
-        web_sys::Node::replace_child(self, new_node.as_ref(), old_node.as_ref()).unwrap_throw();
-    }
-
-    fn insert_node_before(
-        &self,
-        new_node: std::borrow::Cow<'_, <Web as View>::Node>,
-        before_node: Option<std::borrow::Cow<'_, <Web as View>::Node>>,
-    ) {
-        web_sys::Node::insert_before(self, new_node.as_ref(), before_node.as_deref())
-            .unwrap_throw();
-    }
 }
 
 macro_rules! node_impl {
@@ -110,22 +53,6 @@ macro_rules! node_impl {
         }
 
         impl ViewParent<Web> for web_sys::$ty {
-            fn new(name: impl AsRef<str>) -> Self {
-                DOCUMENT
-                    .create_element(name.as_ref())
-                    .unwrap_throw()
-                    .dyn_into()
-                    .unwrap()
-            }
-
-            fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self {
-                DOCUMENT
-                    .create_element_ns(Some(ns.as_ref()), name.as_ref())
-                    .unwrap_throw()
-                    .dyn_into()
-                    .unwrap()
-            }
-
             fn append_node(&self, node: std::borrow::Cow<'_, <Web as View>::Node>) {
                 web_sys::Node::append_child(self, node.as_ref()).unwrap_throw();
             }
@@ -153,48 +80,43 @@ macro_rules! node_impl {
             }
         }
     };
-
-    ($ty:ident, props) => {
-        node_impl!($ty);
-
-        impl ViewProperties for web_sys::$ty {
-            fn set_property(&self, key: impl AsRef<str>, value: impl AsRef<str>) {
-                let _ = self.set_attribute(key.as_ref(), value.as_ref());
-            }
-
-            fn has_property(&self, key: impl AsRef<str>) -> bool {
-                self.has_attribute(key.as_ref())
-            }
-
-            fn get_property(&self, key: impl AsRef<str>) -> Option<Str> {
-                self.get_attribute(key.as_ref()).map(|s| s.into())
-            }
-
-            fn remove_property(&self, key: impl AsRef<str>) {
-                let _ = self.remove_attribute(key.as_ref());
-            }
-
-            fn set_style(&self, key: impl AsRef<str>, value: impl AsRef<str>) {
-                if let Some(el) = self.dyn_ref::<web_sys::HtmlElement>() {
-                    let style = el.style();
-                    let _ = style.set_property(key.as_ref(), value.as_ref());
-                }
-            }
-
-            fn remove_style(&self, key: impl AsRef<str>) {
-                if let Some(el) = self.dyn_ref::<web_sys::HtmlElement>() {
-                    let style = el.style();
-                    let _ = style.remove_property(key.as_ref());
-                }
-            }
-        }
-    };
 }
 
 node_impl!(Text);
-node_impl!(Element, props);
-node_impl!(HtmlElement, props);
-node_impl!(HtmlInputElement, props);
+node_impl!(Node);
+node_impl!(Element);
+
+impl ViewProperties for web_sys::Element {
+    fn set_property(&self, key: impl AsRef<str>, value: impl AsRef<str>) {
+        let _ = self.set_attribute(key.as_ref(), value.as_ref());
+    }
+
+    fn has_property(&self, key: impl AsRef<str>) -> bool {
+        self.has_attribute(key.as_ref())
+    }
+
+    fn get_property(&self, key: impl AsRef<str>) -> Option<Str> {
+        self.get_attribute(key.as_ref()).map(|s| s.into())
+    }
+
+    fn remove_property(&self, key: impl AsRef<str>) {
+        let _ = self.remove_attribute(key.as_ref());
+    }
+
+    fn set_style(&self, key: impl AsRef<str>, value: impl AsRef<str>) {
+        if let Some(el) = self.dyn_ref::<web_sys::HtmlElement>() {
+            let style = el.style();
+            let _ = style.set_property(key.as_ref(), value.as_ref());
+        }
+    }
+
+    fn remove_style(&self, key: impl AsRef<str>) {
+        if let Some(el) = self.dyn_ref::<web_sys::HtmlElement>() {
+            let style = el.style();
+            let _ = style.remove_property(key.as_ref());
+        }
+    }
+}
 
 impl ViewText for web_sys::Text {
     fn new(text: impl AsRef<str>) -> Self {
@@ -224,6 +146,30 @@ impl ViewEventListener<Web> for EventListener {
     }
 }
 
+impl ViewElement for web_sys::Element {
+    type View = Web;
+
+    fn new(name: impl AsRef<str>) -> Self {
+        DOCUMENT
+            .create_element(name.as_ref())
+            .unwrap_throw()
+            .dyn_into()
+            .unwrap()
+    }
+
+    fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self {
+        DOCUMENT
+            .create_element_ns(Some(ns.as_ref()), name.as_ref())
+            .unwrap_throw()
+            .dyn_into()
+            .unwrap()
+    }
+}
+
+impl ViewEvent for web_sys::Event {
+    type View = Web;
+}
+
 #[derive(Clone, Copy)]
 pub struct Web;
 
@@ -233,49 +179,6 @@ impl View for Web {
     type Node = web_sys::Node;
     type EventListener = EventListener;
     type Event = web_sys::Event;
-}
-
-impl ViewElement for web_sys::Element {
-    type View = Web;
-}
-
-impl ViewEvent for web_sys::Event {
-    type View = Web;
-}
-
-pub struct Global<T> {
-    #[cfg(target_arch = "wasm32")]
-    data: std::mem::ManuallyDrop<std::cell::LazyCell<T>>,
-    #[cfg(not(target_arch = "wasm32"))]
-    data: std::sync::LazyLock<T>,
-}
-
-impl<T> Global<T> {
-    pub const fn new(create_fn: fn() -> T) -> Self {
-        #[cfg(target_arch = "wasm32")]
-        {
-            Global {
-                data: std::mem::ManuallyDrop::new(std::cell::LazyCell::new(create_fn)),
-            }
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            Global {
-                data: std::sync::LazyLock::new(create_fn),
-            }
-        }
-    }
-}
-
-unsafe impl<T> Send for Global<T> {}
-unsafe impl<T> Sync for Global<T> {}
-
-impl<T> Deref for Global<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.data
-    }
 }
 
 static WINDOW: Global<web_sys::Window> = Global::new(|| web_sys::window().unwrap_throw());
@@ -288,14 +191,15 @@ pub fn window() -> &'static web_sys::Window {
     WINDOW.deref()
 }
 
-/// Return the document JsDom object [`web_sys::Document`]
+/// Returns the global document object [`web_sys::Document`]
+///
 /// #### Panics
 /// Panics on non-wasm32 or when the document cannot be returned.
 pub fn document() -> &'static web_sys::Document {
     DOCUMENT.deref()
 }
 
-/// Return the document's body Dom object.
+/// Return the global document's body object.
 ///
 /// ## Panics
 /// Panics on wasm32 if the body cannot be returned.
@@ -311,6 +215,12 @@ fn req_animation_frame(f: &Closure<dyn FnMut(JsValue)>) {
         .expect_throw("should register `requestAnimationFrame` OK");
 }
 
+/// Sets a static rust closure to be called with `window.requestAnimationFrame`.
+///
+/// The static rust closure takes one parameter which is
+/// a timestamp representing the number of milliseconds since the application's
+/// load. See <https://developer.mozilla.org/en-US/docs/Web/API/DOMHighResTimeStamp>
+/// for more info.
 pub fn request_animation_frame(mut f: impl FnMut(JsValue) + 'static) {
     let wrapper = Rc::new(RefCell::new(None));
     let callback = Box::new({
@@ -327,20 +237,19 @@ pub fn request_animation_frame(mut f: impl FnMut(JsValue) + 'static) {
 
 #[derive(Clone, Default)]
 #[expect(clippy::type_complexity, reason = "not too complex")]
-pub struct NextFrame {
+struct NextFrame {
     closure: Rc<RefCell<Option<Closure<dyn FnMut(JsValue)>>>>,
     ts: Rc<RefCell<Option<f64>>>,
     waker: Rc<RefCell<Option<Waker>>>,
 }
 
-/// Sets a static rust closure to be called with `window.requestAnimationFrame`.
-/// The given function may return whether or not this function should be
-/// rescheduled. If the function returns `true` it will be rescheduled.
-/// Otherwise it will not. The static rust closure takes one parameter which is
-/// a timestamp representing the number of milliseconds since the application's
-/// load. See <https://developer.mozilla.org/en-US/docs/Web/API/DOMHighResTimeStamp>
+/// Creates a future that will resolve on the next animation frame.
+///
+/// The future's output is a timestamp representing the number of
+/// milliseconds since the application's load.
+/// See <https://developer.mozilla.org/en-US/docs/Web/API/DOMHighResTimeStamp>
 /// for more info.
-pub fn next_animation_frame() -> NextFrame {
+pub fn next_animation_frame() -> impl Future<Output = f64> {
     // https://rustwasm.github.io/wasm-bindgen/examples/request-animation-frame.html#srclibrs
     let frame = NextFrame::default();
 
@@ -375,7 +284,11 @@ impl Future for NextFrame {
     }
 }
 
+/// Marker trait for specializing generic view elements to [`web_sys::Element`] and friends.
 pub trait WebElement: ViewElement {
+    /// Attempt to cast the element.
+    ///
+    /// If successful, run the given function on the result of the cast.
     fn dyn_el<T: JsCast, X>(&self, f: impl FnOnce(&T) -> X) -> Option<X> {
         let opt_x = self.when_element::<Web, _>(|el: &web_sys::Element| -> Option<X> {
             let el = el.dyn_ref::<T>()?;
@@ -388,7 +301,11 @@ pub trait WebElement: ViewElement {
 
 impl<T: ViewElement> WebElement for T {}
 
+/// Marker trait for specializing generic view events to [`web_sys::Event`] and friends.
 pub trait WebEvent: ViewEvent {
+    /// Attempt to cast the element.
+    ///
+    /// If successful, run the given function on the result of the cast.
     fn dyn_ev<T: JsCast, X>(&self, f: impl FnOnce(&T) -> X) -> Option<X> {
         let opt_x = self.when_event::<Web, _>(|el: &web_sys::Event| -> Option<X> {
             let el = el.dyn_ref::<T>()?;

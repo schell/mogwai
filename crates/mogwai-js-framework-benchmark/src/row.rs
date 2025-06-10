@@ -1,7 +1,7 @@
 //! The row.
 use std::ops::Deref;
 
-use mogwai::web::{prelude::*, Global};
+use mogwai::{sync::Global, web::prelude::*};
 use wasm_bindgen::{JsCast, UnwrapThrowExt};
 
 pub struct RowModel {

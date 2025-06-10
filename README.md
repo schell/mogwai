@@ -40,6 +40,7 @@ Here's a button that counts clicks:
 
 ```rust, no_run
 use mogwai::web::prelude::*;
+use wasm_bindgen::prelude::*;
 
 #[derive(ViewChild)]
 pub struct ButtonClick<V: View> {

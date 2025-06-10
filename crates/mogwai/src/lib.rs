@@ -12,6 +12,7 @@
 //! - **Idiomatic Rust**: Widgets are Rust types
 //!
 //! Mogwai provides tools to implement these concepts efficiently, promoting flexibility and performance.
+pub mod an_introduction;
 pub mod proxy;
 #[cfg(feature = "ssr")]
 pub mod ssr;

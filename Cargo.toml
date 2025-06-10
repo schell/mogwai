@@ -26,6 +26,7 @@ anyhow = "1.0"
 async-channel = "2.3.1"
 console_error_panic_hook = { version = "0.1.6" }
 console_log = "1.0"
+doc-comment = "0.3"
 env_logger = "0.11.8"
 futures = "0.3"
 futures-lite = "2.6.0"

@@ -7,7 +7,9 @@
 //!
 //! ## Primitives
 //!
-//! - **Shared**: A type that wraps data in a reference-counted pointer, providing
+//! - **[`Global`]**: A utility for managing global state, such as the window and document objects.
+//!
+//! - **[`Shared`]**: A type that wraps data in a reference-counted pointer, providing
 //!   safe concurrent access. On non-wasm32 targets, it uses `Arc<RwLock<T>>` for
 //!   thread safety. On wasm32 targets, it uses `Rc<RefCell<T>>` due to the single-threaded
 //!   nature of WebAssembly, which simplifies the concurrency model.
@@ -22,6 +24,43 @@ use std::{
 };
 
 use crate::Str;
+
+/// A global value.
+pub struct Global<T> {
+    #[cfg(target_arch = "wasm32")]
+    data: std::mem::ManuallyDrop<std::cell::LazyCell<T>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    data: std::sync::LazyLock<T>,
+}
+
+impl<T> Global<T> {
+    /// Create a new global value.
+    pub const fn new(create_fn: fn() -> T) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        {
+            Global {
+                data: std::mem::ManuallyDrop::new(std::cell::LazyCell::new(create_fn)),
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            Global {
+                data: std::sync::LazyLock::new(create_fn),
+            }
+        }
+    }
+}
+
+unsafe impl<T> Send for Global<T> {}
+unsafe impl<T> Sync for Global<T> {}
+
+impl<T> Deref for Global<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
 
 /// A "shared" value.
 ///

@@ -48,3 +48,6 @@ features = [
   "Window"
 ]
 optional = true
+
+[dev-dependencies]
+doc-comment.workspace = true

@@ -24,30 +24,42 @@
 //! This module is intended for use in environments where server-side rendering
 //! is required, providing a way to generate HTML content dynamically based on
 //! application state and logic.
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::atomic::AtomicUsize};
 
-use crate::{Str, sync::Shared, view::*};
+use crate::{
+    Str,
+    sync::{Global, Shared},
+    view::*,
+};
 
 pub mod prelude {
     pub use super::{Ssr, SsrElement, SsrEventListener, SsrEventTarget, SsrText};
     pub use crate::prelude::*;
 }
 
+static NEXT_ID: Global<AtomicUsize> = Global::new(|| AtomicUsize::new(0));
+
+fn next_id() -> usize {
+    NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 #[derive(Clone)]
 pub struct SsrText {
+    pub id: usize,
     pub text: Shared<Str>,
     pub events: Shared<Vec<SsrEventListener>>,
 }
 
 impl PartialEq for SsrText {
     fn eq(&self, other: &Self) -> bool {
-        self.text == other.text
+        self.id == other.id
     }
 }
 
 impl ViewText for SsrText {
     fn new(text: impl AsRef<str>) -> Self {
         SsrText {
+            id: next_id(),
             text: Shared::from_str(text),
             events: Default::default(),
         }
@@ -79,6 +91,7 @@ impl ViewEventTarget<Ssr> for SsrText {
 
 #[derive(Clone)]
 pub struct SsrElement {
+    pub id: usize,
     pub name: Str,
     pub attributes: Shared<Vec<(Str, Option<Str>)>>,
     pub styles: Shared<Vec<(Str, Str)>>,
@@ -88,32 +101,13 @@ pub struct SsrElement {
 
 impl PartialEq for SsrElement {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-            && self.attributes == other.attributes
-            && self.styles == other.styles
-            && self.events == other.events
-            && self.children == other.children
+        self.id == other.id
     }
 }
 
 impl ViewParent<Ssr> for SsrElement {
-    fn new(name: impl AsRef<str>) -> Self {
-        Self {
-            name: name.as_ref().to_owned().into(),
-            attributes: Default::default(),
-            styles: Default::default(),
-            events: Default::default(),
-            children: Default::default(),
-        }
-    }
-
-    fn new_namespace(name: impl AsRef<str>, ns: impl AsRef<str>) -> Self {
-        let s = <SsrElement as ViewParent<Ssr>>::new(name);
-        s.set_property("xmlns", ns);
-        s
-    }
-
     fn append_node(&self, node: Cow<'_, <Ssr as View>::Node>) {
+        println!("appending node {}, {}", node.id(), node.name());
         self.children.get_mut().push(node.into_owned());
     }
 
@@ -371,6 +365,22 @@ impl From<SsrElement> for SsrNode {
     }
 }
 
+impl SsrNode {
+    pub fn id(&self) -> usize {
+        match self {
+            SsrNode::Element(ssr_element) => ssr_element.id,
+            SsrNode::Text(ssr_text) => ssr_text.id,
+        }
+    }
+
+    pub fn name(&self) -> String {
+        match self {
+            SsrNode::Element(ssr_element) => ssr_element.name.to_string(),
+            SsrNode::Text(ssr_text) => ssr_text.text.get().to_string(),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub enum SsrEventTarget {
     Node(SsrNode),
@@ -446,8 +456,84 @@ impl View for Ssr {
 
 impl ViewElement for SsrElement {
     type View = Ssr;
+
+    fn new(name: impl AsRef<str>) -> Self {
+        Self {
+            id: next_id(),
+            name: name.as_ref().to_owned().into(),
+            attributes: Default::default(),
+            styles: Default::default(),
+            events: Default::default(),
+            children: Default::default(),
+        }
+    }
 }
 
 impl ViewEvent for () {
     type View = Ssr;
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn proxy_update_text_node() {
+        use crate as mogwai;
+        use mogwai::ssr::prelude::*;
+
+        #[derive(Debug, PartialEq)]
+        struct Status {
+            color: String,
+            message: String,
+        }
+
+        struct Widget<V: View> {
+            root: V::Element,
+            state: Proxy<Status>,
+        }
+
+        fn new_widget<V: View>() -> Widget<V> {
+            let mut state = Proxy::new(Status {
+                color: "black".to_string(),
+                message: "Hello".to_string(),
+            });
+
+            // We start out with a `div` element bound to `root`, containing a nested `p` tag
+            // with the message "Hello" in black.
+            rsx! {
+                let root = div() {
+                    p(
+                        id = "message_wrapper",
+                        // proxy use in attribute position
+                        style:color = state(s => &s.color)
+                    ) {
+                        // proxy use in node position
+                        {state(s => {
+                            println!("updating state to: {s:#?}");
+                            &s.message
+                        })}
+                    }
+                }
+            }
+
+            Widget { root, state }
+        }
+
+        println!("creating");
+        // Verify at creation that the view shows "Hello" in black.
+        let mut w = new_widget::<mogwai::ssr::Ssr>();
+        assert_eq!(
+            r#"<div><p id="message_wrapper" style="color: black;">Hello</p></div>"#,
+            w.root.html_string()
+        );
+
+        // Then later we change the message to show "Goodbye" in red.
+        w.state.set(Status {
+            color: "red".to_string(),
+            message: "Goodbye".to_string(),
+        });
+        assert_eq!(
+            r#"<div><p id="message_wrapper" style="color: red;">Goodbye</p></div>"#,
+            w.root.html_string()
+        );
+    }
 }

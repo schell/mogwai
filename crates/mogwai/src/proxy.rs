@@ -39,11 +39,14 @@ impl<T: PartialEq> Proxy<T> {
     /// If the new value is different from the current value,
     /// it the update function, if it exists.
     pub fn set(&mut self, t: T) {
+        println!("setting proxy");
         if t != self.model {
             self.model = t;
             if let Some(update) = self.update.as_mut() {
                 update(&self.model);
             }
+        } else {
+            println!("proxy is unchanged");
         }
     }
 }
@@ -69,6 +72,7 @@ impl<T> Proxy<T> {
     ///
     /// Triggers the update function if it exists.
     pub fn modify(&mut self, f: impl FnOnce(&mut T)) {
+        println!("modifying proxy");
         f(&mut self.model);
         if let Some(update) = self.update.as_mut() {
             update(&self.model);
@@ -103,11 +107,10 @@ impl<V: View> ViewChild<V> for ProxyChild<V> {
 }
 
 impl<V: View> ProxyChild<V> {
-    pub fn new(parent: &V::Element, child: impl ViewChild<V>) -> Self {
+    pub fn new(child: impl ViewChild<V>) -> Self {
         let mut nodes: Vec<V::Node> = vec![];
         for child in child.as_append_arg() {
             nodes.push(child.as_ref().clone());
-            parent.append_node(child);
         }
         Self {
             _phantom: PhantomData,

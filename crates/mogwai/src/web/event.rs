@@ -1,8 +1,8 @@
 //! # Event Future API
 //!
-//! This module provides a future-based API for handling event callbacks using
-//! [`futures-lite::Future`]. It allows for asynchronous event handling by resolving
-//! futures when events occur.
+//! This module provides a future-based API for handling event callbacks.
+//! It allows for asynchronous event handling by resolving futures when
+//! events occur.
 //!
 //! ## Key Components
 //!
@@ -48,6 +48,7 @@ impl std::future::Future for FutureEventOccurrence {
     }
 }
 
+/// A thin wrapper over Javascript event listeners.
 #[derive(Clone)]
 pub struct EventListener {
     /// The DOM that the event listener is registered upon.
@@ -84,6 +85,11 @@ impl Drop for EventListener {
 }
 
 impl EventListener {
+    /// Create a new listener.
+    ///
+    /// This registers `event_name` on `target`.
+    ///
+    /// Use [`EventListener::next`] to await an event occurence.
     pub fn new(
         target: impl AsRef<web_sys::EventTarget>,
         event_name: impl Into<Cow<'static, str>>,
@@ -124,6 +130,10 @@ impl EventListener {
         }
     }
 
+    /// Produces a future that will resolve when the event occurs.
+    ///
+    /// This function can be called from multiple callsites, each receiving their own
+    /// unique future that will all resolve at the next occurence.
     pub fn next(&self) -> impl std::future::Future<Output = web_sys::Event> {
         self.events.borrow().clone()
     }

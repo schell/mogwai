@@ -74,7 +74,7 @@ impl ProxyAttribute {
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum ProxyUpdateKey {
-    Attrib(ProxyAttribute),
+    Attrib(Box<ProxyAttribute>),
     Block {
         parent: syn::Ident,
         block: syn::Ident,
@@ -83,7 +83,8 @@ pub enum ProxyUpdateKey {
 
 /// Used to create a proxy "on_update" call at the end of an rsx macro.
 pub struct ProxyOnUpdate {
-    updated_idents: Vec<syn::Ident>,
+    /// Map of ident to mutability
+    updated_idents: HashMap<syn::Ident, bool>,
     updates: HashMap<ProxyUpdateKey, ProxyUpdate>,
 }
 
@@ -92,9 +93,11 @@ impl ToTokens for ProxyOnUpdate {
         let clones = self
             .updated_idents
             .iter()
-            .map(|ident| {
-                quote! {
-                    let #ident = #ident.clone();
+            .map(|(ident, is_mut)| {
+                if *is_mut {
+                    quote! { let mut #ident = #ident.clone();}
+                } else {
+                    quote! { let #ident = #ident.clone();}
                 }
             })
             .collect::<Vec<_>>();
@@ -102,12 +105,13 @@ impl ToTokens for ProxyOnUpdate {
             .updates
             .iter()
             .map(|(key, update)| match key {
-                ProxyUpdateKey::Attrib(ProxyAttribute {
-                    element_ident,
-                    fn_ident,
-                    param,
-                    expr,
-                }) => {
+                ProxyUpdateKey::Attrib(inner) => {
+                    let ProxyAttribute {
+                        element_ident,
+                        fn_ident,
+                        param,
+                        expr,
+                    } = inner.as_ref();
                     let pat = &update.pattern;
                     quote! {{
                             let #pat = model;
@@ -138,6 +142,7 @@ fn insert_proxy(
     proxies: &mut HashMap<syn::Ident, ProxyOnUpdate>,
     ident: &syn::Ident,
     should_clone: bool,
+    is_mut: bool,
     parent: Option<&syn::Ident>,
     key: ProxyUpdateKey,
     proxy_update: &ProxyUpdate,
@@ -147,14 +152,22 @@ fn insert_proxy(
     let proxy_on_update = proxies
         .entry(proxy_update.proxy_ident.clone())
         .or_insert_with(|| ProxyOnUpdate {
-            updated_idents: vec![],
+            updated_idents: Default::default(),
             updates: HashMap::default(),
         });
     if should_clone {
-        proxy_on_update.updated_idents.push(ident.clone());
+        let updated_ident_is_mut = proxy_on_update
+            .updated_idents
+            .entry(ident.clone())
+            .or_insert(is_mut);
+        *updated_ident_is_mut = *updated_ident_is_mut || is_mut;
     }
     if let Some(parent) = parent {
-        proxy_on_update.updated_idents.push(parent.clone());
+        proxy_on_update.updated_idents.insert(parent.clone(), false);
+        let _updated_ident_is_mut = proxy_on_update
+            .updated_idents
+            .entry(parent.clone())
+            .or_default();
     }
     proxy_on_update.updates.insert(key, proxy_update);
 }
@@ -205,7 +218,7 @@ pub enum ViewToken {
     },
     BlockProxy {
         ident: Option<LetIdent>,
-        proxy: ProxyUpdate,
+        proxy: Box<ProxyUpdate>,
     },
 }
 
@@ -225,7 +238,10 @@ impl Parse for ViewToken {
             if braced_content.fork().parse::<ProxyUpdate>().is_ok() {
                 let mut proxy = braced_content.parse::<ProxyUpdate>()?;
                 proxy.update_ident = ident.as_ref().map(|lid| lid.ident.clone());
-                Ok(ViewToken::BlockProxy { ident, proxy })
+                Ok(ViewToken::BlockProxy {
+                    ident,
+                    proxy: Box::new(proxy),
+                })
             } else {
                 let expr: syn::Expr = braced_content.parse()?;
                 Ok(ViewToken::BlockExpr { ident, expr })
@@ -327,17 +343,13 @@ impl WebFlavor {
         quote! { let #listener = V::EventListener::on_document( #event ); }
     }
 
-    fn proxy_child(
-        parent: &syn::Ident,
-        ident: &syn::Ident,
-        proxy: &ProxyUpdate,
-    ) -> proc_macro2::TokenStream {
+    fn proxy_child(ident: &syn::Ident, proxy: &ProxyUpdate) -> proc_macro2::TokenStream {
         let proxy_ident = &proxy.proxy_ident;
         let pattern = &proxy.pattern;
         let expr = &proxy.expr;
         quote! { let mut #ident = {
             let #pattern = (std::ops::Deref::deref(&#proxy_ident));
-            mogwai::proxy::ProxyChild::new(&#parent, #expr)
+            mogwai::proxy::ProxyChild::new(#expr)
         };}
     }
 }
@@ -464,8 +476,9 @@ impl ViewToken {
                                         proxies,
                                         &ident,
                                         true,
+                                        false,
                                         None,
-                                        ProxyUpdateKey::Attrib(att),
+                                        ProxyUpdateKey::Attrib(Box::new(att)),
                                         proxy_update,
                                     );
                                 }
@@ -499,6 +512,7 @@ impl ViewToken {
                         proxies,
                         &id,
                         should_clone,
+                        true,
                         Some(parent),
                         ProxyUpdateKey::Block {
                             parent: if let Some(parent) = parent_name.as_ref() {
@@ -516,7 +530,7 @@ impl ViewToken {
                         },
                         proxy,
                     );
-                    WebFlavor::proxy_child(parent, &id, proxy).to_tokens(tokens);
+                    WebFlavor::proxy_child(&id, proxy).to_tokens(tokens);
                 } else {
                     syn::Error::new(
                         proxy.update_ident.span(),
@@ -542,7 +556,7 @@ pub enum AttributeToken {
     Window(String, syn::Expr),
     Document(String, syn::Expr),
     Attrib(String, syn::Expr),
-    AttribProxy(Vec<String>, ProxyUpdate),
+    AttribProxy(Vec<String>, Box<ProxyUpdate>),
 }
 
 impl Parse for AttributeToken {
@@ -568,7 +582,7 @@ impl Parse for AttributeToken {
         if input.parse::<Token![=]>().is_ok() {
             if input.fork().parse::<ProxyUpdate>().is_ok() {
                 let update = input.parse::<ProxyUpdate>()?;
-                Ok(AttributeToken::AttribProxy(keys.clone(), update))
+                Ok(AttributeToken::AttribProxy(keys.clone(), Box::new(update)))
             } else {
                 let expr = input.parse::<Expr>()?;
                 Ok(AttributeToken::from_keys_expr_pair(&keys, expr))

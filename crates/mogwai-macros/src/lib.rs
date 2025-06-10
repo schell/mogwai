@@ -22,11 +22,17 @@ mod tokens;
 /// ## Basic Usage
 ///
 /// ```rust
-/// rsx! {
-///     let root = div(class = "container") {
-///         h1 { "Hello, World!" }
-///         button(on:click = handle_click) { "Click me" }
+/// use mogwai::prelude::*;
+///
+/// fn view<V:View>() -> V::Element {
+///     rsx! {
+///         let root = div(class = "container") {
+///             h1 { "Hello, World!" }
+///             button(on:click = handle_click) { "Click me" }
+///         }
 ///     }
+///
+///     root
 /// }
 /// ```
 ///
@@ -54,32 +60,63 @@ mod tokens;
 /// This syntax is valid in both attribute and node positions.
 ///
 /// ```rust
+/// use mogwai::ssr::prelude::*;
+///
+/// #[derive(Debug, PartialEq)]
 /// struct Status {
 ///     color: String,
 ///     message: String,
 /// }
-/// let mut state = Proxy::new(Status {
-///     color: "black".to_string(),
-///     message: "Hello".to_string()
-/// });
 ///
-/// // We start out with a `div` element bound to `root`, containing a nested `p` tag
-/// // with the message "Hello" in black.
-/// rsx! {
-///     let root = div() {
-///         p(
-///             id = "message_wrapper"
-///             // proxy use in attribute position
-///             style:color = state(s => &s.color)
-///         ) {
-///             // proxy use in node position
-///             {state(s => format!("message: {}", s.message))}
-///         }
-///     }
+/// struct Widget<V: View> {
+///     root: V::Element,
+///     state: Proxy<Status>,
 /// }
 ///
-/// // Then later we change the message to show "Goodbye." in red.
-/// message.set(Status{ color: "red".to_string(), message: "Goodbye".to_string()});
+/// fn new_widget<V: View>() -> Widget<V> {
+///     let mut state = Proxy::new(Status {
+///         color: "black".to_string(),
+///         message: "Hello".to_string(),
+///     });
+///
+///     // We start out with a `div` element bound to `root`, containing a nested `p` tag
+///     // with the message "Hello" in black.
+///     rsx! {
+///         let root = div() {
+///             p(
+///                 id = "message_wrapper",
+///                 // proxy use in attribute position
+///                 style:color = state(s => &s.color)
+///             ) {
+///                 // proxy use in node position
+///                 {state(s => {
+///                     println!("updating state to: {s:#?}");
+///                     &s.message
+///                 })}
+///             }
+///         }
+///     }
+///
+///     Widget { root, state }
+/// }
+///
+/// println!("creating");
+/// // Verify at creation that the view shows "Hello" in black.
+/// let mut w = new_widget::<mogwai::ssr::Ssr>();
+/// assert_eq!(
+///     r#"<div><p id="message_wrapper" style="color: black;">Hello</p></div>"#,
+///     w.root.html_string()
+/// );
+///
+/// // Then later we change the message to show "Goodbye" in red.
+/// w.state.set(Status {
+///     color: "red".to_string(),
+///     message: "Goodbye".to_string(),
+/// });
+/// assert_eq!(
+///     r#"<div><p id="message_wrapper" style="color: red;">Goodbye</p></div>"#,
+///     w.root.html_string()
+/// );
 /// ```
 ///
 /// ## Nesting arbitrary Rust types as nodes using `ViewChild`
@@ -96,13 +133,13 @@ mod tokens;
 /// }
 ///
 /// fn create_view<V: View>() -> V::Element {
-///     let component = MyComponent::<V> {
-///         wrapper: rsx! {
-///             div() {
-///                 "This is a custom component."
-///             }
-///         },
-///     };
+///     rsx! {
+///         let wrapper = div() {
+///             "This is a custom component."
+///         }
+///     }
+///
+///     let component = MyComponent::<V>{ wrapper };
 ///
 ///     rsx! {
 ///         let root = div() {
@@ -221,7 +258,7 @@ pub fn impl_derive_viewchild(input: proc_macro::TokenStream) -> proc_macro::Toke
 }
 
 #[cfg(test)]
-mod ssr_tests {
+mod test {
     use std::str::FromStr;
 
     #[test]
@@ -241,5 +278,58 @@ mod ssr_tests {
     #[test]
     fn can_parse_from_token_stream() {
         let _ts = proc_macro2::TokenStream::from_str(r#"<div class="any_class" />"#).unwrap();
+    }
+
+    #[test]
+    #[allow(dead_code)]
+    fn moggy() {
+        use mogwai::prelude::*;
+
+        #[derive(ViewChild)]
+        struct MyComponent<V: View> {
+            #[child]
+            wrapper: V::Element,
+        }
+
+        fn create_view<V: View>() -> V::Element {
+            rsx! {
+                let wrapper = div() {
+                    "This is a custom component."
+                }
+            }
+            let component = MyComponent::<V> { wrapper };
+
+            rsx! {
+                let root = div() {
+                    h1() { "Welcome" }
+                    {component} // Using the custom component within the view
+                }
+            }
+
+            root
+        }
+    }
+
+    #[test]
+    #[allow(dead_code)]
+    fn nest() {
+        use mogwai::prelude::*;
+
+        #[derive(ViewChild)]
+        struct MyComponent<V: View> {
+            #[child]
+            wrapper: V::Element,
+        }
+
+        fn nest<V: View>(component: &MyComponent<V>) -> V::Element {
+            rsx! {
+                let wrapper = div() {
+                    h1(){ "Hello, world!" }
+                    {component} // <- here `component` is added to the view tree
+                }
+            }
+
+            wrapper
+        }
     }
 }
