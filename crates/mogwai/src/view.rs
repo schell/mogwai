@@ -148,6 +148,13 @@ pub trait ViewParent<V: View> {
 /// node position of an [`rsx!`] macro.
 pub trait ViewChild<V: View> {
     fn as_append_arg(&self) -> AppendArg<V, impl Iterator<Item = Cow<'_, V::Node>>>;
+
+    /// Box the inner iterator.
+    ///
+    /// This is useful for writing [`ViewChild`] impls for enums.
+    fn as_boxed_append_arg(&self) -> AppendArg<V, Box<dyn Iterator<Item = Cow<'_, V::Node>> + '_>> {
+        AppendArg::new(Box::new(self.as_append_arg()))
+    }
 }
 
 impl<V: View, T: ViewChild<V>> ViewChild<V> for &T {
