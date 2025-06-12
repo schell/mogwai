@@ -267,11 +267,15 @@ pub trait View: Sized + 'static {
     type Text: ViewText + ViewChild<Self> + ViewEventTarget<Self> + Clone + 'static;
     type EventListener: ViewEventListener<Self>;
     type Event: ViewEvent;
+
+    fn is_view<W: View>() -> bool {
+        std::any::TypeId::of::<W>() == std::any::TypeId::of::<Self>()
+    }
 }
 
 fn try_cast_el<V: View, W: View>(element: &V::Element) -> Option<&W::Element> {
     // Pay no attention to the man behind the curtain.
-    if std::any::TypeId::of::<W>() == std::any::TypeId::of::<V>() {
+    if V::is_view::<W>() {
         // Nothing to see here!
         Some(unsafe { &*(element as *const V::Element as *const W::Element) })
     } else {
@@ -280,7 +284,7 @@ fn try_cast_el<V: View, W: View>(element: &V::Element) -> Option<&W::Element> {
 }
 
 fn try_cast_ev<V: View, W: View>(event: &V::Event) -> Option<&W::Event> {
-    if std::any::TypeId::of::<W>() == std::any::TypeId::of::<V>() {
+    if V::is_view::<W>() {
         // Nothing to see here!
         Some(unsafe { &*(event as *const V::Event as *const W::Event) })
     } else {
