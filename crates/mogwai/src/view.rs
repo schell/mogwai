@@ -104,6 +104,27 @@ pub trait ViewParent<V: View> {
             self.remove_node(node);
         }
     }
+    fn replace_child(&self, new_child: impl ViewChild<V>, old_child: impl ViewChild<V>) {
+        let new_nodes = new_child.as_append_arg();
+        let old_nodes = old_child.as_append_arg();
+        for (new_node, old_node) in new_nodes.zip(old_nodes) {
+            self.replace_node(new_node, old_node);
+        }
+    }
+    fn insert_child_before(
+        &self,
+        child: impl ViewChild<V>,
+        before_child: Option<impl ViewChild<V>>,
+    ) {
+        if let Some(before_child) = before_child {
+            let mut before_nodes = before_child.as_append_arg();
+            for new_node in child.as_append_arg() {
+                self.insert_node_before(new_node, before_nodes.next());
+            }
+        } else {
+            self.append_child(child);
+        }
+    }
 }
 
 /// Represents a node that can be appended to a view.

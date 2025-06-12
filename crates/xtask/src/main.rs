@@ -230,69 +230,128 @@ fn install_deps() -> anyhow::Result<()> {
 }
 
 #[derive(Parser)]
-struct Test {
+struct TestEverything {
     #[clap(long)]
     skip_cargo_test: bool,
     #[clap(long)]
     skip_cargo_doc: bool,
     #[clap(long)]
-    skip_wasm_pack_mogwai_dom_test: bool,
+    skip_wasm_pack_test: bool,
     #[clap(long)]
     skip_mogwai_template: bool,
 }
 
+impl Default for TestEverything {
+    fn default() -> Self {
+        Self {
+            skip_cargo_test: true,
+            skip_cargo_doc: true,
+            skip_wasm_pack_test: true,
+            skip_mogwai_template: true,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum Test {
+    Everything(TestEverything),
+    Cargo,
+    CargoDoc,
+    Wasm,
+    Template,
+}
+
+impl Default for Test {
+    fn default() -> Self {
+        Self::Everything(Default::default())
+    }
+}
+
 impl Test {
-    fn run(self) -> anyhow::Result<()> {
-        if !self.skip_cargo_test {
-            log::info!("running cargo tests");
-            duct::cmd!("cargo", "test").run()?;
-        }
-        if !self.skip_cargo_doc {
-            log::info!("running cargo doc");
-            duct::cmd!("cargo", "doc").run()?;
-        }
-        if !self.skip_wasm_pack_mogwai_dom_test {
-            log::info!("testing mogwai-dom in wasm");
-            duct::cmd!(
-                "wasm-pack",
-                "test",
-                "--firefox",
-                "--headless",
-                "crates/mogwai-dom"
-            )
+    fn test_cargo() -> anyhow::Result<()> {
+        log::info!("running cargo tests");
+        duct::cmd!("cargo", "test").run()?;
+        Ok(())
+    }
+
+    fn test_cargo_doc() -> anyhow::Result<()> {
+        log::info!("running cargo doc");
+        duct::cmd!("cargo", "doc").run()?;
+        Ok(())
+    }
+
+    fn test_wasm() -> anyhow::Result<()> {
+        log::info!("testing mogwai in wasm");
+        duct::cmd!(
+            "wasm-pack",
+            "test",
+            "--firefox",
+            "--headless",
+            "crates/mogwai"
+        )
+        .run()?;
+        Ok(())
+    }
+
+    fn test_template() -> anyhow::Result<()> {
+        log::info!("testing mogwai-template");
+        let dir = tempfile::tempdir().context("could not create temp dir for template test")?;
+
+        duct::cmd!(
+            "cargo",
+            "generate",
+            "--git",
+            "https://github.com/schell/mogwai-template.git",
+            "--name",
+            "gentest",
+            "-d",
+            "authors=test",
+            "--destination",
+            dir.path(),
+        )
+        .run()?;
+        anyhow::ensure!(Path::new("gentest").exists(), "gentest does not exist");
+
+        log::info!("building gentest");
+        duct::cmd!("wasm-pack", "build", "--target", "web")
+            .dir(dir.path())
             .run()?;
+        Ok(())
+    }
+
+    fn test_everything(
+        TestEverything {
+            skip_cargo_test,
+            skip_cargo_doc,
+            skip_wasm_pack_test,
+            skip_mogwai_template,
+        }: TestEverything,
+    ) -> anyhow::Result<()> {
+        if !skip_cargo_test {
+            Self::test_cargo()?;
+        }
+        if !skip_cargo_doc {
+            Self::test_cargo_doc()?;
+        }
+        if !skip_wasm_pack_test {
+            Self::test_wasm()?;
         }
 
-        if !self.skip_mogwai_template {
-            log::info!("testing mogwai-template");
-            if Path::new("gentest").exists() {
-                log::warn!("gentest (mogwai-template test dir) already exists, will remove first");
-                std::fs::remove_dir_all(Path::new("gentest"))?;
-            }
-
-            duct::cmd!(
-                "cargo",
-                "generate",
-                "--git",
-                "https://github.com/schell/mogwai-template.git",
-                "-n",
-                "gentest",
-                "-d",
-                "authors=test"
-            )
-            .run()?;
-            anyhow::ensure!(Path::new("gentest").exists(), "gentest does not exist");
-
-            log::info!("building gentest");
-            duct::cmd!("wasm-pack", "build", "--target", "web")
-                .dir("gentest")
-                .run()?;
-
-            log::info!("cleaning up gentest (mogwai-template test dir)");
-            std::fs::remove_dir_all(Path::new("gentest"))?;
+        if !skip_mogwai_template {
+            Self::test_template()?;
         }
 
         Ok(())
+    }
+
+    fn run(self) -> anyhow::Result<()> {
+        match self {
+            Self::Everything(e) => Self::test_everything(e),
+            Test::Cargo => Self::test_cargo(),
+            Test::CargoDoc => Self::test_cargo_doc(),
+            Test::Wasm => Self::test_wasm(),
+            Test::Template => Self::test_template(),
+        }
     }
 }
 
@@ -302,6 +361,7 @@ enum Command {
     #[clap(subcommand)]
     Build(Artifact),
     /// Test everything
+    #[clap(subcommand)]
     Test(Test),
     /// Push the cookbook to AWS
     PushCookbook {

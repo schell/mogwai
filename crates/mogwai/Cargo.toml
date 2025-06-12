@@ -51,3 +51,4 @@ optional = true
 
 [dev-dependencies]
 doc-comment.workspace = true
+wasm-bindgen-test.workspace = true
