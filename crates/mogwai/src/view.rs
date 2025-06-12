@@ -84,6 +84,18 @@ impl<V: View, I: Iterator> Iterator for AppendArg<V, I> {
     }
 }
 
+impl<V: View, I> AppendArg<V, I> {
+    /// Map the inner iterator.
+    ///
+    /// This is useful for writing [`ViewChild`] impls for enums.
+    pub fn map_iter<T>(self, f: impl FnOnce(I) -> T) -> AppendArg<V, T> {
+        AppendArg {
+            iter: f(self.iter),
+            _phantom: PhantomData,
+        }
+    }
+}
+
 /// Defines methods for managing child nodes within a view.
 ///
 /// This trait provides methods for appending, removing, and replacing child
