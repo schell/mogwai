@@ -13,6 +13,8 @@
 //!
 //! Mogwai provides tools to implement these concepts efficiently, promoting flexibility and performance.
 pub mod an_introduction;
+#[cfg(feature = "future")]
+pub mod future;
 pub mod proxy;
 #[cfg(feature = "ssr")]
 pub mod ssr;

@@ -12,9 +12,10 @@ keywords = ["ui", "dom", "frontend"]
 categories = ["gui", "asynchronous"]
 
 [features]
-default = ["web", "ssr"]
+default = ["web", "ssr", "future"]
 web = ["dep:wasm-bindgen-futures", "dep:web-sys"]
 ssr = ["dep:async-channel"]
+future = []
 # tui = ["dep:ratatui", "dep:crossterm"]
 
 [dependencies]

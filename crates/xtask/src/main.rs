@@ -229,7 +229,7 @@ fn install_deps() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Parser)]
+#[derive(Parser, Default)]
 struct TestEverything {
     #[clap(long)]
     skip_cargo_test: bool,
@@ -239,17 +239,6 @@ struct TestEverything {
     skip_wasm_pack_test: bool,
     #[clap(long)]
     skip_mogwai_template: bool,
-}
-
-impl Default for TestEverything {
-    fn default() -> Self {
-        Self {
-            skip_cargo_test: true,
-            skip_cargo_doc: true,
-            skip_wasm_pack_test: true,
-            skip_mogwai_template: true,
-        }
-    }
 }
 
 #[derive(Subcommand)]
@@ -345,6 +334,7 @@ impl Test {
     }
 
     fn run(self) -> anyhow::Result<()> {
+        log::info!("testing mogwai");
         match self {
             Self::Everything(e) => Self::test_everything(e),
             Test::Cargo => Self::test_cargo(),
