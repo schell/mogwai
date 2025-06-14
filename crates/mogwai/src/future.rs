@@ -1,4 +1,6 @@
 //! Utilitites for working with futures.
+//!
+//! These are meant to be small additions to [`futures_lite`].
 use std::{future::Future, pin::Pin};
 
 use futures_lite::FutureExt;
@@ -19,7 +21,7 @@ where
 impl<T: Sized + Future> MogwaiFutureExt for T {}
 
 /// Run all futures concurrently and return the output of the first future that resolves.
-pub async fn race<T: 'static>(futs: impl IntoIterator<Item = impl Future<Output = T>>) -> T {
+pub async fn race_all<T>(futs: impl IntoIterator<Item = impl Future<Output = T>>) -> T {
     let mut futures = futs
         .into_iter()
         .map(|f| Box::pin(f) as Pin<Box<dyn Future<Output = T>>>)
@@ -50,7 +52,7 @@ mod test {
             i
         }
 
-        let i = race([run(10), run(100), run(200), run(400)]).await;
+        let i = race_all([run(10), run(100), run(200), run(400)]).await;
         assert_eq!(10, i);
     }
 }

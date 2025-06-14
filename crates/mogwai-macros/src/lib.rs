@@ -332,4 +332,43 @@ mod test {
             wrapper
         }
     }
+
+    #[test]
+    #[allow(dead_code)]
+    fn nest_with_block() {
+        use mogwai::prelude::*;
+
+        #[derive(ViewChild)]
+        struct MyComponent<V: View> {
+            #[child]
+            wrapper: V::Element,
+            text: V::Text,
+        }
+
+        impl<V: View> MyComponent<V> {
+            fn new() -> Self {
+                rsx! {
+                    let wrapper = p() {
+                        let text = "Here is text"
+                    }
+                }
+                Self { wrapper, text }
+            }
+        }
+
+        fn nest<V: View>() -> V::Element {
+            rsx! {
+                let wrapper = div() {
+                    h1(){ "Hello, world!" }
+                    {{
+                        let component = MyComponent::<V>::new();
+                        component.text.set_text("blarg");
+                        component
+                    }}
+                }
+            }
+
+            wrapper
+        }
+    }
 }
