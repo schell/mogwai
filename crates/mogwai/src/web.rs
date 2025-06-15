@@ -36,14 +36,17 @@ pub mod prelude {
     pub extern crate web_sys;
 }
 
+impl<T: AsRef<web_sys::EventTarget>> ViewEventTarget<Web> for T {
+    fn listen(
+        &self,
+        event_name: impl Into<std::borrow::Cow<'static, str>>,
+    ) -> <Web as View>::EventListener {
+        EventListener::new(self, event_name)
+    }
+}
+
 macro_rules! node_impl {
     ($ty:ident) => {
-        impl ViewEventTarget<Web> for web_sys::$ty {
-            fn listen(&self, event_name: impl Into<Str>) -> EventListener {
-                EventListener::new(self, event_name)
-            }
-        }
-
         impl ViewChild<Web> for web_sys::$ty {
             fn as_append_arg(
                 &self,
