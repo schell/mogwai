@@ -73,11 +73,6 @@ impl Drop for EventListener {
                             callback.as_ref().unchecked_ref(),
                         )
                         .unwrap();
-                    log::trace!(
-                        "dropping listener for {} on target {:?}",
-                        self.event_name,
-                        self.target
-                    );
                 }
             }
         }
