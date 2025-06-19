@@ -1,18 +1,14 @@
-<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <title>nested-components | mogwai</title>
-        <link rel="stylesheet" href="style.css">
-    </head>
-    <body>
-        <div id="app" ></div>
-        <script type="module">
-         import init, { main } from './pkg/nested_components.js';
-         window.addEventListener('load', async () => {
-             await init();
-             await main("app");
-         });
-        </script>
-    </body>
+<html>
+  <head>
+    <title>nested-components | mogwai</title>
+    <link data-trunk rel="rust" data-wasm-opt=4 />
+  </head>
+  <body>
+    <div id = "app"></div>
+    <script type="module">
+         addEventListener("TrunkApplicationStarted", (event) => {
+            window.wasmBindings.run("app");
+        })
+    </script>
+  </body>
 </html>

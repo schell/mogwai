@@ -5,3 +5,7 @@ Cargo.lock
 cookbook_target
 *~undo-tree~
 book_examples
+.aider*
+**/*.wasm
+**/*.js
+**/dist

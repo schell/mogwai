@@ -1,272 +1,43 @@
-use std::sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex};
-
-use mogwai_dom::{core::model::*, prelude::*};
-use rand::prelude::*;
+//! App type.
+use mogwai::web::prelude::*;
 use wasm_bindgen::{JsCast, UnwrapThrowExt};
-use web_sys::Element;
 
-static ADJECTIVES: &[&str] = &[
-    "pretty",
-    "large",
-    "big",
-    "small",
-    "tall",
-    "short",
-    "long",
-    "handsome",
-    "plain",
-    "quaint",
-    "clean",
-    "elegant",
-    "easy",
-    "angry",
-    "crazy",
-    "helpful",
-    "mushy",
-    "odd",
-    "unsightly",
-    "adorable",
-    "important",
-    "inexpensive",
-    "cheap",
-    "expensive",
-    "fancy",
-];
+use crate::{data::*, row::*};
 
-static COLOURS: &[&str] = &[
-    "red", "yellow", "blue", "green", "pink", "brown", "purple", "brown", "white", "black",
-    "orange",
-];
-
-static NOUNS: &[&str] = &[
-    "table", "chair", "house", "bbq", "desk", "car", "pony", "cookie", "sandwich", "burger",
-    "pizza", "mouse", "keyboard",
-];
-
-static ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
-
-type Id = usize;
-type Count = usize;
-type Step = usize;
-
-fn build_data(count: usize) -> Vec<(usize, String)> {
-    let mut thread_rng = thread_rng();
-
-    let mut data: Vec<(usize, String)> = Vec::new();
-    data.reserve_exact(count);
-
-    let next_id = ID_COUNTER.fetch_add(count, Ordering::Relaxed);
-
-    for id in next_id..next_id + count {
-        let adjective = ADJECTIVES.choose(&mut thread_rng).unwrap();
-        let colour = COLOURS.choose(&mut thread_rng).unwrap();
-        let noun = NOUNS.choose(&mut thread_rng).unwrap();
-        let capacity = adjective.len() + colour.len() + noun.len() + 2;
-        let mut label = String::with_capacity(capacity);
-        label.push_str(adjective);
-        label.push(' ');
-        label.push_str(colour);
-        label.push(' ');
-        label.push_str(noun);
-        let row = (id, label);
-        data.push(row);
-    }
-    data
+#[derive(ViewChild)]
+struct AppBtn<V: View> {
+    #[child]
+    wrapper: V::Element,
 }
 
-#[derive(Clone)]
-pub enum Msg {
-    Create(Count),
-    Append(Count),
-    Update(Step),
-    Clear,
-    Swap,
-    Select(Id),
-    Remove(Id),
-}
-
-#[derive(Clone)]
-pub struct Row {
-    input_selected: Input<bool>,
-    model_id: Model<usize>,
-    model_label: Model<String>,
-    dom: Captured<JsDom>
-}
-
-impl Row {
-    fn new((id, label): (usize, String)) -> Self {
-        Row {
-            input_selected: Input::new(false),
-            model_id: Model::new(id),
-            model_label: Model::new(label),
-            dom: Default::default(),
-        }
-    }
-
-    fn get_id_label(&self) -> (usize, String) {
-        (
-            self.model_id.current().unwrap(),
-            self.model_label.current().unwrap(),
-        )
-    }
-
-    fn set_id_label(&self, id: usize, label: String) {
-        self.model_id.try_visit_mut(|prev| {
-            *prev = id;
-        });
-        self.model_label.try_visit_mut(|prev| {
-            *prev = label;
-        });
-    }
-
-    fn viewbuilder(mut self) -> ViewBuilder {
-        self.dom.current().map(ViewBuilder::from).unwrap_or_else(|| rsx! {
-            tr(
-                key = self.model_id.clone().map(|id| id.to_string()),
-                class = self
-                    .input_selected
-                    .stream()
-                    .unwrap()
-                    .map(|is_selected| if is_selected {
-                        "danger"
-                    } else {
-                        ""
-                    }.to_string()),
-                capture:view = self.dom.sink()
-            ) {
-                td(class="col-md-1"){{ self.model_id.clone().map(|id| id.to_string()) }}
-                td(class="col-md-4"){
-                    a() {{ self.model_label.clone() }}
+impl<V: View> AppBtn<V> {
+    fn new(id: impl AsRef<str>, label: impl AsRef<str>) -> Self {
+        rsx! {
+             let wrapper = div(class="col-sm-6 smallpad") {
+                button(
+                    type="button",
+                    class="btn btn-primary btn-block",
+                    id = id,
+                ) {
+                    {label.into_text::<V>()}
                 }
-                td(class="col-md-1"){
-                    a() {
-                        span(class="glyphicon glyphicon-remove", aria_hidden="true") {}
-                    }
-                }
-                td(class="col-md-6"){ }
             }
-        })
+        }
+        Self { wrapper }
     }
 }
 
-#[derive(Clone)]
-pub struct Mdl {
-    selected: Arc<Mutex<Option<Id>>>,
-    cache: Arc<Mutex<Vec<Row>>>,
-    rows: ListPatchModel<Row>,
+pub struct AppView<V: View> {
+    pub wrapper: V::Element,
+    pub on_click_main: V::EventListener,
+    pub rows_tbody: V::Element,
+    pub rows_cache: Vec<RowView>,
 }
 
-impl Default for Mdl {
+impl<V: View> Default for AppView<V> {
     fn default() -> Self {
-        let rows: ListPatchModel<Row> = ListPatchModel::default();
-        Self {
-            rows,
-            cache: Arc::new(Mutex::new(Vec::with_capacity(11_000))),
-            selected: Default::default(),
-        }
-    }
-}
-
-impl Mdl {
-    async fn select(&self, row: Option<usize>) {
-        let rows = self.rows.read().await;
-        if let Some(prev_selected) = self.selected.lock().unwrap_throw().take() {
-            if let Some(row) = rows.get(prev_selected) {
-                row.input_selected.try_set(false).expect("can't deselect");
-            }
-        }
-        if let Some(newly_selected) = row {
-            if let Some(row) = rows.get(newly_selected) {
-                row.input_selected.try_set(true).expect("can't select");
-            }
-        }
-    }
-
-    pub fn dequeue(&self, rows: impl IntoIterator<Item = (usize, String)>) -> Vec<Row> {
-        let mut cache = self.cache.lock().unwrap_throw();
-        rows.into_iter().map(|(id, label)| if let Some(row) = cache.pop() {
-            row.model_id
-                .try_visit_mut(|i| {
-                    *i = id;
-                })
-                .unwrap_throw();
-            row.model_label
-                .try_visit_mut(|l| {
-                    *l = label;
-                })
-                .unwrap_throw();
-            row
-        } else {
-            Row::new((id, label))
-        }).collect()
-    }
-
-    pub async fn update(&mut self, msg: Msg) {
-        match msg {
-            Msg::Create(cnt) => {
-                self.select(None).await;
-                let rows = self.dequeue(build_data(cnt));
-                self.rows.append(rows).await.expect("could not append");
-            }
-            Msg::Append(cnt) => {
-                let rows = self.dequeue(build_data(cnt));
-                self.rows.append(rows).await.expect("could not append");
-            }
-            Msg::Update(step_size) => {
-                let rows = self.rows.read().await;
-                for row in rows.iter().step_by(step_size) {
-                    row.model_label
-                        .visit_mut(|label| label.push_str(" !!!"))
-                        .await;
-                }
-            }
-            Msg::Clear => {
-                self.select(None).await;
-                let rows = self.rows.drain().await.expect("could not patch");
-                self.cache.lock().unwrap_throw().extend(rows);
-            }
-            Msg::Swap => {
-                let rows = self.rows.read().await;
-                if rows.len() > 998 {
-                    //if cfg!(feature = "keyed") {
-                    //} else {
-                        // clone them both
-                        let (row1_id, row1_label) = rows[1].get_id_label();
-                        let (row998_id, row998_label) = rows[998].get_id_label();
-                        // switch them both
-                        rows[1].set_id_label(row998_id, row998_label);
-                        rows[998].set_id_label(row1_id, row1_label);
-                    //}
-                }
-            }
-            Msg::Select(id) => {
-                self.select(Some(id)).await;
-            }
-            Msg::Remove(remove_id) => {
-                let rows = self.rows.read().await;
-                let index = rows
-                    .iter()
-                    .enumerate()
-                    .find_map(|(i, row)| -> Option<usize> {
-                        let id = row.model_id.current()?;
-                        if id == remove_id {
-                            Some(i)
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap();
-                drop(rows);
-                let row = self.rows.remove(index).await.expect("could not patch");
-                self.cache.lock().unwrap_throw().push(row);
-            }
-        }
-    }
-
-    pub fn viewbuilder(mut self) -> ViewBuilder {
-        let main_click = Output::<JsDomEvent>::default();
-        let builder = rsx! (
-            div(id="main", on:click = main_click.sink()) {
+        rsx! {
+            let wrapper = div(id="main", on:click = on_click_main) {
                 div(class="container") {
                     div(class="jumbotron") {
                         div(class="row") {
@@ -275,80 +46,212 @@ impl Mdl {
                             }
                             div(class="col-md-6") {
                                 div(class="row") {
-                                    button(id="run")      { "Create 1,000 rows" }
-                                    button(id="runlots")  { "Create 10,000 rows" }
-                                    button(id="add")      { "Append 1,000 rows" }
-                                    button(id="update")   { "Update every 10th row" }
-                                    button(id="clear")    { "Clear" }
-                                    button(id="swaprows") { "Swap Rows" }
+                                    // we can embed any ViewBuilder using curly brackets
+                                    {AppBtn::new("run", "Create 1,000 rows")}
+                                    {AppBtn::new("runlots", "Create 10,000 rows")}
+                                    {AppBtn::new("add", "Append 1,000 rows")}
+                                    {AppBtn::new("update", "Update every 10th row") }
+                                    {AppBtn::new("clear", "Clear")}
+                                    {AppBtn::new("swaprows", "Swap Rows")}
                                 }
                             }
                         }
                     }
                     table( class="table table-hover table-striped test-data") {
-                        tbody(patch:children = self
-                              .rows
-                              .stream()
-                              .map(move |patch| patch.map(Row::viewbuilder))
-                        ) {}
+                        // tbody will have its children updated with the rows.
+                        let rows_tbody = tbody() {}
                     }
                 }
             }
-        );
-        builder.with_task(async move {
-            while let Some(ev) = main_click.get().await {
-                let may_msg = {
-                    let e = ev.browser_event().expect("not an event");
-                    let target = e
-                        .target()
-                        .expect("no target")
-                        .dyn_into::<Element>()
-                        .expect("target not an element");
+        }
 
-                    fn get_id(el: &Element) -> Option<Id> {
-                        let key = el.get_attribute("key")?;
-                        key.parse().ok()
-                    }
+        Self {
+            wrapper,
+            on_click_main,
+            rows_tbody,
+            rows_cache: vec![],
+        }
+    }
+}
 
-                    if target.matches("#add").expect("can't match") {
-                        e.prevent_default();
-                        Some(Msg::Append(1000))
-                    } else if target.matches("#run").expect("can't match") {
-                        e.prevent_default();
-                        Some(Msg::Create(1000))
-                    } else if target.matches("#update").expect("can't match") {
-                        e.prevent_default();
-                        Some(Msg::Update(10))
-                    } else if target.matches("#hideall").expect("can't match") {
-                        e.prevent_default();
-                        None
-                    } else if target.matches("#showall").expect("can't match") {
-                        e.prevent_default();
-                        None
-                    } else if target.matches("#runlots").expect("can't match") {
-                        e.prevent_default();
-                        Some(Msg::Create(10_000))
-                    } else if target.matches("#clear").expect("can't match") {
-                        e.prevent_default();
-                        Some(Msg::Clear)
-                    } else if target.matches("#swaprows").expect("can't match") {
-                        e.prevent_default();
-                        Some(Msg::Swap)
-                    } else if target.matches(".remove").expect("can't match") {
-                        e.prevent_default();
-                        get_id(&target).map(Msg::Remove)
-                    } else if target.matches(".lbl").expect("can't match") {
-                        e.prevent_default();
-                        get_id(&target).map(Msg::Select)
-                    } else {
-                        None
-                    }
-                };
+impl AppView<Web> {
+    pub fn init(&self) {
+        let body = mogwai::web::body();
+        web_sys::Node::append_child(&body, &self.wrapper).unwrap();
+    }
 
-                if let Some(msg) = may_msg {
-                    self.update(msg).await;
-                }
+    pub fn deinit(&self) {
+        let body = mogwai::web::body();
+        web_sys::Node::remove_child(&body, &self.wrapper).unwrap();
+    }
+}
+
+#[derive(Default)]
+pub struct App {
+    selected: Option<RowView>,
+    cache: Vec<RowView>,
+    rows: Vec<RowView>,
+}
+
+impl App {
+    /// Select a new row, deselecting the old row if needed.
+    fn select(&mut self, row: Option<RowView>) {
+        if let Some(row) = row.as_ref() {
+            log::trace!("selecting row: {}", row.id());
+            row.set_selected(true);
+        } else {
+            log::trace!("deselecting row");
+        }
+        if let Some(prev_selected_row) = std::mem::replace(&mut self.selected, row) {
+            prev_selected_row.set_selected(false);
+        }
+    }
+
+    /// Clear all rows, adding them to the cache.
+    pub fn clear(&mut self, view: &AppView<Web>) {
+        self.selected = None;
+        self.cache.extend(std::mem::take(&mut self.rows));
+        self.select(None);
+
+        view.rows_tbody.clone().set_text_content(None);
+    }
+
+    /// Append some number of rows to the view.
+    fn append(&mut self, view: &AppView<Web>, count: usize) {
+        let Self {
+            selected: _,
+            cache,
+            rows,
+        } = self;
+
+        let new_rows = {
+            let rows = build_data(count);
+            rows.into_iter().map(|model| {
+                let row = cache.pop().unwrap_or_default();
+                row.set_model(&model);
+                row
+            })
+        };
+        for row in new_rows {
+            view.rows_tbody.append_child(row.node());
+            rows.push(row);
+        }
+    }
+
+    /// Create some number of rows, clearing the current rows.
+    pub fn create(&mut self, view: &AppView<Web>, count: usize) {
+        self.clear(view);
+        self.append(view, count);
+    }
+
+    /// Update rows by a given step size, adding " !!!" to the end of each row.
+    pub fn update(&mut self, step_size: usize) {
+        for row in self.rows.iter().step_by(step_size) {
+            row.update_text();
+        }
+    }
+
+    /// Swaps the values of row index 1 with row index 998.
+    fn swap(&mut self) {
+        if self.rows.len() > 998 {
+            let row1 = &self.rows[1];
+            let row1_id = row1.id();
+            let row1_label = row1.fast_label();
+            let row998 = &self.rows[998];
+            let row998_id = row998.id();
+            let row998_label = row998.fast_label();
+
+            row1.set_id(row998_id);
+            row1.set_label(row998_label);
+
+            row998.set_id(row1_id);
+            row998.set_label(row1_label);
+        }
+    }
+
+    /// Removes one row.
+    fn remove(&mut self, id: &str, view: &AppView<Web>) {
+        self.rows.retain_mut(|row| {
+            if row.id() == id {
+                let row = row.clone();
+                web_sys::Node::remove_child(&view.rows_tbody, row.node()).unwrap_throw();
+                self.cache.push(row);
+                false
+            } else {
+                true
             }
-        })
+        });
+    }
+
+    pub async fn run(mut self, view: AppView<Web>) {
+        // To save creating thousands of event listeners (one on each row) we instead use one
+        // click event on the main div, and then figure out which row was clicked using JS APIs.
+        // This is the power of mogwai being so close to the metal.
+        loop {
+            let e = view.on_click_main.next().await;
+            let target = e
+                .target()
+                .expect("no target")
+                .dyn_into::<web_sys::Element>()
+                .expect("target not an element");
+
+            if target.matches("#add").expect("can't match") {
+                log::trace!("add");
+                e.prevent_default();
+                self.append(&view, 1000);
+            } else if target.matches("#run").expect("can't match") {
+                log::trace!("create 1000");
+                e.prevent_default();
+                self.create(&view, 1000);
+            } else if target.matches("#update").expect("can't match") {
+                log::trace!("update 10");
+                e.prevent_default();
+                self.update(10);
+            } else if target.matches("#hideall").expect("can't match")
+                || target.matches("#showall").expect("can't match")
+            {
+                log::trace!("hide/show");
+                e.prevent_default();
+            } else if target.matches("#runlots").expect("can't match") {
+                log::trace!("create 10,000");
+                e.prevent_default();
+                self.create(&view, 10_000);
+            } else if target.matches("#clear").expect("can't match") {
+                log::trace!("clear");
+                e.prevent_default();
+                self.clear(&view);
+            } else if target.matches("#swaprows").expect("can't match") {
+                log::trace!("swaprows");
+                e.prevent_default();
+                self.swap();
+            } else if target.matches(".remove").expect("can't match") {
+                log::trace!("remove");
+                e.prevent_default();
+                let el: &web_sys::Element = &target;
+                let maybe_key = el.get_attribute("key");
+                log::trace!("maybe_key: {maybe_key:?}");
+                if let Some(key) = maybe_key {
+                    self.remove(&key, &view);
+                }
+            } else if target.matches(".lbl").expect("can't match") {
+                log::trace!("select");
+                e.prevent_default();
+                let el: &web_sys::Element = &target;
+                let key = el.get_attribute("key");
+                log::trace!("  key: {key:?}");
+                let mut found: Option<RowView> = None;
+                if let Some(key) = key {
+                    for row in self.rows.iter() {
+                        if row.id() == key {
+                            found = Some(row.clone());
+                            break;
+                        }
+                    }
+                }
+                self.select(found);
+            } else {
+                log::trace!("none");
+            }
+        }
     }
 }

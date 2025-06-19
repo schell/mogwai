@@ -1,31 +1,43 @@
 [workspace]
-
 members = [
-  "cookbook",
-  "crates/mogwai",
-  "crates/mogwai-benches",
-  "crates/mogwai-dom",
-  "crates/mogwai-js-framework-benchmark",
-  "crates/mogwai-macros",
-  "examples/counter",
-  "examples/nested-components",
-  #"examples/focus-follower",
-  "examples/list-of-gizmos",
-  #"examples/multipage",
-  #"examples/sandbox",
-  "examples/spa-routing",
-  "examples/svg",
-  "examples/todomvc",
-  "crates/xtask",
+    "crates/mogwai",
+    "crates/mogwai-benches",
+    "crates/mogwai-js-framework-benchmark",
+    "crates/mogwai-macros",
+    "crates/xtask",
+    "examples/counter",
+    "examples/list-of-gizmos",
+    "examples/nested-components",
+    "examples/spa-routing",
+    "examples/svg",
+    "examples/todomvc",
 ]
-
-exclude = [
-  "gentest"
-]
-
+exclude = ["gentest"]
 resolver = "2"
 
+[workspace.dependencies]
+anyhow = "1.0"
+async-channel = "2.3.1"
+console_log = "1.0"
+doc-comment = "0.3"
+env_logger = "0.11.8"
+futures = "0.3"
+futures-lite = "2.6.0"
+log = "0.4.27"
+serde_json = "1.0"
+tempfile = "3.20.0"
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4"
+wasm-bindgen-test = "0.3"
+web-sys = "0.3"
+
+[workspace.dependencies.console_error_panic_hook]
+version = "0.1.6"
+
+[workspace.dependencies.serde]
+version = "1.0"
+features = ["derive"]
 
 [profile.release]
+opt-level = "z"
 lto = true
-opt-level = 'z'

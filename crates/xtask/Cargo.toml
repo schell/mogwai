@@ -8,8 +8,9 @@ description = "Configuration, build, test and packaging tasks for Maxwell"
 anyhow = "^1.0"
 clap = { version = "^3.1", features = ["cargo", "derive"] }
 duct = "^0.13"
-tracing = "^0.1"
-tracing-subscriber = "^0.3"
+env_logger.workspace = true
+log.workspace = true
+tempfile.workspace = true
 
 [[bin]]
 name = "xtask"

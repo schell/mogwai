@@ -1,59 +1,571 @@
 //! Contains parsing an RSX node into various data types.
-use std::convert::TryFrom;
+use std::{collections::HashMap, str::FromStr};
 
-use proc_macro2::Span;
-use quote::quote;
-use syn::{
-    parse::Parse, punctuated::Punctuated, token, Error, Expr, Ident, LitStr,
-    Token,
-};
-use syn_rsx::{Node, NodeType};
+use quote::{ToTokens, format_ident, quote};
+use syn::{Expr, Ident, Token, parse::Parse, spanned::Spanned};
 
 fn under_to_dash(s: impl AsRef<str>) -> String {
-    s.as_ref().trim_matches('_').replace("_", "-")
+    s.as_ref().trim_matches('_').replace('_', "-")
+}
+
+/// Matches `proxy (model) => model.id.to_string()` where
+/// * `proxy_ident`: `proxy`
+/// * `pattern`: `model`
+/// * `expr`: `model.id.to_string()`
+#[derive(Clone, Debug)]
+pub struct ProxyUpdate {
+    proxy_ident: syn::Ident,
+    update_ident: Option<syn::Ident>,
+    pattern: syn::Pat,
+    expr: syn::Expr,
+}
+
+impl Parse for ProxyUpdate {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let proxy_ident: syn::Ident = input.parse()?;
+        let content;
+        let _ = syn::parenthesized!(content in input);
+        let pattern = syn::Pat::parse_single(&content)?;
+        let _ = content.parse::<Token![=]>()?;
+        let _ = content.parse::<Token![>]>()?;
+        let expr: syn::Expr = content.parse()?;
+        Ok(ProxyUpdate {
+            proxy_ident,
+            update_ident: None,
+            pattern,
+            expr,
+        })
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct ProxyAttribute {
+    element_ident: syn::Ident,
+    fn_ident: syn::Ident,
+    param: String,
+    expr: syn::Expr,
+}
+
+impl ProxyAttribute {
+    fn new(
+        element_ident: syn::Ident,
+        keys: &[String],
+        proxy_update: &ProxyUpdate,
+    ) -> Result<Self, syn::Error> {
+        let ks = keys.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+        let (fn_ident, param) = match ks.as_slice() {
+            ["style", style] => (format_ident!("set_style"), style.to_string()),
+            [prop] => (format_ident!("set_property"), prop.to_string()),
+            _ => {
+                return Err(syn::Error::new(
+                    proxy_update.pattern.span(),
+                    "unsupported proxy update attribute",
+                ));
+            }
+        };
+        Ok(ProxyAttribute {
+            element_ident,
+            fn_ident,
+            param,
+            expr: proxy_update.expr.clone(),
+        })
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub enum ProxyUpdateKey {
+    Attrib(Box<ProxyAttribute>),
+    Block {
+        parent: syn::Ident,
+        block: syn::Ident,
+    },
+}
+
+/// Used to create a proxy "on_update" call at the end of an rsx macro.
+pub struct ProxyOnUpdate {
+    /// Map of ident to mutability
+    updated_idents: HashMap<syn::Ident, bool>,
+    updates: HashMap<ProxyUpdateKey, ProxyUpdate>,
+}
+
+impl ToTokens for ProxyOnUpdate {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        let clones = self
+            .updated_idents
+            .iter()
+            .map(|(ident, is_mut)| {
+                if *is_mut {
+                    quote! { let mut #ident = #ident.clone();}
+                } else {
+                    quote! { let #ident = #ident.clone();}
+                }
+            })
+            .collect::<Vec<_>>();
+        let updates = self
+            .updates
+            .iter()
+            .map(|(key, update)| match key {
+                ProxyUpdateKey::Attrib(inner) => {
+                    let ProxyAttribute {
+                        element_ident,
+                        fn_ident,
+                        param,
+                        expr,
+                    } = inner.as_ref();
+                    let pat = &update.pattern;
+                    quote! {{
+                            let #pat = model;
+                            #element_ident.#fn_ident(#param, #expr);
+                    }}
+                }
+                ProxyUpdateKey::Block { parent, block } => {
+                    let pat = &update.pattern;
+                    let expr = &update.expr;
+                    quote! {{
+                            let #pat = model;
+                            #block.replace(&#parent, #expr);
+                    }}
+                }
+            })
+            .collect::<Vec<_>>();
+        quote! {{
+            #(#clones)*
+            move |model| {
+                #(#updates)*
+            }
+        }}
+        .to_tokens(tokens);
+    }
+}
+
+fn insert_proxy(
+    proxies: &mut HashMap<syn::Ident, ProxyOnUpdate>,
+    ident: &syn::Ident,
+    should_clone: bool,
+    is_mut: bool,
+    parent: Option<&syn::Ident>,
+    key: ProxyUpdateKey,
+    proxy_update: &ProxyUpdate,
+) {
+    let mut proxy_update = proxy_update.clone();
+    proxy_update.update_ident = Some(ident.clone());
+    let proxy_on_update = proxies
+        .entry(proxy_update.proxy_ident.clone())
+        .or_insert_with(|| ProxyOnUpdate {
+            updated_idents: Default::default(),
+            updates: HashMap::default(),
+        });
+    if should_clone {
+        let updated_ident_is_mut = proxy_on_update
+            .updated_idents
+            .entry(ident.clone())
+            .or_insert(is_mut);
+        *updated_ident_is_mut = *updated_ident_is_mut || is_mut;
+    }
+    if let Some(parent) = parent {
+        proxy_on_update.updated_idents.insert(parent.clone(), false);
+        let _updated_ident_is_mut = proxy_on_update
+            .updated_idents
+            .entry(parent.clone())
+            .or_default();
+    }
+    proxy_on_update.updates.insert(key, proxy_update);
+}
+
+/// Parses `let my_ident: MyType =`
+#[derive(Debug, Clone)]
+pub struct LetIdent {
+    ident: Ident,
+    cast: Option<syn::Type>,
+}
+
+impl Parse for LetIdent {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        input.parse::<syn::token::Let>()?;
+        let ident = input.parse::<Ident>()?;
+        let cast = {
+            let lookahead = input.lookahead1();
+            if lookahead.peek(syn::Token![:]) {
+                input.parse::<syn::Token![:]>()?;
+                let ty = input.parse::<syn::Type>()?;
+                Some(ty)
+            } else {
+                None
+            }
+        };
+        let _ = input.parse::<Token![=]>()?;
+
+        Ok(Self { ident, cast })
+    }
+}
+
+#[derive(Debug)]
+/// An enumeration of all supported nodes types.
+pub enum ViewToken {
+    Element {
+        name: String,
+        ident: Option<LetIdent>,
+        attributes: Vec<AttributeToken>,
+        children: Vec<ViewToken>,
+    },
+    Text {
+        ident: Option<LetIdent>,
+        expr: syn::Expr,
+    },
+    BlockExpr {
+        ident: Option<LetIdent>,
+        expr: syn::Expr,
+    },
+    BlockProxy {
+        ident: Option<LetIdent>,
+        proxy: Box<ProxyUpdate>,
+    },
+}
+
+impl Parse for ViewToken {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let ident = if input.lookahead1().peek(syn::token::Let) {
+            Some(input.parse::<LetIdent>()?)
+        } else {
+            None
+        };
+
+        let lookahead = input.lookahead1();
+        if lookahead.peek(syn::token::Brace) {
+            let braced_content;
+            let _ = syn::braced!(braced_content in input);
+
+            if braced_content.fork().parse::<ProxyUpdate>().is_ok() {
+                let mut proxy = braced_content.parse::<ProxyUpdate>()?;
+                proxy.update_ident = ident.as_ref().map(|lid| lid.ident.clone());
+                Ok(ViewToken::BlockProxy {
+                    ident,
+                    proxy: Box::new(proxy),
+                })
+            } else {
+                let expr: syn::Expr = braced_content.parse()?;
+                Ok(ViewToken::BlockExpr { ident, expr })
+            }
+        } else if lookahead.peek(syn::LitStr) {
+            Ok(ViewToken::Text {
+                ident,
+                expr: input.parse::<syn::Expr>()?,
+            })
+        } else {
+            let tag: Ident = input.parse()?;
+            let attributes = if input.lookahead1().peek(syn::token::Paren) {
+                let paren_content;
+                let _paren_token: syn::token::Paren = syn::parenthesized!(paren_content in input);
+                let attrs: syn::punctuated::Punctuated<AttributeToken, Token![,]> =
+                    paren_content.parse_terminated(AttributeToken::parse, syn::Token![,])?;
+                attrs.into_iter().collect::<Vec<_>>()
+            } else {
+                vec![]
+            };
+
+            let brace_content;
+            let _brace: syn::token::Brace = syn::braced!(brace_content in input);
+            let mut children: Vec<ViewToken> = vec![];
+            while !brace_content.is_empty() {
+                children.push(brace_content.parse::<ViewToken>()?);
+            }
+
+            Ok(ViewToken::Element {
+                name: format!("{}", tag),
+                ident,
+                attributes,
+                children,
+            })
+        }
+    }
+}
+
+pub struct WebFlavor;
+
+impl WebFlavor {
+    fn create_text(ident: &syn::Ident, expr: &syn::Expr) -> proc_macro2::TokenStream {
+        quote! { let #ident = V::Text::new(#expr); }
+    }
+    fn create_element_ns(el: &str, ns: &syn::Expr) -> proc_macro2::TokenStream {
+        quote! { V::Element::new_namespace(#el, #ns) }
+    }
+
+    fn create_element(el: &str) -> proc_macro2::TokenStream {
+        quote! { V::Element::new(#el) }
+    }
+
+    fn append_child(ident: &syn::Ident, child_id: &syn::Ident) -> proc_macro2::TokenStream {
+        quote! { #ident.append_child(&#child_id); }
+    }
+
+    fn set_style_property(
+        ident: &syn::Ident,
+        key: &str,
+        expr: &syn::Expr,
+    ) -> proc_macro2::TokenStream {
+        quote! { #ident.set_style(#key, #expr); }
+    }
+
+    fn set_attribute(ident: &syn::Ident, key: &str, expr: &syn::Expr) -> proc_macro2::TokenStream {
+        quote! { #ident.set_property(#key, #expr); }
+    }
+
+    fn set_attribute_proxy(
+        ProxyAttribute {
+            element_ident,
+            fn_ident,
+            param,
+            expr,
+        }: &ProxyAttribute,
+        proxy: &ProxyUpdate,
+    ) -> proc_macro2::TokenStream {
+        let proxy_ident = &proxy.proxy_ident;
+        let pattern = &proxy.pattern;
+        quote! {{
+            let #pattern = #proxy_ident.as_ref();
+            #element_ident.#fn_ident(#param, #expr);
+        }}
+    }
+
+    fn create_listener(
+        ident: &syn::Ident,
+        listener: &syn::Expr,
+        event: &str,
+    ) -> proc_macro2::TokenStream {
+        quote! { let #listener = #ident.listen(#event); }
+    }
+
+    fn create_window_listener(listener: &syn::Expr, event: &str) -> proc_macro2::TokenStream {
+        quote! { let #listener = V::EventListener::on_window( #event ); }
+    }
+
+    fn create_document_listener(listener: &syn::Expr, event: &str) -> proc_macro2::TokenStream {
+        quote! { let #listener = V::EventListener::on_document( #event ); }
+    }
+
+    fn proxy_child(ident: &syn::Ident, proxy: &ProxyUpdate) -> proc_macro2::TokenStream {
+        let proxy_ident = &proxy.proxy_ident;
+        let pattern = &proxy.pattern;
+        let expr = &proxy.expr;
+        quote! { let mut #ident = {
+            let #pattern = (std::ops::Deref::deref(&#proxy_ident));
+            mogwai::proxy::ProxyChild::new(#expr)
+        };}
+    }
+}
+
+impl quote::ToTokens for ViewToken {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        let mut proxies = HashMap::default();
+        self.to_named_tokens(None, 0, tokens, &mut proxies);
+        for (proxy, updates) in proxies.into_iter() {
+            quote! {
+                #proxy.on_update(#updates);
+            }
+            .to_tokens(tokens);
+        }
+    }
+}
+
+impl ViewToken {
+    fn leaf_name(&self) -> &str {
+        match self {
+            ViewToken::Element { name, .. } => name,
+            ViewToken::Text { .. } => "text",
+            ViewToken::BlockExpr { .. } => "block_expr",
+            ViewToken::BlockProxy { .. } => "block_proxy",
+        }
+    }
+
+    fn to_named_tokens(
+        &self,
+        parent_name: Option<syn::Ident>,
+        index: usize,
+        tokens: &mut proc_macro2::TokenStream,
+        proxies: &mut HashMap<syn::Ident, ProxyOnUpdate>,
+    ) -> LetIdent {
+        let n = if index == 0 {
+            String::new()
+        } else {
+            format!("{index}")
+        };
+
+        let spaced_parent_name = parent_name
+            .as_ref()
+            .map(|name| format!("{}_", name))
+            .unwrap_or_default();
+        let name = format!("{spaced_parent_name}{}{n}", self.leaf_name());
+        let generic_id = LetIdent {
+            ident: quote::format_ident!("_{name}"),
+            cast: None,
+        };
+
+        match self {
+            ViewToken::Element {
+                name: el,
+                ident,
+                attributes,
+                children,
+            } => {
+                let (ident, cast) = match ident {
+                    None => (
+                        quote::format_ident!("_{name}"),
+                        Some(syn::parse_str("web_sys::Element").unwrap()),
+                    ),
+                    Some(LetIdent { ident, cast }) => (ident.clone(), cast.clone()),
+                };
+
+                let creation = attributes
+                    .iter()
+                    .find_map(|att| {
+                        if let AttributeToken::Xmlns(ns) = att {
+                            Some(WebFlavor::create_element_ns(el, ns))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| WebFlavor::create_element(el));
+                quote! {
+                    let #ident = #creation;
+                }
+                .to_tokens(tokens);
+
+                let mut indices = HashMap::<&str, usize>::new();
+                for child in children.iter() {
+                    let index = indices
+                        .entry(child.leaf_name())
+                        .and_modify(|i| {
+                            *i += 1;
+                        })
+                        .or_insert(0);
+                    let child_id = child
+                        .to_named_tokens(Some(ident.clone()), *index, tokens, proxies)
+                        .ident;
+                    WebFlavor::append_child(&ident, &child_id).to_tokens(tokens);
+                }
+                for att in attributes.iter() {
+                    match att {
+                        AttributeToken::Let(outside_id) => {
+                            quote! { #outside_id = #ident; }.to_tokens(tokens);
+                        }
+                        AttributeToken::StyleSingle(key, expr) => {
+                            WebFlavor::set_style_property(&ident, key, expr).to_tokens(tokens);
+                        }
+                        AttributeToken::Attrib(key, expr) => {
+                            WebFlavor::set_attribute(&ident, key, expr).to_tokens(tokens);
+                        }
+                        AttributeToken::On(event, listener) => {
+                            WebFlavor::create_listener(&ident, listener, event).to_tokens(tokens);
+                        }
+                        AttributeToken::Xmlns(_) => {
+                            // handled elsewhere
+                        }
+                        AttributeToken::Window(event, listener) => {
+                            WebFlavor::create_window_listener(listener, event).to_tokens(tokens);
+                        }
+                        AttributeToken::Document(event, listener) => {
+                            WebFlavor::create_document_listener(listener, event).to_tokens(tokens);
+                        }
+                        AttributeToken::AttribProxy(keys, proxy_update) => {
+                            match ProxyAttribute::new(ident.clone(), keys, proxy_update) {
+                                Err(e) => e.to_compile_error().to_tokens(tokens),
+                                Ok(att) => {
+                                    WebFlavor::set_attribute_proxy(&att, proxy_update)
+                                        .to_tokens(tokens);
+                                    insert_proxy(
+                                        proxies,
+                                        &ident,
+                                        true,
+                                        false,
+                                        None,
+                                        ProxyUpdateKey::Attrib(Box::new(att)),
+                                        proxy_update,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                LetIdent { ident, cast }
+            }
+            ViewToken::Text { ident, expr } => {
+                let let_ident = ident.clone().unwrap_or(generic_id);
+                let id = let_ident.ident.clone();
+                WebFlavor::create_text(&id, expr).to_tokens(tokens);
+                let_ident
+            }
+            ViewToken::BlockExpr { ident, expr } => {
+                let let_ident = ident.clone().unwrap_or(generic_id);
+                let id = let_ident.ident.clone();
+                quote! { let #id = #expr; }.to_tokens(tokens);
+                let_ident
+            }
+            ViewToken::BlockProxy { ident, proxy } => {
+                let mut should_clone = true;
+                let let_ident = ident.clone().unwrap_or_else(|| {
+                    should_clone = false;
+                    generic_id
+                });
+                let id = let_ident.ident.clone();
+                if let Some(parent) = parent_name.as_ref() {
+                    insert_proxy(
+                        proxies,
+                        &id,
+                        should_clone,
+                        true,
+                        Some(parent),
+                        ProxyUpdateKey::Block {
+                            parent: if let Some(parent) = parent_name.as_ref() {
+                                parent.clone()
+                            } else {
+                                syn::Error::new(
+                                    proxy.update_ident.span(),
+                                    "Cannot use child block pattern for the outer-most block",
+                                )
+                                .into_compile_error()
+                                .to_tokens(tokens);
+                                quote::format_ident!("unknown")
+                            },
+                            block: id.clone(),
+                        },
+                        proxy,
+                    );
+                    WebFlavor::proxy_child(&id, proxy).to_tokens(tokens);
+                } else {
+                    syn::Error::new(
+                        proxy.update_ident.span(),
+                        "Cannot use child block pattern for the outer-most block",
+                    )
+                    .into_compile_error()
+                    .to_tokens(tokens);
+                }
+                let_ident
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 /// An enumeration of all supported attribute types.
 pub enum AttributeToken {
-    PostBuild(syn::Expr),
-    CaptureView(syn::Expr),
-    CaptureForEach(syn::Expr),
+    Let(Ident),
     Xmlns(syn::Expr),
-    Style(syn::Expr),
+    // TODO: allow the name to be syn::Expr
     StyleSingle(String, syn::Expr),
     On(String, syn::Expr),
     Window(String, syn::Expr),
     Document(String, syn::Expr),
-    BooleanSingle(String, syn::Expr),
-    BooleanTrue(String),
-    PatchChildren(syn::Expr),
     Attrib(String, syn::Expr),
-}
-
-impl TryFrom<syn_rsx::Node> for AttributeToken {
-    type Error = syn::Error;
-
-    fn try_from(node: syn_rsx::Node) -> Result<Self, Self::Error> {
-        let span = node.name_span().unwrap_or(Span::call_site());
-        if let Some(key) = node.name_as_string() {
-            if let Some(expr) = node.value {
-                let keys = key.split(':').collect::<Vec<_>>();
-                Ok(AttributeToken::from_keys_expr_pair(&keys, expr))
-            } else {
-                let name = under_to_dash(&key);
-                Ok(AttributeToken::BooleanTrue(name))
-            }
-        } else {
-            Err(Error::new(span, "dom attribute is missing a name"))
-        }
-    }
+    AttribProxy(Vec<String>, Box<ProxyUpdate>),
 }
 
 impl Parse for AttributeToken {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let mut keys: Vec<String> = vec![];
-        while !input.lookahead1().peek(Token![=]) && !input.is_empty() {
+        while !input.lookahead1().peek(Token![=])
+            && !input.lookahead1().peek(Token![,])
+            && !input.is_empty()
+        {
             let key_segment = match input.parse::<Ident>() {
                 Ok(ident) => Ok(format!("{}", ident)),
                 Err(e1) => {
@@ -68,11 +580,21 @@ impl Parse for AttributeToken {
             keys.push(key_segment);
         }
         if input.parse::<Token![=]>().is_ok() {
-            let expr = input.parse::<Expr>()?;
-            Ok(AttributeToken::from_keys_expr_pair(&keys, expr))
+            if input.fork().parse::<ProxyUpdate>().is_ok() {
+                let update = input.parse::<ProxyUpdate>()?;
+                Ok(AttributeToken::AttribProxy(keys.clone(), Box::new(update)))
+            } else {
+                let expr = input.parse::<Expr>()?;
+                Ok(AttributeToken::from_keys_expr_pair(&keys, expr))
+            }
+        } else if keys.len() == 1 {
+            let ident = quote::format_ident!("{}", keys[0]);
+            Ok(AttributeToken::Let(ident))
         } else {
             let key = under_to_dash(keys.join(":"));
-            Ok(AttributeToken::BooleanTrue(key))
+            let none: syn::Expr =
+                syn::parse2(proc_macro2::TokenStream::from_str("None").unwrap()).unwrap();
+            Ok(AttributeToken::Attrib(key, none))
         }
     }
 }
@@ -81,11 +603,7 @@ impl AttributeToken {
     pub fn from_keys_expr_pair(keys: &[impl AsRef<str>], expr: Expr) -> Self {
         let ks = keys.iter().map(|s| s.as_ref()).collect::<Vec<_>>();
         match ks.as_slice() {
-            ["post", "build"] => AttributeToken::PostBuild(expr),
-            ["capture", "view"] => AttributeToken::CaptureView(expr),
-            ["capture", "for_each"] => AttributeToken::CaptureForEach(expr),
             ["xmlns"] => AttributeToken::Xmlns(expr),
-            ["style"] => AttributeToken::Style(expr),
             ["style", name] => {
                 let name = under_to_dash(name);
                 AttributeToken::StyleSingle(name, expr)
@@ -93,188 +611,14 @@ impl AttributeToken {
             ["on", event] => AttributeToken::On(event.to_string(), expr),
             ["window", event] => AttributeToken::Window(event.to_string(), expr),
             ["document", event] => AttributeToken::Document(event.to_string(), expr),
-            ["boolean", name] => {
-                let name = under_to_dash(name);
-                AttributeToken::BooleanSingle(name, expr)
-            }
-            ["patch", "children"] => AttributeToken::PatchChildren(expr),
             [attribute_name] => {
                 let name = under_to_dash(attribute_name);
                 AttributeToken::Attrib(name, expr)
             }
             keys => {
-                let name = under_to_dash(&keys.join(":"));
+                let name = under_to_dash(keys.join(":"));
                 AttributeToken::Attrib(name, expr)
             }
         }
-    }
-    /// Attempt to create a token stream representing one link in a `ViewBuilder` chain.
-    pub fn try_builder_token_stream(
-        self: &AttributeToken,
-    ) -> Result<proc_macro2::TokenStream, Error> {
-        use AttributeToken::*;
-        match self {
-            PostBuild(expr) => Ok(quote! {
-                .with_post_build(#expr)
-            }),
-            CaptureView(expr) => Ok(quote! {
-                .with_capture_view(#expr)
-            }),
-            CaptureForEach(expr) => Ok(quote! {
-                .with_capture_for_each(#expr)
-            }),
-            Xmlns(_) => Ok(quote!{}),// handled by a preprocessor
-            Style(expr) => Ok(quote! {
-                .with_style_stream(#expr)
-            }),
-            StyleSingle(name, expr) => Ok(quote! {
-                .with_single_style_stream(#name, #expr)
-            }),
-            On(name, expr) => Ok(quote! {
-                .with_event(#name, "myself", #expr)
-            }),
-            Window(name, expr) => Ok(quote! {
-                .with_event(#name, "window", #expr)
-            }),
-            Document(name, expr) => Ok(quote! {
-                .with_event(#name, "document", #expr)
-            }),
-            BooleanSingle(name, expr) => Ok(quote! {
-                .with_single_bool_attrib_stream(#name, #expr)
-            }),
-            PatchChildren(expr) => Ok(quote! {
-                .with_child_stream(#expr)
-            }),
-            Attrib(name, expr) => Ok(quote! {
-                .with_single_attrib_stream(#name, #expr)
-            }),
-            BooleanTrue(expr) => Ok(quote! {
-                .with_single_bool_attrib_stream(#expr, true)
-            }),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-/// An enumeration of all supported nodes types.
-pub enum ViewToken {
-    Element {
-        name: String,
-        name_span: proc_macro2::Span,
-        attributes: Vec<AttributeToken>,
-        children: Vec<ViewToken>,
-    },
-    Text(syn::Expr),
-    Block(syn::Expr),
-}
-
-impl Parse for ViewToken {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let lookahead = input.lookahead1();
-        if lookahead.peek(token::Brace) {
-            Ok(ViewToken::Block(input.parse::<syn::Expr>()?))
-        } else if lookahead.peek(LitStr) {
-            Ok(ViewToken::Text(input.parse::<syn::Expr>()?))
-        } else {
-            let tag: Ident = input.parse()?;
-            let attributes = if input.lookahead1().peek(token::Paren) {
-                let paren_content;
-                let _paren_token: token::Paren = syn::parenthesized!(paren_content in input);
-                let attrs: Punctuated<AttributeToken, Token![,]> =
-                    paren_content.parse_terminated(AttributeToken::parse)?;
-                attrs.into_iter().collect::<Vec<_>>()
-            } else {
-                vec![]
-            };
-
-            let brace_content;
-            let _brace: token::Brace = syn::braced!(brace_content in input);
-            let children: ViewTokens = brace_content.parse()?;
-
-            Ok(ViewToken::Element {
-                name: format!("{}", tag),
-                name_span: tag.span(),
-                attributes,
-                children: children.views,
-            })
-        }
-    }
-}
-
-impl TryFrom<Node> for ViewToken {
-    type Error = Error;
-
-    fn try_from(node: Node) -> Result<Self, Self::Error> {
-        let name_span = node.name_span().unwrap_or(Span::call_site());
-        match &node.node_type {
-            NodeType::Element => match node.name_as_string() {
-                Some(tag) => {
-                    let name = tag;
-
-                    let mut attributes = vec![];
-                    for attribute in node.attributes.into_iter() {
-                        let token = AttributeToken::try_from(attribute)?;
-                        attributes.push(token);
-                    }
-
-                    let mut children = vec![];
-                    for child in node.children.into_iter() {
-                        let token = ViewToken::try_from(child)?;
-                        children.push(token);
-                    }
-
-                    Ok(ViewToken::Element {
-                        name,
-                        name_span,
-                        attributes,
-                        children,
-                    })
-                }
-                None => Err(Error::new(
-                    node.name_span().unwrap_or_else(|| Span::call_site()),
-                    "View node is missing a name.",
-                )),
-            },
-            NodeType::Text => {
-                if let Some(val) = node.value {
-                    Ok(ViewToken::Text(val))
-                } else {
-                    Err(Error::new(
-                        node.name_span().unwrap_or(Span::call_site()),
-                        "Text node is missing a value.",
-                    ))
-                }
-            }
-            NodeType::Block => {
-                if let Some(val) = node.value {
-                    Ok(ViewToken::Block(val))
-                } else {
-                    Err(Error::new(
-                        node.name_span().unwrap_or(Span::call_site()),
-                        "Block node is missing a value.",
-                    ))
-                }
-            }
-            _ => Err(Error::new(
-                node.name_span().unwrap_or_else(|| Span::call_site()),
-                "View node is missing a name.",
-            )),
-        }
-    }
-}
-
-/// A list of view tokens
-#[derive(Default)]
-pub struct ViewTokens {
-    pub views: Vec<ViewToken>,
-}
-
-impl Parse for ViewTokens {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let mut tokens: ViewTokens = ViewTokens::default();
-        while !input.is_empty() {
-            tokens.views.push(input.parse::<ViewToken>()?);
-        }
-        Ok(tokens)
     }
 }

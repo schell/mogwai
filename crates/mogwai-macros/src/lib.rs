@@ -1,185 +1,264 @@
+//! RSX for constructing `web-sys` elements.
 #![allow(deprecated)]
-//! RSX for constructing ViewBuilders
-use quote::quote;
-use syn::Error;
+
+use quote::{ToTokens, quote};
+use syn::spanned::Spanned;
 
 mod tokens;
-use tokens::{AttributeToken, ViewToken};
-
-mod rsx;
-
-fn partition_unzip<S, T, F>(items: impl Iterator<Item = S>, f: F) -> (Vec<T>, Vec<Error>)
-where
-    F: Fn(S) -> Result<T, Error>,
-{
-    let (tokens, errs): (Vec<Result<_, _>>, _) = items.map(f).partition(Result::is_ok);
-    let tokens = tokens
-        .into_iter()
-        .filter_map(Result::ok)
-        .collect::<Vec<_>>();
-    let errs = errs.into_iter().filter_map(Result::err).collect::<Vec<_>>();
-    (tokens, errs)
-}
-
-fn combine_errors(errs: Vec<Error>) -> Option<Error> {
-    errs.into_iter()
-        .fold(None, |may_prev_error: Option<Error>, err| {
-            if let Some(mut prev_error) = may_prev_error {
-                prev_error.combine(err);
-                Some(prev_error)
-            } else {
-                Some(err)
-            }
-        })
-}
-
-fn node_to_builder_token_stream(
-    view_token: &ViewToken,
-) -> Result<proc_macro2::TokenStream, Error> {
-    #[cfg(feature = "dom")]
-    let mogwai_path = quote! { mogwai_dom::core };
-    #[cfg(feature = "pxy")]
-    let mogwai_path = quote! { pxy_mogwai::core };
-    #[cfg(not(any(feature = "dom", feature = "pxy")))]
-    let mogwai_path = quote! { mogwai };
-    match view_token {
-        ViewToken::Element {
-            name,
-            name_span: _,
-            attributes,
-            children,
-        } => {
-            let may_xmlns = attributes.iter().find_map(|att| match att {
-                AttributeToken::Xmlns(expr) => Some(expr),
-                _ => None,
-            });
-
-            let mut errs = vec![];
-            let (attribute_tokens, attribute_errs) =
-                partition_unzip(attributes.iter(), AttributeToken::try_builder_token_stream);
-            errs.extend(attribute_errs);
-
-            let (child_tokens, child_errs) = partition_unzip(children.iter(), |token| {
-                node_to_builder_token_stream(token)
-            });
-            let child_tokens = child_tokens.into_iter().map(|child| {
-                quote! {
-                        .append(#child)
-                }
-            });
-            errs.extend(child_errs);
-
-            let may_error = combine_errors(errs);
-            if let Some(error) = may_error {
-                Err(error)
-            } else {
-                let create = if let Some(ns) = may_xmlns {
-                    quote! {#mogwai_path::view::ViewBuilder::element_ns(#name, #ns)}
-                } else {
-                    quote! {#mogwai_path::view::ViewBuilder::element(#name)}
-                };
-                Ok(quote! {{
-                    #create
-                        #(#attribute_tokens)*
-                        #(#child_tokens)*
-                }})
-            }
-        }
-        ViewToken::Text(expr) => Ok(quote! {#mogwai_path::view::ViewBuilder::text(#expr)}),
-        ViewToken::Block(expr) => Ok(quote! {
-            #[allow(unused_braces)]
-            #expr
-        }),
-    }
-}
-#[deprecated(since = "0.6", note = "Use `html` or convert to `rsx` instead")]
-#[proc_macro]
-/// Uses an html description to construct a `ViewBuilder`.
-///
-/// ## Deprecated since 0.6
-/// Use [`html!`] instead, or convert to [`rsx!`].
-///
-/// ```rust, ignore
-/// let my_div = mogwai_dom::html! {
-///     <div id="main">
-///         <p>"Trolls are real"</p>
-///     </div>
-/// };
-/// ```
-pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    html(input)
-}
 
 #[proc_macro]
-/// Uses an html description to construct a `ViewBuilder`.
+/// View construction macro.
 ///
-/// Looks like real HTML, but some editors have a hard time
-/// formatting the mixture of Rust and HTML. If that seems to be
-/// the case, try converting to [`rsx!`], which editors tend to format
-/// well.
+/// The `rsx!` macro facilitates the creation of UI components using a syntax
+/// similar to JSX, allowing for a more intuitive and declarative way to define
+/// views in Rust.
 ///
-/// ```rust, ignore
-/// let my_div = mogwai_dom::html! {
-///     <div id="main">
-///         <p>"Trolls are real"</p>
-///     </div>
-/// };
-/// ```
-pub fn html(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    rsx::parse_with(input, rsx::parse_html)
-}
-
-#[proc_macro]
-/// Uses a function-style description to construct a `ViewBuilder`.
+/// This macro transforms a tree of HTML-like syntax into Rust code that constructs
+/// the corresponding UI elements. It supports `let` binding, embedding Rust expressions,
+/// and handling events, making it a powerful tool for building dynamic interfaces.
 ///
-/// This is easier for editors to format than [`html!`], leading to more natural
-/// authoring.
+/// # Examples
 ///
-/// ```rust, ignore
-/// let my_div = mogwai_dom::rsx! {
-///     div(id="main") {
-///         p() {"Trolls are real"}
+/// ## Basic Usage
+///
+/// ```rust
+/// use mogwai::prelude::*;
+///
+/// fn view<V:View>() -> V::Element {
+///     rsx! {
+///         let root = div(class = "container") {
+///             h1 { "Hello, World!" }
+///             button(on:click = handle_click) { "Click me" }
+///         }
 ///     }
-/// };
+///
+///     root
+/// }
+/// ```
+///
+/// In this example, `rsx!` is used to create a `div` with a class and two child
+/// elements: an `h1` and a `button` with an event listener `handle_click`. The root
+/// `div` element is bound with a let binding to the name `root`.
+///
+/// ## Attributes
+///
+/// In addition to single-word attributes, view nodes support a few special attributes:
+///
+/// - **on:** Used to attach event listeners.
+///   For example, `on:click = handle_click` attaches a click event listener named `handle_click`.
+/// - **window:** Used to attach event listeners to the window object.
+///   For example, `window:resize = handle_resize`.
+/// - **document:** Used to attach event listeners to the document object.
+///   For example, `document:keydown = handle_keydown`.
+/// - **style:** Shorthand used to set inline styles.
+///   For example, `style:color = "red"` sets the text color to red, and is equivalent to
+///   `style = "color: red;"`.
+///
+/// ## Using `Proxy`
+///
+/// The `rsx!` macro includes special shorthand syntax for dynamic updates using `Proxy`.
+/// This syntax is valid in both attribute and node positions.
+///
+/// ```rust
+/// use mogwai::ssr::prelude::*;
+///
+/// #[derive(Debug, PartialEq)]
+/// struct Status {
+///     color: String,
+///     message: String,
+/// }
+///
+/// struct Widget<V: View> {
+///     root: V::Element,
+///     state: Proxy<Status>,
+/// }
+///
+/// fn new_widget<V: View>() -> Widget<V> {
+///     let mut state = Proxy::new(Status {
+///         color: "black".to_string(),
+///         message: "Hello".to_string(),
+///     });
+///
+///     // We start out with a `div` element bound to `root`, containing a nested `p` tag
+///     // with the message "Hello" in black.
+///     rsx! {
+///         let root = div() {
+///             p(
+///                 id = "message_wrapper",
+///                 // proxy use in attribute position
+///                 style:color = state(s => &s.color)
+///             ) {
+///                 // proxy use in node position
+///                 {state(s => {
+///                     println!("updating state to: {s:#?}");
+///                     &s.message
+///                 })}
+///             }
+///         }
+///     }
+///
+///     Widget { root, state }
+/// }
+///
+/// println!("creating");
+/// // Verify at creation that the view shows "Hello" in black.
+/// let mut w = new_widget::<mogwai::ssr::Ssr>();
+/// assert_eq!(
+///     r#"<div><p id="message_wrapper" style="color: black;">Hello</p></div>"#,
+///     w.root.html_string()
+/// );
+///
+/// // Then later we change the message to show "Goodbye" in red.
+/// w.state.set(Status {
+///     color: "red".to_string(),
+///     message: "Goodbye".to_string(),
+/// });
+/// assert_eq!(
+///     r#"<div><p id="message_wrapper" style="color: red;">Goodbye</p></div>"#,
+///     w.root.html_string()
+/// );
+/// ```
+///
+/// ## Nesting arbitrary Rust types as nodes using `ViewChild`
+///
+/// You can nest custom Rust types that implement `ViewChild` within the `rsx!` macro:
+///
+/// ```rust
+/// use mogwai::prelude::*;
+///
+/// #[derive(ViewChild)]
+/// struct MyComponent<V: View> {
+///     #[child]
+///     wrapper: V::Element,
+/// }
+///
+/// fn create_view<V: View>() -> V::Element {
+///     rsx! {
+///         let wrapper = div() {
+///             "This is a custom component."
+///         }
+///     }
+///
+///     let component = MyComponent::<V>{ wrapper };
+///
+///     rsx! {
+///         let root = div() {
+///             h1() { "Welcome" }
+///             {component} // Using the custom component within the view
+///         }
+///     }
+///
+///     root
+/// }
 /// ```
 pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    rsx::parse_with(input, rsx::parse_fn)
+    match syn::parse::<tokens::ViewToken>(input) {
+        Ok(view_token) => view_token.into_token_stream(),
+        Err(error) => error.to_compile_error(),
+    }
+    .into()
 }
 
-#[deprecated(
-    since = "0.6",
-    note = "Use `html!{...}.try_into().unwrap()` or `rsx!{...}.try_into().unwrap()`instead"
-)]
-#[proc_macro]
-/// Uses an html description to construct a `View`.
+/// Derives `ViewChild` for a type.
 ///
-/// This is the same as the following:
-/// ```rust, ignore
-/// use mogwai_dom::prelude::*;
+/// The type must contain a field annotated with `#[child]`.
 ///
-/// let my_view = SsrDom::try_from(html! {
-///     <div id="main">
-///         <p>"Trolls are real"</p>
-///     </div>
-/// }).unwrap();
+/// Deriving `ViewChild` for an arbitrary Rust type allows you to use that type in the
+/// node position of an [`rsx!`] macro.
+///
+/// # Example
+///
+/// ```rust
+/// use mogwai::prelude::*;
+///
+/// #[derive(ViewChild)]
+/// struct MyComponent<V: View> {
+///     #[child]
+///     wrapper: V::Element,
+/// }
+///
+/// fn nest<V: View>(component: &MyComponent<V>) -> V::Element {
+///     rsx! {
+///         let wrapper = div() {
+///             h1(){ "Hello, world!" }
+///             {component} // <- here `component` is added to the view tree
+///         }
+///     }
+///
+///     wrapper
+/// }
 /// ```
-pub fn view(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let builder: proc_macro2::TokenStream = builder(input).into();
-    let token = quote! {{
-        {#builder}.try_into().unwrap()
-    }};
-    proc_macro::TokenStream::from(token)
-}
+///
+/// In this example, `MyComponent` is a struct that derives `ViewChild`, allowing it to be used
+/// within the `rsx!` macro. The `wrapper` field is annotated with `#[child]`, indicating that it
+/// is the primary child node for the component.
+#[proc_macro_derive(ViewChild, attributes(child))]
+pub fn impl_derive_viewchild(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input: syn::DeriveInput = syn::parse_macro_input!(input);
+    let ident = input.ident.clone();
+    let (all_ty_params, maybe_view_ty_param) =
+        input
+            .generics
+            .type_params()
+            .fold((vec![], None), |(mut all, mut found), typ| {
+                all.push(typ.ident.clone());
 
-#[proc_macro]
-pub fn target_arch_is_wasm32(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    proc_macro::TokenStream::from(quote! {
-        cfg!(target_arch = "wasm32")
-    })
+                for bound in typ.bounds.iter() {
+                    if let syn::TypeParamBound::Trait(t) = bound {
+                        if let Some(last) = t.path.segments.last() {
+                            if last.ident == "View" {
+                                found = Some(typ.ident.clone());
+                            }
+                        }
+                    }
+                }
+
+                (all, found)
+            });
+    let view_ty_param = if let Some(p) = maybe_view_ty_param {
+        p
+    } else {
+        return syn::Error::new(
+            input.generics.span(),
+            "Type must contain a type parameter constrained by View",
+        )
+        .into_compile_error()
+        .into();
+    };
+    let generics = input
+        .generics
+        .type_params()
+        .map(|p| {
+            let mut p = p.clone();
+            p.default = None;
+            p
+        })
+        .collect::<Vec<_>>();
+    if let syn::Data::Struct(data) = input.data {
+        let mut output = quote! {};
+        for field in data.fields.iter() {
+            let has_child_annotation = field.attrs.iter().any(|attr| attr.path().is_ident("child"));
+            if has_child_annotation {
+                let field = &field.ident;
+                output = quote! {
+                    impl <#(#generics),*> mogwai::prelude::ViewChild<#view_ty_param> for #ident<#(#all_ty_params),*> {
+                        fn as_append_arg(&self) -> mogwai::prelude::AppendArg<#view_ty_param, impl Iterator<Item = std::borrow::Cow<'_, #view_ty_param::Node>>> {
+                            self.#field.as_append_arg()
+                        }
+                    }
+                };
+                break;
+            }
+        }
+        output
+    } else {
+        quote! { compile_error!("Deriving ViewChild is only supported on struct types") }
+    }
+    .into()
 }
 
 #[cfg(test)]
-mod ssr_tests {
+mod test {
     use std::str::FromStr;
 
     #[test]
@@ -199,5 +278,97 @@ mod ssr_tests {
     #[test]
     fn can_parse_from_token_stream() {
         let _ts = proc_macro2::TokenStream::from_str(r#"<div class="any_class" />"#).unwrap();
+    }
+
+    #[test]
+    #[allow(dead_code)]
+    fn moggy() {
+        use mogwai::prelude::*;
+
+        #[derive(ViewChild)]
+        struct MyComponent<V: View> {
+            #[child]
+            wrapper: V::Element,
+        }
+
+        fn create_view<V: View>() -> V::Element {
+            rsx! {
+                let wrapper = div() {
+                    "This is a custom component."
+                }
+            }
+            let component = MyComponent::<V> { wrapper };
+
+            rsx! {
+                let root = div() {
+                    h1() { "Welcome" }
+                    {component} // Using the custom component within the view
+                }
+            }
+
+            root
+        }
+    }
+
+    #[test]
+    #[allow(dead_code)]
+    fn nest() {
+        use mogwai::prelude::*;
+
+        #[derive(ViewChild)]
+        struct MyComponent<V: View> {
+            #[child]
+            wrapper: V::Element,
+        }
+
+        fn nest<V: View>(component: &MyComponent<V>) -> V::Element {
+            rsx! {
+                let wrapper = div() {
+                    h1(){ "Hello, world!" }
+                    {component} // <- here `component` is added to the view tree
+                }
+            }
+
+            wrapper
+        }
+    }
+
+    #[test]
+    #[allow(dead_code)]
+    fn nest_with_block() {
+        use mogwai::prelude::*;
+
+        #[derive(ViewChild)]
+        struct MyComponent<V: View> {
+            #[child]
+            wrapper: V::Element,
+            text: V::Text,
+        }
+
+        impl<V: View> MyComponent<V> {
+            fn new() -> Self {
+                rsx! {
+                    let wrapper = p() {
+                        let text = "Here is text"
+                    }
+                }
+                Self { wrapper, text }
+            }
+        }
+
+        fn nest<V: View>() -> V::Element {
+            rsx! {
+                let wrapper = div() {
+                    h1(){ "Hello, world!" }
+                    {{
+                        let component = MyComponent::<V>::new();
+                        component.text.set_text("blarg");
+                        component
+                    }}
+                }
+            }
+
+            wrapper
+        }
     }
 }

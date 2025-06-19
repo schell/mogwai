@@ -1,18 +1,15 @@
-<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <title>counter | mogwai</title>
-        <link rel="stylesheet" href="style.css">
-    </head>
-    <body>
-        <div id="app" ></div>
-        <script type="module">
-         import init, { main } from './pkg/counter.js';
-         window.addEventListener('load', async () => {
-             await init();
-             await main("app");
-         });
-        </script>
-    </body>
+<html>
+  <head>
+    <title>counter | mogwai</title>
+    <link href="style.css" rel="stylesheet" />
+    <link data-trunk rel="rust" data-wasm-opt=4 />
+  </head>
+  <body>
+    <div id = "app"></div>
+    <script type="module">
+         addEventListener("TrunkApplicationStarted", (event) => {
+            window.wasmBindings.run("app");
+        })
+    </script>
+  </body>
 </html>

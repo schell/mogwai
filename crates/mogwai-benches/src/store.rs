@@ -1,7 +1,5 @@
-use anyhow::Context;
-use mogwai_dom::utils::WINDOW;
 use serde::{Deserialize, Serialize};
-use web_sys::Storage;
+use wasm_bindgen::UnwrapThrowExt;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StoredBench {
@@ -10,43 +8,51 @@ pub struct StoredBench {
 }
 
 impl StoredBench {
-    fn key(&self) -> String {
-        self.name.clone()
+    pub fn get_previous(name: impl AsRef<str>) -> Option<Self> {
+        let stored_benches = StoredBenches::get(name);
+        stored_benches.benches.last().map(|(_, v)| v.clone())
     }
 
-    pub fn try_load(name: impl ToString) -> anyhow::Result<Option<Self>> {
-        let storage = WINDOW.with(|w| {
-            w.local_storage()
-                .map_err(|jsv| anyhow::anyhow!("could not get local storage: {:#?}", jsv))?
-                .context("no storage")
-        })?;
-        let key = name.to_string();
-        if let Some(s) = storage.get_item(&key).ok().context("storage problem")? {
-            let stored_bench: StoredBench = serde_json::from_str(&s)?;
-            Ok(Some(stored_bench))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub fn try_write(&self) -> anyhow::Result<()> {
-        let str_value = serde_json::to_string(&self)?;
-        let key = self.key();
-        WINDOW
-            .with(|w| {
-                w.local_storage()
-                    .map_err(|jsv| anyhow::anyhow!("could not get local storage: {:#?}", jsv))
-            })?
-            .into_iter()
-            .for_each(|storage: Storage| {
-                storage
-                    .set_item(&key, &str_value)
-                    .expect("could not store serialized items");
-            });
-        Ok(())
+    pub fn write(&self) {
+        let mut stored_benches = StoredBenches::get(&self.name);
+        let ts = web_sys::js_sys::Date::now();
+        stored_benches.benches.push((ts, self.clone()));
+        stored_benches.store(&self.name);
     }
 
     pub fn average(&self) -> f64 {
         self.samples.iter().sum::<f64>() / self.samples.len() as f64
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct StoredBenches {
+    pub benches: Vec<(f64, StoredBench)>,
+}
+
+impl StoredBenches {
+    pub fn get(name: impl AsRef<str>) -> Self {
+        let window = web_sys::window().expect_throw("no window");
+        let storage = window
+            .local_storage()
+            .expect_throw("could not get local storage")
+            .expect_throw("missing storage");
+        let item = storage
+            .get_item(name.as_ref())
+            .expect_throw("storage problem");
+        item.map(|s| serde_json::from_str(&s).expect_throw("could not deserialize stored benches"))
+            .unwrap_or_default()
+    }
+
+    pub fn store(&self, key: impl AsRef<str>) {
+        let window = web_sys::window().expect_throw("no window");
+        let storage = window
+            .local_storage()
+            .expect_throw("could not get local storage")
+            .expect_throw("missing storage");
+        let value = serde_json::to_string(self).expect_throw("could not serialize benches");
+        storage
+            .set_item(key.as_ref(), &value)
+            .expect_throw("could not set storage");
     }
 }

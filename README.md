@@ -1,193 +1,125 @@
 <div align="center">
   <h1>
-      <img src="https://raw.githubusercontent.com/schell/mogwai/master/img/gizmo.svg" />
+    <img src="https://raw.githubusercontent.com/schell/mogwai/master/img/gizmo.svg" />
     <br />
     mogwai
   </h1>
 </div>
 
-> **m**inimal, **o**bvious, **g**raphical **w**eb **a**pplication **i**nterface
+> **m**inimal, **o**bvious, **g**raphical **w**idget **a**pplication **i**nterface
 
 [![Crates.io][ci]][cl]
 
 [ci]: https://img.shields.io/crates/v/mogwai.svg
 [cl]: https://crates.io/crates/mogwai/
 
-`mogwai` is a view library for creating GUI applications.
-It is written in Rust and runs in your browser and has enough functionality server-side
-to do rendering. It is an alternative to React, Backbone, Ember, Elm, Purescript, etc.
+`mogwai` is a Rust crate for building GUI applications, primarily in the
+browser, with cross-platform capabilities.
 
-- [goals](#goals)
-- [concepts](#concepts)
-- [example](#example)
-- [intro](#introduction)
-- [why](#why)
-- [beginning](#ok---where-do-i-start)
-- [cookbook](#cookbook)
-- [more examples](#more-examples)
-- [sponsor this project](#sponsorship)
+## Overview
 
-## goals
+`mogwai` simplifies web app development by addressing challenges with
+[`web-sys`](https://crates.io/crates/web-sys), focusing on:
 
-* provide a declarative approach to creating and managing view nodes
-* encapsulate component state and compose components easily
-* explicate view mutation
-* be small and fast (aka keep it snappy)
+- Element creation and styling
+- Event handling
+- Server-side rendering and cross-platform support
 
-## concepts
-The main concepts behind `mogwai` are
+It offers a minimalistic and transparent approach, allowing you to structure your app freely.
 
-* **sinks and streams instead of callbacks** 
+## Key Concepts
 
-  View events like click, mouseover, etc are sent through streams instead of invoking a callback. 
-  Streams can be mapped, filtered and folded.
+- **View Construction**: Use the `rsx!` macro for intuitive view building.
+- **Event Handling**: Events are futures, not callbacks.
+- **Cross-Platform**: Traits ensure operations are cross-platform, with room for specialization.
+- **Idiomatic Rust**: Widgets are Rust types
 
-* **widget views are dumb** 
+## Example
 
-  A view is just a struct that mutates the UI tree after receiving a message from a stream.
-  Views are constructed and nested using plain Rust functions or an RSX macro.
-
-* **widget logic is one or more async tasks that loop over event messages** 
-
-  Widgets use asynchronous task loops that receive events from the view and send updates
-  to the view in response.
-
-## example
-Here is an example of a button that counts the number of times it has been clicked:
+Here's a button that counts clicks:
 
 ```rust, no_run
-use mogwai_dom::prelude::*;
+use mogwai::web::prelude::*;
+use wasm_bindgen::prelude::*;
 
-#[derive(Default)]
-struct Button {
-    clicks: usize,
-    click: Output<()>,
-    text: Input<String>,
+#[derive(ViewChild)]
+pub struct ButtonClick<V: View> {
+    #[child]
+    wrapper: V::Element,
+    on_click: V::EventListener,
+    num_clicks: Proxy<u32>,
 }
 
-impl Button {
-    /// Convert into a `ViewBuilder`
-    fn builder(mut self) -> ViewBuilder {
-        rsx! (
-            button(on:click=self.click.sink().contra_map(|_: JsDomEvent| ())) {
-                // Using braces we can embed rust values in our UI tree.
-                // Here we're creating a text node that starts with the
-                // string "Clicked 0 times" which updates every time a
-                // message is received on the stream.
-                {("Clicked 0 times", self.text.stream().unwrap())}
+impl<V: View> Default for ButtonClick<V> {
+    fn default() -> Self {
+        let mut num_clicks = Proxy::<u32>::default();
+
+        rsx! {
+            let wrapper = button(
+                style:cursor = "pointer",
+                on:click = on_click
+            ) {
+                // When the `num_clicks` proxy is updated it will replace this node.
+                {num_clicks(n => match *n {
+                    1 => "Click again.".to_string(),
+                    n => format!("Clicked {n} times."),
+                })}
             }
-        ).with_task(async move {
-            while let Some(()) = self.click.get().await {
-                self.clicks += 1;
-                self.text.set(if self.clicks == 1 {
-                    "Clicked 1 time".to_string()
-                } else {
-                    format!("Clicked {} times", self.clicks)
-                }).await.unwrap();
-            }
-        })
+        }
+
+        Self {
+            wrapper,
+            on_click,
+            num_clicks,
+        }
     }
 }
 
-let btn = Button::default();
-// Get a sink to manually send events.
-let mut click_sink = btn.click.sink();
-// Build the view to render in the browser
-let view = Dom::try_from(btn.builder()).unwrap();
-// Attach it to the browser's DOM tree
-view.run().unwrap();
+impl<V: View> ButtonClick<V> {
+    pub async fn step(&mut self) {
+        let _ev = self.on_click.next().await;
+        self.num_clicks.modify(|n| *n += 1);
+    }
+}
 
-// Spawn asyncronous updates
-wasm_bindgen_futures::spawn_local(async move {
-    // Queue some messages for the view as if the button had been clicked:
-    click_sink.send(()).await.unwrap();
-    click_sink.send(()).await.unwrap();
-    // view's html is now "<button>Clicked 2 times</button>"
-});
+#[wasm_bindgen(start)]
+pub fn main() {
+    let mut view = ButtonClick::<Web>::default();
+    mogwai::web::body().append_child(&view);
+    wasm_bindgen_futures::spawn_local(async move {
+        loop {
+            view.step().await;
+        }
+    });
+}
 ```
 
-## introduction
-If you're interested in learning more - please read the [introduction and
-documentation](https://docs.rs/mogwai-dom/0.1.0/mogwai_dom/an_introduction/index.html).
+## Getting Started
 
-## why
-* No vdom diffing keeps updates snappy and the implementation minimal
-* Async logic by default
-* Explicit mutation
-* `ViewBuilder` allows running on multiple platforms (web, ios, android, desktop, etc)
+1. Install the Rust toolchain from <https://rustup.rs/>.
+2. Install [trunk](https://trunkrs.dev/).
+3. Use `cargo-generate` to start a new project:
 
-`mogwai` uses streams, sinks, a declarative view builder and async
-logic to define components and how they change over time.
-
-View mutation is explicit and happens as a result of views receiving messages, so there
-is no performance overhead from vdom diffing.
-
-If you prefer a functional style of programming with lots of maps and folds -
-or if you're looking to go _vroom!_ then maybe `mogwai` is right for you :)
-
-Please do keep in mind that `mogwai` is still in alpha and the API is actively
-changing - PRs, issues and questions are welcomed. As of the `0.6` release we
-expect that the API will be relatively backwards compatible.
-
-### made for rustaceans, by a rustacean
-`mogwai` is a Rust first library. There is no requirement that you have `npm` or
-`node`. Getting your project up and running without writing any javascript is easy
-enough.
-
-### benchmarketing
-`mogwai` is snappy! Here are some very handwavey and sketchy todomvc metrics:
-
-![mogwai performance benchmarking](img/perf.png)
-
-## ok - where do i start?
-First you'll need new(ish) version of the rust toolchain. For that you can visit
-https://rustup.rs/ and follow the installation instructions.
-
-Then you'll need [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/).
-
-For starting a new mogwai project we'll use the wonderful `cargo-generate`, which
-can be installed using `cargo install cargo-generate`.
-
-Then run
 ```shell
+cargo install cargo-generate
 cargo generate --git https://github.com/schell/mogwai-template.git
-```
-and give the command line a project name. Then `cd` into your sparkling new
-project and
-```shell
-wasm-pack build --target web
-```
-Then, if you don't already have it, `cargo install basic-http-server` or use your
-favorite alternative to serve your app:
-```shell
-basic-http-server -a 127.0.0.1:8888
-```
-Happy hacking! :coffee: :coffee: :coffee:
-
-## cookbook
-:green_book: [Cooking with Mogwai](https://zyghost.com/guides/mogwai-cookbook/index.html) is a series
-of example solutions to various UI problems. It aims to be a good reference doc but not a step-by-step tutorial.
-
-## group channel :phone:
-Hang out and talk about `mogwai` in the support channel:
-
-* [direct link to element app](https://app.element.io/#/room/#mogwai:matrix.org)
-* invitation https://matrix.to/#/!iABugogSTxJNzlrcMW:matrix.org?via=matrix.org.
-
-## more examples please
-Examples can be found in [the examples folder](https://github.com/schell/mogwai/blob/master/examples/).
-
-To build the examples use:
-```shell
-wasm-pack build --target web examples/{the example}
+cd your_project_name
+trunk serve --config Trunk.toml
 ```
 
-Additional external examples include:
-- [mogwai-realworld](https://github.com/schell/mogwai-realworld/) A "real world" app implementation (WIP)
-- [the benchmark suite](https://github.com/schell/todo-mvc-bench/)
-- your example here ;)
+## Resources
 
-## sponsorship
-Please consider sponsoring the development of this library!
+- [Introduction and Documentation](https://docs.rs/mogwai/latest/mogwai/web/an_introduction/index.html)
+- [Cooking with Mogwai](https://zyghost.com/guides/mogwai-cookbook/index.html)
+- [Examples](https://github.com/schell/mogwai/blob/main/examples/)
 
-* [sponsor me on github](https://github.com/sponsors/schell/)
+## Community
+
+Join the conversation on
+[Element](https://app.element.io/#/room/#mogwai:matrix.org) or via
+[Matrix](https://matrix.to/#/!iABugogSTxJNzlrcMW:matrix.org?via=matrix.org).
+
+## Support
+
+Consider [sponsoring on GitHub](https://github.com/sponsors/schell/) to support
+development.

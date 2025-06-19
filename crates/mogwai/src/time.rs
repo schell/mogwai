@@ -1,4 +1,12 @@
-//! Wait or sleep or delay future.
+//! # Time utilities
+//!
+//! This module provides utilities for handling time-related operations such as
+//! waiting, sleeping, and delaying futures. It is designed to work across different
+//! platforms, including WebAssembly (wasm32) and non-wasm32 targets.
+//!
+//! These utilities are essential for managing asynchronous operations that depend on timing,
+//! such as animations, timeouts, and intervals.
+use futures_lite::{Stream, StreamExt};
 #[cfg(target_arch = "wasm32")]
 use std::{
     cell::{Cell, RefCell},
@@ -10,16 +18,14 @@ use std::{
     sync::Arc,
     task::{Context, Poll, Waker},
 };
-use futures_lite::{Stream, StreamExt, FutureExt};
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::{prelude::Closure, JsCast, JsValue, UnwrapThrowExt};
+use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt, prelude::Closure};
 
-use crate::either::Either;
+// use crate::either::Either;
 
 #[cfg(not(target_arch = "wasm32"))]
-lazy_static::lazy_static! {
-    static ref START: std::time::Instant = std::time::Instant::now();
-}
+static START: std::sync::LazyLock<std::time::Instant> =
+    std::sync::LazyLock::new(std::time::Instant::now);
 
 #[cfg(target_arch = "wasm32")]
 /// Returns a timestamp representing the number of milliseconds (accurate
@@ -208,11 +214,37 @@ pub async fn wait_one_frame() {
 }
 
 #[derive(Clone)]
+/// Represents the result of a successful wait operation.
+///
+/// The `Found` struct is used to encapsulate the result of a wait operation
+/// that successfully finds a value within a specified timeout period.
+///
+/// # Fields
+///
+/// - `found`: The value that was found.
+/// - `elapsed_seconds`: The time in seconds that elapsed before the value was found.
 pub struct Found<T> {
     pub found: T,
     pub elapsed_seconds: f64,
 }
 
+/// Waits for a condition to be met within a specified timeout period.
+///
+/// This function repeatedly evaluates a provided closure until it returns `Some(T)`,
+/// indicating that the desired condition has been met. If the condition is not met
+/// within the given `timeout_seconds`, the function returns an `Err` with the elapsed
+/// time in seconds.
+///
+/// # Arguments
+///
+/// * `timeout_seconds` - The maximum time to wait for the condition, in seconds.
+/// * `f` - A closure that returns an `Option<T>`. The function will continue to wait
+///   until this closure returns `Some(T)`.
+///
+/// # Returns
+///
+/// A `Result` containing a `Found<T>` if the condition is met, or an `Err` with the
+/// elapsed time if the timeout is reached.
 pub async fn wait_for<'a, T: 'a>(
     timeout_seconds: f64,
     mut f: impl FnMut() -> Option<T> + 'a,
@@ -301,27 +333,25 @@ pub async fn wait_until_next_for<T>(
 ) -> Result<Found<T>, f64> {
     let start = now();
 
-    let mut stream = stream.fuse().map(Either::Left);
-    let stream_next = stream.next();
-    let timeout = async {
+    let stream = stream.fuse().map(Result::Ok::<T, f64>);
+    let timeout = futures_lite::stream::once_future(async {
         let elapsed_millis = wait_secs(timeout_seconds).await;
-        Some(Either::Right(elapsed_millis / 1000.0))
-    };
-    match stream_next.or(timeout).await {
-        Some(Either::Left(found)) => {
+        Result::Err::<T, f64>(elapsed_millis / 1000.0)
+    });
+    let mut stream_of_t = std::pin::pin!(stream.or(timeout));
+    match stream_of_t.next().await {
+        Some(Result::Ok(found)) => {
             let now = now();
 
             let elapsed_seconds = (now - start) / 1000.0;
 
             Ok(Found {
                 found,
-                elapsed_seconds
+                elapsed_seconds,
             })
         }
-        Some(Either::Right(elapsed_millis)) => {
-            Err(elapsed_millis / 1000.0)
-        }
-        _ => Err(0.0)
+        Some(Result::Err(elapsed_millis)) => Err(elapsed_millis / 1000.0),
+        _ => Err(0.0),
     }
 }
 

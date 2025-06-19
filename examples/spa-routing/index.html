@@ -1,17 +1,15 @@
-<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <title>spa-routing</title>
-        <link rel="stylesheet" href="style.css">
-    </head>
-    <body>
-        <script type="module">
-         import init, { main } from './pkg/spa_routing.js';
-         window.addEventListener('load', async () => {
-             await init();
-             await main();
-         });
-        </script>
-    </body>
+<html>
+  <head>
+    <title>spa-routing | mogwai</title>
+    <link href="style.css" rel="stylesheet" />
+    <link data-trunk rel="rust" data-wasm-opt=4 />
+  </head>
+  <body>
+    <div id = "app"></div>
+    <script type="module">
+         addEventListener("TrunkApplicationStarted", (event) => {
+            window.wasmBindings.run("app");
+        })
+    </script>
+  </body>
 </html>

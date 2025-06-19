@@ -5,12 +5,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use tracing::Level;
-use tracing_subscriber::FmtSubscriber;
 
 fn build_example(name: Option<String>) -> anyhow::Result<()> {
     let root = PathBuf::from(get_root_prefix()?);
-    tracing::debug!("root: '{}'", root.display());
+    log::debug!("root: '{}'", root.display());
     anyhow::ensure!(root.is_dir(), "root is not a dir");
     anyhow::ensure!(root.exists(), "root dir does not exist");
 
@@ -18,7 +16,7 @@ fn build_example(name: Option<String>) -> anyhow::Result<()> {
     if !book_examples_dir.exists() {
         std::fs::create_dir(&book_examples_dir).context("could not create book examples dir")?;
     } else {
-        tracing::warn!("book_examples dir already exists, will overwrite");
+        log::warn!("book_examples dir already exists, will overwrite");
     }
 
     let examples_dir = PathBuf::from(&root).join("examples");
@@ -41,7 +39,7 @@ fn build_example(name: Option<String>) -> anyhow::Result<()> {
             }
         }
 
-        tracing::info!(
+        log::info!(
             "building example {:?} from {}",
             example_name,
             examples_dir.display()
@@ -58,7 +56,7 @@ fn build_example(name: Option<String>) -> anyhow::Result<()> {
         .context("could not build example")?;
         let example_destination = &book_examples_dir.join(example_name);
         if example_destination.exists() {
-            tracing::warn!(
+            log::warn!(
                 "destination {} already exists - removing it first",
                 example_destination.display()
             );
@@ -66,7 +64,7 @@ fn build_example(name: Option<String>) -> anyhow::Result<()> {
                 .run()
                 .context("could not remove stale destination")?;
         }
-        std::fs::create_dir_all(&example_destination)
+        std::fs::create_dir_all(example_destination)
             .context("could not create example destination")?;
         std::env::set_current_dir(&example_path).context("could not cd")?;
 
@@ -81,7 +79,7 @@ fn build_example(name: Option<String>) -> anyhow::Result<()> {
         }
     }
 
-    tracing::info!("done building");
+    log::info!("done building");
 
     Ok(())
 }
@@ -92,10 +90,10 @@ fn build_cookbook(cookbook_root_path: Option<PathBuf>) -> anyhow::Result<()> {
 
     let build_cookbook_cmd = duct::cmd!("mdbook", "build", "cookbook");
     let build_cookbook_cmd = if let Some(path) = cookbook_root_path {
-        tracing::info!("building cookbook with root path '{}'", path.display());
+        log::info!("building cookbook with root path '{}'", path.display());
         build_cookbook_cmd.env(
             "MDBOOK_preprocessor__variables__variables__cookbookroot",
-            &format!("{}", path.display()),
+            format!("{}", path.display()),
         )
     } else {
         build_cookbook_cmd
@@ -119,9 +117,6 @@ fn build_cookbook(cookbook_root_path: Option<PathBuf>) -> anyhow::Result<()> {
 #[derive(Parser)]
 #[clap(author, version, about, subcommand_required = true)]
 struct Cli {
-    /// Sets the verbosity level
-    #[clap(short, parse(from_occurrences))]
-    verbosity: usize,
     /// Skip installing dependencies
     #[clap(long)]
     skip_install_deps: bool,
@@ -150,7 +145,7 @@ impl Cookbook {
         if !skip_examples {
             build_example(None)?;
         } else {
-            tracing::info!("skipping building examples");
+            log::info!("skipping building examples");
         }
 
         build_cookbook(root_path)
@@ -193,9 +188,9 @@ fn get_root_prefix() -> anyhow::Result<String> {
 fn have_program(bin: &str) -> bool {
     let have_it = duct::cmd!("hash", bin).run().is_ok();
     if have_it {
-        tracing::debug!("have {}", bin);
+        log::debug!("have {}", bin);
     } else {
-        tracing::error!("missing {}", bin);
+        log::error!("missing {}", bin);
     }
     have_it
 }
@@ -214,17 +209,18 @@ fn ensure_paths() -> anyhow::Result<()> {
 }
 
 fn install_deps() -> anyhow::Result<()> {
-    let cargo_deps = vec![
+    let cargo_deps = [
         "wasm-pack",
         "mdbook",
         "mdbook-linkcheck",
         "mdbook-variables",
         "cargo-generate",
+        "trunk",
     ];
     for dep in cargo_deps.iter() {
         if !have_program(dep) {
-            tracing::info!("installing {}", dep);
-            duct::cmd!("cargo", "install", dep)
+            log::info!("installing {}", dep);
+            duct::cmd!("cargo", "install", "--locked", dep)
                 .run()
                 .context(format!("could not install {}", dep))?;
         }
@@ -233,72 +229,119 @@ fn install_deps() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Parser)]
-struct Test {
+#[derive(Parser, Default)]
+struct TestEverything {
     #[clap(long)]
     skip_cargo_test: bool,
     #[clap(long)]
     skip_cargo_doc: bool,
     #[clap(long)]
-    skip_wasm_pack_mogwai_dom_test: bool,
+    skip_wasm_pack_test: bool,
     #[clap(long)]
     skip_mogwai_template: bool,
 }
 
+#[derive(Subcommand)]
+enum Test {
+    Everything(TestEverything),
+    Cargo,
+    CargoDoc,
+    Wasm,
+    Template,
+}
+
+impl Default for Test {
+    fn default() -> Self {
+        Self::Everything(Default::default())
+    }
+}
+
 impl Test {
-    fn run(self) -> anyhow::Result<()> {
-        if !self.skip_cargo_test {
-            tracing::info!("running cargo tests");
-            duct::cmd!("cargo", "test").run()?;
-        }
-        if !self.skip_cargo_doc {
-            tracing::info!("running cargo doc");
-            duct::cmd!("cargo", "doc").run()?;
-        }
-        if !self.skip_wasm_pack_mogwai_dom_test {
-            tracing::info!("testing mogwai-dom in wasm");
-            duct::cmd!(
-                "wasm-pack",
-                "test",
-                "--firefox",
-                "--headless",
-                "crates/mogwai-dom"
-            )
+    fn test_cargo() -> anyhow::Result<()> {
+        log::info!("running cargo tests");
+        duct::cmd!("cargo", "test").run()?;
+        Ok(())
+    }
+
+    fn test_cargo_doc() -> anyhow::Result<()> {
+        log::info!("running cargo doc");
+        duct::cmd!("cargo", "doc").run()?;
+        Ok(())
+    }
+
+    fn test_wasm() -> anyhow::Result<()> {
+        log::info!("testing mogwai in wasm");
+        duct::cmd!(
+            "wasm-pack",
+            "test",
+            "--firefox",
+            "--headless",
+            "crates/mogwai"
+        )
+        .run()?;
+        Ok(())
+    }
+
+    fn test_template() -> anyhow::Result<()> {
+        log::info!("testing mogwai-template");
+        let dir = tempfile::tempdir().context("could not create temp dir for template test")?;
+
+        duct::cmd!(
+            "cargo",
+            "generate",
+            "--git",
+            "https://github.com/schell/mogwai-template.git",
+            "--name",
+            "gentest",
+            "-d",
+            "authors=test",
+            "--destination",
+            dir.path(),
+        )
+        .run()?;
+        anyhow::ensure!(Path::new("gentest").exists(), "gentest does not exist");
+
+        log::info!("building gentest");
+        duct::cmd!("wasm-pack", "build", "--target", "web")
+            .dir(dir.path())
             .run()?;
+        Ok(())
+    }
+
+    fn test_everything(
+        TestEverything {
+            skip_cargo_test,
+            skip_cargo_doc,
+            skip_wasm_pack_test,
+            skip_mogwai_template,
+        }: TestEverything,
+    ) -> anyhow::Result<()> {
+        if !skip_cargo_test {
+            Self::test_cargo()?;
+        }
+        if !skip_cargo_doc {
+            Self::test_cargo_doc()?;
+        }
+        if !skip_wasm_pack_test {
+            Self::test_wasm()?;
         }
 
-        if !self.skip_mogwai_template {
-            tracing::info!("testing mogwai-template");
-            if Path::new("gentest").exists() {
-                tracing::warn!(
-                    "gentest (mogwai-template test dir) already exists, will remove first"
-                );
-                std::fs::remove_dir_all(Path::new("gentest"))?;
-            }
-
-            duct::cmd!(
-                "cargo",
-                "generate",
-                "--git",
-                "https://github.com/schell/mogwai-template.git",
-                "-n",
-                "gentest",
-                "-d",
-                "authors=test"
-            )
-            .run()?;
-            anyhow::ensure!(Path::new("gentest").exists(), "gentest does not exist");
-
-            tracing::info!("building gentest");
-            duct::cmd!("wasm-pack", "build", "--target", "web")
-                .dir("gentest")
-                .run()?;
-
-            tracing::info!("cleaning up gentest (mogwai-template test dir)");
-            std::fs::remove_dir_all(Path::new("gentest"))?;
+        if !skip_mogwai_template {
+            Self::test_template()?;
         }
 
         Ok(())
+    }
+
+    fn run(self) -> anyhow::Result<()> {
+        log::info!("testing mogwai");
+        match self {
+            Self::Everything(e) => Self::test_everything(e),
+            Test::Cargo => Self::test_cargo(),
+            Test::CargoDoc => Self::test_cargo_doc(),
+            Test::Wasm => Self::test_wasm(),
+            Test::Template => Self::test_template(),
+        }
     }
 }
 
@@ -308,6 +351,7 @@ enum Command {
     #[clap(subcommand)]
     Build(Artifact),
     /// Test everything
+    #[clap(subcommand)]
     Test(Test),
     /// Push the cookbook to AWS
     PushCookbook {
@@ -318,20 +362,22 @@ enum Command {
         #[clap(flatten)]
         cookbook: Cookbook,
     },
+    /// Copy a mogwai-js-framework-benchmark dist to another directory (the js-framework-benchmark repo)
+    CopyJsFrameworkDist {
+        /// Path to the folder to copy into
+        #[clap(long)]
+        copy_into: std::path::PathBuf,
+    },
+}
+
+fn workspace_dir() -> std::path::PathBuf {
+    std::env!("CARGO_WORKSPACE_DIR").into()
 }
 
 fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
+    env_logger::builder().init();
 
-    let level = match cli.verbosity {
-        0 => Level::WARN,
-        1 => Level::INFO,
-        2 => Level::DEBUG,
-        _ => Level::TRACE,
-    };
-    // use the verbosity level later when we build TVM
-    let subscriber = FmtSubscriber::builder().with_max_level(level).finish();
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+    let cli = Cli::parse();
 
     ensure_paths()?;
 
@@ -342,13 +388,16 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::Build(artifact) => artifact.build()?,
         Command::Test(test) => test.run()?,
-        Command::PushCookbook { s3_path, mut cookbook } => {
+        Command::PushCookbook {
+            s3_path,
+            mut cookbook,
+        } => {
             if !have_program("aws") {
                 anyhow::bail!("missing 'aws' - please install 'aws' cli tool");
             }
 
             if cookbook.root_path.is_none() {
-                tracing::warn!("root-path is None - setting to '/guides/mogwai-cookbook'");
+                log::warn!("root-path is None - setting to '/guides/mogwai-cookbook'");
                 cookbook.root_path = Some(PathBuf::from("/guides/mogwai-cookbook"));
             }
             cookbook.build()?;
@@ -363,6 +412,48 @@ fn main() -> anyhow::Result<()> {
                 "public-read"
             )
             .run()?;
+        }
+        Command::CopyJsFrameworkDist { copy_into } => {
+            log::info!("building mogwai-js-framework-benchmark with trunk");
+            duct::cmd!(
+                "trunk",
+                "build",
+                "--config",
+                "crates/mogwai-js-framework-benchmark/Trunk.toml",
+                "--release",
+            )
+            .run()?;
+
+            let source_dir = workspace_dir().join("crates/mogwai-js-framework-benchmark/dist");
+            for entry in std::fs::read_dir(&source_dir).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+
+                log::info!("reading file: '{}'", path.display());
+                let (bytes, is_index_html) = match path.extension().and_then(|ext| ext.to_str()) {
+                    Some("html") => {
+                        let contents = std::fs::read_to_string(&path).unwrap();
+                        let contents = contents.replace("/mogwai-js", "./mogwai-js");
+                        (contents.into_bytes(), true)
+                    }
+                    _ => (std::fs::read(&path).unwrap(), false),
+                };
+                let filename = path.file_name().unwrap().to_str().unwrap();
+                let destination = copy_into.join("bundled-dist").join(filename);
+                log::info!("copying '{filename}' into '{}'", destination.display());
+                std::fs::write(&destination, &bytes).unwrap();
+                if is_index_html {
+                    let another_destination = copy_into.join(filename);
+                    log::info!(
+                        "also copying '{filename}' into '{}'",
+                        another_destination.display()
+                    );
+                    std::fs::write(&another_destination, bytes).unwrap();
+                }
+            }
         }
     }
 

@@ -1,43 +1,55 @@
 [package]
 name = "mogwai"
-version = "0.6.8"
-edition = "2021"
+version = "0.7.0"
+edition = "2024"
 authors = ["Schell Scivally <efsubenovex@gmail.com>"]
 license = "MIT"
 description = "The minimal, obvious, graphical, widget application interface."
 documentation = "https://docs.rs/mogwai/"
 repository = "https://github.com/schell/mogwai"
 readme = "../../README.md"
-keywords = ["ui", "dom", "app", "reactive", "frontend"]
+keywords = ["ui", "dom", "frontend"]
 categories = ["gui", "asynchronous"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [features]
-default = []
+default = ["web", "ssr", "future"]
+web = ["dep:wasm-bindgen-futures", "dep:web-sys"]
+ssr = ["dep:async-channel"]
+future = []
+# tui = ["dep:ratatui", "dep:crossterm"]
 
 [dependencies]
-anyhow = "^1.0"
-async-broadcast = "^0.4"
-async-channel = "1.8.0"
-async-lock = "^2.4"
-console_log = "^0.1"
-futures-lite = { version = "1.12.0", default-features = false }
-lazy_static = "^1.4"
-log = "^0.4"
-mogwai-macros = { path = "../mogwai-macros", version = "0.1.0" }
+async-channel = { workspace = true, optional = true }
+futures-core = "0.3.31"
+futures-lite.workspace = true
+log.workspace = true
+mogwai-macros = { version = "0.2.0", path = "../mogwai-macros" }
+serde.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures = { workspace = true, optional = true }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "^0.2"
-wasm-bindgen-futures = "^0.4"
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "CharacterData",
+  "CssStyleDeclaration",
+  "Document",
+  "Element",
+  "Event",
+  "EventTarget",
+  "HtmlElement",
+  "HtmlInputElement",
+  "MessageChannel",
+  "MessagePort",
+  "Node",
+  "NodeList",
+  "Performance",
+  "SvgElement",
+  "Text",
+  "Window"
+]
+optional = true
 
-[target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
-version = "^0.3"
-features = ["Document", "MessageChannel", "MessagePort", "Performance", "Window"]
-
-[dev-dependencies.web-sys]
-version = "^0.3"
-features = ["Event"]
-
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = "^0.3"
+[dev-dependencies]
+doc-comment.workspace = true
+wasm-bindgen-test.workspace = true
