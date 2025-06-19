@@ -29,7 +29,7 @@ jobs:
       run: scripts/bootstrap.sh
 
     - name: test
-      run: RUST_LOG=trace cargo xtask test
+      run: RUST_LOG=trace cargo xtask test everything
 
     - name: build
       run: RUST_LOG=trace cargo xtask build cookbook
