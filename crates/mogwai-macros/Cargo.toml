@@ -2,6 +2,13 @@
 name = "mogwai-macros"
 version = "0.2.0"
 edition = "2024"
+license = "MIT"
+description = "The minimal, obvious, graphical, widget application interface."
+documentation = "https://docs.rs/mogwai/"
+repository = "https://github.com/schell/mogwai"
+readme = "../../README.md"
+keywords = ["ui", "dom", "frontend"]
+categories = ["gui", "asynchronous"]
 
 [lib]
 proc-macro = true
