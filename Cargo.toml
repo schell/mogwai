@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "cookbook",
     "crates/mogwai",
     "crates/mogwai-benches",
     "crates/mogwai-js-framework-benchmark",

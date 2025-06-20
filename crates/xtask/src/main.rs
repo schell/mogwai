@@ -138,6 +138,8 @@ struct Cookbook {
 
 impl Cookbook {
     fn build(self) -> anyhow::Result<()> {
+        install_deps()?;
+
         let Cookbook {
             skip_examples,
             root_path,
@@ -210,17 +212,23 @@ fn ensure_paths() -> anyhow::Result<()> {
 
 fn install_deps() -> anyhow::Result<()> {
     let cargo_deps = [
-        "wasm-pack",
-        "mdbook",
-        "mdbook-linkcheck",
-        "mdbook-variables",
-        "cargo-generate",
-        "trunk",
+        ("wasm-pack", true),
+        ("mdbook", false),
+        ("mdbook-linkcheck", false),
+        ("mdbook-variables", false),
+        ("cargo-generate", true),
+        ("trunk", true),
     ];
-    for dep in cargo_deps.iter() {
+    for (dep, locked) in cargo_deps.iter() {
         if !have_program(dep) {
             log::info!("installing {}", dep);
-            duct::cmd!("cargo", "install", "--locked", dep)
+            let mut args = vec!["install"];
+            if *locked {
+                args.push("--locked");
+            }
+            args.push(dep);
+
+            duct::cmd("cargo", args)
                 .run()
                 .context(format!("could not install {}", dep))?;
         }

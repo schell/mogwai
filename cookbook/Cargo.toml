@@ -7,12 +7,12 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-doc-comment = "^0.3"
+doc-comment = "0.3"
 futures.workspace = true
 mogwai = { path = "../crates/mogwai", version = "0.7" }
 
 [dependencies.web-sys]
-version = "^0.3"
+version = "0.3"
 features = []
 
 [dev-dependencies]
