@@ -39,14 +39,11 @@ impl<T: PartialEq> Proxy<T> {
     /// If the new value is different from the current value,
     /// it the update function, if it exists.
     pub fn set(&mut self, t: T) {
-        println!("setting proxy");
         if t != self.model {
             self.model = t;
             if let Some(update) = self.update.as_mut() {
                 update(&self.model);
             }
-        } else {
-            println!("proxy is unchanged");
         }
     }
 }
@@ -72,7 +69,6 @@ impl<T> Proxy<T> {
     ///
     /// Triggers the update function if it exists.
     pub fn modify(&mut self, f: impl FnOnce(&mut T)) {
-        println!("modifying proxy");
         f(&mut self.model);
         if let Some(update) = self.update.as_mut() {
             update(&self.model);

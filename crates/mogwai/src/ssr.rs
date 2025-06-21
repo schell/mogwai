@@ -107,7 +107,6 @@ impl PartialEq for SsrElement {
 
 impl ViewParent<Ssr> for SsrElement {
     fn append_node(&self, node: Cow<'_, <Ssr as View>::Node>) {
-        println!("appending node {}, {}", node.id(), node.name());
         self.children.get_mut().push(node.into_owned());
     }
 
@@ -337,7 +336,7 @@ impl SsrElement {
                 };
                 kids.push(node);
             }
-            let kids: String = kids.join(" ");
+            let kids: String = kids.concat();
             if attributes.is_empty() {
                 format!("<{}>{}</{}>", name, kids, name)
             } else {
@@ -475,11 +474,11 @@ impl ViewEvent for () {
 
 #[cfg(test)]
 mod test {
+    use crate as mogwai;
+    use mogwai::ssr::prelude::*;
+
     #[test]
     fn proxy_update_text_node() {
-        use crate as mogwai;
-        use mogwai::ssr::prelude::*;
-
         #[derive(Debug, PartialEq)]
         struct Status {
             color: String,
@@ -535,5 +534,23 @@ mod test {
             r#"<div><p id="message_wrapper" style="color: red;">Goodbye</p></div>"#,
             w.root.html_string()
         );
+    }
+
+    #[test]
+    fn no_whitespace() {
+        fn view<V: View>() -> V::Element {
+            rsx! {
+                let view = div(){
+                    div(){ "test1" }
+                    span(){ "test2" }
+                    span(){ "test3" }
+                }
+            }
+            view
+        }
+
+        let view = view::<Ssr>();
+        let expected = "<div><div>test1</div><span>test2</span><span>test3</span></div>";
+        assert_eq!(expected, view.html_string());
     }
 }
