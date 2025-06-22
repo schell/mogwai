@@ -31,5 +31,6 @@ jobs:
     - name: test
       run: RUST_LOG=trace cargo xtask test everything
 
-    - name: build
-      run: RUST_LOG=trace cargo xtask build cookbook
+    # TODO: The cookbook still needs to be ported to 0.7
+    # - name: build
+    #   run: RUST_LOG=trace cargo xtask build cookbook
