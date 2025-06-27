@@ -57,11 +57,11 @@ macro_rules! node_impl {
 
         impl ViewParent<Web> for web_sys::$ty {
             fn append_node(&self, node: std::borrow::Cow<'_, <Web as View>::Node>) {
-                web_sys::Node::append_child(self, node.as_ref()).unwrap_throw();
+                let _ = web_sys::Node::append_child(self, node.as_ref());
             }
 
             fn remove_node(&self, node: std::borrow::Cow<'_, <Web as View>::Node>) {
-                web_sys::Node::remove_child(self, node.as_ref()).unwrap_throw();
+                let _ = web_sys::Node::remove_child(self, node.as_ref());
             }
 
             fn replace_node(
@@ -69,8 +69,7 @@ macro_rules! node_impl {
                 new_node: std::borrow::Cow<'_, <Web as View>::Node>,
                 old_node: std::borrow::Cow<'_, <Web as View>::Node>,
             ) {
-                web_sys::Node::replace_child(self, new_node.as_ref(), old_node.as_ref())
-                    .unwrap_throw();
+                let _ = web_sys::Node::replace_child(self, new_node.as_ref(), old_node.as_ref());
             }
 
             fn insert_node_before(
@@ -78,8 +77,8 @@ macro_rules! node_impl {
                 new_node: std::borrow::Cow<'_, <Web as View>::Node>,
                 before_node: Option<std::borrow::Cow<'_, <Web as View>::Node>>,
             ) {
-                web_sys::Node::insert_before(self, new_node.as_ref(), before_node.as_deref())
-                    .unwrap_throw();
+                let _ =
+                    web_sys::Node::insert_before(self, new_node.as_ref(), before_node.as_deref());
             }
         }
     };
