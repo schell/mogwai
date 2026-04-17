@@ -1,9 +1,9 @@
 //! # Cross-platform view traits
 //!
-//! This module defines traits for building and managing views across different platforms.
-//! It provides a flexible interface for creating, updating, and interacting with UI components
-//! in a platform-agnostic manner.
-use std::{borrow::Cow, marker::PhantomData};
+//! This module defines traits for building and managing views across different
+//! platforms. It provides a flexible interface for creating, updating, and
+//! interacting with UI components in a platform-agnostic manner.
+use std::{borrow::Cow, collections::BTreeSet, marker::PhantomData};
 
 use crate::Str;
 
@@ -38,8 +38,9 @@ impl<T: AsRef<str>> ViewTextExt for T {
 
 /// An internal type used for managing child nodes within a view.
 ///
-/// `AppendArg` abracts over an iterator of child nodes, allowing implementations
-/// of [`ViewChild`] to be written for iterators and single values alike.
+/// `AppendArg` abracts over an iterator of child nodes, allowing
+/// implementations of [`ViewChild`] to be written for iterators and single
+/// values alike.
 ///
 /// `AppendArg` is primarily for internal use within the framework, but it is
 /// exposed to facilitate the implementation of view-related traits. It provides
@@ -211,6 +212,33 @@ pub trait ViewProperties {
     ///
     /// Returns the previous style value, if any.
     fn remove_style(&self, key: impl AsRef<str>);
+
+    /// Add a class.
+    ///
+    /// This is a convenience method that reads the class property, if it
+    /// exists, and appends the given class to it, if it doesn't already
+    /// exist.
+    fn add_class(&self, class: impl AsRef<str>) {
+        if let Some(classes) = self.get_property("class") {
+            let mut set = classes.split_whitespace().collect::<BTreeSet<_>>();
+            set.insert(class.as_ref());
+            let classes = set.into_iter().collect::<Vec<_>>().join(" ");
+            self.set_property("class", classes);
+        }
+    }
+
+    /// Remove a class.
+    ///
+    /// This is a convenience method that reads the class property, if it
+    /// exists, and removes the given class from it, if it exists.
+    fn remove_class(&self, class: impl AsRef<str>) {
+        if let Some(classes) = self.get_property("class") {
+            let mut set = classes.split_whitespace().collect::<BTreeSet<_>>();
+            set.remove(class.as_ref());
+            let classes = set.into_iter().collect::<Vec<_>>().join(" ");
+            self.set_property("class", classes);
+        }
+    }
 }
 
 /// Handles event listening for view elements.
