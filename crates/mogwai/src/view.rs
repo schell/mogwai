@@ -7,7 +7,7 @@ use std::{borrow::Cow, collections::BTreeSet, marker::PhantomData};
 
 use crate::Str;
 
-pub use mogwai_macros::{ViewChild, rsx};
+pub use mogwai_macros::{ViewChild, ViewProperties, rsx};
 
 /// Trait for managing text content within a view.
 ///
@@ -196,6 +196,28 @@ impl<V: View> ViewChild<V> for String {
 ///
 /// This trait provides methods for setting, getting, and removing properties
 /// and styles from view elements.
+///
+/// # Deriving
+///
+/// You can derive `ViewProperties` for a struct by annotating a field with
+/// `#[properties]`. All trait methods will be proxied to that field.
+///
+/// ```rust
+/// use mogwai::prelude::*;
+///
+/// #[derive(ViewChild, ViewProperties)]
+/// struct MyComponent<V: View> {
+///     #[child]
+///     #[properties]
+///     wrapper: V::Element,
+/// }
+///
+/// fn configure<V: View>(component: &MyComponent<V>) {
+///     component.set_property("class", "active");
+///     component.set_style("color", "red");
+///     assert!(component.has_property("class"));
+/// }
+/// ```
 pub trait ViewProperties {
     /// Returns whether this view has a property with the given name set.
     fn has_property(&self, property: impl AsRef<str>) -> bool;
