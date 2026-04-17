@@ -1,6 +1,6 @@
 [package]
 name = "mogwai-macros"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "MIT"
 description = "The minimal, obvious, graphical, widget application interface."
