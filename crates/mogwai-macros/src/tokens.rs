@@ -1,8 +1,8 @@
 //! Contains parsing an RSX node into various data types.
 use std::{collections::HashMap, str::FromStr};
 
-use quote::{ToTokens, format_ident, quote};
-use syn::{Expr, Ident, Token, parse::Parse, spanned::Spanned};
+use quote::{format_ident, quote, ToTokens};
+use syn::{parse::Parse, spanned::Spanned, Expr, Ident, Token};
 
 fn under_to_dash(s: impl AsRef<str>) -> String {
     s.as_ref().trim_matches('_').replace('_', "-")

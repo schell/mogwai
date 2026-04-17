@@ -1,13 +1,13 @@
 //! # Cross-platform view traits
 //!
-//! This module defines traits for building and managing views across different platforms.
-//! It provides a flexible interface for creating, updating, and interacting with UI components
-//! in a platform-agnostic manner.
+//! This module defines traits for building and managing views across different
+//! platforms. It provides a flexible interface for creating, updating, and
+//! interacting with UI components in a platform-agnostic manner.
 use std::{borrow::Cow, marker::PhantomData};
 
 use crate::Str;
 
-pub use mogwai_macros::{ViewChild, rsx};
+pub use mogwai_macros::{rsx, ViewChild, ViewProperties};
 
 /// Trait for managing text content within a view.
 ///
@@ -38,8 +38,9 @@ impl<T: AsRef<str>> ViewTextExt for T {
 
 /// An internal type used for managing child nodes within a view.
 ///
-/// `AppendArg` abracts over an iterator of child nodes, allowing implementations
-/// of [`ViewChild`] to be written for iterators and single values alike.
+/// `AppendArg` abracts over an iterator of child nodes, allowing
+/// implementations of [`ViewChild`] to be written for iterators and single
+/// values alike.
 ///
 /// `AppendArg` is primarily for internal use within the framework, but it is
 /// exposed to facilitate the implementation of view-related traits. It provides
@@ -195,6 +196,28 @@ impl<V: View> ViewChild<V> for String {
 ///
 /// This trait provides methods for setting, getting, and removing properties
 /// and styles from view elements.
+///
+/// # Deriving
+///
+/// You can derive `ViewProperties` for a struct by annotating a field with
+/// `#[properties]`. All trait methods will be proxied to that field.
+///
+/// ```rust
+/// use mogwai::prelude::*;
+///
+/// #[derive(ViewChild, ViewProperties)]
+/// struct MyComponent<V: View> {
+///     #[child]
+///     #[properties]
+///     wrapper: V::Element,
+/// }
+///
+/// fn configure<V: View>(component: &MyComponent<V>) {
+///     component.set_property("class", "active");
+///     component.set_style("color", "red");
+///     assert!(component.has_property("class"));
+/// }
+/// ```
 pub trait ViewProperties {
     /// Returns whether this view has a property with the given name set.
     fn has_property(&self, property: impl AsRef<str>) -> bool;
