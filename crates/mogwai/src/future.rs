@@ -20,7 +20,8 @@ where
 
 impl<T: Sized + Future> MogwaiFutureExt for T {}
 
-/// Run all futures concurrently and return the output of the first future that resolves.
+/// Run all futures concurrently and return the output of the first future that
+/// resolves.
 pub async fn race_all<T>(futs: impl IntoIterator<Item = impl Future<Output = T>>) -> T {
     let mut futures = futs
         .into_iter()
@@ -38,6 +39,45 @@ pub async fn race_all<T>(futs: impl IntoIterator<Item = impl Future<Output = T>>
     .await
 }
 
+/// Run all futures concurrently.
+///
+/// Waits for all futures to complete and returns their output in a vector.
+pub async fn merge_all<T>(futs: impl IntoIterator<Item = impl Future<Output = T>>) -> Vec<T> {
+    let mut done = vec![];
+    let mut futures = vec![];
+
+    for fut in futs.into_iter() {
+        done.push(None);
+        futures.push(Some(Box::pin(fut)));
+    }
+
+    futures_lite::future::poll_fn(|cx| {
+        let mut all_done = true;
+        for (fut, done) in futures.iter_mut().zip(done.iter_mut()) {
+            if let Some(mut poller) = fut.take() {
+                match poller.poll(cx) {
+                    std::task::Poll::Ready(t) => {
+                        *done = Some(t);
+                    }
+                    std::task::Poll::Pending => {
+                        *fut = Some(poller);
+                        all_done = false;
+                    }
+                }
+            }
+        }
+
+        if all_done {
+            std::task::Poll::Ready(())
+        } else {
+            std::task::Poll::Pending
+        }
+    })
+    .await;
+
+    done.into_iter().flatten().collect()
+}
+
 #[cfg(all(test, target_arch = "wasm32"))]
 mod test {
     use super::*;
@@ -45,14 +85,21 @@ mod test {
 
     wasm_bindgen_test_configure!(run_in_browser);
 
+    async fn run(i: usize) -> usize {
+        let _millis_waited = crate::time::wait_millis(i as u64).await;
+        i
+    }
+
     #[wasm_bindgen_test]
     async fn can_race() {
-        async fn run(i: usize) -> usize {
-            let _millis_waited = crate::time::wait_millis(i as u64).await;
-            i
-        }
-
         let i = race_all([run(10), run(100), run(200), run(400)]).await;
         assert_eq!(10, i);
+    }
+
+    #[wasm_bindgen_test]
+    async fn can_merge() {
+        let done = merge_all([run(10), run(100), run(200), run(400)]).await;
+        assert_eq!(4, done.len());
+        assert_eq!(vec![10, 100, 200, 400], done);
     }
 }
