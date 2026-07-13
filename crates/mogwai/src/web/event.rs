@@ -15,8 +15,8 @@
 //! The `EventListener` can be used to listen for events on DOM elements. When
 //! an `EventListener` is dropped, it automatically removes the associated event
 //! listener from the DOM element, ensuring that no memory leaks occur and that
-//! the event listener is properly cleaned up. The future resolves when the event
-//! occurs, allowing for easy integration with asynchronous workflows.
+//! the event listener is properly cleaned up. The future resolves when the
+//! event occurs, allowing for easy integration with asynchronous workflows.
 use std::{borrow::Cow, cell::RefCell, ops::DerefMut, pin::Pin, rc::Rc, task::Waker};
 
 use wasm_bindgen_futures::wasm_bindgen::{JsCast, JsValue, prelude::Closure};
@@ -57,24 +57,24 @@ pub struct EventListener {
     event_name: Str,
     /// The callback registered that will be invoked when the event occurs.
     callback: Rc<RefCell<Option<Callback>>>,
-    /// The machinery needed to notify all `.await` points that the event has occured.
+    /// The machinery needed to notify all `.await` points that the event has
+    /// occured.
     events: Rc<RefCell<FutureEventOccurrence>>,
 }
 
 impl Drop for EventListener {
     fn drop(&mut self) {
-        if Rc::strong_count(&self.callback) == 1 {
-            if let Some(rc_callback) = self.callback.take() {
-                if let Ok(callback) = Rc::try_unwrap(rc_callback) {
-                    // This is the last clone of the callback, meaning this listener can be removed.
-                    self.target
-                        .remove_event_listener_with_callback(
-                            &self.event_name,
-                            callback.as_ref().unchecked_ref(),
-                        )
-                        .unwrap();
-                }
-            }
+        if Rc::strong_count(&self.callback) == 1
+            && let Some(rc_callback) = self.callback.take()
+            && let Ok(callback) = Rc::try_unwrap(rc_callback)
+        {
+            // This is the last clone of the callback, meaning this listener can be removed.
+            self.target
+                .remove_event_listener_with_callback(
+                    &self.event_name,
+                    callback.as_ref().unchecked_ref(),
+                )
+                .unwrap();
         }
     }
 }
@@ -93,7 +93,8 @@ impl EventListener {
         let callback = Closure::wrap({
             let events = events.clone();
             Box::new(move |val: JsValue| {
-                // UNCHECKED: safe because this is an event callback, and events in JS are all `Event`.
+                // UNCHECKED: safe because this is an event callback, and events in JS are all
+                // `Event`.
                 let ev: web_sys::Event = val.unchecked_into();
                 // When the event happens (when this callback is called), we'll take the current
                 // future event occurance, fill it out with the event, call the wakers and then
@@ -127,8 +128,8 @@ impl EventListener {
 
     /// Produces a future that will resolve when the event occurs.
     ///
-    /// This function can be called from multiple callsites, each receiving their own
-    /// unique future that will all resolve at the next occurence.
+    /// This function can be called from multiple callsites, each receiving
+    /// their own unique future that will all resolve at the next occurence.
     pub fn next(&self) -> impl std::future::Future<Output = web_sys::Event> {
         self.events.borrow().clone()
     }
