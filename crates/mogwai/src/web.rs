@@ -1,23 +1,25 @@
 //! # `web-sys` view implementation
 //!
 //! This module provides an implementation of [`View`] for [`web-sys`] types,
-//! allowing for the creation and manipulation of DOM nodes in a browser environment.
+//! allowing for the creation and manipulation of DOM nodes in a browser
+//! environment.
 //!
 //! ## Key Components
 //!
-//! - **ViewChild**: Implements the [`ViewChild`] trait for `web-sys` types, enabling them to be
-//!   appended to views.
+//! - **ViewChild**: Implements the [`ViewChild`] trait for `web-sys` types,
+//!   enabling them to be appended to views.
 //!
-//! - **ViewParent**: Implements the [`ViewParent`] trait for `web-sys` types, providing methods
-//!   for managing child nodes within a view.
+//! - **ViewParent**: Implements the [`ViewParent`] trait for `web-sys` types,
+//!   providing methods for managing child nodes within a view.
 //!
-//! - **ViewProperties**: Implements the [`ViewProperties`] trait for various web elements, allowing
-//!   for the manipulation of attributes and styles.
+//! - **ViewProperties**: Implements the [`ViewProperties`] trait for various
+//!   web elements, allowing for the manipulation of attributes and styles.
 //!
-//! - **ViewEventListener**: Implements the [`ViewEventListener`] trait for [`EventListener`], enabling
-//!   asynchronous event handling.
+//! - **ViewEventListener**: Implements the [`ViewEventListener`] trait for
+//!   [`EventListener`], enabling asynchronous event handling.
 //!
-//! - **Extension traits**: [`WebElement`] and [`WebEvent`] make it easy to specialize on web views.
+//! - **Extension traits**: [`WebElement`] and [`WebEvent`] make it easy to
+//!   specialize on web views.
 use std::{cell::RefCell, ops::Deref, rc::Rc, task::Waker};
 
 use event::EventListener;
@@ -286,7 +288,8 @@ impl Future for NextFrame {
     }
 }
 
-/// Marker trait for specializing generic view elements to [`web_sys::Element`] and friends.
+/// Marker trait for specializing generic view elements to [`web_sys::Element`]
+/// and friends.
 pub trait WebElement: ViewElement {
     /// Attempt to cast the element.
     ///
@@ -303,7 +306,8 @@ pub trait WebElement: ViewElement {
 
 impl<T: ViewElement> WebElement for T {}
 
-/// Marker trait for specializing generic view events to [`web_sys::Event`] and friends.
+/// Marker trait for specializing generic view events to [`web_sys::Event`] and
+/// friends.
 pub trait WebEvent: ViewEvent {
     /// Attempt to cast the element.
     ///

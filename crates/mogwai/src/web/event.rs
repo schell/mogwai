@@ -1,33 +1,81 @@
 //! # Event Future API
 //!
-//! This module provides a future-based API for handling event callbacks.
-//! It allows for asynchronous event handling by resolving futures when
-//! events occur.
+//! This module provides a future-based API for handling both DOM events and
+//! arbitrary JavaScript callbacks. It allows for asynchronous event handling
+//! by resolving futures when events occur.
 //!
-//! ## Key Components
+//! ## Two layers
 //!
-//! - **EventListener**: A struct that manages event listeners for DOM elements.
-//!   It registers a callback for a specific event type and provides a future
-//!   that resolves when the event occurs.
+//! The module provides two levels of abstraction:
 //!
-//! And then a low-level API for building your own listeners:
+//! - **[`EventListener`]** - a high-level wrapper for DOM events. It registers
+//!   a callback on a [`web_sys::EventTarget`] via `addEventListener` and
+//!   produces a future that resolves with the [`web_sys::Event`] when the event
+//!   fires. When the last clone of the `EventListener` is dropped, the
+//!   underlying DOM listener is automatically removed.
 //!
-//! - **Listener<T>**: A struct with a conversion function and a trigger.
-//! - **Callback**: A trigger given to Javascript that resolves a future.
+//! - **[`Listener`] / [`Callback`]** - a low-level primitive for wrapping *any*
+//!   JavaScript callback, not just DOM events. This is useful for integrating
+//!   with JS libraries that use plain callback properties (e.g.
+//!   `graph.onNodeAdded = fn`) instead of the standard `addEventListener` /
+//!   `removeEventListener` API.
 //!
-//! ## Usage
+//! ## When to use which
 //!
-//! The `EventListener` can be used to listen for events on DOM elements. When
-//! an `EventListener` is dropped, it automatically removes the associated event
-//! listener from the DOM element, ensuring that no memory leaks occur and that
-//! the event listener is properly cleaned up. The future resolves when the
-//! event occurs, allowing for easy integration with asynchronous workflows.
+//! Use [`EventListener`] when you have a DOM element and a standard event name
+//! (`"click"`, `"input"`, `"keydown"`, etc.). Use [`Listener`] / [`Callback`]
+//! when you're bridging a JS library that expects you to assign a function to
+//! one of its object properties — the kind of API where there's no
+//! `EventTarget` involved and "remove" means setting the property back to
+//! `null`.
 //!
-//! [`Listener::new`] can be used by supplying a conversion function to convert
-//! [`JsValue`]s sent from Javascript into a domain type `T`. It returns the
-//! [`Callback`] which can be given to Javascript code as a trigger, as well as
-//! the [`Listener`], which can dole out futures with [`Listener::next`]. Those
-//! futures will resolve when the [`Callback`] is triggered.
+//! ## How `Listener` / `Callback` works
+//!
+//! [`Listener::new`] takes a `convert` function that maps raw [`JsValue`]
+//! arguments (received from JS) into a domain type `O`. It returns a pair:
+//!
+//! ```text
+//!   ┌───────────┐         ┌──────────┐
+//!   │ Callback  │  ──→    │ JS calls │   The Callback owns a wasm-bindgen
+//!   │ (give to  │         │ the fn   │   Closure whose JS Function is what
+//!   │  JS)      │         └────┬─────┘   you hand to JavaScript.
+//!   └───────────┘              │
+//!                              ▼
+//!   ┌───────────┐         ┌──────────┐
+//!   │ Listener  │  ←──    │ convert  │   The convert function turns the
+//!   │ (call     │         │ JsValue→ │   raw args into O, then wakes all
+//!   │  .next()) │         │   O      │   outstanding futures.
+//!   └─────┬─────┘         └──────────┘
+//!         │
+//!         ▼
+//!   ┌───────────────┐
+//!   │ impl Future   │   Each .next() call returns a fresh future.
+//!   │ Output = O    │   Multiple awaiters all resolve on the next
+//!   └───────────────┘   callback invocation (fan-out).
+//! ```
+//!
+//! The [`Callback`] must be kept alive for as long as JavaScript might invoke
+//! it. Dropping all clones of the `Callback` invalidates the underlying
+//! `Closure` - any subsequent call from JS will throw `"closure invoked
+//! recursively or after being dropped"`.
+//!
+//! ## Example: wrapping a plain JS callback property
+//!
+//! ```ignore
+//! use mogwai::web::event::{Callback, Listener};
+//! use wasm_bindgen::JsValue;
+//!
+//! // Create a listener that converts a single JsValue argument into an f64.
+//! let (callback, listener): (Callback<(JsValue,)>, Listener<(JsValue,), f64>) =
+//!     Listener::new(|(v,): (JsValue,)| v.as_f64().unwrap_or(0.0));
+//!
+//! // Hand the callback's JS function to the library. The callback must
+//! // stay alive for as long as the library might call it.
+//! some_js_object.set_on_event(Some(callback.function()));
+//!
+//! // Await the next event. Each .next() call returns a fresh future.
+//! let value: f64 = listener.next().await;
+//! ```
 use std::{
     borrow::Cow, cell::RefCell, marker::PhantomData, ops::DerefMut, pin::Pin, rc::Rc, task::Waker,
 };
@@ -37,7 +85,17 @@ use wasm_bindgen_futures::wasm_bindgen::{JsCast, JsValue, prelude::Closure};
 
 use crate::Str;
 
-/// A trait that allows using callbacks up to arity 8 in an abstract way.
+/// Maps a Rust tuple type to the correct `Closure<dyn FnMut(...)>` arity.
+///
+/// This trait is the mechanism by which [`Listener::new`] can work with
+/// JavaScript callbacks of any arity (0 through 8). Each tuple type —
+/// `()`, `(A,)`, `(A, B)`, ..., `(A, B, C, D, E, F, G, H)` — has an
+/// implementation that selects the matching `Closure<dyn FnMut()>`,
+/// `Closure<dyn FnMut(A)>`, `Closure<dyn FnMut(A, B)>`, etc.
+///
+/// The implementations for arities 3–8 are generated by the
+/// `impl_parameters_tuples!` macro. Users do not implement this trait
+/// themselves.
 ///
 /// This is for internal use.
 pub trait Parameters {
@@ -75,8 +133,27 @@ mogwai_macros::impl_parameters_tuples!((A, B, C, D, E, F));
 mogwai_macros::impl_parameters_tuples!((A, B, C, D, E, F, G));
 mogwai_macros::impl_parameters_tuples!((A, B, C, D, E, F, G, H));
 
-/// A wrapper around a Rust function of arity `N` that can be triggered from
-/// Javascript.
+/// A JS-callable function backed by a Rust [`Closure`], used to trigger
+/// a [`Listener`].
+///
+/// A `Callback` is created by [`Listener::new`] alongside its paired
+/// `Listener`. The [`Callback::function`] method returns a reference to
+/// the underlying `js_sys::Function` — this is what you hand to JavaScript
+/// (e.g. by assigning it to a plain object property like
+/// `graph.onNodeAdded = callback.function().clone()`, or by passing it to
+/// a `wasm_bindgen` setter).
+///
+/// # Lifetime
+///
+/// The `Callback` owns the `wasm_bindgen::Closure` that backs the JS
+/// function. The `Callback` (or at least one clone of it) **must remain
+/// alive for as long as JavaScript might invoke it**. If all clones are
+/// dropped while JS still holds a reference to the function and calls it,
+/// the call will throw `"closure invoked recursively or after being
+/// dropped"`.
+///
+/// `Callback` is `Clone` — cloning is cheap (a single `Rc` refcount bump)
+/// and each clone keeps the underlying `Closure` alive.
 #[repr(transparent)]
 pub struct Callback<Params> {
     inner: Rc<Box<dyn std::any::Any>>,
@@ -93,7 +170,11 @@ impl<Params> Clone for Callback<Params> {
 }
 
 impl<P: Parameters> Callback<P> {
-    /// Return a reference to the callback as a Javascript function.
+    /// Return a reference to the callback as a JavaScript function.
+    ///
+    /// This is the value you pass to JavaScript — for example, by assigning
+    /// it to a plain object property or handing it to a `wasm_bindgen`
+    /// setter binding.
     pub fn function(&self) -> &web_sys::js_sys::Function {
         let b = self.inner.as_ref();
         let closure: &P::Closure = b
@@ -104,6 +185,17 @@ impl<P: Parameters> Callback<P> {
     }
 }
 
+/// The future returned by [`Listener::next`].
+///
+/// Each call to `Listener::next` clones the current occurrence (a cheap
+/// `Rc` clone). When the paired [`Callback`] is invoked, the occurrence
+/// is filled with the converted value and all outstanding wakers are
+/// notified — so every `next()` future that was created before the
+/// callback fires resolves simultaneously (fan-out). After the event,
+/// `Listener::next` begins a fresh occurrence for the next event.
+///
+/// This type is an implementation detail of [`Listener`] and is not
+/// meant to be constructed directly.
 #[derive(Clone)]
 struct FutureEventOccurrence<T> {
     value: Rc<RefCell<Option<T>>>,
@@ -136,14 +228,33 @@ impl<T: Clone> std::future::Future for FutureEventOccurrence<T> {
     }
 }
 
-/// A generic listener that provides a [`Callback`].
+/// A generic listener that provides futures resolving when a JS callback
+/// is invoked.
 ///
-/// The listener will "fire" an event any time the callback is called.
+/// A `Listener` is created by [`Listener::new`] alongside its paired
+/// [`Callback`]. The type parameters are:
+///
+/// - `I` — the input tuple type, matching the JavaScript callback's arity. For
+///   a JS function called with no arguments, use `()`. For one argument, use
+///   `(JsValue,)`. For five arguments, use `(JsValue, JsValue, JsValue,
+///   JsValue, JsValue)`. Each element must implement
+///   [`wasm_bindgen::convert::FromWasmAbi`].
+/// - `O` — the output type that futures resolve to. This is the return value of
+///   the `convert` function passed to [`Listener::new`]. Must be `Clone +
+///   'static`.
+///
+/// `Listener` is `Clone` — cloning produces an independent handle that
+/// shares the same underlying signal, so clones can be held in different
+/// places and all see the same events.
+///
+/// See the [module-level documentation](crate::web::event) for a usage
+/// example and architectural overview.
 pub struct Listener<I, O> {
-    /// The callback registered that will be invoked when the event occurs.
+    /// The paired [`Callback`], kept so `Drop` can check if this is the
+    /// last clone before removing the JS-side listener.
     callback: Rc<RefCell<Option<Callback<I>>>>,
-    /// The machinery needed to notify all `.await` points that the event has
-    /// occured.
+    /// The broadcast signal that notifies all `.await` points when the
+    /// event occurs.
     event: Rc<RefCell<FutureEventOccurrence<O>>>,
 }
 
@@ -166,42 +277,77 @@ impl<I, O> Default for Listener<I, O> {
 }
 
 impl<I: Parameters, O: Clone + 'static> Listener<I, O> {
-    /// Create a new listener and callback that triggers the listener.
+    /// Create a new listener and callback pair.
     ///
-    /// The `convert` function takes a single parameter `I` as input, where `I`
-    /// is a tuple of arity `N` values of `JsValue`, where `N` is 8 or less.
+    /// The `convert` function receives a tuple `I` of raw JS values (one
+    /// per argument the JS callback was called with) and returns a value
+    /// of type `O` that futures will resolve to.
     ///
-    /// The resulting callback is callable from Javascript with the same arity.
-    /// So if your Javascript function takes a callback of arity 3, you
-    /// would use `(JsValue, JsValue, JsValue)` as `I`.
+    /// The input type `I` must be a tuple whose arity matches the JS
+    /// callback's parameter count. Supported arities are 0 through 8:
     ///
-    /// If your Javascript callback passes no parameters, `I` should be `()`.
+    /// | JS arity | `I` type                              |
+    /// |----------|---------------------------------------|
+    /// | 0        | `()`                                  |
+    /// | 1        | `(JsValue,)`                          |
+    /// | 2        | `(JsValue, JsValue)`                  |
+    /// | 5        | `(JsValue, JsValue, JsValue, JsValue, JsValue)` |
+    ///
+    /// If the JS callback is called with fewer arguments than the declared
+    /// arity (common in JS), the missing arguments arrive as
+    /// [`JsValue::UNDEFINED`].
+    ///
+    /// # Examples
+    ///
+    /// Wrapping a JS callback that takes a single argument:
+    ///
+    /// ```ignore
+    /// use mogwai::web::event::Listener;
+    /// use wasm_bindgen::JsValue;
+    ///
+    /// let (callback, listener) = Listener::new(|(v,): (JsValue,)| {
+    ///     v.as_f64().unwrap_or(0.0)
+    /// });
+    ///
+    /// // Give `callback.function()` to JavaScript. Keep `callback` alive
+    /// // for as long as JS might call it.
+    /// some_js_obj.set_on_event(Some(callback.function()));
+    ///
+    /// // Await the next invocation.
+    /// let value: f64 = listener.next().await;
+    /// ```
+    ///
+    /// Wrapping a zero-argument JS callback:
+    ///
+    /// ```ignore
+    /// let (callback, listener) = Listener::new(|()| 42u32);
+    /// // JS calls `callback.function()` with no arguments.
+    /// // `listener.next().await` resolves to `42`.
+    /// ```
     pub fn new(mut convert: impl FnMut(I) -> O + 'static) -> (Callback<I>, Self) {
         let event: Rc<RefCell<FutureEventOccurrence<_>>> = Default::default();
         let listener_event = event.clone();
         let convert_and_wake = Box::new(move |params: I| {
             let val = convert(params);
-            // When the event happens (when this callback is called), we'll take the current
-            // future event occurance, fill it out with the event, call the wakers and then
-            // _drop_ it, leaving the `event` clear for the next event.
+            // Swap out the current occurrence, fill it with the converted
+            // value, and wake all pending awaiters. The `mem::take`
+            // replaces the occurrence in `listener_event` with a fresh
+            // empty one, so subsequent `next()` calls await the *next*
+            // event rather than replaying this one.
             //
-            // `.await` points that are waiting for the event will have cloned the dropped
-            // occurance and will receive their event by polling at the `.await` site.
+            // Awaiters that called `next()` before this point hold clones
+            // of the old occurrence (cheap `Rc` clones). They'll observe
+            // the filled value on their next poll and resolve.
             let current = std::mem::take(listener_event.borrow_mut().deref_mut());
             *current.value.borrow_mut() = Some(val);
-            // Wake up all the wakers of those `.await` points
             let wakers = std::mem::take(current.wakers.borrow_mut().deref_mut());
             for waker in wakers.into_iter() {
                 waker.wake();
             }
-            // `current` is dropped here - now the only references to it
-            // will be those in `.await` points.
-            // The `std::mem::take` above replaced the
-            // `FutureEventOccurrence` in `listener_event` with a fresh
-            // Default...
+            // `current` drops here — the only remaining references to it
+            // are the clones held by outstanding futures.
         }) as Box<dyn FnMut(I)>;
         let closure = I::into_arity_closure(convert_and_wake);
-        // let closure = Closure::wrap(convert_and_wake.wrap_args());
 
         let callback = Callback {
             inner: Rc::new(Box::new(closure)),
@@ -214,32 +360,50 @@ impl<I: Parameters, O: Clone + 'static> Listener<I, O> {
         (callback, listener)
     }
 
-    /// Produces a future that will resolve when the event occurs.
+    /// Produces a future that resolves when the callback is next invoked.
     ///
-    /// This function can be called from multiple callsites, each receiving
-    /// their own unique future that will all resolve at the next occurence.
+    /// Each call returns a fresh future. If multiple futures are created
+    /// before the next callback invocation, they all resolve simultaneously
+    /// with the same value (fan-out). After an event resolves, a subsequent
+    /// `next()` call awaits the *next* event, not a past one.
     pub fn next(&self) -> impl std::future::Future<Output = O> {
         self.event.borrow().clone()
     }
 }
 
-/// A thin wrapper over Javascript event listeners.
+/// A convenience wrapper around [`Listener`] for DOM events.
+///
+/// `EventListener` registers a callback on a [`web_sys::EventTarget`] via
+/// `addEventListener` and produces futures that resolve with the
+/// [`web_sys::Event`] when the event fires. It is built on top of
+/// [`Listener<(JsValue,), web_sys::Event>`] — the `EventListener::next`
+/// method just delegates to `Listener::next`.
+///
+/// When the last clone of an `EventListener` is dropped, the underlying
+/// DOM listener is removed via `removeEventListener`, preventing memory
+/// leaks and stale callbacks.
+///
+/// For wrapping non-DOM JavaScript callbacks (plain object properties
+/// like `graph.onNodeAdded = fn`), use [`Listener`] / [`Callback`]
+/// directly.
 #[derive(Clone)]
 pub struct EventListener {
-    /// The DOM that the event listener is registered upon.
+    /// The DOM target that the event listener is registered upon.
     target: web_sys::EventTarget,
-    /// The name of the event being listened for.
+    /// The name of the event being listened for (e.g. `"click"`).
     event_name: Str,
-    /// The raw listener.
+    /// The underlying [`Listener`] that drives [`EventListener::next`].
     listener: Listener<(JsValue,), web_sys::Event>,
 }
 
 impl Drop for EventListener {
     fn drop(&mut self) {
+        // Only remove the DOM listener when the last clone is being
+        // dropped. If other clones exist, they still need the callback
+        // alive.
         if Rc::strong_count(&self.listener.callback) == 1
             && let Some(callback) = self.listener.callback.take()
         {
-            // This is the last clone of the callback, meaning this listener can be removed.
             self.target
                 .remove_event_listener_with_callback(&self.event_name, callback.function())
                 .unwrap();
@@ -248,11 +412,11 @@ impl Drop for EventListener {
 }
 
 impl EventListener {
-    /// Create a new listener.
+    /// Create a new event listener.
     ///
-    /// This registers `event_name` on `target`.
+    /// This registers `event_name` on `target` via `addEventListener`.
     ///
-    /// Use [`EventListener::next`] to await an event occurence.
+    /// Use [`EventListener::next`] to await an event occurrence.
     pub fn new(
         target: impl AsRef<web_sys::EventTarget>,
         event_name: impl Into<Cow<'static, str>>,
@@ -277,10 +441,12 @@ impl EventListener {
         }
     }
 
-    /// Produces a future that will resolve when the event occurs.
+    /// Produces a future that resolves when the event occurs.
     ///
-    /// This function can be called from multiple callsites, each receiving
-    /// their own unique future that will all resolve at the next occurence.
+    /// Each call returns a fresh future. If multiple futures are created
+    /// before the next event, they all resolve simultaneously (fan-out).
+    /// After an event resolves, a subsequent `next()` call awaits the
+    /// *next* event.
     pub fn next(&self) -> impl std::future::Future<Output = web_sys::Event> {
         self.listener.next()
     }
