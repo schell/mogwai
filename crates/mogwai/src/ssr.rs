@@ -7,8 +7,8 @@
 //!
 //! ## Key Components
 //!
-//! - **[`SsrText`]**: Represents text nodes in the SSR context, allowing for text
-//!   content manipulation and event handling.
+//! - **[`SsrText`]**: Represents text nodes in the SSR context, allowing for
+//!   text content manipulation and event handling.
 //!
 //! - **[`SsrElement`]**: Represents HTML elements in the SSR context, providing
 //!   methods for managing attributes, styles, and child nodes.
@@ -16,8 +16,8 @@
 //! - **[`SsrNode`]**: An enumeration of possible node types (elements and text)
 //!   used in SSR.
 //!
-//! - **[`SsrEventListener`]**: Handles event listening in the SSR context, enabling
-//!   asynchronous event handling.
+//! - **[`SsrEventListener`]**: Handles event listening in the SSR context,
+//!   enabling asynchronous event handling.
 //!
 //! ## Usage
 //!
@@ -289,13 +289,13 @@ impl SsrElement {
 
             let mut style_added = false;
             for (key, value) in attributes.iter_mut() {
-                if key == "style" {
-                    if let Some(prev_style) = value.take() {
-                        let spaced = (prev_style + " " + styles.as_str()).into_owned();
-                        *value = Some(spaced.into());
-                        style_added = true;
-                        break;
-                    }
+                if key == "style"
+                    && let Some(prev_style) = value.take()
+                {
+                    let spaced = (prev_style + " " + styles.as_str()).into_owned();
+                    *value = Some(spaced.into());
+                    style_added = true;
+                    break;
                 }
             }
             if !style_added {
@@ -496,8 +496,8 @@ mod test {
                 message: "Hello".to_string(),
             });
 
-            // We start out with a `div` element bound to `root`, containing a nested `p` tag
-            // with the message "Hello" in black.
+            // We start out with a `div` element bound to `root`, containing a nested `p`
+            // tag with the message "Hello" in black.
             rsx! {
                 let root = div() {
                     p(

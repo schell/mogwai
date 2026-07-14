@@ -204,7 +204,7 @@ impl<'a> Bench<'a> {
 pub struct BenchSetView<V: View> {
     #[child]
     wrapper: V::Element,
-    benches: Vec<BenchView<V>>,
+    _benches: Vec<BenchView<V>>,
 }
 
 #[derive(Default)]
@@ -226,7 +226,10 @@ impl<'a> BenchSet<'a> {
                 }
             }
         }
-        BenchSetView { wrapper, benches }
+        BenchSetView {
+            wrapper,
+            _benches: benches,
+        }
     }
     pub fn with_bench(mut self, bench: Bench<'a>) -> Self {
         self.benches.push(bench);

@@ -1,11 +1,11 @@
 //! # Time utilities
 //!
 //! This module provides utilities for handling time-related operations such as
-//! waiting, sleeping, and delaying futures. It is designed to work across different
-//! platforms, including WebAssembly (wasm32) and non-wasm32 targets.
+//! waiting, sleeping, and delaying futures. It is designed to work across
+//! different platforms, including WebAssembly (wasm32) and non-wasm32 targets.
 //!
-//! These utilities are essential for managing asynchronous operations that depend on timing,
-//! such as animations, timeouts, and intervals.
+//! These utilities are essential for managing asynchronous operations that
+//! depend on timing, such as animations, timeouts, and intervals.
 use futures_lite::{Stream, StreamExt};
 #[cfg(target_arch = "wasm32")]
 use std::{
@@ -47,9 +47,10 @@ pub fn now() -> f64 {
 }
 
 #[cfg(target_arch = "wasm32")]
-/// Sets a static rust closure to be called after a given amount of milliseconds.
-/// The given function may return whether or not this timeout should be rescheduled.
-/// If the function returns `true` it will be rescheduled. Otherwise it will not.
+/// Sets a static rust closure to be called after a given amount of
+/// milliseconds. The given function may return whether or not this timeout
+/// should be rescheduled. If the function returns `true` it will be
+/// rescheduled. Otherwise it will not.
 pub(crate) fn timeout<F>(millis: i32, mut logic: F) -> i32
 where
     F: FnMut() -> bool + 'static,
@@ -159,17 +160,18 @@ pub(crate) fn set_checkup_interval(millis: i32, f: &Closure<dyn FnMut()>) -> i32
 
 /// Schedule the given closure to be run as soon as possible.
 ///
-/// On wasm32 this schedules the closure to run async at the next "frame". Any other
-/// target sees the closure called immediately.
+/// On wasm32 this schedules the closure to run async at the next "frame". Any
+/// other target sees the closure called immediately.
 pub fn set_immediate<F>(f: F)
 where
     F: FnOnce() + 'static,
 {
     #[cfg(target_arch = "wasm32")]
     {
-        // `setTimeout(0, callback)` does not run the callback immediately, there is a minimum delay of ~4ms
-        // https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/setTimeout#Reasons_for_delays_longer_than_specified
-        // browsers do not have a native `setImmediate(callback)` function, so we have to use a hack :(
+        // `setTimeout(0, callback)` does not run the callback immediately, there is a
+        // minimum delay of ~4ms https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/setTimeout#Reasons_for_delays_longer_than_specified
+        // browsers do not have a native `setImmediate(callback)` function, so we have
+        // to use a hack :(
         thread_local! {
             static PENDING: RefCell<VecDeque<Box<dyn FnOnce()>>> = Default::default();
             static CALLBACK: Closure<dyn Fn()> = Closure::wrap(Box::new(on_message));
@@ -188,7 +190,8 @@ where
             PENDING.with(|pending| {
                 // callbacks can (and do) schedule more callbacks;
                 // to ensure that we yield to the event loop between each batch,
-                // only dequeue callbacks that were scheduled before we started running this batch
+                // only dequeue callbacks that were scheduled before we started running this
+                // batch
                 let initial_len = pending.borrow().len();
                 for _ in 0..initial_len {
                     let f = pending.borrow_mut().pop_front().unwrap_throw();
@@ -222,7 +225,8 @@ pub async fn wait_one_frame() {
 /// # Fields
 ///
 /// - `found`: The value that was found.
-/// - `elapsed_seconds`: The time in seconds that elapsed before the value was found.
+/// - `elapsed_seconds`: The time in seconds that elapsed before the value was
+///   found.
 pub struct Found<T> {
     pub found: T,
     pub elapsed_seconds: f64,
@@ -230,21 +234,22 @@ pub struct Found<T> {
 
 /// Waits for a condition to be met within a specified timeout period.
 ///
-/// This function repeatedly evaluates a provided closure until it returns `Some(T)`,
-/// indicating that the desired condition has been met. If the condition is not met
-/// within the given `timeout_seconds`, the function returns an `Err` with the elapsed
-/// time in seconds.
+/// This function repeatedly evaluates a provided closure until it returns
+/// `Some(T)`, indicating that the desired condition has been met. If the
+/// condition is not met within the given `timeout_seconds`, the function
+/// returns an `Err` with the elapsed time in seconds.
 ///
 /// # Arguments
 ///
-/// * `timeout_seconds` - The maximum time to wait for the condition, in seconds.
-/// * `f` - A closure that returns an `Option<T>`. The function will continue to wait
-///   until this closure returns `Some(T)`.
+/// * `timeout_seconds` - The maximum time to wait for the condition, in
+///   seconds.
+/// * `f` - A closure that returns an `Option<T>`. The function will continue to
+///   wait until this closure returns `Some(T)`.
 ///
 /// # Returns
 ///
-/// A `Result` containing a `Found<T>` if the condition is met, or an `Err` with the
-/// elapsed time if the timeout is reached.
+/// A `Result` containing a `Found<T>` if the condition is met, or an `Err` with
+/// the elapsed time if the timeout is reached.
 pub async fn wait_for<'a, T: 'a>(
     timeout_seconds: f64,
     mut f: impl FnMut() -> Option<T> + 'a,
@@ -357,6 +362,8 @@ pub async fn wait_until_next_for<T>(
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod test {
+    use crate::web::event::EventListener;
+
     use super::*;
     use wasm_bindgen_test::*;
 
@@ -367,4 +374,11 @@ mod test {
         let millis_waited = wait_millis(22).await;
         assert!(millis_waited >= 21.0);
     }
+
+    // #[wasm_bindgen_test]
+    // async fn can_wait_for_window_load() {
+    //     let listener = EventListener::new(crate::web::window(), "load");
+    //     println!("waiting for window load");
+    //     listener.next().await;
+    // }
 }

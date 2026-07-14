@@ -1,7 +1,7 @@
 //! RSX for constructing `web-sys` elements.
 #![allow(deprecated)]
 
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::spanned::Spanned;
 
 mod tokens;
@@ -208,12 +208,11 @@ pub fn impl_derive_viewchild(input: proc_macro::TokenStream) -> proc_macro::Toke
                 all.push(typ.ident.clone());
 
                 for bound in typ.bounds.iter() {
-                    if let syn::TypeParamBound::Trait(t) = bound {
-                        if let Some(last) = t.path.segments.last() {
-                            if last.ident == "View" {
-                                found = Some(typ.ident.clone());
-                            }
-                        }
+                    if let syn::TypeParamBound::Trait(t) = bound
+                        && let Some(last) = t.path.segments.last()
+                        && last.ident == "View"
+                    {
+                        found = Some(typ.ident.clone());
                     }
                 }
 
@@ -345,6 +344,33 @@ pub fn impl_derive_view_properties(input: proc_macro::TokenStream) -> proc_macro
         quote! { compile_error!("Deriving ViewProperties is only supported on struct types") }
             .into()
     }
+}
+
+
+#[proc_macro]
+pub fn impl_parameters_tuples(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let tuple: syn::TypeTuple = syn::parse_macro_input!(input);
+    let tys = tuple.elems.iter().collect::<Vec<_>>();
+    let params = tys
+        .iter()
+        .enumerate()
+        .map(|(i, ty)| syn::Ident::new(&format!("__{i}"), ty.span()))
+        .collect::<Vec<_>>();
+    let output = quote! {
+        impl<#(#tys),*> mogwai::web::event::Parameters for #tuple
+        where
+            #(#tys: wasm_bindgen::convert::FromWasmAbi + 'static),*,
+        {
+            type Closure = Closure<dyn FnMut(#(#tys),*)>;
+
+            fn into_arity_closure(mut f: Box<dyn FnMut(Self)>) -> Self::Closure {
+                Closure::wrap(Box::new(move |#(#params),*| {
+                    f((#(#params),*));
+                }))
+            }
+        }
+    };
+    output.into()
 }
 
 #[cfg(test)]
