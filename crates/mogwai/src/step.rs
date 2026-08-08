@@ -116,7 +116,7 @@ pub trait StepMut {
 ///     type Output = ();
 ///     fn step_with<Ev>(
 ///         &self,
-///         f: impl FnMut(&T) -> Pin<Box<dyn Future<Output = Ev> + '_>>,
+///         f: impl for<'a> FnMut(&'a T) -> Pin<Box<dyn Future<Output = Ev> + 'a>>,
 ///     ) -> impl Future<Output = ()>
 ///     where
 ///         Ev: 'static,
@@ -134,9 +134,14 @@ pub trait StepWith<T> {
 
     /// Race the container's own event future against a future produced by
     /// `f` for each child. The first to resolve wins.
+    ///
+    /// The closure uses a higher-ranked trait bound (`for<'a>`) so the returned
+    /// boxed future is allowed to borrow from the child reference for exactly
+    /// as long as that borrow lives — e.g. `Box::pin(child.step())` where
+    /// `step` borrows `&'a self`.
     fn step_with<Ev>(
         &self,
-        f: impl FnMut(&T) -> Pin<Box<dyn Future<Output = Ev> + '_>>,
+        f: impl for<'a> FnMut(&'a T) -> Pin<Box<dyn Future<Output = Ev> + 'a>>,
     ) -> impl Future<Output = Self::Output>
     where
         Ev: 'static;
@@ -165,7 +170,7 @@ pub trait StepWith<T> {
 ///     type Output = ();
 ///     fn step_with_mut<Ev>(
 ///         &mut self,
-///         f: impl FnMut(&mut P) -> Pin<Box<dyn Future<Output = Ev> + '_>>,
+///         f: impl for<'a> FnMut(&'a mut P) -> Pin<Box<dyn Future<Output = Ev> + 'a>>,
 ///     ) -> impl Future<Output = ()>
 ///     where
 ///         Ev: 'static,
@@ -183,9 +188,14 @@ pub trait StepWithMut<T> {
 
     /// Race the container's own event future against a future produced by
     /// `f` for each child (with mutable access). The first to resolve wins.
+    ///
+    /// The closure uses a higher-ranked trait bound (`for<'a>`) so the returned
+    /// boxed future is allowed to borrow from the child reference for exactly
+    /// as long as that borrow lives — e.g. `Box::pin(child.step_mut())` where
+    /// `step_mut` borrows `&'a mut self`.
     fn step_with_mut<Ev>(
         &mut self,
-        f: impl FnMut(&mut T) -> Pin<Box<dyn Future<Output = Ev> + '_>>,
+        f: impl for<'a> FnMut(&'a mut T) -> Pin<Box<dyn Future<Output = Ev> + 'a>>,
     ) -> impl Future<Output = Self::Output>
     where
         Ev: 'static;

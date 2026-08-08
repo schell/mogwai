@@ -2,9 +2,12 @@
 //!
 //! These are meant to be small additions to [`futures_lite`].
 //!
-//! Re-exports the [`step`](crate::step) traits for convenience, since
-//! [`StepWith`] / [`StepWithMut`] closures compose naturally with
-//! [`race_all`].
+//! Re-exports the [`step`](crate::step) traits for convenience.
+//! Note: [`race_all`] boxes futures as `Pin<Box<dyn Future<Output = T>>>`
+//! (default `'static`), so per-child futures passed to [`StepWith`] /
+//! [`StepWithMut`] closures must produce a `'static`-compatible output
+//! (`Ev: 'static`) even though the future itself may borrow from its
+//! child reference via the higher-ranked lifetime.
 use std::{future::Future, pin::Pin};
 
 use futures_lite::FutureExt;
