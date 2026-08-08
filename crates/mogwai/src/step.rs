@@ -12,8 +12,8 @@
 //! |------|----------|----------|
 //! | [`Step`] | `&self` | `step` only awaits event listeners (interior mutability). Lets a parent race multiple children concurrently. |
 //! | [`StepMut`] | `&mut self` | `step` mutates the widget's own fields or drives a mutable resource. Children cannot be raced concurrently. |
-//! | [`StepWith<T>`] | `&self` | A container of `T`-typed children that races a per-child future (supplied by a closure) against its own event. |
-//! | [`StepWithMut<T>`] | `&mut self` | Same, but with exclusive access to each child. |
+//! | [`StepWith<T>`] | `&self` | A container of `T`-typed children that races a per-child future (supplied by a closure) against its own event. Return type is a GAT `Output<Ev>`. |
+//! | [`StepWithMut<T>`] | `&mut self` | Same, but with exclusive access to each child. Return type is a GAT `Output<Ev>`. |
 //!
 //! ## Object safety
 //!
@@ -97,6 +97,10 @@ pub trait StepMut {
 /// pattern: the container owns `N` children of type `T`, and the caller
 /// decides how each child produces a future of type `Ev`.
 ///
+/// The return type is a generic associated type (GAT) `Output<Ev>` so a
+/// container can produce a different event type depending on the child event
+/// `Ev` (e.g. an enum with `Tabs(Self::TabEvent)` and `Panes(Ev)` variants).
+///
 /// ## Example
 ///
 /// ```no_run
@@ -113,11 +117,11 @@ pub trait StepMut {
 /// }
 ///
 /// impl<V: View, T> StepWith<T> for List<V, T> {
-///     type Output = ();
+///     type Output<Ev: 'static> = ();
 ///     fn step_with<Ev>(
 ///         &self,
 ///         f: impl for<'a> FnMut(&'a T) -> Pin<Box<dyn Future<Output = Ev> + 'a>>,
-///     ) -> impl Future<Output = ()>
+///     ) -> impl Future<Output = Self::Output<Ev>>
 ///     where
 ///         Ev: 'static,
 ///     {
@@ -129,8 +133,10 @@ pub trait StepMut {
 /// }
 /// ```
 pub trait StepWith<T> {
-    /// The event produced by the container's own step.
-    type Output: 'static;
+    /// The event produced by a single step, parameterized by the child event
+    /// `Ev`. This is a generic associated type so containers can return a
+    /// type that *contains* `Ev` (e.g. an enum with a `Panes(Ev)` variant).
+    type Output<Ev: 'static>: 'static;
 
     /// Race the container's own event future against a future produced by
     /// `f` for each child. The first to resolve wins.
@@ -142,7 +148,7 @@ pub trait StepWith<T> {
     fn step_with<Ev>(
         &self,
         f: impl for<'a> FnMut(&'a T) -> Pin<Box<dyn Future<Output = Ev> + 'a>>,
-    ) -> impl Future<Output = Self::Output>
+    ) -> impl Future<Output = Self::Output<Ev>>
     where
         Ev: 'static;
 }
@@ -153,6 +159,11 @@ pub trait StepWith<T> {
 /// This generalizes the `TabPanel::step_with` / `Table::step_with` pattern: the
 /// container owns `N` children of type `T` mutably, and the caller decides how
 /// each produces a future of type `Ev`.
+///
+/// The return type is a generic associated type (GAT) `Output<Ev>` so a
+/// container can produce a different event type depending on the child event
+/// `Ev` (e.g. `TabPanelEvent<V, T, Ev>` with `Tabs(...)` and `Panes(Ev)`
+/// variants).
 ///
 /// ## Example
 ///
@@ -167,11 +178,11 @@ pub trait StepWith<T> {
 /// }
 ///
 /// impl<V: View, P> StepWithMut<P> for TabPanel<V, P> {
-///     type Output = ();
+///     type Output<Ev: 'static> = ();
 ///     fn step_with_mut<Ev>(
 ///         &mut self,
 ///         f: impl for<'a> FnMut(&'a mut P) -> Pin<Box<dyn Future<Output = Ev> + 'a>>,
-///     ) -> impl Future<Output = ()>
+///     ) -> impl Future<Output = Self::Output<Ev>>
 ///     where
 ///         Ev: 'static,
 ///     {
@@ -183,8 +194,10 @@ pub trait StepWith<T> {
 /// }
 /// ```
 pub trait StepWithMut<T> {
-    /// The event produced by the container's own step.
-    type Output: 'static;
+    /// The event produced by a single step, parameterized by the child event
+    /// `Ev`. This is a generic associated type so containers can return a
+    /// type that *contains* `Ev` (e.g. `TabPanelEvent<V, T, Ev>`).
+    type Output<Ev: 'static>: 'static;
 
     /// Race the container's own event future against a future produced by
     /// `f` for each child (with mutable access). The first to resolve wins.
@@ -196,7 +209,7 @@ pub trait StepWithMut<T> {
     fn step_with_mut<Ev>(
         &mut self,
         f: impl for<'a> FnMut(&'a mut T) -> Pin<Box<dyn Future<Output = Ev> + 'a>>,
-    ) -> impl Future<Output = Self::Output>
+    ) -> impl Future<Output = Self::Output<Ev>>
     where
         Ev: 'static;
 }
