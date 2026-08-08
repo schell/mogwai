@@ -307,11 +307,12 @@ impl Test {
             dir.path(),
         )
         .run()?;
-        anyhow::ensure!(Path::new("gentest").exists(), "gentest does not exist");
+        let gentest = dir.path().join("gentest");
+        anyhow::ensure!(gentest.exists(), "gentest does not exist");
 
         log::info!("building gentest");
         duct::cmd!("wasm-pack", "build", "--target", "web")
-            .dir(dir.path())
+            .dir(&gentest)
             .run()?;
         Ok(())
     }
