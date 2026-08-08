@@ -1,9 +1,15 @@
 //! Utilitites for working with futures.
 //!
 //! These are meant to be small additions to [`futures_lite`].
+//!
+//! Re-exports the [`step`](crate::step) traits for convenience, since
+//! [`StepWith`] / [`StepWithMut`] closures compose naturally with
+//! [`race_all`].
 use std::{future::Future, pin::Pin};
 
 use futures_lite::FutureExt;
+
+pub use crate::step::{Step, StepMut, StepWith, StepWithMut};
 
 pub trait MogwaiFutureExt
 where
