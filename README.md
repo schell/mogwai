@@ -39,6 +39,8 @@ It offers a minimalistic and transparent approach, allowing you to structure you
 Here's a button that counts clicks:
 
 ```rust, no_run
+use std::future::Future;
+
 use mogwai::web::prelude::*;
 use wasm_bindgen::prelude::*;
 
@@ -75,10 +77,13 @@ impl<V: View> Default for ButtonClick<V> {
     }
 }
 
-impl<V: View> ButtonClick<V> {
-    pub async fn step(&mut self) {
-        let _ev = self.on_click.next().await;
-        self.num_clicks.modify(|n| *n += 1);
+impl<V: View> StepMut for ButtonClick<V> {
+    type Output = ();
+    fn step_mut(&mut self) -> impl Future<Output = ()> {
+        async move {
+            let _ev = self.on_click.next().await;
+            self.num_clicks.modify(|n| *n += 1);
+        }
     }
 }
 
@@ -88,7 +93,7 @@ pub fn main() {
     mogwai::web::body().append_child(&view);
     wasm_bindgen_futures::spawn_local(async move {
         loop {
-            view.step().await;
+            view.step_mut().await;
         }
     });
 }
