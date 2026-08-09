@@ -254,6 +254,12 @@
 //! updating the text is an obvious, intentional action on the part of the logic inside
 //! the `step` function.
 //!
+//! The `step` convention can be formalized with the [`Step`] and [`StepMut`] traits
+//! from the [`step`](crate::step) module. [`Step`] is for widgets that only await
+//! event listeners (immutable borrow), while [`StepMut`] is for widgets that
+//! mutate their own fields (mutable borrow). Callers drive the event loop:
+//! `loop { widget.step().await }` (or `widget.step_mut().await` for [`StepMut`]).
+//!
 //! ### Using [`Proxy`] for updates
 //!
 //! Views in mogwai are dynamic, but they are updated explicitly in response to events.
@@ -312,6 +318,9 @@
 //!     }
 //! }
 //! ```
+//!
+//! Here `step` takes `&mut self` because it modifies the `Proxy` — this widget would
+//! implement [`StepMut`] rather than [`Step`].
 //!
 //! In this example, clicking the button updates the state, which in turn updates
 //! the paragraph text. The `Proxy` type is used to manage the state and trigger
