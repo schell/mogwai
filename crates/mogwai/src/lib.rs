@@ -5,8 +5,8 @@
 //!
 //! ## Key Concepts
 //!
-//! - **Low boilerplate view construction**: Use the [`rsx!`](view::rsx) macro
-//!   to reduce boilerplate.
+//! - **Low boilerplate view construction**: Use the [`rsx!`](rsx) macro to
+//!   reduce boilerplate. See the [`rsx`] module for the full syntax reference.
 //! - **Async event handling**: Events are futures, not callbacks.
 //! - **Cross-platform support**: [View traits](crate::view) ensure operations
 //!   are cross-platform, with room for specialization.
@@ -18,6 +18,7 @@ pub mod an_introduction;
 #[cfg(feature = "future")]
 pub mod future;
 pub mod proxy;
+pub mod rsx;
 #[cfg(feature = "ssr")]
 pub mod ssr;
 pub mod step;

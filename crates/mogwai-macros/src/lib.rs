@@ -18,9 +18,7 @@ mod tokens;
 /// embedding Rust expressions, and handling events, making it a powerful tool
 /// for building dynamic interfaces.
 ///
-/// # Examples
-///
-/// ## Basic Usage
+/// # Quick Reference
 ///
 /// ```rust
 /// use mogwai::prelude::*;
@@ -28,38 +26,53 @@ mod tokens;
 /// fn view<V: View>() -> V::Element {
 ///     rsx! {
 ///         let root = div(class = "container") {
-///             h1 { "Hello, World!" }
+///             h1() { "Hello, World!" }
 ///             button(on:click = handle_click) { "Click me" }
 ///         }
 ///     }
-///
 ///     root
 /// }
 /// ```
 ///
-/// In this example, `rsx!` is used to create a `div` with a class and two child
-/// elements: an `h1` and a `button` with an event listener `handle_click`. The
-/// root `div` element is bound with a let binding to the name `root`.
+/// The `let` binding is the macro's "return value": `root` is in scope after
+/// the macro expands. A type parameter `V: View` must be in scope.
 ///
-/// ## Attributes
+/// # Special Attributes
 ///
-/// In addition to single-word attributes, view nodes support a few special
-/// attributes:
+/// - **`on:event = name`**: Registers an event listener on the element and
+///   binds it to `name`. The name is the **output** variable, not a
+///   pre-existing handler. Expansion: `let name = element.listen("event");`.
+/// - **`window:event = name`**: Creates a window-level event listener.
+///   Expansion: `let name = V::EventListener::on_window("event");`.
+/// - **`document:event = name`**: Creates a document-level event listener.
+///   Expansion: `let name = V::EventListener::on_document("event");`.
+/// - **`style:name = expr`**: Sets a single inline-style property via
+///   `set_style`. The name undergoes underscore-to-dash conversion
+///   (e.g., `style:background_color` -> `background-color`).
+/// - **`style = "a: b; c: d;"`**: Sets the full `style` attribute string via
+///   `set_property("style", ...)`.
+/// - **`xmlns = expr`**: Triggers element creation via `new_namespace` for
+///   SVG and other namespaced XML.
 ///
-/// - **on:** Used to attach event listeners. For example, `on:click =
-///   handle_click` attaches a click event listener named `handle_click`.
-/// - **window:** Used to attach event listeners to the window object. For
-///   example, `window:resize = handle_resize`.
-/// - **document:** Used to attach event listeners to the document object. For
-///   example, `document:keydown = handle_keydown`.
-/// - **style:** Shorthand used to set inline styles. For example, `style:color
-///   = "red"` sets the text color to red, and is equivalent to `style = "color:
-///   red;"`.
+/// # Underscore-to-Dash Conversion
 ///
-/// ## Using `Proxy`
+/// Attribute names undergo underscore-to-dash conversion. Leading and
+/// trailing underscores are stripped, interior underscores become dashes:
 ///
-/// The `rsx!` macro includes special shorthand syntax for dynamic updates using
-/// `Proxy`. This syntax is valid in both attribute and node positions.
+/// | RSX name | HTML attribute |
+/// |----------|----------------|
+/// | `type_` | `type` |
+/// | `for_` | `for` |
+/// | `aria_hidden` | `aria-hidden` |
+/// | `stroke_width` | `stroke-width` |
+///
+/// The `type` keyword is also special-cased by the parser, so `type =
+/// "checkbox"` (without underscore) works too.
+///
+/// # Proxy: Reactive Updates
+///
+/// The `Proxy<T>` type provides reactive updates. The macro has special syntax
+/// in both attribute and node positions:
 ///
 /// ```rust
 /// use mogwai::ssr::prelude::*;
@@ -81,20 +94,13 @@ mod tokens;
 ///         message: "Hello".to_string(),
 ///     });
 ///
-///     // We start out with a `div` element bound to `root`, containing a nested `p` tag
-///     // with the message "Hello" in black.
 ///     rsx! {
 ///         let root = div() {
 ///             p(
 ///                 id = "message_wrapper",
-///                 // proxy use in attribute position
 ///                 style:color = state(s => &s.color)
 ///             ) {
-///                 // proxy use in node position
-///                 {state(s => {
-///                     println!("updating state to: {s:#?}");
-///                     &s.message
-///                 })}
+///                 {state(s => &s.message)}
 ///             }
 ///         }
 ///     }
@@ -102,15 +108,12 @@ mod tokens;
 ///     Widget { root, state }
 /// }
 ///
-/// println!("creating");
-/// // Verify at creation that the view shows "Hello" in black.
 /// let mut w = new_widget::<mogwai::ssr::Ssr>();
 /// assert_eq!(
 ///     r#"<div><p id="message_wrapper" style="color: black;">Hello</p></div>"#,
 ///     w.root.html_string()
 /// );
 ///
-/// // Then later we change the message to show "Goodbye" in red.
 /// w.state.set(Status {
 ///     color: "red".to_string(),
 ///     message: "Goodbye".to_string(),
@@ -121,10 +124,11 @@ mod tokens;
 /// );
 /// ```
 ///
-/// ## Nesting arbitrary Rust types as nodes using `ViewChild`
+/// # Nesting Components via `ViewChild`
 ///
-/// You can nest custom Rust types that implement `ViewChild` within the `rsx!`
-/// macro:
+/// Any type implementing `ViewChild` can be used as a child node. Derive
+/// `ViewChild` with `#[derive(ViewChild)]` on a struct with a `#[child]`
+/// field:
 ///
 /// ```rust
 /// use mogwai::prelude::*;
@@ -147,13 +151,19 @@ mod tokens;
 ///     rsx! {
 ///         let root = div() {
 ///             h1() { "Welcome" }
-///             {component} // Using the custom component within the view
+///             {component}
 ///         }
 ///     }
 ///
 ///     root
 /// }
 /// ```
+///
+/// # Full Documentation
+///
+/// For the complete syntax reference, attribute table, gotchas, and advanced
+/// patterns, see the `mogwai::rsx` module documentation in the `mogwai`
+/// crate.
 pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match syn::parse::<tokens::ViewToken>(input) {
         Ok(view_token) => view_token.into_token_stream(),

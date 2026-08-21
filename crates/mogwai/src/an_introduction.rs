@@ -331,6 +331,175 @@
 //! Note that [`Proxy`] is not `Clone`, and that modifying a [`Proxy`] requires mutation.
 //! This is a purposeful design choice to make tracking down data updates easy.
 //!
+//! ### More RSX features
+//!
+//! The [`rsx!`] macro supports more syntax than we've shown so far. Here are
+//! a few patterns you'll use often. For the complete syntax reference, see
+//! the [`rsx`](crate::rsx) module.
+//!
+//! #### Dynamic text with `into_text`
+//!
+//! String literals in node position become text nodes automatically. But
+//! when you produce text from a Rust expression inside a `{ }` block, you
+//! need to call [`into_text::<V>()`](crate::view::ViewTextExt::into_text) to
+//! convert the string into a `V::Text`:
+//!
+//! ```rust
+//! use mogwai::prelude::*;
+//!
+//! fn view<V: View>() -> V::Element {
+//!     let name = "World";
+//!     rsx! {
+//!         let root = p() {
+//!             {format!("Hello, {name}!").into_text::<V>()}
+//!         }
+//!     }
+//!     root
+//! }
+//! ```
+//!
+//! #### Nesting components with `let` capture
+//!
+//! You can nest any type implementing [`ViewChild`] as a child. Use
+//! `let name = {Component::default()}` to both construct the component and
+//! capture a handle to it for later interaction:
+//!
+//! ```rust
+//! use mogwai::prelude::*;
+//!
+//! #[derive(ViewChild)]
+//! struct Counter<V: View> {
+//!     #[child]
+//!     wrapper: V::Element,
+//! }
+//!
+//! impl<V: View> Default for Counter<V> {
+//!     fn default() -> Self {
+//!         rsx! {
+//!             let wrapper = button() { "Click me." }
+//!         }
+//!         Self { wrapper }
+//!     }
+//! }
+//!
+//! struct App<V: View> {
+//!     root: V::Element,
+//!     counter: Counter<V>,
+//! }
+//!
+//! impl<V: View> Default for App<V> {
+//!     fn default() -> Self {
+//!         rsx! {
+//!             let root = div() {
+//!                 "Application"
+//!                 br(){}
+//!                 let counter = {Counter::default()}
+//!             }
+//!         }
+//!         Self { root, counter }
+//!     }
+//! }
+//! ```
+//!
+//! #### Conditionals and lists
+//!
+//! `rsx!` does not have `if`/`else` or `for` syntax. Instead, use block
+//! expressions returning [`Option`] (for conditionals) or [`Vec`] (for lists),
+//! both of which implement [`ViewChild`]:
+//!
+//! ```rust
+//! use mogwai::prelude::*;
+//!
+//! fn view<V: View>(show_header: bool) -> V::Element {
+//!     let maybe_header = if show_header {
+//!         Some({
+//!             rsx! {
+//!                 let h = h1() { "Welcome" }
+//!             }
+//!             h
+//!         })
+//!     } else {
+//!         None
+//!     };
+//!
+//!     let items = ["a", "b", "c"]
+//!         .iter()
+//!         .map(|s| s.to_string().into_text::<V>())
+//!         .collect::<Vec<_>>();
+//!
+//!     rsx! {
+//!         let root = main() {
+//!             {maybe_header}
+//!             ul() {
+//!                 {items}
+//!             }
+//!         }
+//!     }
+//!     root
+//! }
+//! ```
+//!
+//! For dynamic lists (add/remove at runtime), capture a parent element with
+//! `let` and call `append_child` / `remove_child` imperatively.
+//!
+//! #### SVG and namespaces
+//!
+//! SVG elements require an `xmlns` attribute to trigger namespace-aware
+//! element creation. The namespace must be supplied on each SVG element:
+//!
+//! ```rust
+//! use mogwai::prelude::*;
+//!
+//! fn view<V: View>() -> V::Element {
+//!     let ns = "http://www.w3.org/2000/svg";
+//!     rsx! {
+//!         let root = svg(xmlns = ns, width = "100", height = "100") {
+//!             circle(
+//!                 xmlns = ns,
+//!                 cx = "50", cy = "50", r = "40",
+//!                 stroke = "green",
+//!                 stroke_width = "4",
+//!                 fill = "yellow"
+//!             ){}
+//!         }
+//!     }
+//!     root
+//! }
+//! ```
+//!
+//! Note that `stroke_width` becomes `stroke-width` through underscore-to-dash
+//! conversion.
+//!
+//! #### Window and document events
+//!
+//! In addition to element-level events (`on:click`, etc.), you can listen to
+//! window and document events. These create global listeners independent of
+//! the element they are written on:
+//!
+//! ```rust
+//! use mogwai::prelude::*;
+//!
+//! struct App<V: View> {
+//!     root: V::Element,
+//!     on_hashchange: V::EventListener,
+//!     on_keydown: V::EventListener,
+//! }
+//!
+//! impl<V: View> Default for App<V> {
+//!     fn default() -> Self {
+//!         rsx! {
+//!             let root = div(
+//!                 window:hashchange = on_hashchange,
+//!                 document:keydown = on_keydown
+//!             ) {
+//!                 "Change the URL hash or press a key"
+//!             }
+//!         }
+//!         Self { root, on_hashchange, on_keydown }
+//!     }
+//! }
+//! ```
+//!
 //! # Getting started
 //!
 //! That's it! Time to get started. If you're looking for a project template you can use
