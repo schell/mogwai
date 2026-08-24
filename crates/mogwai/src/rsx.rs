@@ -940,6 +940,33 @@
 //! }
 //! ```
 //!
+//! Enums can also derive `ViewChild`. Single-field tuple variants auto-proxy
+//! to their inner value; struct variants and multi-field tuple variants
+//! require a `#[child]`-annotated field; unit variants are not supported:
+//!
+//! ```rust
+//! use mogwai::prelude::*;
+//!
+//! #[derive(ViewChild)]
+//! enum MyComponent<V: View> {
+//!     Loaded(V::Element),
+//!     Loading {
+//!         #[child]
+//!         spinner: V::Element,
+//!     },
+//! }
+//!
+//! fn create_view<V: View>(component: &MyComponent<V>) -> V::Element {
+//!     rsx! {
+//!         let root = div() {
+//!             h1() { "Hello, world!" }
+//!             {component}
+//!         }
+//!     }
+//!     root
+//! }
+//! ```
+//!
 //! ## `ViewProperties` derive
 //!
 //! To allow property/style manipulation directly on a component (delegating
