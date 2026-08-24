@@ -47,12 +47,12 @@ mod tokens;
 /// - **`document:event = name`**: Creates a document-level event listener.
 ///   Expansion: `let name = V::EventListener::on_document("event");`.
 /// - **`style:name = expr`**: Sets a single inline-style property via
-///   `set_style`. The name undergoes underscore-to-dash conversion
-///   (e.g., `style:background_color` -> `background-color`).
+///   `set_style`. The name undergoes underscore-to-dash conversion (e.g.,
+///   `style:background_color` -> `background-color`).
 /// - **`style = "a: b; c: d;"`**: Sets the full `style` attribute string via
 ///   `set_property("style", ...)`.
-/// - **`xmlns = expr`**: Triggers element creation via `new_namespace` for
-///   SVG and other namespaced XML.
+/// - **`xmlns = expr`**: Triggers element creation via `new_namespace` for SVG
+///   and other namespaced XML.
 ///
 /// # Underscore-to-Dash Conversion
 ///
@@ -174,12 +174,13 @@ pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 /// Derives `ViewChild` for a type.
 ///
-/// The type must contain a field annotated with `#[child]`.
+/// Deriving `ViewChild` for a Rust type allows you to use that type in the node
+/// position of an [`rsx!`] macro.
 ///
-/// Deriving `ViewChild` for an arbitrary Rust type allows you to use that type
-/// in the node position of an [`rsx!`] macro.
+/// # Structs
 ///
-/// # Example
+/// For a struct, annotate exactly one field with `#[child]`. The trait methods
+/// proxy to that field.
 ///
 /// ```rust
 /// use mogwai::prelude::*;
@@ -195,6 +196,43 @@ pub fn rsx(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 ///         let wrapper = div() {
 ///             h1(){ "Hello, world!" }
 ///             {component} // <- here `component` is added to the view tree
+///         }
+///     }
+///
+///     wrapper
+/// }
+/// ```
+///
+/// # Enums
+///
+/// For an enum, each variant proxies to its child node(s):
+///
+/// - **Single-field tuple variants** (`A(T)`) auto-proxy to the inner value; no
+///   `#[child]` annotation is required.
+/// - **Struct variants** and **multi-field tuple variants** require exactly one
+///   field annotated with `#[child]`; the trait methods proxy to that field.
+/// - **Unit variants** are not supported and produce a compile error. Wrap the
+///   value in a single-field tuple variant instead.
+///
+/// ```rust
+/// use mogwai::prelude::*;
+///
+/// #[derive(ViewChild)]
+/// enum MyComponent<V: View> {
+///     // single-field tuple variant: auto-proxies to the inner element
+///     Loaded(V::Element),
+///     // struct variant: requires #[child]
+///     Loading {
+///         #[child]
+///         spinner: V::Element,
+///     },
+/// }
+///
+/// fn nest<V: View>(component: &MyComponent<V>) -> V::Element {
+///     rsx! {
+///         let wrapper = div() {
+///             h1(){ "Hello, world!" }
+///             {component} // <- renders whichever variant `component` holds
 ///         }
 ///     }
 ///
@@ -247,25 +285,153 @@ pub fn impl_derive_viewchild(input: proc_macro::TokenStream) -> proc_macro::Toke
             p
         })
         .collect::<Vec<_>>();
-    if let syn::Data::Struct(data) = input.data {
-        let mut output = quote! {};
-        for field in data.fields.iter() {
-            let has_child_annotation = field.attrs.iter().any(|attr| attr.path().is_ident("child"));
-            if has_child_annotation {
-                let field = &field.ident;
-                output = quote! {
-                    impl <#(#generics),*> mogwai::prelude::ViewChild<#view_ty_param> for #ident<#(#all_ty_params),*> {
-                        fn as_append_arg(&self) -> mogwai::prelude::AppendArg<#view_ty_param, impl Iterator<Item = std::borrow::Cow<'_, #view_ty_param::Node>>> {
-                            self.#field.as_append_arg()
+    match input.data {
+        syn::Data::Struct(data) => {
+            let mut output = quote! {};
+            for field in data.fields.iter() {
+                let has_child_annotation =
+                    field.attrs.iter().any(|attr| attr.path().is_ident("child"));
+                if has_child_annotation {
+                    let field = &field.ident;
+                    output = quote! {
+                        impl <#(#generics),*> mogwai::prelude::ViewChild<#view_ty_param> for #ident<#(#all_ty_params),*> {
+                            fn as_append_arg(&self) -> mogwai::prelude::AppendArg<#view_ty_param, impl Iterator<Item = std::borrow::Cow<'_, #view_ty_param::Node>>> {
+                                self.#field.as_append_arg()
+                            }
+                        }
+                    };
+                    break;
+                }
+            }
+            output
+        }
+        syn::Data::Enum(data) => {
+            let mut arms = vec![];
+            let mut errors = vec![];
+            for variant in data.variants.iter() {
+                let variant_ident = &variant.ident;
+                match &variant.fields {
+                    syn::Fields::Unit => errors.push(syn::Error::new(
+                        variant.span(),
+                        "ViewChild cannot be derived for enums containing unit variants; \
+                         wrap the value in a single-field tuple variant instead",
+                    )),
+                    syn::Fields::Unnamed(fields) => {
+                        let n = fields.unnamed.len();
+                        if n == 1 {
+                            // single-field tuple variant: auto-proxy to the inner value
+                            let field = fields.unnamed.first().unwrap();
+                            let binding = syn::Ident::new("__inner", field.span());
+                            arms.push(quote! {
+                                #ident::#variant_ident(#binding) => {
+                                    mogwai::prelude::AppendArg::new(
+                                        Box::new(#binding.as_append_arg())
+                                            as Box<dyn Iterator<Item = std::borrow::Cow<'_, #view_ty_param::Node>> + '_>,
+                                    )
+                                }
+                            });
+                        } else {
+                            // multi-field tuple variant: require exactly one #[child]
+                            let annotated: Vec<_> = fields
+                                .unnamed
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, f)| {
+                                    f.attrs.iter().any(|attr| attr.path().is_ident("child"))
+                                })
+                                .collect();
+                            if annotated.len() != 1 {
+                                errors.push(syn::Error::new(
+                                    variant.span(),
+                                    "multi-field tuple variants deriving ViewChild must have \
+                                     exactly one field annotated with #[child]",
+                                ));
+                            } else {
+                                let (idx, _field) = annotated[0];
+                                let idx_token = syn::Index::from(idx);
+                                let binding = syn::Ident::new(
+                                    &format!("__child_{idx}"),
+                                    fields.unnamed[idx].span(),
+                                );
+                                // destructure all fields, bind only the annotated one by name
+                                let bindings: Vec<_> = (0..n)
+                                    .map(|i| {
+                                        if i == idx {
+                                            quote! { #binding }
+                                        } else {
+                                            let underscore =
+                                                syn::Ident::new(&format!("__{i}"), variant.span());
+                                            quote! { #underscore }
+                                        }
+                                    })
+                                    .collect();
+                                arms.push(quote! {
+                                    #ident::#variant_ident(#(#bindings),*) => {
+                                        mogwai::prelude::AppendArg::new(
+                                            Box::new(#binding.as_append_arg())
+                                                as Box<dyn Iterator<Item = std::borrow::Cow<'_, #view_ty_param::Node>> + '_>,
+                                        )
+                                    }
+                                });
+                                let _ = idx_token;
+                            }
                         }
                     }
-                };
-                break;
+                    syn::Fields::Named(fields) => {
+                        let annotated: Vec<_> = fields
+                            .named
+                            .iter()
+                            .filter(|f| {
+                                f.attrs.iter().any(|attr| attr.path().is_ident("child"))
+                            })
+                            .collect();
+                        if annotated.len() != 1 {
+                            errors.push(syn::Error::new(
+                                variant.span(),
+                                "struct variants deriving ViewChild must have exactly one \
+                                 field annotated with #[child]",
+                            ));
+                        } else {
+                            let child_field = &annotated[0].ident;
+                            arms.push(quote! {
+                                #ident::#variant_ident { #child_field, .. } => {
+                                    mogwai::prelude::AppendArg::new(
+                                        Box::new(#child_field.as_append_arg())
+                                            as Box<dyn Iterator<Item = std::borrow::Cow<'_, #view_ty_param::Node>> + '_>,
+                                    )
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+            if !errors.is_empty() {
+                let error_tokens = errors.iter().map(|e| e.to_compile_error());
+                return quote! { #(#error_tokens)* }.into();
+            }
+            let match_body = if arms.is_empty() {
+                // uninhabited enum: no arms needed
+                quote! {
+                    match self {}
+                }
+            } else {
+                quote! {
+                    match self {
+                        #(#arms)*
+                    }
+                }
+            };
+            quote! {
+                impl <#(#generics),*> mogwai::prelude::ViewChild<#view_ty_param> for #ident<#(#all_ty_params),*> {
+                    fn as_append_arg(&self) -> mogwai::prelude::AppendArg<#view_ty_param, impl Iterator<Item = std::borrow::Cow<'_, #view_ty_param::Node>>> {
+                        #match_body
+                    }
+                }
             }
         }
-        output
-    } else {
-        quote! { compile_error!("Deriving ViewChild is only supported on struct types") }
+        _ => {
+            quote! { compile_error!("Deriving ViewChild is only supported on struct or enum types") }
+        }
     }
     .into()
 }
@@ -572,5 +738,127 @@ mod test {
         // The property is on `inner`, not `root`
         assert!(!component.root.has_property("class"));
         assert!(component.inner.has_property("class"));
+    }
+
+    #[test]
+    fn derive_view_child_enum_single_field_tuple() {
+        use mogwai::prelude::*;
+
+        #[derive(ViewChild)]
+        enum MyEnum<V: View> {
+            Loaded(V::Element),
+            Empty(V::Element),
+        }
+
+        fn render<V: View>(e: &MyEnum<V>) -> V::Element {
+            rsx! {
+                let r = div() { {e} }
+            }
+            r
+        }
+
+        let left = MyEnum::<mogwai::ssr::Ssr>::Loaded(mogwai::ssr::SsrElement::new("span"));
+        let right = MyEnum::<mogwai::ssr::Ssr>::Empty(mogwai::ssr::SsrElement::new("p"));
+        assert_eq!(render(&left).html_string(), "<div><span></span></div>");
+        assert_eq!(render(&right).html_string(), "<div><p></p></div>");
+    }
+
+    #[test]
+    fn derive_view_child_enum_struct_variant_with_child() {
+        use mogwai::prelude::*;
+
+        #[derive(ViewChild)]
+        enum MyEnum<V: View> {
+            Loading {
+                #[child]
+                spinner: V::Element,
+                _label: V::Text,
+            },
+            Done {
+                #[child]
+                content: V::Element,
+            },
+        }
+
+        fn render<V: View>(e: &MyEnum<V>) -> V::Element {
+            rsx! {
+                let r = div() { {e} }
+            }
+            r
+        }
+
+        let loading = MyEnum::<mogwai::ssr::Ssr>::Loading {
+            spinner: mogwai::ssr::SsrElement::new("i"),
+            _label: mogwai::ssr::SsrText::new("loading"),
+        };
+        let done = MyEnum::<mogwai::ssr::Ssr>::Done {
+            content: mogwai::ssr::SsrElement::new("section"),
+        };
+        assert_eq!(render(&loading).html_string(), "<div><i></i></div>");
+        assert_eq!(
+            render(&done).html_string(),
+            "<div><section></section></div>"
+        );
+    }
+
+    #[test]
+    fn derive_view_child_enum_mixed() {
+        use mogwai::prelude::*;
+
+        #[derive(ViewChild)]
+        enum Mixed<V: View> {
+            Newtype(V::Element),
+            Struct {
+                #[child]
+                inner: V::Element,
+            },
+        }
+
+        fn render<V: View>(e: &Mixed<V>) -> V::Element {
+            rsx! {
+                let r = div() { {e} }
+            }
+            r
+        }
+
+        let nt = Mixed::<mogwai::ssr::Ssr>::Newtype(mogwai::ssr::SsrElement::new("a"));
+        let st = Mixed::<mogwai::ssr::Ssr>::Struct {
+            inner: mogwai::ssr::SsrElement::new("b"),
+        };
+        assert_eq!(render(&nt).html_string(), "<div><a></a></div>");
+        assert_eq!(render(&st).html_string(), "<div><b></b></div>");
+    }
+
+    #[test]
+    fn derive_view_child_enum_multi_field_tuple_with_child() {
+        use mogwai::prelude::*;
+
+        #[derive(ViewChild)]
+        enum MyEnum<V: View> {
+            Pair {
+                #[child]
+                child: V::Element,
+                _text: V::Text,
+            },
+            Tuple(V::Text, #[child] V::Element),
+        }
+
+        fn render<V: View>(e: &MyEnum<V>) -> V::Element {
+            rsx! {
+                let r = div() { {e} }
+            }
+            r
+        }
+
+        let pair = MyEnum::<mogwai::ssr::Ssr>::Pair {
+            child: mogwai::ssr::SsrElement::new("span"),
+            _text: mogwai::ssr::SsrText::new("hi"),
+        };
+        let tuple = MyEnum::<mogwai::ssr::Ssr>::Tuple(
+            mogwai::ssr::SsrText::new("x"),
+            mogwai::ssr::SsrElement::new("p"),
+        );
+        assert_eq!(render(&pair).html_string(), "<div><span></span></div>");
+        assert_eq!(render(&tuple).html_string(), "<div><p></p></div>");
     }
 }

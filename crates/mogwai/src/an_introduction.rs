@@ -401,6 +401,32 @@
 //! }
 //! ```
 //!
+//! Enums can also derive `ViewChild`. Single-field tuple variants auto-proxy
+//! to their inner value; struct variants and multi-field tuple variants
+//! require a `#[child]`-annotated field; unit variants are not supported:
+//!
+//! ```rust
+//! use mogwai::prelude::*;
+//!
+//! #[derive(ViewChild)]
+//! enum Counter<V: View> {
+//!     Active(V::Element),
+//!     Paused {
+//!         #[child]
+//!         placeholder: V::Element,
+//!     },
+//! }
+//!
+//! impl<V: View> Default for Counter<V> {
+//!     fn default() -> Self {
+//!         rsx! {
+//!             let wrapper = button() { "Click me." }
+//!         }
+//!         Self::Active(wrapper)
+//!     }
+//! }
+//! ```
+//!
 //! #### Conditionals and lists
 //!
 //! `rsx!` does not have `if`/`else` or `for` syntax. Instead, use block
