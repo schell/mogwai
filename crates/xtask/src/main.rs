@@ -1,7 +1,7 @@
 //! Tasks related to configuring, building and testing mogwai.
 //!
 //! Run `cargo xtask help` for more info.
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
@@ -138,8 +138,6 @@ struct Cookbook {
 
 impl Cookbook {
     fn build(self) -> anyhow::Result<()> {
-        install_deps()?;
-
         let Cookbook {
             skip_examples,
             root_path,
@@ -188,7 +186,10 @@ fn get_root_prefix() -> anyhow::Result<String> {
 }
 
 fn have_program(bin: &str) -> bool {
-    let have_it = duct::cmd!("hash", bin).run().is_ok();
+    // `hash` is a shell builtin and cannot be spawned as a command, so use
+    // `which` instead. When in doubt, report the program as missing - callers
+    // then install it, which is safe.
+    let have_it = duct::cmd!("which", bin).run().is_ok();
     if have_it {
         log::debug!("have {}", bin);
     } else {
@@ -210,16 +211,28 @@ fn ensure_paths() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn install_deps() -> anyhow::Result<()> {
-    let cargo_deps = [
-        ("wasm-pack", true),
-        ("mdbook", false),
-        ("mdbook-linkcheck", false),
-        ("mdbook-variables", false),
-        ("cargo-generate", true),
-        ("trunk", true),
-    ];
-    for (dep, locked) in cargo_deps.iter() {
+/// Tools needed to build examples (and the cookbook's examples) with wasm-pack.
+const WASM_PACK_DEPS: &[(&str, bool)] = &[("wasm-pack", true)];
+/// Tools needed to run the tests.
+const TEST_DEPS: &[(&str, bool)] = &[("wasm-pack", true), ("cargo-generate", true)];
+/// Tools needed to build the cookbook.
+const COOKBOOK_DEPS: &[(&str, bool)] = &[
+    ("mdbook", false),
+    ("mdbook-linkcheck", false),
+    ("mdbook-variables", false),
+];
+/// Tools needed to build the js-framework-benchmark dist.
+const TRUNK_DEPS: &[(&str, bool)] = &[("trunk", true)];
+
+/// Install missing tools.
+///
+/// Each entry is a binary name and whether `cargo install` should be run with
+/// `--locked`. Only the tools the command needs are installed - in particular
+/// the test gate does not install the cookbook-only mdbook toolchain, whose
+/// `mdbook-linkcheck` does not currently compile on nightly rustc (it pulls an
+/// old `proc-macro2` that uses the removed `proc_macro_span_shrink` feature).
+fn install_deps(deps: &[(&str, bool)]) -> anyhow::Result<()> {
+    for (dep, locked) in deps.iter() {
         if !have_program(dep) {
             log::info!("installing {}", dep);
             let mut args = vec!["install"];
@@ -371,7 +384,8 @@ enum Command {
         #[clap(flatten)]
         cookbook: Cookbook,
     },
-    /// Copy a mogwai-js-framework-benchmark dist to another directory (the js-framework-benchmark repo)
+    /// Copy a mogwai-js-framework-benchmark dist to another directory (the
+    /// js-framework-benchmark repo)
     CopyJsFrameworkDist {
         /// Path to the folder to copy into
         #[clap(long)]
@@ -391,7 +405,18 @@ fn main() -> anyhow::Result<()> {
     ensure_paths()?;
 
     if !cli.skip_install_deps {
-        install_deps()?;
+        match &cli.command {
+            Command::Test(_) => install_deps(TEST_DEPS)?,
+            Command::Build(Artifact::Example { .. }) => install_deps(WASM_PACK_DEPS)?,
+            Command::Build(Artifact::Cookbook(cookbook))
+            | Command::PushCookbook { cookbook, .. } => {
+                if !cookbook.skip_examples {
+                    install_deps(WASM_PACK_DEPS)?;
+                }
+                install_deps(COOKBOOK_DEPS)?;
+            }
+            Command::CopyJsFrameworkDist { .. } => install_deps(TRUNK_DEPS)?,
+        }
     }
 
     match cli.command {
