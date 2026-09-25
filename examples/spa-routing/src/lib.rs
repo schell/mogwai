@@ -164,7 +164,7 @@ struct App<V: View> {
 
 impl<V: View> Default for App<V> {
     fn default() -> Self {
-        let mut proxy_route = Proxy::<Route>::default();
+        let proxy_route = Proxy::<Route>::default();
 
         rsx! {
             let wrapper = slot(window:hashchange = on_window_hashchange) {
@@ -209,7 +209,8 @@ impl App<Web> {
             hev.new_url()
         };
 
-        // When we get a hash change, attempt to convert it into one of our routes
+        // When we get a hash change, attempt to convert it into one of our
+        // routes
         let err_msg = match Route::try_from(hash.as_str()) {
             // If we can't, let's send an error message to the view
             Err(msg) => msg,

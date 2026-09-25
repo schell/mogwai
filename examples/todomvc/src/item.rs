@@ -47,7 +47,7 @@ pub struct TodoItem<V: View> {
 
 impl<V: View> TodoItem<V> {
     pub fn new(id: usize, name: impl AsRef<str>, complete: bool) -> Self {
-        let mut state = Proxy::<ItemState>::new(ItemState {
+        let state = Proxy::<ItemState>::new(ItemState {
             name: name.as_ref().into(),
             is_editing: false,
             is_completed: complete,
@@ -116,15 +116,15 @@ impl<V: View> TodoItem<V> {
     }
 
     pub fn get_completed(&self) -> bool {
-        self.state.is_completed
+        self.state.with(|s| s.is_completed)
     }
 
     pub fn get_name(&self) -> String {
-        self.state.name.clone()
+        self.state.with(|s| s.name.clone())
     }
 
-    /// Run the item until an event occurs, possibly returning the id of the item
-    /// if it's set for destruction.
+    /// Run the item until an event occurs, possibly returning the id of the
+    /// item if it's set for destruction.
     pub async fn run_step(&mut self) -> Option<usize> {
         enum Step<V: View> {
             StartEditing,
@@ -135,7 +135,7 @@ impl<V: View> TodoItem<V> {
         }
 
         let mut step = Step::<V>::None;
-        if self.state.is_editing {
+        if self.state.with(|s| s.is_editing) {
             // Editing mode, in which we wait for editing to end
             futures::select! {
                 ev = self.on_blur_edit.next().fuse() => {
@@ -176,7 +176,7 @@ impl<V: View> TodoItem<V> {
                 let name = ev
                     .dyn_ev(crate::utils::event_input_value)
                     .flatten()
-                    .unwrap_or_else(|| self.state.name.clone());
+                    .unwrap_or_else(|| self.state.with(|s| s.name.clone()));
                 self.state.modify(|s| {
                     s.is_editing = false;
                     s.name = name;
@@ -188,7 +188,7 @@ impl<V: View> TodoItem<V> {
                     match key.as_str() {
                         "Enter" => {
                             let name = crate::utils::event_input_value(ev)
-                                .unwrap_or_else(|| self.state.name.clone());
+                                .unwrap_or_else(|| self.state.with(|s| s.name.clone()));
                             self.state.modify(|s| {
                                 s.is_editing = false;
                                 s.name = name;

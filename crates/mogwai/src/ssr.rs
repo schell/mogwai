@@ -71,7 +71,7 @@ impl ViewText for SsrText {
     }
 
     fn get_text(&self) -> Str {
-        self.text.get().clone()
+        self.text.with(|text| text.clone())
     }
 }
 
@@ -84,7 +84,7 @@ impl ViewChild<Ssr> for SsrText {
 impl ViewEventTarget<Ssr> for SsrText {
     fn listen(&self, event_name: impl Into<Str>) -> <Ssr as View>::EventListener {
         let listener = SsrEventListener::new(SsrEventTarget::Node(self.clone().into()), event_name);
-        self.events.get_mut().push(listener.clone());
+        self.events.with_mut(|events| events.push(listener.clone()));
         listener
     }
 }
@@ -107,13 +107,13 @@ impl PartialEq for SsrElement {
 
 impl ViewParent<Ssr> for SsrElement {
     fn append_node(&self, node: Cow<'_, <Ssr as View>::Node>) {
-        self.children.get_mut().push(node.into_owned());
+        self.children
+            .with_mut(|children| children.push(node.into_owned()));
     }
 
     fn remove_node(&self, node: Cow<'_, <Ssr as View>::Node>) {
         self.children
-            .get_mut()
-            .retain(|child| child != node.as_ref());
+            .with_mut(|children| children.retain(|child| child != node.as_ref()));
     }
 
     fn replace_node(
@@ -121,13 +121,14 @@ impl ViewParent<Ssr> for SsrElement {
         new_node: Cow<'_, <Ssr as View>::Node>,
         old_node: Cow<'_, <Ssr as View>::Node>,
     ) {
-        let mut children = self.children.get_mut();
-        let found = children
-            .iter_mut()
-            .find(|child| *child == old_node.as_ref());
-        if let Some(node) = found {
-            *node = new_node.into_owned();
-        }
+        self.children.with_mut(|children| {
+            let found = children
+                .iter_mut()
+                .find(|child| *child == old_node.as_ref());
+            if let Some(node) = found {
+                *node = new_node.into_owned();
+            }
+        });
     }
 
     fn insert_node_before(
@@ -136,17 +137,18 @@ impl ViewParent<Ssr> for SsrElement {
         before_node: Option<Cow<'_, <Ssr as View>::Node>>,
     ) {
         if let Some(before_node) = before_node {
-            let mut children = self.children.get_mut();
-            let found = children.iter().enumerate().find_map(|(i, child)| {
-                if child == before_node.as_ref() {
-                    Some(i)
-                } else {
-                    None
+            self.children.with_mut(|children| {
+                let found = children.iter().enumerate().find_map(|(i, child)| {
+                    if child == before_node.as_ref() {
+                        Some(i)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(index) = found {
+                    children.insert(index, new_node.into_owned());
                 }
             });
-            if let Some(index) = found {
-                children.insert(index, new_node.into_owned());
-            }
         } else {
             self.append_node(new_node);
         }
@@ -161,63 +163,61 @@ impl ViewChild<Ssr> for SsrElement {
 
 impl ViewProperties for SsrElement {
     fn set_property(&self, key: impl AsRef<str>, value: impl AsRef<str>) {
-        let mut attributes = self.attributes.get_mut();
-        let (k, v) = (
-            key.as_ref().to_owned().into(),
-            value.as_ref().to_owned().into(),
-        );
-        for (k_prev, v_prev) in attributes.iter_mut() {
-            if k_prev == &k {
-                *v_prev = Some(v);
-                return;
+        self.attributes.with_mut(|attributes| {
+            let (k, v) = (
+                key.as_ref().to_owned().into(),
+                value.as_ref().to_owned().into(),
+            );
+            for (k_prev, v_prev) in attributes.iter_mut() {
+                if k_prev == &k {
+                    *v_prev = Some(v);
+                    return;
+                }
             }
-        }
-        attributes.push((k, Some(v)));
+            attributes.push((k, Some(v)));
+        });
     }
 
     fn has_property(&self, key: impl AsRef<str>) -> bool {
-        for (pkey, _pval) in self.attributes.get().iter() {
-            if pkey == key.as_ref() {
-                return true;
-            }
-        }
-        false
+        self.attributes
+            .with(|attributes| attributes.iter().any(|(pkey, _pval)| pkey == key.as_ref()))
     }
 
     fn get_property(&self, key: impl AsRef<str>) -> Option<Str> {
-        for (pkey, pval) in self.attributes.get().iter() {
-            if pkey == key.as_ref() {
-                return pval.clone();
-            }
-        }
-        None
+        self.attributes.with(|attributes| {
+            attributes
+                .iter()
+                .find(|(pkey, _pval)| pkey == key.as_ref())
+                .and_then(|(_, pval)| pval.clone())
+        })
     }
 
     fn remove_property(&self, key: impl AsRef<str>) {
         self.attributes
-            .get_mut()
-            .retain_mut(|p| p.0 != key.as_ref());
+            .with_mut(|attributes| attributes.retain_mut(|p| p.0 != key.as_ref()));
     }
 
     /// Add a style property.
     fn set_style(&self, key: impl AsRef<str>, value: impl AsRef<str>) {
-        let mut styles = self.styles.get_mut();
-        let key = key.as_ref().to_owned().into();
-        let value = value.as_ref().to_owned().into();
-        for (pkey, pval) in styles.iter_mut() {
-            if pkey == &key {
-                *pval = value;
-                return;
+        self.styles.with_mut(|styles| {
+            let key = key.as_ref().to_owned().into();
+            let value = value.as_ref().to_owned().into();
+            for (pkey, pval) in styles.iter_mut() {
+                if pkey == &key {
+                    *pval = value;
+                    return;
+                }
             }
-        }
-        styles.push((key, value));
+            styles.push((key, value));
+        });
     }
 
     /// Remove a style property.
     ///
     /// Returns the previous style value, if any.
     fn remove_style(&self, key: impl AsRef<str>) {
-        self.styles.get_mut().retain_mut(|p| p.0 != key.as_ref());
+        self.styles
+            .with_mut(|styles| styles.retain_mut(|p| p.0 != key.as_ref()));
     }
 }
 
@@ -227,16 +227,18 @@ impl ViewEventTarget<Ssr> for SsrElement {
             SsrEventTarget::Node(SsrNode::Element(self.clone())),
             event_name,
         );
-        self.events.get_mut().push(event_listener.clone());
+        self.events
+            .with_mut(|events| events.push(event_listener.clone()));
         event_listener
     }
 }
 
 impl SsrElement {
     pub fn html_string(&self) -> String {
-        // Only certain nodes can be "void" - which means written as <tag /> when
-        // the node contains no children. Writing non-void nodes in void notation
-        // does some spooky things to the DOM at parse-time.
+        // Only certain nodes can be "void" - which means written as <tag />
+        // when the node contains no children. Writing non-void nodes in
+        // void notation does some spooky things to the DOM at
+        // parse-time.
         //
         // From https://riptutorial.com/html/example/4736/void-elements
         // HTML 4.01/XHTML 1.0 Strict includes the following void elements:
@@ -252,13 +254,13 @@ impl SsrElement {
         //     meta - provides information about the document
         //     param - defines parameters for plugins
         //
-        //     HTML 5 standards include all non-deprecated tags from the previous list
-        // and
+        //     HTML 5 standards include all non-deprecated tags from the
+        // previous list and
         //
         //     command - represents a command users can invoke [obsolete]
         //     keygen - facilitates public key generation for web certificates
-        // [deprecated]     source - specifies media sources for picture, audio, and
-        // video elements
+        // [deprecated]     source - specifies media sources for picture, audio,
+        // and video elements
         fn tag_is_voidable(tag: &str) -> bool {
             tag == "area"
                 || tag == "base"
@@ -275,11 +277,10 @@ impl SsrElement {
                 || tag == "source"
         }
         let name = &self.name;
-        let styles = self.styles.get();
-        let attributes = self.attributes.get_mut();
-        let children = self.children.get();
+        let styles = self.styles.with(|styles| styles.clone());
+        let children = self.children.with(|children| children.clone());
 
-        let mut attributes = attributes.clone();
+        let mut attributes = self.attributes.with(|attributes| attributes.clone());
         if !styles.is_empty() {
             let styles = styles
                 .iter()
@@ -332,7 +333,7 @@ impl SsrElement {
             for kid in children.iter() {
                 let node = match kid {
                     SsrNode::Element(element_builder) => element_builder.html_string(),
-                    SsrNode::Text(text_builder) => text_builder.text.get().to_string(),
+                    SsrNode::Text(text_builder) => text_builder.text.with(|text| text.to_string()),
                 };
                 kids.push(node);
             }
@@ -375,7 +376,7 @@ impl SsrNode {
     pub fn name(&self) -> String {
         match self {
             SsrNode::Element(ssr_element) => ssr_element.name.to_string(),
-            SsrNode::Text(ssr_text) => ssr_text.text.get().to_string(),
+            SsrNode::Text(ssr_text) => ssr_text.text.with(|text| text.to_string()),
         }
     }
 }
@@ -403,9 +404,9 @@ impl PartialEq for SsrEventListener {
 impl ViewEventListener<Ssr> for SsrEventListener {
     fn next(&self) -> impl Future<Output = ()> {
         self.ensure_channel();
-        let channel = self.channel.get();
-        let (_, rx) = channel.as_ref().unwrap();
-        let rx = rx.clone();
+        let rx = self
+            .channel
+            .with(|channel| channel.as_ref().unwrap().1.clone());
         async move { rx.recv().await.unwrap() }
     }
 
@@ -428,16 +429,19 @@ impl SsrEventListener {
     }
 
     fn ensure_channel(&self) {
-        if self.channel.get().is_none() {
-            *self.channel.get_mut() = Some(async_channel::bounded(1));
-        }
+        self.channel.with_mut(|channel| {
+            if channel.is_none() {
+                *channel = Some(async_channel::bounded(1));
+            }
+        });
     }
 
     /// Fire an event occurence to any waiting listeners.
     pub async fn fire(&self) {
         self.ensure_channel();
-        let channel = self.channel.get();
-        let (tx, _) = channel.as_ref().unwrap();
+        let tx = self
+            .channel
+            .with(|channel| channel.as_ref().unwrap().0.clone());
         tx.send(()).await.unwrap();
     }
 }
@@ -491,13 +495,13 @@ mod test {
         }
 
         fn new_widget<V: View>() -> Widget<V> {
-            let mut state = Proxy::new(Status {
+            let state = Proxy::new(Status {
                 color: "black".to_string(),
                 message: "Hello".to_string(),
             });
 
-            // We start out with a `div` element bound to `root`, containing a nested `p`
-            // tag with the message "Hello" in black.
+            // We start out with a `div` element bound to `root`, containing a
+            // nested `p` tag with the message "Hello" in black.
             rsx! {
                 let root = div() {
                     p(
@@ -519,7 +523,7 @@ mod test {
 
         println!("creating");
         // Verify at creation that the view shows "Hello" in black.
-        let mut w = new_widget::<mogwai::ssr::Ssr>();
+        let w = new_widget::<mogwai::ssr::Ssr>();
         assert_eq!(
             r#"<div><p id="message_wrapper" style="color: black;">Hello</p></div>"#,
             w.root.html_string()

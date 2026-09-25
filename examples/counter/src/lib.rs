@@ -1,6 +1,6 @@
 use log::Level;
 use mogwai::web::prelude::*;
-use std::panic;
+use std::{future::Future, panic};
 use wasm_bindgen::prelude::*;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -19,7 +19,7 @@ pub struct ButtonClick<V: View> {
 
 impl<V: View> Default for ButtonClick<V> {
     fn default() -> Self {
-        let mut proxy = Proxy::default();
+        let proxy = Proxy::default();
 
         rsx! {
             let wrapper = button(
@@ -42,12 +42,23 @@ impl<V: View> Default for ButtonClick<V> {
     }
 }
 
+impl<V: View> Step for ButtonClick<V> {
+    type Output = ();
+
+    fn step(&self) -> impl Future<Output = ()> {
+        async move {
+            let _ev = self.on_click.next().await;
+            self.clicks.modify(|n| *n += 1);
+        }
+    }
+}
+
 #[wasm_bindgen]
 pub fn run(parent_id: Option<String>) {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(Level::Trace).unwrap();
 
-    let mut view = ButtonClick::<Web>::default();
+    let view = ButtonClick::<Web>::default();
     if let Some(id) = parent_id {
         mogwai::web::document()
             .get_element_by_id(&id)
@@ -59,8 +70,7 @@ pub fn run(parent_id: Option<String>) {
 
     wasm_bindgen_futures::spawn_local(async move {
         loop {
-            let _ev = view.on_click.next().await;
-            view.clicks.modify(|n| *n += 1);
+            view.step().await;
         }
     });
 }

@@ -7,21 +7,22 @@
 //!
 //! ## Primitives
 //!
-//! - **[`Global`]**: A utility for managing global state, such as the window and document objects.
+//! - **[`Global`]**: A utility for managing global state, such as the window
+//!   and document objects.
 //!
-//! - **[`Shared`]**: A type that wraps data in a reference-counted pointer, providing
-//!   safe concurrent access. On non-wasm32 targets, it uses `Arc<RwLock<T>>` for
-//!   thread safety. On wasm32 targets, it uses `Rc<RefCell<T>>` due to the single-threaded
-//!   nature of WebAssembly, which simplifies the concurrency model.
+//! - **[`Shared`]**: A type that wraps data in a reference-counted pointer,
+//!   providing safe concurrent access. On non-wasm32 targets, it uses
+//!   `Arc<RwLock<T>>` for thread safety. On wasm32 targets, it uses
+//!   `Rc<RefCell<T>>` due to the single-threaded nature of WebAssembly, which
+//!   simplifies the concurrency model.
 //!
-//! Mogwai's event setup is geared towards managing UI in short lived steps, which allows for
-//! mutability, so for most cases [`Shared`] shouldn't be necessary.
-//! Sometimes this is unavoidable though, or prefered even, and so this module exists.
+//! Mogwai's event setup is geared towards managing UI in short lived steps, so
+//! most state never needs to be shared between threads. When shared mutable
+//! state is unavoidable (or preferred) this module provides the primitives.
+//! [`Proxy`](crate::proxy::Proxy) builds on [`Shared`] to update views from a
+//! shared reference.
 
-use std::{
-    borrow::Cow,
-    ops::{Deref, DerefMut},
-};
+use std::{borrow::Cow, ops::Deref};
 
 use crate::Str;
 
@@ -109,27 +110,35 @@ impl<T> Shared<T> {
         }
     }
 
-    /// Get a reference to the inner `T`.
-    pub fn get(&self) -> impl Deref<Target = T> {
+    /// Run a function with access to the inner `T`.
+    ///
+    /// The inner value is only borrowed for the duration of the function, so
+    /// no lock guard can leak out and be held across an `await`.
+    pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.inner.read().unwrap()
+            f(&self.inner.read().unwrap())
         }
         #[cfg(target_arch = "wasm32")]
         {
-            self.inner.borrow()
+            f(&self.inner.borrow())
         }
     }
 
-    /// Get a mutable reference to the inner `T`.
-    pub fn get_mut(&self) -> impl DerefMut<Target = T> {
+    /// Run a function with mutable access to the inner `T`.
+    ///
+    /// The inner value is only borrowed for the duration of the function, so
+    /// no lock guard can leak out and be held across an `await`. The function
+    /// must not access the same `Shared` again while it runs - doing so
+    /// deadlocks off-wasm32 and panics on wasm32.
+    pub fn with_mut<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.inner.write().unwrap()
+            f(&mut self.inner.write().unwrap())
         }
         #[cfg(target_arch = "wasm32")]
         {
-            self.inner.borrow_mut()
+            f(&mut self.inner.borrow_mut())
         }
     }
 
@@ -137,7 +146,7 @@ impl<T> Shared<T> {
     ///
     /// Returns the previous value.
     pub fn set(&self, value: T) -> T {
-        std::mem::replace(self.get_mut().deref_mut(), value)
+        self.with_mut(|old| std::mem::replace(old, value))
     }
 }
 
