@@ -25,7 +25,7 @@ pub struct Item<V: View> {
 impl<V: View> Item<V> {
     /// Creates an item from a unique identifier.
     fn new(id: usize) -> Self {
-        let mut clicks = Proxy::default();
+        let clicks = Proxy::default();
 
         rsx! {
             let wrapper = li() {
@@ -66,7 +66,7 @@ impl<V: View> Item<V> {
         loop {
             futures::select! {
                 _ = self.on_click_increment.next().fuse() => {
-                    self.clicks.set(*self.clicks + 1);
+                    self.clicks.modify(|n| *n += 1);
                 }
                 _ = self.on_click_remove.next().fuse() => {
                     return self.id;
@@ -113,8 +113,8 @@ impl<V: View> ItemSet<V> {
             .collect::<Vec<_>>();
 
         if all_items.is_empty() {
-            // select_all will panic if there are no items, so we just stall here,
-            // as nothing can happen until items are added
+            // select_all will panic if there are no items, so we just stall
+            // here, as nothing can happen until items are added
             futures::future::pending::<()>().await;
         }
 

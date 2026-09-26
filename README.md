@@ -54,7 +54,7 @@ pub struct ButtonClick<V: View> {
 
 impl<V: View> Default for ButtonClick<V> {
     fn default() -> Self {
-        let mut num_clicks = Proxy::<u32>::default();
+        let num_clicks = Proxy::<u32>::default();
 
         rsx! {
             let wrapper = button(
@@ -77,9 +77,9 @@ impl<V: View> Default for ButtonClick<V> {
     }
 }
 
-impl<V: View> StepMut for ButtonClick<V> {
+impl<V: View> Step for ButtonClick<V> {
     type Output = ();
-    fn step_mut(&mut self) -> impl Future<Output = ()> {
+    fn step(&self) -> impl Future<Output = ()> {
         async move {
             let _ev = self.on_click.next().await;
             self.num_clicks.modify(|n| *n += 1);
@@ -89,11 +89,11 @@ impl<V: View> StepMut for ButtonClick<V> {
 
 #[wasm_bindgen(start)]
 pub fn main() {
-    let mut view = ButtonClick::<Web>::default();
+    let view = ButtonClick::<Web>::default();
     mogwai::web::body().append_child(&view);
     wasm_bindgen_futures::spawn_local(async move {
         loop {
-            view.step_mut().await;
+            view.step().await;
         }
     });
 }

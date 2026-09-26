@@ -14,7 +14,7 @@ console_error_panic_hook.workspace = true
 console_log.workspace = true
 mogwai-js-framework-benchmark = { path = "../mogwai-js-framework-benchmark", default-features = false }
 log.workspace = true
-mogwai = { path = "../mogwai", version = "0.7" }
+mogwai = { path = "../mogwai", version = "0.8" }
 serde_json.workspace = true
 serde.workspace = true
 wasm-bindgen.workspace = true

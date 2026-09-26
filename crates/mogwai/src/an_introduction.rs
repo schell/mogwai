@@ -15,46 +15,48 @@
 //!
 //! ## Preludes
 //!
-//! There are a _few_ prelude modules that you can glob-import to make development easier:
+//! There are a _few_ prelude modules that you can glob-import to make
+//! development easier:
 //!
-//! The first is the common prelude, which contains cross-platform types and traits.
+//! The first is the common prelude, which contains cross-platform types and
+//! traits.
 //!
 //! ```rust
 //! use mogwai::prelude::*;
 //! ```
 //!
-//! Then there are more domain-specific preludes for web and server-side rendering,
-//! both of which re-export the common prelude:
+//! Then there are more domain-specific preludes for web and server-side
+//! rendering, both of which re-export the common prelude:
 //!
 //! ```rust
-//! use mogwai::web::prelude::*;
-//! use mogwai::ssr::prelude::*;
+//! use mogwai::{ssr::prelude::*, web::prelude::*};
 //! ```
 //!
-//! The [web prelude](crate::web::prelude) also re-exports a few of the most commonly
-//! used WASM crates as a convenience, such as [`web_sys`], [`wasm_bindgen`] and
-//! [`wasm_bindgen_futures`].
+//! The [web prelude](crate::web::prelude) also re-exports a few of the most
+//! commonly used WASM crates as a convenience, such as [`web_sys`],
+//! [`wasm_bindgen`] and [`wasm_bindgen_futures`].
 //!
 //! ## View Construction
 //!
 //! View construction is accomplished using a novel [`rsx!`] macro that reduces
-//! boilerplate and has special syntax for setting node attributes, text and nesting
-//! views.
+//! boilerplate and has special syntax for setting node attributes, text and
+//! nesting views.
 //!
 //! ### RSX
 //!
-//! [`rsx!`] is a lot like react.js's JSX, except that it uses type checked Rust expressions.
+//! [`rsx!`] is a lot like react.js's JSX, except that it uses type checked Rust
+//! expressions.
 //!
 //! Let's start by writing a function that constructs a simple element:
 //!
 //! ```rust
 //! use mogwai::prelude::*;
 //!
-//! struct Widget<V:View> {
-//!     root: V::Element
+//! struct Widget<V: View> {
+//!     root: V::Element,
 //! }
 //!
-//! impl<V:View> Widget<V> {
+//! impl<V: View> Widget<V> {
 //!     fn new() -> Self {
 //!         rsx! {
 //!             let root = div(class = "my-div") {
@@ -64,14 +66,14 @@
 //!             }
 //!         };
 //!
-//!         Self{ root }
+//!         Self { root }
 //!     }
 //! }
 //! ```
 //!
 //! As you can see, the struct takes a type parameter `V:View` which has an
-//! associated type `Element`. This allows us to write our views in a platform-agnostic
-//! way, and then specialize at runtime:
+//! associated type `Element`. This allows us to write our views in a
+//! platform-agnostic way, and then specialize at runtime:
 //!
 //! ```rust,no_run
 //! # use mogwai::web::Web;
@@ -94,11 +96,12 @@
 //! let web_element = Widget::<Web>::new();
 //! ```
 //!
-//! [`Web`](crate::web::Web) is a type that implements [`View`]. It monomorphizes our struct
-//! to produce a view using [`web_sys`] types.
+//! [`Web`](crate::web::Web) is a type that implements [`View`]. It
+//! monomorphizes our struct to produce a view using [`web_sys`] types.
 //!
-//! Also provided is the [`Ssr`](crate::ssr::Ssr) type, which implements [`View`] to produce
-//! views that render to [`String`] for server-side rendering.
+//! Also provided is the [`Ssr`](crate::ssr::Ssr) type, which implements
+//! [`View`] to produce views that render to [`String`] for server-side
+//! rendering.
 //!
 //! ```rust
 //! # use mogwai::ssr::Ssr;
@@ -122,8 +125,9 @@
 //! println!("{}", ssr_element.root.html_string());
 //! ```
 //!
-//! In this way, server-side rendering is a separate view "platform" from the browser,
-//! but we can build the view all the same using our `V:View` parameterization.
+//! In this way, server-side rendering is a separate view "platform" from the
+//! browser, but we can build the view all the same using our `V:View`
+//! parameterization.
 //!
 //! ### Cross-platform
 //!
@@ -141,33 +145,33 @@
 //! [`when_element`](crate::view::ViewElement::when_element)
 //! and [`when_event`](crate::view::ViewEvent::when_event):
 //!
-//! ```rust                                                                                        
-//! use mogwai::web::prelude::*;                                                                        
-//!                                                                                                
-//! struct MyView<V: View> {                                                                       
-//!     root: V::Element,                                                                          
+//! ```rust
+//! use mogwai::web::prelude::*;
+//!
+//! struct MyView<V: View> {
+//!     root: V::Element,
 //!     button: V::Element,
-//! }                                                                                              
-//!                                                                                                
-//! impl<V: View> MyView<V> {                                                                      
-//!     fn new() -> Self {                                                                         
-//!         rsx! {                                                                                 
-//!             let root = div(class = "my-view") {                                                
-//!                 h1() { "Hello, Mogwai!" }                                                      
-//!                 let button = button() {                           
-//!                     "Click me"                                                                 
-//!                 }                                                                              
-//!             }                                                                                  
-//!         }                                                                                      
-//!         Self { root, button }                                                                          
-//!     }                                                                                          
-//!                                                                                                
-//!     fn specialize_for_web(&self) {                                                             
-//!         self.button.when_element::<Web, _>(|el: &web_sys::Element| {                                                
-//!             el.set_property("data-special", "web");                                            
-//!         });                                                                                    
-//!     }                                                                                          
-//! }                                                                                              
+//! }
+//!
+//! impl<V: View> MyView<V> {
+//!     fn new() -> Self {
+//!         rsx! {
+//!             let root = div(class = "my-view") {
+//!                 h1() { "Hello, Mogwai!" }
+//!                 let button = button() {
+//!                     "Click me"
+//!                 }
+//!             }
+//!         }
+//!         Self { root, button }
+//!     }
+//!
+//!     fn specialize_for_web(&self) {
+//!         self.button.when_element::<Web, _>(|el: &web_sys::Element| {
+//!             el.set_property("data-special", "web");
+//!         });
+//!     }
+//! }
 //! ```
 //!
 //! We can even go a step further when specializing for the web by using
@@ -177,43 +181,43 @@
 //! [`JsCast`](wasm_bindgen::JsCast).
 //!
 //! ```rust
-//! use mogwai::web::prelude::*;                                                                        
-//!                                                                                                
-//! struct MyView<V: View> {                                                                       
-//!     root: V::Element,                                                                          
+//! use mogwai::web::prelude::*;
+//!
+//! struct MyView<V: View> {
+//!     root: V::Element,
 //!     input: V::Element,
-//! }                                                                                              
-//!                                                                                                
-//! impl<V: View> MyView<V> {                                                                      
-//!     fn new() -> Self {                                                                         
-//!         rsx! {                                                                                 
-//!             let root = div(class = "my-view") {                                                
-//!                 h1() { "Use the input:" }                                                      
-//!                 let input = input(type_ = "text") {}                                                                              
-//!             }                                                                                  
-//!         }                                                                                      
-//!         Self { root, input }                                                                          
-//!     }                                                                                          
-//!                                                                                                
-//!     fn specialize_for_web(&self) {                                                             
-//!         self.input.dyn_el(|input: &web_sys::HtmlInputElement| {                                                
+//! }
+//!
+//! impl<V: View> MyView<V> {
+//!     fn new() -> Self {
+//!         rsx! {
+//!             let root = div(class = "my-view") {
+//!                 h1() { "Use the input:" }
+//!                 let input = input(type_ = "text") {}
+//!             }
+//!         }
+//!         Self { root, input }
+//!     }
+//!
+//!     fn specialize_for_web(&self) {
+//!         self.input.dyn_el(|input: &web_sys::HtmlInputElement| {
 //!             let value = input.value();
 //!             // do special stuff with the input value here...
-//!         });                                                                                    
-//!     }                                                                                          
+//!         });
+//!     }
 //! }
 //! ```
 //!
 //! ### Event handling
 //!
-//! The [`rsx!`] macro binds [event listeners](crate::view::ViewEventListener) in
-//! attribute position to a name, which can then be used by platform-agnostic
+//! The [`rsx!`] macro binds [event listeners](crate::view::ViewEventListener)
+//! in attribute position to a name, which can then be used by platform-agnostic
 //! logic:
 //!
 //! ```rust
 //! use mogwai::prelude::*;
 //!
-//! struct Widget<V:View> {
+//! struct Widget<V: View> {
 //!     root: V::Element,
 //!     text: V::Text,
 //!     /// A cross-platform event listener, which responds to `.next()` to await the
@@ -221,26 +225,26 @@
 //!     on_click: V::EventListener,
 //! }
 //!
-//! impl<V:View> Widget<V> {
+//! impl<V: View> Widget<V> {
 //!     fn new() -> Self {
-//!          rsx! {
-//!              let root = div(class = "my-div") {
-//!                  a(
-//!                      // Here an event listener is registered and then bound
-//!                      // to the name `on_click`
-//!                      on:click = on_click,
-//!                      href = "http://zyghost.com"
-//!                  ) {
-//!                      let text = "Schellsan's website"
-//!                  }
-//!              }
-//!          };
+//!         rsx! {
+//!             let root = div(class = "my-div") {
+//!                 a(
+//!                     // Here an event listener is registered and then bound
+//!                     // to the name `on_click`
+//!                     on:click = on_click,
+//!                     href = "http://zyghost.com"
+//!                 ) {
+//!                     let text = "Schellsan's website"
+//!                 }
+//!             }
+//!         };
 //!
-//!          Self{
-//!              root,
-//!              text,
-//!              on_click,
-//!          }
+//!         Self {
+//!             root,
+//!             text,
+//!             on_click,
+//!         }
 //!     }
 //!
 //!     async fn step(&self) {
@@ -250,30 +254,34 @@
 //! }
 //! ```
 //!
-//! As you can see, the view platform is kept agnostic, and after the click event,
-//! updating the text is an obvious, intentional action on the part of the logic inside
-//! the `step` function.
+//! As you can see, the view platform is kept agnostic, and after the click
+//! event, updating the text is an obvious, intentional action on the part of
+//! the logic inside the `step` function.
 //!
-//! The `step` convention can be formalized with the [`Step`] and [`StepMut`] traits
-//! from the [`step`](crate::step) module. [`Step`] is for widgets that only await
-//! event listeners (immutable borrow), while [`StepMut`] is for widgets that
-//! mutate their own fields (mutable borrow). Callers drive the event loop:
-//! `loop { widget.step().await }` (or `widget.step_mut().await` for [`StepMut`]).
+//! The `step` convention can be formalized with the [`Step`] and [`StepMut`]
+//! traits from the [`step`](crate::step) module. [`Step`] is for widgets that
+//! only await event listeners (immutable borrow), while [`StepMut`] is for
+//! widgets that mutate their own fields (mutable borrow). Callers drive the
+//! event loop: `loop { widget.step().await }` (or `widget.step_mut().await` for
+//! [`StepMut`]).
 //!
 //! ### Using [`Proxy`] for updates
 //!
-//! Views in mogwai are dynamic, but they are updated explicitly in response to events.
-//! Sometimes, though, we'd like to hold little bits of state in our views, and when
-//! that state changes we want multiple parts of the view to "react".
+//! Views in mogwai are dynamic, but they are updated explicitly in response to
+//! events. Sometimes, though, we'd like to hold little bits of state in our
+//! views, and when that state changes we want multiple parts of the view to
+//! "react".
 //!
-//! This doesn't violate mogwai's goal of ensuring updates are explicit, in that the change must
-//! be executed explicitly in logic, but the results of that change may occur in more
-//! than one place, by use of the [`Proxy`] type.
+//! This doesn't violate mogwai's goal of ensuring updates are explicit, in that
+//! the change must be executed explicitly in logic, but the results of that
+//! change may occur in more than one place, by use of the [`Proxy`] type.
 //!
-//! To use a [`Proxy`] we construct it outside of the [`rsx!`] macro and then use it
-//! with some special notation inside the macro:
+//! To use a [`Proxy`] we construct it outside of the [`rsx!`] macro and then
+//! use it with some special notation inside the macro:
 //!
 //! ```rust
+//! use std::future::Future;
+//!
 //! use mogwai::prelude::*;
 //!
 //! struct Widget<V:View> {
@@ -284,7 +292,7 @@
 //!
 //! impl<V:View> Widget<V> {
 //!     fn new() -> Self {
-//!          let mut state = Proxy::new(0);
+//!          let state = Proxy::new(0);
 //!
 //!          rsx! {
 //!              let root = div(class = "my-div") {
@@ -310,26 +318,35 @@
 //!              state,
 //!          }
 //!     }
+//! }
 //!
-//!     async fn step(&mut self) {
-//!         let _ev: V::Event = self.on_click.next().await;
-//!         let current_clicks = *self.state;
-//!         self.state.set(current_clicks + 1);
+//! impl<V:View> Step for Widget<V> {
+//!     type Output = ();
+//!
+//!     fn step(&self) -> impl Future<Output = ()> {
+//!         async move {
+//!             let _ev: V::Event = self.on_click.next().await;
+//!             let current_clicks = self.state.with(|n| *n);
+//!             self.state.set(current_clicks + 1);
+//!         }
 //!     }
 //! }
 //! ```
 //!
-//! Here `step` takes `&mut self` because it modifies the `Proxy` — this widget would
-//! implement [`StepMut`] rather than [`Step`].
+//! Because `Proxy` uses interior mutability, `step` only needs `&self` — this
+//! widget implements [`Step`], so a parent could race it alongside other
+//! widgets.
 //!
-//! In this example, clicking the button updates the state, which in turn updates
-//! the paragraph text. The `Proxy` type is used to manage the state and trigger
-//! updates to the view when the state changes.
+//! In this example, clicking the button updates the state, which in turn
+//! updates the paragraph text. The `Proxy` type is used to manage the state and
+//! trigger updates to the view when the state changes.
 //!
 //! #### [`Proxy`] API notes
 //!
-//! Note that [`Proxy`] is not `Clone`, and that modifying a [`Proxy`] requires mutation.
-//! This is a purposeful design choice to make tracking down data updates easy.
+//! Note that [`Proxy`] is not `Clone`. `Proxy` uses interior mutability, like
+//! `web-sys` types and the rest of mogwai's view layers, so `set` and `modify`
+//! only require shared access. Widgets that only update state through a
+//! [`Proxy`] can implement [`Step`] and be raced by their parents.
 //!
 //! ### More RSX features
 //!
@@ -521,15 +538,19 @@
 //!                 "Change the URL hash or press a key"
 //!             }
 //!         }
-//!         Self { root, on_hashchange, on_keydown }
+//!         Self {
+//!             root,
+//!             on_hashchange,
+//!             on_keydown,
+//!         }
 //!     }
 //! }
 //! ```
 //!
 //! # Getting started
 //!
-//! That's it! Time to get started. If you're looking for a project template you can use
-//! the [`cargo-generate`](https://crates.io/crates/cargo-generate)
+//! That's it! Time to get started. If you're looking for a project template you
+//! can use the [`cargo-generate`](https://crates.io/crates/cargo-generate)
 //! [`mogwai-template`](https://github.com/schell/mogwai-template).
 
 #[allow(unused_imports)]

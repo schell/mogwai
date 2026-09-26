@@ -1,8 +1,8 @@
 //! Contains parsing an RSX node into various data types.
 use std::{collections::HashMap, str::FromStr};
 
-use quote::{format_ident, quote, ToTokens};
-use syn::{parse::Parse, spanned::Spanned, Expr, Ident, Token};
+use quote::{ToTokens, format_ident, quote};
+use syn::{Expr, Ident, Token, parse::Parse, spanned::Spanned};
 
 fn under_to_dash(s: impl AsRef<str>) -> String {
     s.as_ref().trim_matches('_').replace('_', "-")
@@ -322,8 +322,7 @@ impl WebFlavor {
         let proxy_ident = &proxy.proxy_ident;
         let pattern = &proxy.pattern;
         quote! {{
-            let #pattern = #proxy_ident.as_ref();
-            #element_ident.#fn_ident(#param, #expr);
+            #proxy_ident.with(|#pattern| #element_ident.#fn_ident(#param, #expr));
         }}
     }
 
@@ -348,8 +347,7 @@ impl WebFlavor {
         let pattern = &proxy.pattern;
         let expr = &proxy.expr;
         quote! { let mut #ident = {
-            let #pattern = (std::ops::Deref::deref(&#proxy_ident));
-            mogwai::proxy::ProxyChild::new(#expr)
+            #proxy_ident.with(|#pattern| mogwai::proxy::ProxyChild::new(#expr))
         };}
     }
 }

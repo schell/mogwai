@@ -89,7 +89,7 @@ mod tokens;
 /// }
 ///
 /// fn new_widget<V: View>() -> Widget<V> {
-///     let mut state = Proxy::new(Status {
+///     let state = Proxy::new(Status {
 ///         color: "black".to_string(),
 ///         message: "Hello".to_string(),
 ///     });

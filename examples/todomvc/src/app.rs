@@ -68,8 +68,8 @@ impl<V: View> TodoList<V> {
             .collect::<Vec<_>>();
 
         if steps.is_empty() {
-            // select_all will panic if there are no items, so we just stall here,
-            // as nothing can happen until items are added
+            // select_all will panic if there are no items, so we just stall
+            // here, as nothing can happen until items are added
             futures::future::pending::<()>().await;
         }
 
@@ -136,9 +136,9 @@ pub struct App<V: View> {
 
 impl<V: View> Default for App<V> {
     fn default() -> Self {
-        let mut should_show_todo_list = Proxy::<bool>::new(false);
-        let mut todo_count = Proxy::<usize>::new(0);
-        let mut filter_show = Proxy::<FilterShow>::new(FilterShow::All);
+        let should_show_todo_list = Proxy::<bool>::new(false);
+        let todo_count = Proxy::<usize>::new(0);
+        let filter_show = Proxy::<FilterShow>::new(FilterShow::All);
         rsx! {
             let wrapper = section(id="todo_main", class="todoapp") {
                 header(class = "header") {

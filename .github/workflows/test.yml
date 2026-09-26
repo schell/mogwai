@@ -22,7 +22,7 @@ jobs:
           target
         key: ${{ runner.os }}-cargo-all-${{ github.ref }}
         restore-keys: |
-          ${{ runner.os }}-cargo-all-refs/heads/master
+          ${{ runner.os }}-cargo-all-refs/heads/main
           ${{ runner.os }}-cargo-all-
 
     - name: bootstrap

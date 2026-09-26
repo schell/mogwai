@@ -1,7 +1,7 @@
 //! # RSX: View Construction Macro
 //!
-//! The [`rsx!`](crate::rsx) macro is mogwai's tool for declaratively building UI
-//! views using a syntax similar to JSX. It transforms a tree of HTML-like
+//! The [`rsx!`](crate::rsx) macro is mogwai's tool for declaratively building
+//! UI views using a syntax similar to JSX. It transforms a tree of HTML-like
 //! elements, attributes, text nodes, and Rust expressions into Rust code that
 //! constructs the corresponding platform-agnostic view elements.
 //!
@@ -243,7 +243,11 @@
 //!                 }
 //!             }
 //!         }
-//!         Self { root, button, label }
+//!         Self {
+//!             root,
+//!             button,
+//!             label,
+//!         }
 //!     }
 //! }
 //! ```
@@ -302,7 +306,10 @@
 //!         }
 //!         // `completed_input` is in scope here, alongside `root`, even though
 //!         // it was bound three levels deep in the tree.
-//!         Self { root, completed_input }
+//!         Self {
+//!             root,
+//!             completed_input,
+//!         }
 //!     }
 //! }
 //! ```
@@ -318,15 +325,13 @@
 //! - **Names must be unique across the entire macro invocation.** Sibling
 //!   subtrees cannot reuse the same `let` name. This is why the macro
 //!   auto-generates unique names (`_div_p1`, `_div_p2`) for unbound nodes.
-//! - **Any captured node is accessible after the macro**, regardless of
-//!   nesting depth. The order of `let` statements in the flattened output
-//!   follows a pre-order traversal (parent created before children, children
-//!   appended after parent), so parents are always initialized before their
-//!   children.
+//! - **Any captured node is accessible after the macro**, regardless of nesting
+//!   depth. The order of `let` statements in the flattened output follows a
+//!   pre-order traversal (parent created before children, children appended
+//!   after parent), so parents are always initialized before their children.
 //! - **The braces are for the parser and tooling**, not for scope. Syntax
-//!   highlighters, formatters, and language servers can use the brace
-//!   structure to understand the tree; Rust's scoping rules do not apply
-//!   within `rsx!`.
+//!   highlighters, formatters, and language servers can use the brace structure
+//!   to understand the tree; Rust's scoping rules do not apply within `rsx!`.
 //!
 //! ## Capturing a deeply nested node
 //!
@@ -733,7 +738,7 @@
 //!
 //! impl<V: View> Default for Counter<V> {
 //!     fn default() -> Self {
-//!         let mut clicks = Proxy::default();
+//!         let clicks = Proxy::default();
 //!         rsx! {
 //!             let root = button(
 //!                 style:cursor = "pointer",
@@ -745,7 +750,11 @@
 //!                 })}
 //!             }
 //!         }
-//!         Self { root, on_click, clicks }
+//!         Self {
+//!             root,
+//!             on_click,
+//!             clicks,
+//!         }
 //!     }
 //! }
 //! ```
@@ -777,7 +786,7 @@
 //!
 //! impl<V: View> Widget<V> {
 //!     fn new() -> Self {
-//!         let mut state = Proxy::new(Status {
+//!         let state = Proxy::new(Status {
 //!             color: "black".to_string(),
 //!             is_visible: true,
 //!         });
@@ -825,7 +834,7 @@
 //! }
 //!
 //! fn new_widget<V: View>() -> Widget<V> {
-//!     let mut state = Proxy::new(Status {
+//!     let state = Proxy::new(Status {
 //!         color: "black".to_string(),
 //!         message: "Hello".to_string(),
 //!     });
@@ -844,7 +853,7 @@
 //!     Widget { root, state }
 //! }
 //!
-//! let mut w = new_widget::<mogwai::ssr::Ssr>();
+//! let w = new_widget::<mogwai::ssr::Ssr>();
 //! assert_eq!(
 //!     r#"<div><p id="message_wrapper" style="color: black;">Hello</p></div>"#,
 //!     w.root.html_string()
@@ -872,7 +881,7 @@
 //! }
 //!
 //! fn new_widget<V: View>() -> Widget<V> {
-//!     let mut state = Proxy::new("Hello".to_string());
+//!     let state = Proxy::new("Hello".to_string());
 //!     rsx! {
 //!         let root = div() {
 //!             {state(s => {
@@ -911,8 +920,8 @@
 //!   tracking data updates easy. The proxy must be moved into the struct that
 //!   owns it.
 //! - The proxy must be initialized (via `Proxy::new` or `Proxy::default`)
-//!   **before** the `rsx!` call, because the initial value is read during
-//!   macro expansion.
+//!   **before** the `rsx!` call, because the initial value is read during macro
+//!   expansion.
 //!
 //! # Nesting Components
 //!
@@ -1001,8 +1010,8 @@
 //! use Rust expressions in block position that return types implementing
 //! [`ViewChild`]:
 //!
-//! - **Conditionals**: return `Option<impl ViewChild>` (`Some` renders,
-//!   `None` renders nothing). See [Block Expressions](#conditionals-via-option).
+//! - **Conditionals**: return `Option<impl ViewChild>` (`Some` renders, `None`
+//!   renders nothing). See [Block Expressions](#conditionals-via-option).
 //! - **Lists**: collect into `Vec<impl ViewChild>` and use as a block. See
 //!   [Block Expressions](#lists-via-vec).
 //! - **Dynamic lists**: for add/remove at runtime, capture a parent element
@@ -1016,15 +1025,13 @@
 //!
 //! - [`Web`](crate::web::Web): backed by `web_sys` types. Use in browser/WASM
 //!   targets.
-//! - [`Ssr`](crate::ssr::Ssr): renders to `String` for server-side
-//!   rendering. `Ssr::Event = ()`.
+//! - [`Ssr`](crate::ssr::Ssr): renders to `String` for server-side rendering.
+//!   `Ssr::Event = ()`.
 //!
 //! Write your views generic over `V: View`, then specialize at the call site:
 //!
 //! ```rust,no_run
-//! use mogwai::prelude::*;
-//! use mogwai::web::Web;
-//! use mogwai::ssr::Ssr;
+//! use mogwai::{prelude::*, ssr::Ssr, web::Web};
 //!
 //! struct Widget<V: View> {
 //!     root: V::Element,

@@ -16,6 +16,6 @@ impl ViewText for Shared<Str> {
     }
 
     fn get_text(&self) -> Str {
-        self.get().clone()
+        self.with(|text| text.clone())
     }
 }
