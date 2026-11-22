@@ -221,8 +221,15 @@ impl<T: Clone> std::future::Future for FutureEventOccurrence<T> {
         if let Some(event) = self.value.borrow().as_ref() {
             std::task::Poll::Ready(event.clone())
         } else {
-            // Store the waker for later.
-            self.wakers.borrow_mut().push(cx.waker().clone());
+            // Store the waker for later, so long as it wakes a new task (we don't want to insert a bunch of cloned wakers).
+            let waker = cx.waker();
+            let mut wakers = self.wakers.borrow_mut();
+            for existing_waker in wakers.iter() {
+                if existing_waker.will_wake(waker) {
+                    return std::task::Poll::Pending;
+                }
+            }
+            wakers.push(waker.clone());
             std::task::Poll::Pending
         }
     }
@@ -570,5 +577,43 @@ mod test {
 
         let ev = listener.next().await;
         assert_eq!(ev.type_(), "click");
+    }
+
+    /// Repeated polls with the same waker must not accumulate entries: the
+    /// wakers vec holds at most one waker per distinct task.
+    #[wasm_bindgen_test]
+    async fn repeated_polls_do_not_accumulate_wakers() {
+        let (_callback, listener) = Listener::new(|_: ()| ());
+
+        for _ in 0..1000 {
+            poll_pending(&listener, noop_waker(1));
+        }
+        assert_eq!(listener.event.borrow().wakers.borrow().len(), 1);
+
+        // A different task's waker is still registered: fan-out stays intact.
+        poll_pending(&listener, noop_waker(2));
+        assert_eq!(listener.event.borrow().wakers.borrow().len(), 2);
+    }
+
+    fn poll_pending<I: Parameters, O: Clone + 'static>(listener: &Listener<I, O>, waker: Waker) {
+        let mut fut = listener.next();
+        let mut cx = std::task::Context::from_waker(&waker);
+        assert!(matches!(
+            std::future::Future::poll(Pin::new(&mut fut), &mut cx),
+            std::task::Poll::Pending
+        ));
+    }
+
+    fn noop_waker(id: usize) -> Waker {
+        use std::task::{RawWaker, RawWakerVTable};
+
+        fn noop(_: *const ()) {}
+        fn clone(p: *const ()) -> RawWaker {
+            RawWaker::new(p, &VTABLE)
+        }
+        static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
+        // SAFETY: every vtable function ignores the data pointer, so the vtable
+        // is valid for any pointer we pass as data.
+        unsafe { Waker::from_raw(RawWaker::new(id as *const (), &VTABLE)) }
     }
 }

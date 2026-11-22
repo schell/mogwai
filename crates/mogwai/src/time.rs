@@ -362,8 +362,6 @@ pub async fn wait_until_next_for<T>(
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod test {
-    use crate::web::event::EventListener;
-
     use super::*;
     use wasm_bindgen_test::*;
 
@@ -374,11 +372,4 @@ mod test {
         let millis_waited = wait_millis(22).await;
         assert!(millis_waited >= 21.0);
     }
-
-    // #[wasm_bindgen_test]
-    // async fn can_wait_for_window_load() {
-    //     let listener = EventListener::new(crate::web::window(), "load");
-    //     println!("waiting for window load");
-    //     listener.next().await;
-    // }
 }
